@@ -1,0 +1,186 @@
+package panda.math
+
+================================================================================
+A pseudorandom number generator. `Random`'s class methods generate random 
+numbers using an internal, thread-local instance of `Random` seeded based on the
+system clock and thread. If you require more control over the random number 
+stream (for instance, multiple streams or a specific seed), you may create your 
+own instances.
+================================================================================
+class Random {
+    @private
+    constant MULTIPLIER := 0x5DEECE66D
+    
+    ============================================================================
+    The shared internal instance used by static methods.
+    ============================================================================
+    @private
+    @thread
+    var shared := new Random()
+
+    ============================================================================
+    The current seed.
+    ============================================================================
+    @private 
+    var seed:Int64
+    
+    ============================================================================
+    Creates a new `Random` seeded with the system time.
+    ============================================================================
+    constructor() {
+        constructor(Panda.currentTime() ~~ Thread.currentThread().hash)
+    }
+    
+    ============================================================================
+    Creates a new `Random` with a specific seed. All `Random` instances created 
+    with the same seed will return the same sequence of pseudorandom numbers.
+    
+    @param seed the seed to use
+    ============================================================================
+    constructor(seed:Int64) {
+        setSeed(seed)
+    }
+    
+    @private
+    method setSeed(seed:Int64) {
+        self.seed := (seed ~~ MULTIPLIER) && ((1->(Int64) << 48) - 1)
+    }
+
+    ============================================================================
+    Returns a number in which the low-order `bits` bits are random, and the
+    remaining high-order bits are zero.
+    ============================================================================
+    @private
+    @pre(bits <= 32)
+    @math(overflow)
+    method bits(bits:Int8):Int32 {
+        seed := (seed * MULTIPLIER + 11) && ((1->(Int64) << 48) - 1)
+        return (seed >> (48 - bits))->>(Int32)
+    }
+    
+    ============================================================================
+    Returns a random `Bit` (either `true` or `false` with 50% odds of each).
+    ============================================================================
+    method bit():Bit {
+        return bits(1) = 1
+    }
+    
+    ============================================================================
+    Returns a random `Bit` (either `true` or `false` with 50% odds of each).
+    ============================================================================
+    @class
+    method bit():Bit {
+        return shared.bit()
+    }
+    
+    ============================================================================
+    Returns a random `Int32` between `0` and `n - 1`, inclusive. For example,
+    `int(6)` is equivalent to rolling a standard six-sided die, with return
+    value between `0` and `5`.
+    
+    @param n the range of possible values to generate
+    @returns a random number between `0` and `n - 1`
+    ============================================================================
+    @math(overflow)
+    method int(n:Int32):Int32 {
+        if (n && -n = n) -- n is a power of 2
+            return (n * bits(31)->(Int64) >> 31)->>(Int32)
+        var generatedBits:Int32
+        var val:Int32
+        do {
+            generatedBits := bits(31)
+            val := generatedBits % n
+        }
+        while generatedBits - val + (n - 1) < 0
+        return val
+    }
+    
+    ============================================================================
+    Returns a random `Int32` between `0` and `n - 1`, inclusive. For example,
+    `int(6)` is equivalent to rolling a standard six-sided die, with return
+    value between `0` and `5`.
+    
+    @param n the range of possible values to generate
+    @returns a random number between `0` and `n - 1`
+    ============================================================================
+    @class
+    method int(n:Int32):Int32 {
+        return shared.int(n)
+    }
+
+    ============================================================================
+    Returns a random `Int32`.
+    
+    @returns a random number between `Int32.MIN` and `Int32.MAX`
+    ============================================================================
+    method int32():Int32 {
+        return bits(32)
+    }
+    
+    ============================================================================
+    Returns a random `Int32`.
+    
+    @returns a random number between `Int32.MIN` and `Int32.MAX`
+    ============================================================================
+    @class
+    method int32():Int32 {
+        return shared.int32()
+    }
+    
+    ============================================================================
+    Returns a random `Int64`.
+    
+    @returns a random number between `Int64.MIN` and `Int64.MAX`
+    ============================================================================
+    method int64():Int64 {
+        return (self.int32()->(Int64) << 32) + self.int32()
+    }
+        
+    ============================================================================
+    Returns a random `Int64`.
+    
+    @returns a random number between `Int64.MIN` and `Int64.MAX`
+    ============================================================================
+    @class
+    method int64():Int64 {
+        return shared.int64()
+    }
+    
+    ============================================================================
+    Returns a random `Real32` between `0` (inclusive) and `1` (exclusive).
+    
+    @returns a random `Real32`
+    ============================================================================
+    method real32():Real32 {
+        return (self.int32()->>(UInt32) >> 8) / (1 << 24)
+    }
+        
+    ============================================================================
+    Returns a random `Real32` between `0` (inclusive) and `1` (exclusive).
+    
+    @returns a random `Real32`
+    ============================================================================
+    @class
+    method real32():Real32 {
+        return shared.real32()
+    }
+    
+    ============================================================================
+    Returns a random `Real64` between `0` (inclusive) and `1` (exclusive).
+    
+    @returns a random `Real64`
+    ============================================================================
+    method real64():Real64 {
+        return (bits(26)->(Int64) << 27 + bits(27)) / (1->(Int64) << 53)
+    }
+        
+    ============================================================================
+    Returns a random `Real64` between `0` (inclusive) and `1` (exclusive).
+    
+    @returns a random `Real64`
+    ============================================================================
+    @class
+    method real64():Real64 {
+        return shared.real64()
+    }
+}

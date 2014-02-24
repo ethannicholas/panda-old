@@ -1,0 +1,382 @@
+class Room {
+    var label:Int
+    var exits := new Array<Room>()
+    var bats:Bit
+    var pit:Bit
+    var wumpus:Bit
+    
+    constructor(label:Int) {
+        self.label := label
+    }
+    
+    function hasExitTo(r:Room):Bit {
+        for i in 0 ... exits.length - 1 {
+            if exits[i] = r
+                return true
+        }
+        return false
+    }
+    
+    @override
+    function format(fmt:String):String {
+        return label->>(String)
+    }
+}
+
+class HuntTheWumpus {
+    constant ROOMS  := 20
+    constant BATS   := 3
+    constant PITS   := 3
+    constant EXITS  := 3
+    constant ARROWS := 5
+
+    var random := new Random(1)
+    var rooms:Array<Room>
+    var currentRoom:Room
+    var arrows := ARROWS
+    var done:Bit
+    
+    constructor() {
+        createRooms(ROOMS)
+
+        do {
+            currentRoom := rooms[random.int(rooms.length - 1)]
+        }
+        while currentRoom.wumpus | currentRoom.bats | currentRoom.pit
+    }
+    
+    method shuffle(a:Array<Int>) {
+        for i in 0 .. a.length {
+            def index := random.int(a.length)
+            def tmp := a[i]
+            a[i] := a[index]
+            a[index] := tmp
+        }
+    }
+    
+    method canConnect(fromRoom:Room, toRoom:Room):Bit {
+        return fromRoom != toRoom & toRoom.exits.length < EXITS &
+                !fromRoom.hasExitTo(toRoom)
+    }
+    
+    method getShuffledArray(count:Int):Array<Int> {
+        def result := new Array<Int>(count)
+        for i in 0 .. count
+            result[i] := i
+        shuffle(result)
+        return result
+    }
+    
+    method createRooms(count:Int) {
+        rooms := new Array<Room>()
+        -- make a random walk which hits each room exactly once.
+        -- this will guarantee that each room is reachable.
+        for i in 1 ... count
+            rooms.append(new Room(i))
+        def firstPath := getShuffledArray(count)
+        shuffle(firstPath)
+
+        for i in 0 .. count - 1 {
+            def room1 := rooms[firstPath[i]]
+            def room2 := rooms[firstPath[i + 1]]
+            room1.exits.append(room2)
+            room2.exits.append(room1)
+        }
+        
+        -- fill in the remaining exits randomly
+        for fromRoom in rooms {
+            while fromRoom.exits.length < EXITS {
+                def searchOrder := getShuffledArray(count)
+                var found := false
+                for test in searchOrder {
+                    def toRoom := rooms[test]
+                    if canConnect(fromRoom, toRoom) {
+                        fromRoom.exits.append(toRoom)
+                        toRoom.exits.append(fromRoom)
+                        found := true
+                        break
+                    }
+                }
+                if !found {
+                    createRooms(count)
+                    break
+                }
+            }
+        }
+        
+        -- place features
+        for i in 0 .. BATS {
+            loop {
+                def room := rooms[random.int(rooms.length)]
+                if !room.bats {
+                    room.bats := true
+                    break
+                }
+            }
+        }
+
+        for i in 1 .. PITS {
+            loop {
+                def room := rooms[random.int(rooms.length)]
+                if !room.bats & !room.pit {
+                    room.pit := true
+                    break
+                }
+            }
+        }
+
+        loop {
+            def room := rooms[random.int(rooms.length)]
+            if !room.bats & !room.pit & !room.wumpus {
+                room.wumpus := true
+                break
+            }
+        }
+    }
+    
+    function getRoom(i:Int):Room {
+        return rooms[i - 1]
+    }
+    
+    method showIntro() {
+        Console.writeLine("You're in a cave with \{rooms.length} rooms and " +
+                "\{EXITS} tunnels leading from each room.")
+        Console.writeLine("There are \{BATS} bats and \{PITS} pits scattered " +
+                "throughout the cave, and your")
+        Console.writeLine("quiver holds \{ARROWS} custom super anti-evil " +
+                "Wumpus arrows. Good luck.")
+        Console.writeLine()
+    }
+    
+    method writePercepts() {
+        var bats := false
+        var pit := false
+        var wumpus := false
+        for room in currentRoom.exits {
+            bats |= room.bats
+            pit |= room.pit
+            wumpus |= room.wumpus
+            for nextRoom in room.exits
+                wumpus |= nextRoom.wumpus
+        }
+        if bats
+            Console.writeLine("*rustle* *rustle* (must be bats nearby)")
+        if pit
+            Console.writeLine("*whoosh* (I feel a draft from some pits).")
+        if wumpus
+            Console.writeLine("*sniff* (I can smell the evil Wumpus nearby!)")
+    }
+    
+    method printRoomInfo() {
+        Console.writeLine("You are in room \{currentRoom.label} of the cave, " +
+                "and have \{arrows} arrows left.")
+        writePercepts()
+        Console.write("There are tunnels to rooms ")
+        for i, exit in currentRoom.exits {
+            if i > 0
+                Console.write(", ")
+            if i = currentRoom.exits.length - 1
+                Console.write("and ")
+            Console.write(currentRoom.exits[i])
+        }
+        Console.writeLine(".")
+    }
+    
+    method enterRoom(room:Room) {
+        enterRoom(room, false)
+    }
+
+    method enterRoom(room:Room, alreadyMoved:Bit) {
+        currentRoom := room
+        if currentRoom.wumpus {
+            Console.writeLine("*ROAR* *chomp* *snurfle* *chomp*!")
+            Console.writeLine("Much to the delight of the Wumpus, you walked right into his mouth,")
+            Console.writeLine("making you one of the easiest dinners he's ever had!  For you, however,")
+            Console.writeLine("it's a rather unpleasant death. The only good thing is that it's been")
+            Console.writeLine("so long since the evil Wumpus cleaned his teeth that you immediately")
+            Console.writeLine("passed out from the stench!")
+            done := true
+        }
+        else if currentRoom.bats {
+            Console.write("*flap*  *flap*  *flap*  (humongous bats pick " +
+                    "you up and move you")
+            if alreadyMoved
+                Console.write(" again")
+            Console.writeLine("!)")
+            enterRoom(rooms[random.int(rooms.length)], true)
+        }    
+        else if currentRoom.pit {
+            if random.int(12) < 2 {
+                Console.writeLine("Without conscious thought you grab for the side of the cave and manage")
+                Console.writeLine("to grasp onto a rocky outcrop. Beneath your feet stretches the limitless")
+                Console.writeLine("depths of a bottomless pit!  Rock crumbles beneath your feet!")
+            }
+            else {
+                Console.writeLine("*AAAUUUUGGGGGHHHHHhhhhhhhhhh...*")
+                Console.writeLine("The whistling sound and updraft as you walked into this room of the")
+                Console.writeLine("cave apparently wasn't enough to clue you in to the presence of the")
+                Console.writeLine("bottomless pit. You have a lot of time to reflect on this error as")
+                Console.writeLine("you fall many miles to the core of the earth. Look on the bright side;")
+                Console.writeLine("you can at least find out if Jules Verne was right...")
+                done := true
+            }
+        }
+    }
+    
+    method shoot(rooms:Array<Int>) {
+        var arrowRoom := currentRoom
+        for i in 0 ... rooms.length - 1 {
+            var target := getRoom(rooms[i])
+            if arrowRoom = target {
+                Console.writeLine("The arrow falls to the floor.")
+                break
+            }
+            var ricochet := false
+            if !arrowRoom.hasExitTo(target) {
+                var newTarget := arrowRoom.exits[random.int(arrowRoom.exits.length)]
+                Console.writeLine("*thunk*  The arrow can't find a way from " + 
+                        arrowRoom + " to " + target + " and flies randomly ")
+                Console.writeLine("into room " + newTarget + "!")
+                target := newTarget
+                ricochet := true
+            }
+            arrowRoom := target
+            if arrowRoom = currentRoom {
+                Console.writeLine("*Thwack!*  A sudden piercing feeling informs you that the ricochet")
+                Console.writeLine("of your wild arrow has resulted in it wedging in your side, causing")
+                Console.writeLine("extreme agony. The evil Wumpus, with its psychic powers, realizes this")
+                Console.writeLine("and immediately rushes to your side, not to help, alas, but to EAT YOU!")
+                Console.writeLine("(*CHOMP*)")
+                done := true
+                break
+            }
+            else if arrowRoom.wumpus {
+                Console.writeLine("*thwock!* *groan* *crash*")
+                Console.writeLine("A horrible roar fills the cave, and you realize, with a smile, that you")
+                Console.writeLine("have slain the evil Wumpus and won the game!  You don't want to tarry for")
+                Console.writeLine("long, however, because the stench of a dead Wumpus is also quite well")
+                Console.writeLine("known, a stench powerful enough to slay the mightiest adventurer with")
+                Console.writeLine("a single whiff!!")
+                done := true
+                break
+            }
+            
+            if ricochet
+                break
+
+            def luck := random.int(10)
+            if i = 2 & luck < 2 {
+                Console.writeLine("Your bowstring breaks!  *twaaaaaang*")
+                Console.writeLine("The arrow is weakly shot and can go no further!")
+                break
+            }
+            else if i = 3 & luck < 6 | i = 4 & rooms.length > 5 {
+                Console.writeLine("The arrow wavers in its flight and and can go no further!")
+                break
+            }
+        }
+        
+        arrows -= 1
+        if arrows = 0 & !done {
+            Console.writeLine("You turn and look at your quiver, and realize with a sinking feeling")
+            Console.writeLine("that you've just shot your last arrow (figuratively, too). Sensing this")
+            Console.writeLine("with its psychic powers, the evil Wumpus rampages through the cave, finds")
+            Console.writeLine("you, and with a mighty *ROAR* eats you alive!")
+            done := true
+        }
+        if !done {
+            if random.int(10) < (ARROWS - arrows) * 2 {
+                Console.writeLine("The noise of your shot has awoken the Wumpus!")
+                moveWumpus()
+            }
+        }
+    }
+    
+    method moveWumpus() {
+        for room in rooms {
+            if room.wumpus {
+                room.wumpus := false
+                def target := room.exits[random.int(room.exits.length)]
+                target.wumpus := true
+                if target = currentRoom {
+                    Console.writeLine("You hear a horrible slithering sound, and look up just in time")
+                    Console.writeLine("to see the Wumpus crawling into the room!  Faster than you can")
+                    Console.writeLine("react, it catches you in its dripping jaws and devours you whole!")
+                    done := true
+                }
+                break
+            }
+        }
+    }
+    
+    method play() {
+        showIntro()
+        
+        main: while !done {
+            printRoomInfo()
+            Console.write("m<room#> to move, s<room#s> to shoot: ")
+            var command := Console.readLine()
+            if command = null
+                break
+            command := command.trim()
+            Console.writeLine()
+            if command.startsWith("m") {
+                def roomString := command[1..].trim()
+                def label := roomString->>(Int?)
+                if label != null & label >= 1 & label <= rooms.length {
+                    var room := getRoom(label)
+                    if currentRoom.hasExitTo(room)
+                        enterRoom(room)
+                    else {
+                        Console.writeLine("\n*Oof!* (You hit the wall)")
+                        if random.int(6) = 0 {
+                            Console.writeLine("Your colorful comments awaken the Wumpus!")
+                            moveWumpus()
+                        }
+                    }
+                }
+                else {
+                    Console.writeLine("'\{roomString}' is not a valid room " +
+                            "number")
+                }
+            }
+            else if command.startsWith("s") {
+                def roomStrings := command[1..].split(",")
+                def roomNumbers := new Array<Int>()
+                for label in roomStrings {
+                    def room := label.trim->>(Int?)
+                    if room = null | room < 1 | room > ROOMS {
+                        Console.writeLine("'\{label}' is not a valid room " +
+                                "number")
+                        continue main
+                    }
+                    roomNumbers.append(room)
+                }
+                Console.writeLine("shooting: " + roomNumbers)
+                shoot(roomNumbers)
+            }
+            else if command = "q"
+                done := true
+            else
+                Console.writeLine("I don't understand!")
+        }
+    }
+    
+    @class
+    method main() {
+        var playAgain:Bit := false
+        do {
+            def hunt := new HuntTheWumpus()
+            hunt.play()
+            Console.write("Care to play another game? (y/n) ")
+            def read := Console.readLine()
+            if read != null
+                playAgain := read.trim = "y"
+            else
+                playAgain := false
+            if playAgain
+                Console.writeLine()
+        }
+        while playAgain
+    }
+}

@@ -1,0 +1,33 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.analysis.CFGGenerator
+uses org.pandalanguage.pandac.analysis.DataFlowAnalyzer
+uses org.pandalanguage.pandac.analysis.MethodAnalysis
+uses org.pandalanguage.pandac.transformers.ForEachLoops
+uses org.pandalanguage.pandac.transformers.MethodTransformer
+uses org.pandalanguage.pandac.transformers.NumericForLoops
+uses org.pandalanguage.pandac.transformers.SafetyChecker
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.SymbolTable
+
+class Optimizer {
+    method optimize(ast:ASTGenerator) {
+        def cfg := new CFGGenerator()
+        def dfa := new DataFlowAnalyzer()
+        for cl in SymbolTable.master.classes {
+            for child in cl.children {
+                if child.length = 1 & child-?>(MethodNode) {
+                    def m := child->(MethodNode)
+                    def analysis := dfa.analyzeMethod(cfg, m)
+                    def passes:Array<MethodTransformer> := [
+                        new SafetyChecker(ast, cfg, dfa),
+                        new NumericForLoops(ast, cfg, dfa),
+                        new ForEachLoops(ast, cfg, dfa)
+                    ]
+                    for pass in passes
+                        pass.transform(m, analysis)
+                }
+            }
+        }
+    }
+}

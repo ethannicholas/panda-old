@@ -1,0 +1,1238 @@
+package panda.core
+
+================================================================================
+An immutable sequence of characters. String literals appearing in Panda code are
+represented at runtime by instances of the `String` class.
+================================================================================
+@static
+class String : Value {
+    ============================================================================
+    The characters of the string.
+    ============================================================================
+    @private
+    var chars:ImmutableArray<Char>
+
+    ============================================================================
+    Creates a new `String` initialized with characters from an immutable 
+    character array.
+    
+    @param chars the String's characters
+    ============================================================================
+    constructor(chars:ImmutableArray<Char>) {
+        self.chars := chars
+    }
+
+    ============================================================================
+    Creates a new `String` initialized with characters from a character array.
+    The `String` and character array do not share state, and the array may
+    subsequently be modified without affecting the `String`.
+
+    @param chars the character array to copy from
+    ============================================================================
+    constructor(chars:Array<Char>) {
+        constructor(chars->>(ImmutableArray<Char>))
+    }
+
+    ============================================================================
+    Returns the length of this string.
+    
+    @returns the length of this string
+    ============================================================================
+    function length():Int {
+        return chars.length
+    }
+    @post(@return >= 0)
+
+    ============================================================================
+    Returns a single character from the string.
+    
+    @param i the index of the character to return
+    @returns the character at the specified index
+    ============================================================================
+    function [](i:Int):Char {
+        return chars[i]
+    }
+
+    ============================================================================
+    Splits this string into tokens separated by a delimiter. At most
+    `maxResults` different strings will be returned; any additional delimiters
+    beyond that point will be ignored. For instance, 
+    `"This is a long string".split(" ", 3)` yields `"This"`, `"is"`, and
+    `"a long string"`.
+    
+    @param delimiter the token delimiter
+    @param maxResults the maximum number of results to return
+    @returns the split tokens
+    ============================================================================
+    @pre(maxResults > 0)
+    function split(delimiter:String, maxResults:Int):Array<String> {
+        var result := new Array<String>()
+        var index := 0
+        loop {
+            var nextIndex:Int?
+            if delimiter.length = 0
+                nextIndex := index + 1
+            else
+                nextIndex := indexOf(delimiter, index)
+            if nextIndex = null | result.length = maxResults - 1 {
+                result.append(self[index..])
+                break
+            }
+            result.append(self[index .. nextIndex])
+            index := nextIndex + delimiter.length
+        }
+        return result
+    }
+    
+    ============================================================================
+    Splits this string into tokens separated by a delimiter. For instance, 
+    `"This is a long string".split(" ")` yields `"This"`, `"is"`, `"a"`,
+    `"long"`, and `"string"`.
+    
+    @param delimiter the token delimiter
+    @param maxResults the maximum number of results to return
+    @returns the split tokens
+    ============================================================================
+    function split(delimiter:String):Array<String> {
+        return split(delimiter, Int32.MAX)
+    }
+    
+    ============================================================================
+    Splits this string into tokens separated by a delimiter. At most
+    `maxResults` different strings will be returned; any additional delimiters
+    beyond that point will be ignored. For instance, 
+    `"This is a long string".split(#/\s+/#, 3)` yields `"This"`, `"is"`, and
+    `"a long string"`.
+    
+    @param delimiter the token delimiter
+    @param maxResults the maximum number of results to return
+    @returns the split tokens
+    ============================================================================
+    @pre(maxResults > 0)
+    function split(delimiter:RegularExpression, maxResults:Int):Array<String> {
+        var result := new Array<String>()
+        var matcher := delimiter.matcher(self)
+        var index := 0
+        loop {
+            var found := matcher.find()
+            if !found | result.length = maxResults - 1 {
+                result.append(self[index..])
+                break
+            }
+            var start := matcher.start
+            result.append(self[index .. start])
+            index := start.max(matcher.end)
+        }
+        return result
+    }
+    
+    ============================================================================
+    Splits this string into tokens separated by a delimiter. For instance, 
+    `"This  is a    long    string".split(#/\s+/#)` yields `"This"`, `"is"`,
+    `"a"`, `"long"`, and `"string"`.
+    
+    @param delimiter the token delimiter
+    @param maxResults the maximum number of results to return
+    @returns the split tokens
+    ============================================================================
+    function split(delimiter:RegularExpression):Array<String> {
+        -- FIXME switch this to Int32.MAX
+        return split(delimiter, Int32.MAX)
+    }
+
+    ============================================================================
+    Returns `true` if this string matches the given regular expression. The
+    regular expression must match the entire string.
+    
+    @param regex the regular expression to compare against
+    @returns `true` if the string matches
+    ============================================================================
+    function matches(regex:RegularExpression):Bit {
+        return regex.matcher(self).matches()
+    }
+    
+    ============================================================================
+    Returns `true` if this string contains a match for the given regular 
+    expression. The regular expression may match zero or more characters of the
+    string, starting at any point.
+    
+    @param needle the regular expression to search for
+    @param haystack the string to search
+    @returns `true` if the string contains a match
+    ============================================================================
+    @class
+    function in(haystack:String, needle:RegularExpression):Bit {
+        return needle.matcher(haystack).find()
+    }
+
+    ============================================================================
+    Matches the string against the given regular expression, returning an array
+    of its capture groups. Group 0, the group containing the entire string, is
+    not returned. If the string does not match the regular expression, returns
+    `null`. For example, `"1,2,34".parse(#/(\d+),(\d+),(\d+)/#)` will return an
+    array consisting of `"1"`, `"2"`, and `"34"`.
+    
+    @param regex the regular expression to parse against
+    @returns an array of the capture groups, or `null`
+    ============================================================================
+    function parse(regex:RegularExpression):Array<String>? {
+        var matcher := regex.matcher(self)
+        if matcher.matches() {
+            var result := new Array<String>()
+            for i in 1 ... matcher.groupCount - 1
+                result.append(matcher.group(i))
+            return result
+        }
+        return null
+    }
+    
+    ============================================================================
+    Returns a new string with every occurrence of `search` replaced with
+    `replacement`.
+    
+    @param search the string to search for
+    @param replacement the replacement text
+    @returns a string with all matches replaced
+    ============================================================================
+    @pre(search.length > 0)
+    function replace(search:String, replacement:String):String {
+        var result := new MutableString()
+        var index := 0
+        loop {
+            var nextIndex := indexOf(search, index)
+            if nextIndex = null {
+                result.append(self[index..])
+                break
+            }
+            result.append(self[index .. nextIndex])
+            result.append(replacement)
+            index := nextIndex + search.length
+        }
+        return result->>(String)
+    }
+
+    ============================================================================
+    Returns a new string with every match of `search` replaced with
+    `replacement`. The replacement string may contain `$1`-style regular 
+    expression group references; for instance `s.replace(regex, "$1")` will
+    replace every occurrence of the regex with the contents of its first group.
+    
+    @param search the regular expression to search for
+    @param replacement the replacement text
+    @returns a string with all matches replaced
+    ============================================================================
+    function replace(search:RegularExpression, replacement:String):String {
+        return replace(search, replacement, true)
+    }
+
+    ============================================================================
+    As @link(replace(RegularExpression, String)), but allows the interpretation 
+    of `$1`-style group references to be controlled. With `allowGroupReferences`
+    set to `false`, the replacement string is treated literally, with no special 
+    handling for `$1`-style sequences.
+
+    @param search the regular expression to search for
+    @param replacement the replacement text
+    @param allowGroupReferences if false, `$1`-style group references are 
+           ignored
+    @returns a string with all matches replaced
+    ============================================================================
+    function replace(search:RegularExpression, replacement:String,
+            allowGroupReferences:Bit):String {
+        var result := new MutableString()
+        var matcher := search.matcher(self)
+        while matcher.find()
+            matcher.appendReplacement(result, replacement, allowGroupReferences)
+        matcher.appendTail(result)
+        return result->>(String)
+    }
+
+    ============================================================================
+    Searches the string for a regular expression, replacing occurrences of the
+    regular expression with new text determined by a function. For instance,
+    given:
+
+        "This is a test!".replace(#/\w+/#, word => word.length)
+
+    The regular expression `#/\w+/#` matches sequences of one or more word
+    characters; in other words, it matches all words occurring in the string.
+    The replacement function `word => word.length->>(String)` replaces each
+    matched sequence with the number of characters in the sequence, resulting in
+    the text:
+
+        4 2 1 4!
+    ============================================================================
+    function replace(search:RegularExpression, 
+            replacement:(String)=>(Object)):String {
+        var result := new MutableString()
+        var matcher := search.matcher(self)
+        while matcher.find() {
+            matcher.appendReplacement(result, 
+                    replacement(matcher.group(0))->>(String), false)
+        }
+        matcher.appendTail(result)
+        return result->>(String)
+    }
+
+    ============================================================================
+    Returns a copy of this string with leading and trailing whitespace
+    characters removed.
+    
+    @returns a trimmed version of this string
+    ============================================================================
+    function trim():String {
+        if length = 0
+            return self->>(String)
+        var start := 0
+        -- FIXME when Char functions are available, need to use
+        -- Char.isWhitespace
+        while start < length & isWhitespace(self[start])
+            start += 1
+
+        var end := length - 1
+        -- FIXME when Char functions are available, need to use
+        -- Char.isWhitespace
+        while end >= start & isWhitespace(self[end])
+            end -= 1
+            
+        return self[start .. end + 1]
+    }
+    
+    ============================================================================
+    Returns a new `String` containing a reversed version of this string.
+    
+    @returns a backwards copy of this string
+    ============================================================================
+    function reverse():String {
+        var c := new Array<Char>(length)
+        var j := length - 1
+        for i in 0 ... length - 1 {
+            c[i] := self[j]
+            j -= 1
+        }
+        return new String(c)
+    }
+    
+    ============================================================================
+    Returns `true` if this string begins with the substring `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string begins with the substring `s`
+    ============================================================================
+    function startsWith(s:String):Bit {
+        if length < s.length        
+            return false
+        for i in 0 ... s.length - 1 {
+            if self[i] != s[i]
+                return false
+        }
+        return true
+    }
+
+    function startsWith(c:Char):Bit {
+        return length > 0 & self[0] = c
+    }
+
+    ============================================================================
+    Returns `true` if this string ends with the substring `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string ends with the substring `s`
+    ============================================================================
+    function endsWith(s:String):Bit {
+        if length < s.length
+            return false
+        var start := length - s.length
+        for i in 0 ... s.length - 1 {
+            if self[i + start] != s[i]
+                return false
+        }
+        return true
+    }
+    
+    function endsWith(c:Char):Bit {
+        return length > 0 & self[self.length - 1] = c
+    }
+
+    ============================================================================
+    Returns `true` if this string contains the specified substring.
+    
+    @param needle the string to search for
+    @param haystack the string to search for
+    @returns `true` if the substring was found
+    ============================================================================
+    @class
+    function in(haystack:String, needle:String):Bit {
+        return haystack.indexOf(needle) != null
+    }
+
+    ============================================================================
+    Returns `true` if this string contains the specified character.
+    
+    @param needle the character to search for
+    @param haystack the string to search
+    @returns `true` if the character was found
+    ============================================================================
+    @class
+    function in(haystack:String, needle:Char):Bit {
+        return haystack.indexOf(needle) != null
+    }
+
+    ============================================================================
+    Returns the index of the first occurrence of the string `s` within this
+    string, or `null` if not found.
+    
+    @param s the string to search for
+    @param start the index to begin searching from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    function indexOf(s:String):Int? {
+        return indexOf(s, 0)
+    }
+
+    ============================================================================
+    Returns the index of the first occurrence of the string `s` within this
+    string, starting from the specified `index`, or `null` if not found.
+    
+    @param s the string to search for
+    @param start the index to begin searching from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    @pre(start >= 0)
+    @pre(start <= length)
+    function indexOf(s:String, start:Int):Int? {
+        if length < s.length
+            return null
+        outer: for i in start ... length - s.length {
+            for j in 0 .. s.length {
+                if self[i + j] != s[j]
+                    continue outer
+            }
+            return i
+        }
+        return null
+    }
+    @post(@return = null | @return < length)
+    
+    ============================================================================
+    Returns the index of the first occurrence of the character `c` within this
+    string, or `null` if not found.
+    
+    @param c the character to search for
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    function indexOf(c:Char):Int? {
+        return indexOf(c, 0)
+    }
+
+    ============================================================================
+    Returns the index of the first occurrence of the character `c` within this
+    string, starting from the specified `index`, or `null` if not found.
+    
+    @param c the character to search for
+    @param start the index to begin searching from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    @pre(start >= 0)
+    @pre(start <= length)
+    function indexOf(c:Char, start:Int):Int? {
+        for i in start .. length
+            if self[i] = c
+                return i
+        return null
+    }
+    @post(@return = null | self[@return] = c)
+
+    ============================================================================
+    Returns the index of the last occurrence of the character `c` within this
+    string, or `null` if not found.
+    
+    @param c the character to search for
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    function lastIndexOf(c:Char):Int? {
+        return lastIndexOf(c, length - 1)
+    }
+
+    ============================================================================
+    Returns the index of the last occurrence of the character `c` within this
+    string, starting from the specified `index`, or `null` if not found.
+    
+    @param c the character to search for
+    @param start the index to begin searching backwards from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    function lastIndexOf(c:Char, start:Int):Int? {
+        for i in start ... 0 by -1 {
+            if self[i] = c
+                return i
+        }
+        return null
+    }
+    @post(@return = null | self[@return] = c)
+
+    function [..](start:Int):String {
+        return new String(chars[start..])
+    }
+
+    function [..](start:Int, end:Int):String {
+        return new String(chars[start .. end])
+    }
+
+    function [..](start:Int?, end:Int?):String {
+        return new String(chars[start .. end])
+    }
+
+    function [..](start:Int, end:Int, step:Int):String {
+        return new String(chars[start .. end by step])
+    }
+
+    function [..](start:Int?, end:Int?, step:Int):String {
+        return new String(chars[start .. end by step])
+    }
+
+    function [...](start:Int):String {
+        return new String(chars[start...])
+    }
+
+    function [...](start:Int, end:Int):String {
+        return new String(chars[start ... end])
+    }
+
+    function [...](start:Int?, end:Int?):String {
+        return new String(chars[start ... end])
+    }
+
+    function [...](start:Int, end:Int, step:Int):String {
+        return new String(chars[start ... end by step])
+    }
+
+    function [...](start:Int?, end:Int?, step:Int):String {
+        return new String(chars[start ... end by step])
+    }
+
+    -- FIXME remove this when Char is finished
+    @private
+    function isWhitespace(c:Char):Bit {
+        return c = " " | c = "\t" | c = "\n" | c = "\r"
+    }
+
+    ============================================================================
+    Returns a new string consisting of this string left-justified in a field of
+    at least `width` characters. If this string has a length greater than or
+    equal to `width`, this string is returned. If this string is shorter than 
+    `width`, space characters are appended until the resulting string is `width`
+    characters long.
+    ============================================================================
+    function left(width:Int):String {
+        return left(width, " ")
+    }
+
+    ============================================================================
+    Returns a new string consisting of this string left-justified in a field of
+    at least `width` characters, filled with the specified character. If this 
+    string has a length greater than or equal to `width`, this string is 
+    returned. If this string is shorter than `width`, `fill` characters are 
+    appended until the resulting string is `width` characters long.
+    ============================================================================
+    function left(width:Int, fill:Char):String {
+        if length >= width
+            return self
+        return self + fill * (width - length)
+    }
+    @post(@return.length >= width)
+
+    ============================================================================
+    Returns a new string consisting of this string right-justified in a field of
+    at least `width` characters. If this string has a length greater than or
+    equal to `width`, this string is returned. If this string is shorter than 
+    `width`, space characters are prepended until the resulting string is 
+    `width` characters long.
+    ============================================================================
+    function right(width:Int):String {
+        return right(width, " ")
+    }
+
+    ============================================================================
+    Returns a new string consisting of this string right-justified in a field of
+    at least `width` characters, filled with the specified character. If this 
+    string has a length greater than or equal to `width`, this string is 
+    returned. If this string is shorter than `width`, `fill` characters are 
+    prepended until the resulting string is `width` characters long.
+    ============================================================================
+    function right(width:Int, fill:Char):String {
+        if length >= width
+            return self
+        return fill * (width - length) + self
+    }
+    @post(@return.length >= width)
+
+    ============================================================================
+    Returns a new string consisting of this string centered in a field of at 
+    least `width` characters. If this string has a length greater than or equal 
+    to `width`, this string is returned. If this string is shorter than 
+    `width`, space characters are added as equally as possible to the left and
+    right until the resulting string is `width` characters long. If the number
+    of characters to be added is odd, the right side of the string will receive 
+    one more space than the left side.
+    ============================================================================
+    function center(width:Int):String {
+        return center(width, " ")
+    }
+
+    ============================================================================
+    Returns a new string consisting of this string centered in a field of at 
+    least `width` characters, filled with the specified character. If this 
+    string has a length greater than or equal to `width`, this string is 
+    returned. If this string is shorter than `width`, `fill` characters are 
+    added as equally as possible to the left and right until the resulting 
+    string is `width` characters long. If the number of characters to be added 
+    is odd, the right side of the string will receive one more `fill` character 
+    than the left side.
+    ============================================================================
+    function center(width:Int, fill:Char):String {
+        if length >= width
+            return self
+        var pad := width - length
+        var left := pad // 2
+        var right := pad - left
+        return fill * left + self + fill * right
+    }
+    @post(@return.length >= width)    
+
+    ============================================================================
+    @inherit
+    ============================================================================
+    @override
+    @math(overflow)
+    function hash():Int32 {
+        var result := 0
+        for i in 0 ... length - 1
+            result := result * 101 + self[i]->>(Int)
+        return result
+    }
+
+    ============================================================================
+    @inherit
+    ============================================================================
+    @override
+    function =(o:Object):Bit {
+        if o-?>(Char) & length = 1 & self[0] = o->(Char) 
+            return true
+        -- FIXME this test shouldn't be necessary
+        if o-!>(String)
+            return false
+        var s := o->(String)
+        if length != s.length
+            return false
+        for i in 0 ... length - 1 {
+            if self[i] != s[i]
+                return false
+        }
+        return true
+    }
+
+    ============================================================================
+    Concatenates two strings.
+    
+    @example "Hello, " + "World!" = "Hello, World!"
+    @param s1 the first string
+    @param s2 the second string
+    @returns a new string consisting of s1 + s2
+    ============================================================================
+    @class 
+    function +(s1->>String, s2->>String):String {
+        var l1 := s1.length
+        var l2 := s2.length
+        var result := new Array<Char>(l1 + l2)
+        for i in 0 ... l1 - 1
+            result[i] := s1[i]
+        for i in 0 ... l2 - 1
+            result[i + l1] := s2[i]
+        return new String(result)
+    }
+    @post(@return.length = s1.length + s2.length)
+
+    ============================================================================
+    Concatenates a string against itself repeatedly.
+    
+    @example "Hello" * 3 = "HelloHelloHello"
+    @param count the number of repetitions
+    @returns a new string containing repeated copies of this string
+    ============================================================================
+    @pre(count >= 0)
+    function *(count:Int):String {
+        -- using a naive algorithm here. An adaptation of the binary squaring
+        -- power algorithm would do this in fewer steps, but would also require
+        -- more allocations. For small n (which is what we expect here) I expect 
+        -- this linear algorithm is actually faster, but I haven't tested it.
+        var result := new Array<Char>(length * count)
+        var index := 0
+        for i in 0 ... count - 1 {
+            for j in 0 ... length - 1 {
+                result[index] := self[j]
+                index += 1
+            }
+        }
+        return new String(result)
+    }
+    @post(@return.length = length * count)
+
+    ============================================================================
+    Concatenates a string against itself repeatedly.
+    
+    @example 3 * "Hello" = "HelloHelloHello"
+    @param count the number of repetitions
+    @param s the string to concatenate
+    @returns a new string containing repeated copies of `s`
+    ============================================================================
+    @class
+    @pre(count >= 0)
+    function *(count:Int, s:String):String {
+        return s * count
+    }
+
+    @override
+    function ->>():String {
+        return self
+    }
+
+    ============================================================================
+    Returns a formatted representation of this string. With an empty format
+    string, the raw string is returned. With the format string `"panda"`, a
+    representation of the string as it would appear in Panda source code is
+    returned. The `parse()` method may be used to reconstruct objects output
+    with format `"panda"`.
+    ============================================================================
+    @override
+    @preOr(fmt = "panda")
+    function format(fmt:String):String {
+        if fmt = "panda" {
+            var result := '"'->>(MutableString)
+            -- FIXME iterate over string's characters when we can
+            for i in 0 ... length - 1 {
+                var c := self[i]
+                switch c {
+                    case '"': result.append('\\"')
+                    case "\\": result.append("\\\\")
+                    case "\n": result.append("\\n")
+                    case "\r": result.append("\\r")
+                    case "\t": result.append("\\t")
+                    default:
+                        if c->(Int) >= 32 & c->(Int) <= 126
+                            result.append(c)
+                        else -- FIXME add unicode escape
+                            result.append("?")
+                }
+            }
+            result.append('"')
+            return result->>(String)
+        }
+        else
+            return self
+    }
+
+    ============================================================================
+    Converts this string to a UTF-8 sequence of bytes.
+
+    **IMPLEMENTATION NOTE:** Unicode support isn't actually in yet, therefore
+    this conversion is broken.
+    
+    @param s the string to convert
+    @returns the UTF-8 encoded bytes
+    ============================================================================
+    function ->>():Array<Int8> {
+        -- FIXME not actually doing UTF-8 encoding, just spitting out bytes
+        var result := new Array<Int8>(length)
+        for i in 0 ... length - 1
+            result[i] := self[i]->>(Int8)
+        return result
+    }
+    @post(@return.length = length)
+
+    ============================================================================
+    Converts this string to an array of characters.
+    
+    @param s the string to convert
+    @returns the characters of the string
+    ============================================================================
+    function ->>():Array<Char> {
+        var result := new Array<Char>(length)
+        for i in 0 ... length - 1
+            result[i] := self[i]
+        return result
+    }
+    @post(@return.length = length)
+
+    ============================================================================
+    Converts a single-character string to a `Char`.
+    
+    @returns the character it contains
+    ============================================================================
+    @pre(length = 1)
+    function ->>():Char {
+        return self[0]
+    }
+
+    ============================================================================
+    Converts a `Bit` into the literal string `"true"` or `"false"`.
+    
+    @param value the `Bit` to convert
+    @returns a string representation of the bit
+    ============================================================================
+    @class 
+    function ->>(value:Bit):String {
+        if value
+            return "true"
+        else
+            return "false"
+    }
+    
+    ============================================================================
+    Returns `true` if the string is equal to `"true"`, `false` otherwise.
+    
+    @returns the `Bit` representation of this string
+    ============================================================================
+    function ->>():Bit {
+        return self = "true"
+    }
+
+    ============================================================================
+    Converts an `Int64` into its decimal representation.
+    
+    @param value the number to convert
+    @returns the decimal representation of the number
+    ============================================================================
+    @class 
+    function ->>(var value:Int64):String {
+        var max := 20
+        var result := new Array<Char>(max)
+        var index := max - 1
+        if value >= 0 {
+            do {
+                result[index] := (value % 10 + 48)->>(Char)
+                value //= 10
+                index -= 1
+            } 
+            while value > 0
+            index += 1
+        }
+        else {
+            do {
+                result[index] := (48 - value % 10)->>(Char)
+                value //= 10
+                index -= 1
+            } 
+            while value < 0
+            result[index] := "-"
+        }
+        return new String(result[index..])
+    }
+
+    ============================================================================
+    Converts a `UInt64` into its decimal representation.
+    
+    @param value the number to convert
+    @returns the decimal representation of the number
+    ============================================================================
+    @class 
+    function ->>(var value:UInt64):String {
+        var max := 20
+        var result := new Array<Char>(max)
+        var index := max - 1
+        do {
+            result[index] := (value % 10 + 48)->>(Char)
+            value //= 10
+            index -= 1
+        } 
+        while value > 0
+        return new String(result[index + 1..])
+    }
+
+    ============================================================================
+    Converts a single `Char` to a string.
+    
+    @param c the `Char` to convert
+    @returns the string representation of the `Char`
+    ============================================================================
+    @class 
+    function ->>(c:Char):String {
+        var array := new Array<Char>(1)
+        array[0] := c
+        return new String(array)
+    }
+    @post(@return.length = 1)
+    
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int64`. Returns `null` if the conversion
+    fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():Int64? {
+        if length = 0
+            return null
+        var result:Int64 := 0
+        var start:Int
+        if self[0] = "-"
+            start := 1
+        else
+            start := 0
+        for i:Int32 in start ... length - 1 {
+            var digit := self[i]->(Int32) - 48
+            if digit < 0 | digit > 9
+                return null
+            result := result * 10 + digit
+        }
+        if self[0] = "-"
+            result := -result
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int64`. Throws `ParseException` if the
+    conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():Int64 {
+        var result := self->>(Int64?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+    
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int32`. Returns `null` if the conversion
+    fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():Int32? {
+        var result := self->>(Int64?)
+        if result != null
+            return result->(Int32)
+        else
+            return null
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int32`. Throws `ParseException` if the
+    conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():Int32 {
+        var result := self->>(Int32?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int16`. Returns `null` if the conversion
+    fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():Int16? {
+        var result := self->>(Int64?)
+        if result-?>(Int16)
+            return result->(Int16)
+        else
+            return null
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int16`. Throws `ParseException` if the
+    conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():Int16 {
+        var result := self->>(Int16?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int8`. Returns `null` if the conversion
+    fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():Int8? {
+        var result := self->>(Int64?)
+        if result-?>(Int8)
+            return result->(Int8)
+        else
+            return null
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits, optionally preceded by a minus sign (`-`), whose numeric
+    representation can fit into an `Int8`. Throws `ParseException` if the
+    conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():Int8 {
+        var result := self->>(Int8?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt64`. Returns `null` 
+    if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():UInt64? {
+        if length = 0
+            return null
+        var result:UInt64 := 0
+        for i:Int32 in 0 ... length - 1 {
+            var digit := self[i]->(UInt16) - 48
+            if digit < 0 | digit > 9
+                return null
+            result := result * 10 + digit->(UInt64)
+        }
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt64`. Throws 
+    `ParseException` if the conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():UInt64 {
+        var result := self->>(UInt64?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt32`. Returns `null` 
+    if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():UInt32? {
+        var result := self->>(UInt64?)
+        if result-?>(UInt32)
+            return result->(UInt32)
+        else
+            return null
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt32`. Throws 
+    `ParseException` if the conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():UInt32 {
+        var result := self->>(UInt32?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt16`. Returns `null` 
+    if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():UInt16? {
+        var result := self->>(UInt64?)
+        if result-?>(UInt16)
+            return result->(UInt16)
+        else
+            return null
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt16`. Throws 
+    `ParseException` if the conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():UInt16 {
+        var result := self->>(UInt16?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt8`. Returns `null` 
+    if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():UInt8? {
+        var result := self->>(UInt64?)
+        if result-?>(UInt8)
+            return result->(UInt8)
+        else
+            return null
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be a sequence of decimal
+    digits whose numeric representation can fit into a `UInt8`. Throws 
+    `ParseException` if the conversion fails.
+    
+    @returns this string converted to a number
+    @throws ParseException if the conversion fails
+    ============================================================================
+    function ->>():UInt8 {
+        var result := self->>(UInt8?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts a `Real32` into its decimal representation. The resulting string
+    will have only as many digits as necessary to uniquely distinguish it from
+    adjacent `Real32` values. No decimal point is produced if it is unnecessary
+    (the number `123` converts to the string "123", not "123.0"). The values
+    `NaN`, negative infinity, and positive infinity result in the strings 
+    `"NaN"`, `"-infinity"`, and `"infinity"`, respectively.
+    
+    @returns a string represention of the number
+    ============================================================================
+    @class
+    function ->>(r:Real32):String {
+        return pandaReal32ToString(r)
+    }
+    
+    ============================================================================
+    Converts a `Real64` into its decimal representation. The resulting string
+    will have only as many digits as necessary to uniquely distinguish it from
+    adjacent `Real64` values. No decimal point is produced if it is unnecessary
+    (the number `123` converts to the string "123", not "123.0"). The values
+    `NaN`, negative infinity, and positive infinity result in the strings 
+    `"NaN"`, `"-infinity"`, and `"infinity"`, respectively.
+    
+    @returns a string represention of the number
+    ============================================================================
+    @class
+    function ->>(r:Real64):String {
+        return pandaReal64ToString(r)
+    }
+    
+    ============================================================================
+    Converts this string to a number. The string must be in the format of a 
+    Panda `Real32` literal. Returns `null` if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():Real32? {
+        var result := pandaStringToReal32(self)
+        if result.isNaN
+            return null
+        else
+            return result
+    }
+
+    function ->>():Real32 {
+        var result := self->>(Real32?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Converts this string to a number. The string must be in the format of a 
+    Panda `Real64` literal. Returns `null` if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
+    function ->>():Real64? {
+        var result := pandaStringToReal64(self)
+        if result.isNaN
+            return null
+        else
+            return result
+    }
+    
+    function ->>():Real64 {
+        var result := self->>(Real64?)
+        if result = null
+            throw new ParseException(self)
+        return result
+    }
+
+    ============================================================================
+    Formats a string for display purposes, exactly as if by
+    @link(OutputStream.write(String, Object...)).
+
+    @param s the format string
+    @param params the format string parameters
+    ============================================================================
+    @class
+    function format(s:String, params:Object...):String {
+        var buffer := new MemoryOutputStream()
+        buffer.write(s, params...)
+        return buffer->>(String)
+    }
+
+    -- FIXME remove these and move the external code directly to the convert
+    -- methods
+    @private
+    @class
+    @external
+    function pandaReal32ToString(r:Real32):String
+
+    @private
+    @class
+    @external
+    function pandaReal64ToString(r:Real64):String
+
+    @private
+    @class
+    @external
+    function pandaStringToReal32(s:String):Real32
+
+    @private
+    @class
+    @external
+    function pandaStringToReal64(s:String):Real64
+}

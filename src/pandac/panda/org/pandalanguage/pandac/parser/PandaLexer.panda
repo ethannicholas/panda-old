@@ -1,0 +1,96 @@
+package org.pandalanguage.pandac.parser
+
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.plex.runtime.TokenException
+
+class PandaLexer {
+    var lex := new Lexer()
+
+    constructor() {
+    }
+
+    constructor(inStream:InputStream, p:Position) {
+        lex.source := inStream
+        lex.source.line := p.line
+        lex.source.column := p.column
+        lex.dfa.line := p.line
+        lex.dfa.column := p.column
+        lex.compilationUnit := p.compilationUnit
+    }
+
+    constructor(s:String, p:Position) {
+        constructor(new MemoryInputStream(s), p)
+    }
+
+    method next():Token {
+        try {
+            var token := lex.next()
+            switch token.type {
+                case TokenType.BLOCKCOMMENT: {
+                    var nestLevel := 1
+                    var foundStar := false
+                    var foundDash := false
+                    var c := lex.dfa.source.readChar()
+                    while c != null {
+                        if foundStar {
+                            if c = "-" {
+                                nestLevel -= 1
+                                if nestLevel = 0
+                                    break
+                            }
+                        }
+                        if foundDash {
+                            if c = "*" {
+                                nestLevel += 1
+                                c := lex.dfa.source.readChar()
+                            }
+                        }
+                        foundStar := (c = "*")
+                        foundDash := (c = "-")
+                        c := lex.dfa.source.readChar()
+                    }
+                    return next()
+                }
+                case TokenType.DOCCOMMENT: {
+                    var text := new MutableString()
+                    var c := lex.dfa.source.readChar()
+
+                    while c = "="
+                        c := lex.dfa.source.readChar()
+
+                    var lastLine := -1
+                    var lastColumn := -1
+                    var count := 0
+                    while c != null {
+                        if c = "=" {
+                            count += 1
+                            lastLine := lex.dfa.source.line
+                            lastColumn := lex.dfa.source.column
+                        }
+                        else {
+                            if count >= 3 {
+                                lex.dfa.pushback.pushback(c)
+                                lex.dfa.source.line := lastLine
+                                lex.dfa.source.column := lastColumn
+                                text.remove(text.length - count, text.length)
+                                token.text := text->>(String)
+                                return token
+                            }
+                            count := 0
+                        }
+                        text.append(c)
+                        c := lex.dfa.source.readChar()
+                    }
+                }
+                case TokenType.WHITESPACE, TokenType.LINECOMMENT:
+                    return next()
+            }
+            return token
+        }
+        catch e:TokenException {
+            throw new CompilerException("invalid token", 
+                    new Position(lex.compilationUnit, e.line, e.column))
+        }
+    }
+}

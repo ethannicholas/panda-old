@@ -1,0 +1,49 @@
+package org.pandalanguage.pandac.tree
+
+class Block : Statement {
+    var symbolTable:SymbolTable
+    
+    constructor(parent:SymbolTable) {
+        symbolTable := new SymbolTable(self, parent)
+    }
+
+    constructor(position:Position, parent:SymbolTable) {
+        super.constructor(position)
+        symbolTable := new SymbolTable(self, parent)
+    }
+
+    @override
+    @self
+    method add(n:Node) {
+        assert n-?>(Statement)
+        super.add(n)
+    }
+    
+    -- this method was originally written for LLVMCodeGenerator to know whether
+    -- a branch was necessary at the end of a block. Throw is not considered a
+    -- branch for that reason, because it's a function call rather than an 
+    -- LLVM-level branch. This eventually led to the creation of 
+    -- endsInBranchOrThrow, which is just gross. Should probably move this 
+    -- LLVM-specific test into LLVMCodeGenerator and rename endsInBranchOrThrow 
+    -- to endsInBranch.
+    function endsInBranch():Bit {
+        if length = 0
+            return false
+        var last := self[self.length - 1]
+        return last-?>(Return) | last-?>(Continue) | last-?>(Break) |
+                (last-?>(Block) & last->(Block).endsInBranch)
+    }
+    
+    function endsInBranchOrThrow():Bit {
+        if length = 0
+            return false
+        var last := self[self.length - 1]
+        return last-?>(Return) | last-?>(Continue) | last-?>(Break) | last-?>(Throw) |
+                (last-?>(Block) & last->(Block).endsInBranchOrThrow)
+    }
+    
+    @override
+    function format(fmt:String):String {
+        return "{ \{children.join('; ')} }"
+    }
+}

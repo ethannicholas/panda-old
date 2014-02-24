@@ -1,0 +1,109 @@
+package panda.threads
+
+================================================================================
+A queue which can be shared between multiple threads, allowing any of them to 
+submit messages to or pull messages out of it.
+================================================================================
+class MessageQueue : Immutable {
+    @private
+    var nativeQueue:$NativePointer
+    
+    ============================================================================
+    Creates a new, empty `MessageQueue`.
+    ============================================================================
+    constructor() {
+        initMessageQueue()
+    }
+    
+    ============================================================================
+    Posts an object to the queue. Only immutable objects (or `null`) may be 
+    posted via this method.
+    
+    @param data the object to post
+    ============================================================================
+    method post(data:Immutable?) {
+        sendMessage(new Message(data))
+    }
+
+    ============================================================================
+    Posts an object to the queue, then immediately terminates the current 
+    thread. This method allows mutable objects to be safely posted to the queue.
+    
+    @param data the object to post
+    ============================================================================
+    method postAndExit(data:Object?) {
+        sendMessage(new Message(data))
+        threadExit()
+    }
+
+    ============================================================================
+    Posts an object to the queue, potentially allowing mutable objects to be 
+    shared between multiple threads. If the sending thread never again accesses 
+    the object that it sent (including any mutable objects directly or 
+    indirectly pointed to by the object in question), no danger exists and no 
+    special actions need to be taken. If the object remains accessible from the 
+    sending thread, then a @link(Lock) must be used to synchronize any access to 
+    the object by both the sending and receiving thread.
+    
+    @param data the object to post
+    ============================================================================
+    method postUnsafe(data:Object?) {
+        sendMessage(new Message(data))
+    }
+
+    ============================================================================
+    Returns the number of messages currently in the queue.
+    
+    @returns the number of messages in this `MessageQueue`
+    ============================================================================
+    @external
+    method pendingMessages():Int
+    
+    ============================================================================
+    Returns `true` if there are one or more messages in the queue.
+    
+    @returns whether this queue has pending messages
+    ============================================================================
+    method hasMessage():Bit {
+        return pendingMessages() > 0
+    }
+    
+    ============================================================================
+    Returns the next message from the queue, blocking until one is available.
+    
+    @returns the next message from the queue
+    ============================================================================
+    @external
+    method getMessage():Object?
+    
+    ============================================================================
+    Returns the next message from the current thread's message queue, blocking 
+    for the specified timeout period. If a message is available before the 
+    timeout expires, returns the message, otherwise returns `null`.
+
+    IMPLEMENTATION NOTE: the timeout is not currently implemented; this method
+    just calls getMessage().
+    
+    @param timeout the number of milliseconds to wait for a message to arrive
+    @returns the next message received by the thread, or `null` if none
+    ============================================================================
+    @external
+    method getMessage(timeout:Int):Object?
+
+    @override
+    @external
+    method finalize()
+
+    @private
+    @external
+    method initMessageQueue()
+
+    @private
+    @external
+    method sendMessage(message:Message)
+    
+    @private
+    @class
+    @external
+    method threadExit()
+}

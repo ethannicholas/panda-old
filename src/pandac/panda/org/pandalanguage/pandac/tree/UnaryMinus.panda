@@ -1,0 +1,48 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.Type
+
+class UnaryMinus : Value {
+    constructor(position:Position, value:Value) {
+        constructor(position, value, getType(value))
+    }
+    
+    constructor(position:Position, value:Value, type:Type) {
+        super.constructor(position, type)
+        add(value)
+    }
+    
+    function getType(value:Value):Type {
+        if value-?>(IntegerLiteral) {
+            -- requires special handling due to minimum values -- e.g. the
+            -- literal "-128" gets compiled as UnaryMinus(IntegerLiteral(128)),
+            -- but it should have type Int8 rather than the Int16 that
+            -- IntegerLiteral(128) does
+            var raw := value->(IntegerLiteral).value
+            if raw > 9223372036854775808 {
+                throw new CompilerException("integer literal out of range", 
+                        value.position)
+            }
+            var v := -(value->(IntegerLiteral).value->(Int64))
+            if v-?>(Int8)
+                return IntType.INT8
+            if v-?>(Int16)
+                return IntType.INT16
+            if v-?>(Int32)
+                return IntType.INT32
+            return IntType.INT64
+        }
+        return value.type
+    }
+    
+    function value():Value {
+        return self[0]->(Value)
+    }
+    
+    @override
+    function format(fmt:String):String {
+        return "(-(" + value + "))"
+    }
+}

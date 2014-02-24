@@ -1,0 +1,199 @@
+package org.pandalanguage.plex
+
+uses org.pandalanguage.plex.AcceptState
+uses org.pandalanguage.plex.NFA
+uses org.pandalanguage.plex.runtime.DFA
+
+class PLexException : Exception {
+    constructor(msg:String) {
+        super.constructor(msg)
+    }
+}
+
+================================================================================
+A simple lexical analyzer generator for Panda, used to build pandac's lexer.
+Very quick and dirty, certainly not intended to be a full-scale Flex / et al.
+replacement.
+================================================================================
+class PLex {
+    var tokens := new HashMap()
+    var out:IndentedOutputStream
+
+    constructor(cfg:InputStream, out:OutputStream) {
+        self.out := new IndentedOutputStream(out)
+        load(cfg)
+    }
+
+    function escape(s:String):String {
+        return s.replace(#/([+*?|.()\[\]])/#, "\\$1")
+    }
+
+    method load(input:InputStream) {
+        var nfa := new NFA()
+        var line := input.readLine()
+        out.writeLine("package org.pandalanguage.pandac.parser")
+        out.writeLine("uses org.pandalanguage.pandac.tree.*")
+        out.writeLine("uses org.pandalanguage.plex.runtime.*")
+        out.writeLine()
+        out.writeLine("enum TokenType {")
+        out.level += 1
+        var offset := 0
+        out.writeLine("EOF,")
+        offset += 1
+        out.write("SHIFTRIGHT")
+        offset += 1
+        while line != null {
+            line := line.trim
+            if line.length > 0 {
+                var parsed := line.parse(
+                        #/([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*(".*"|/.*/)/#)
+                if parsed != null {
+                    var regex:Regex
+                    var pattern := parsed[1]
+                    if pattern.startsWith('"') { 
+                        regex := new Regex(escape(pattern[1 ..
+                                pattern.length - 1]))
+                    }
+                    else {
+                        assert pattern.startsWith("/")
+                        regex := new Regex(pattern[1 ..
+                                pattern.length - 1])
+                    }
+                    out.writeLine(",")
+                    out.write(parsed[0])
+                    var states := regex->(Regex).addToNFA(nfa, 
+                            nfa.addState(new AcceptState(tokens.length + 
+                            offset)))
+                    for j in 0 ... states.length - 1
+                        nfa.addStartState(states[j])
+                    tokens[parsed[0]] := regex
+                }
+                else
+                    throw new PLexException("error parsing: '" + line + "'")
+            }
+            line := input.readLine()
+        }
+        out.writeLine()
+        out.level -= 1
+        out.writeLine("}")
+
+        out.writeLine()
+        writeToken(out)
+        out.writeLine()
+
+        var dfa := new NFAtoDFA(nfa).createDFA()
+        writeLexer(dfa, out)
+
+        out.close()
+    }
+
+    method writeToken(out:IndentedOutputStream) {
+        out.writeLine("class Token {")
+        out.level += 1
+        out.writeLine("var type:TokenType")
+        out.writeLine("var text:String")
+        out.writeLine("var position:Position")
+        out.writeLine()
+        out.writeLine("constructor(type:TokenType, text:String, position:Position) {")
+        out.level += 1
+        out.writeLine("self.type := type")
+        out.writeLine("self.text := text")
+        out.writeLine("self.position := position")
+        out.level -= 1
+        out.writeLine("}")
+        out.writeLine()
+        out.writeLine("@override")
+        out.writeLine("function ->>():String {")
+        out.level += 1
+        out.writeLine('return text')
+        out.level -= 1
+        out.writeLine("}")
+        out.level -= 1
+        out.writeLine("}")
+    }
+    @post(@pre(out.level) = out.level)
+
+    method writeLexer(dfa:DFA, out:IndentedOutputStream) {
+        out.writeLine("class Lexer {")
+        out.level += 1
+        out.writeLine("var compilationUnit := 'undefined'")
+        writeStateTable(dfa, out)
+        out.writeLine("var dfa := new DFA(transitions, accepts)")
+        out.writeLine("function source():LineNumberInputStream {")
+        out.level += 1
+        out.writeLine("return dfa.source")
+        out.level -= 1
+        out.writeLine("}")
+        out.writeLine()
+        out.writeLine("@self")
+        out.writeLine("method source:=(source:InputStream) {")
+        out.level += 1
+        out.writeLine("dfa.source := source")
+        out.level -= 1
+        out.writeLine("}")
+        out.writeLine()
+        out.writeLine("method next():Token {")
+        out.level += 1
+        out.writeLine("var raw := dfa.next()")
+        out.writeLine("return new Token(raw.type->>(TokenType), raw.text, " +
+                "new Position(compilationUnit, raw.startLine, " + 
+                "raw.startColumn))")
+        out.level -= 1
+        out.writeLine("}")
+        out.level -= 1
+        out.writeLine("}")
+    }
+    @post(@pre(out.level) = out.level)
+
+    method writeStateTable(dfa:DFA, out:IndentedOutputStream) {
+        out.writeLine("constant transitions:ImmutableArray<ImmutableArray<Int>> := createTransitions()")
+        -- can't just create the thing inline because Java complains about too
+        -- much code in the method, need to break it up
+        out.writeLine("@class")
+        out.writeLine("function createTransitions():ImmutableArray<ImmutableArray<Int>> {")
+        out.level += 1
+        out.writeLine("return new ImmutableArray<ImmutableArray<Int>>(")
+        out.level += 1
+        for i in 0 ... dfa.transitions.length - 1 {
+            if i > 0
+                out.writeLine(",")
+            out.write("createTransitions" + i + "()")
+        }
+        out.level -= 1
+        out.writeLine(")")
+        out.level -= 1
+        out.writeLine("}")
+        for i in 0 ... dfa.transitions.length - 1 {
+            out.writeLine("@class")
+            out.writeLine("function createTransitions" + i + "():ImmutableArray<Int> {")
+            out.level += 1
+            var a := dfa.transitions[i]
+            out.write("return new ImmutableArray<Int>(")
+            for j in 0 ... a.length - 1 {
+                if j != 0
+                    out.write(", ")
+                out.write(a[j])
+            }
+            out.writeLine(")")
+            out.level -= 1
+            out.writeLine("}")
+        }
+        out.writeLine("constant accepts := new ImmutableArray<Int>(")
+        out.level += 1
+        for i in 0 ... dfa.accepts.length - 1 {
+            if i != 0
+                out.writeLine(", ")
+            out.write(dfa.accepts[i])
+        }
+        out.level -= 1
+        out.writeLine(")")
+    }
+    @post(@pre(out.level) = out.level)
+
+    @class
+    method main(arg:Array<String>) {
+        var p := new PLex(new BufferedInputStream(
+                new File(arg[0]).openInputStream()),
+                new BufferedOutputStream(new File(arg[1]).openOutputStream()))
+    }
+}

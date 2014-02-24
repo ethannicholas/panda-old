@@ -1,0 +1,683 @@
+package org.pandalanguage.pandac.transformers
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.CompilerSettings
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.parser.ParseNode
+uses org.pandalanguage.pandac.tree.Annotation
+uses org.pandalanguage.pandac.tree.And
+uses org.pandalanguage.pandac.tree.Assert
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.Continue
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.DynamicCall
+uses org.pandalanguage.pandac.tree.ExpressionAnnotation
+uses org.pandalanguage.pandac.tree.FieldAssignment
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.IndexedAssignment
+uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.MethodAssignment
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.NotEqual
+uses org.pandalanguage.pandac.tree.NullLiteral
+uses org.pandalanguage.pandac.tree.Or
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.Statement
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.tree.Throw
+uses org.pandalanguage.pandac.tree.Tree
+uses org.pandalanguage.pandac.tree.Try
+uses org.pandalanguage.pandac.tree.Unreachable
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.Variable
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.types.BitType
+uses org.pandalanguage.pandac.types.MethodType
+uses org.pandalanguage.pandac.types.VoidType
+
+@private
+class ExpressionWithContext {
+    var expression:ParseNode
+    var context:Node
+
+    constructor(expression:ParseNode, context:Node) {
+        self.expression := expression
+        self.context := context
+    }
+}
+
+================================================================================
+Ensures that classes do not violate any safety constraints. This includes both 
+performing static analysis and adding dynamic instrumentation where necessary.
+
+Safety checks that are performed include: all fields are initialized, 
+preconditions, postconditions, invariants, methods do not exit without 
+returning, functions have no side effects. Note that some safety violations 
+(such as initialization of local variables and double-assignments to static 
+variables) are caught by DataFlowAnalyzer instead of SafetyChecker.
+================================================================================
+class SafetyChecker : MethodTransformer {
+    -* General comments: first, pre and postconditions are more complicated than
+     * you might realize at first glance. Not only can they be inherited, but
+     * the context can change in meaningful ways between the original (source) 
+     * method and the override (target) method: for instance, parameters can be 
+     * given different names, functions which were visible where the condition
+     * was defined are not necessarily visible where the condition is being
+     * used, etc.
+     *
+     * Postconditions are more complicated than preconditions because of the
+     * additional support for @return and @pre(). In particular, we wait until
+     * later in the process to compile postconditions: preconditions are 
+     * compiled as we gather them, and then inserted straight into the method,
+     * but postconditions may need to be inserted multiple times to deal with
+     * multiple return locations and we also don't want to have to promote the
+     * return value until we determine whether or not we have postconditions,
+     * and we can't compile the postconditions until we have promoted the return
+     * value.
+     *
+     * The multiple insertions of postconditions is very ugly. For complicated
+     * postconditions with many method exits, this could lead to significant
+     * code bloat. It would be better to stick the postconditions into a single
+     * shared block, jump there from all of the returns, and use a phi node to
+     * select the actual return value; this would avoid all of this horror with
+     * multiple inserts and promotions and all that. Unfortunately, it also
+     * won't work in Java source code due to the lack of goto. There are a few 
+     * ways to fix this: we could go straight to bytecode (which I believe will
+     * let me do what I need to do) or use a different means of representing 
+     * postconditions in the AST so that the LLVM and Java backends can handle 
+     * them differently. I'm certainly not suggesting that the current approach 
+     * is the *right* way to do things! But if you're going to refactor this, I 
+     * at least want to make sure you are aware of the problems that have to be
+     * solved :-)
+     *-
+
+    ============================================================================
+    Changes all references to a parameter in method `source` to refer to the
+    corresponding parameter in `target`. This is needed in case of @pre / @post
+    with method overrides, as in:
+
+        class Super {
+            @pre(x > 0)
+            method example(x:Int) {
+            }
+        }
+
+        class Sub : Super {
+            @override
+            method example(renamedParameter:Int) {
+            }
+        }
+
+    In this case the precondition (x > 0) is actually supposed to apply to the
+    `renamedParameter` when applied to `Sub.example`, so this method takes care
+    of the remapping.
+
+    @param expr the expression or part thereof
+    @param source the method in which the expression was actually found
+    @param target the method in which the expression is being inserted
+    ============================================================================
+    @private
+    @class
+    -- require a parent so that we have something to remove from and re-add to
+    @pre(expr.parent != null)
+    method remapParameters(expr:Node, source:MethodNode, target:MethodNode) {
+        if source = target
+            return
+        if expr-?>(VariableReference) {
+            var v := expr->(VariableReference).variable
+            if v-?>(Parameter) {
+                for i, p in source.parameters {
+                    if p = v {
+                        var ref:Value := new VariableReference(v.position, 
+                                target.parameters[i])
+                        if ref.type != v.type {
+                            ref := new Cast(v.position, ref, v.type, 
+                                    CastType.IMPLICIT)
+                        }
+                        expr.replace(ref)
+                        break
+                    }
+                }
+            }
+        }
+        for child in expr.children
+            remapParameters(child, source, target)
+    }
+
+    ============================================================================
+    Compiles a precondition, returning a Bit-typed Value.
+
+    @param source the method in which the precondition was originally defined
+    @param target the method into which the precondition is being inserted
+    @param expression the `ParseNode` of the expression
+    @returns the corresponding Value
+    ============================================================================
+    @private
+    @class
+    @pre(source.parameters.length = target.parameters.length)
+    method compilePrecondition(source:MethodNode, target:MethodNode,
+            expression:ParseNode):Value {
+        var ast := new ASTGenerator()
+        ast.nodeStack.push(source.owner)
+        ast.nodeStack.push(source)
+        var symbolTable := new SymbolTable(source, source.owner.symbolTable)
+        for param in source.parameters
+            symbolTable.putVariable(param)
+        ast.nodeStack.push(new Block(expression.position, symbolTable))
+        var compiled := ast.convertExpression(expression)
+        -- because remapParameters requires a parent
+        var dummy := new ValueStatement(compiled)
+        remapParameters(compiled, source, target)
+        compiled.removeFromParent()
+        return compiled
+    }
+    @post(@return.parent = null)
+
+    @private
+    @class
+    method wrapPreconditionInAssert(precondition:Value):Statement {
+        var ast := new ASTGenerator()
+        var result := new Assert(precondition.position, precondition)
+        var msg := "(" + precondition + ") was false"
+        result.message := ast.convertExpression(
+                "new panda.core.PreconditionError(" +
+                msg.format("panda") + ")->(panda.core.Error)", 
+                precondition.position)
+        return result
+    }
+
+    @private
+    @class
+    method getPreconditionsForSingleMethod(source:MethodNode, 
+            target:MethodNode):Value? {
+        var ast := new ASTGenerator()
+        var result:Value? := null
+        var foundCount := 0
+        for pre in source.annotations.pre {
+            var newPre := compilePrecondition(source, target, pre)
+            if result = null
+                result := ast.implicitCast(newPre.position, newPre, BitType.BIT)
+            else {
+                var oldPre := result
+                result := new And(target.position)
+                result.add(oldPre)
+                result.add(ast.implicitCast(newPre.position, newPre, 
+                        BitType.BIT))
+            }
+        }
+        return result
+    }
+    
+    @private
+    @class
+    method getPreconditionsForMethodAndAncestors(searchClass:ClassNode,
+            target:MethodNode):Value? {
+        if !CompilerSettings.preconditions
+            return null
+        var result:Value? := null
+        var match:MethodNode?
+        if searchClass = target.owner
+            match := target
+        else
+            match := target.findMatchingMethod(searchClass)
+        if match != null
+            result := getPreconditionsForSingleMethod(match, target)
+        if target.annotations.isOverride {
+            var superclass := searchClass.superclass
+            if superclass != null {
+                var newPre := getPreconditionsForMethodAndAncestors(superclass,
+                        target)
+                if newPre != null {
+                    if result = null
+                        result := newPre
+                    else {
+                        var oldPre := result
+                        result := new Or(target.position)
+                        result.add(oldPre)
+                        result.add(newPre)
+                    }
+                }
+            }
+            for intf in searchClass.interfaces {
+                var newPre := getPreconditionsForMethodAndAncestors(intf.classNode, 
+                        target)
+                if newPre != null {
+                    if result = null
+                        result := newPre
+                    else {
+                        var oldPre := result
+                        result := new Or(target.position)
+                        result.add(oldPre)
+                        result.add(newPre)
+                    }
+                }
+            }
+        }
+        return result
+    }
+    
+    @class
+    method getPreconditionsForMethodAndAncestors(
+            m:MethodNode):Value? {
+        return getPreconditionsForMethodAndAncestors(m.owner, m)
+    }
+
+    @private
+    method compilePostcondition(source:MethodNode, 
+            returnValue:ReusedValueDefinition?, target:MethodNode, 
+            analysis:MethodAnalysis, expression:ParseNode):Statement {
+        var ast := new ASTGenerator()
+        ast.inPostcondition := true
+        ast.returnValue := returnValue
+        -- use a dummy method in place of the real source method. ASTGenerator 
+        -- will create values to handle the @pre() expressions in the 
+        -- postcondition and insert them into the method, so by creating an
+        -- empty dummy method we can easily "harvest" those values without
+        -- screwing up the source method. This is obviously an ugly, hacky way
+        -- to solve this.
+        var dummyMethod := new MethodNode(expression.position, 
+                "<dummy method for postcondition>", source.methodType)
+        dummyMethod.parent := target.parent
+        dummyMethod.parameters := source.parameters
+        ast.nodeStack.push(source.owner)
+        ast.nodeStack.push(dummyMethod)
+        var symbolTable := new SymbolTable(dummyMethod, 
+                source.owner.symbolTable)
+        for param in source.parameters
+            symbolTable.putVariable(param)
+        var block := new Block(expression.position, symbolTable)
+        dummyMethod.add(block)
+        ast.nodeStack.push(block)
+        var compiled := ast.convertExpression(expression)
+        -- pull the stuff added to dummyMethod and stick it in the target method
+        for i in block.children.length - 1 ... 0 by -1 {
+            var statement := block.children[i]->(Statement)
+            remapParameters(statement, source, target)
+            statement.removeFromParent()
+            insertAtBeginning(analysis, statement, target.block)
+        }
+        target.localVariables.appendAll(dummyMethod.localVariables)
+        -- because remapParameters requires a parent
+        var dummyParent := new ValueStatement(compiled)
+        remapParameters(compiled, source, target)
+        compiled.removeFromParent()
+        var result := new Assert(expression.position, compiled)
+        var msg := "(" + expression + ") was false"
+        result.message := ast.convertExpression(
+                "new panda.core.PostconditionError(" +
+                msg.format("panda") + ")->(panda.core.Error)", 
+                expression.position)
+        return result
+    }
+    @post(@return.parent = null)
+
+    @private
+    method compilePostcondition(expression:ExpressionWithContext, 
+            returnValue:ReusedValueDefinition?, target:MethodNode, 
+            analysis:MethodAnalysis):Statement {
+        return compilePostcondition(expression.context->(MethodNode), 
+                returnValue, target, analysis, expression.expression)
+    }
+
+
+    ============================================================================
+    Compiles an invariant, returning an assertion statement.
+
+    @param source the class in which the invariant was originally defined
+    @param target the method into which the invariant is being inserted
+    @param expression the `ParseNode` of the expression
+    @returns the corresponding assertion statement
+    ============================================================================
+    @private
+    @class
+    @pre(!target.annotations.isClass)
+    method compileInvariant(source:ClassNode, target:MethodNode,
+            expression:ParseNode):Statement {
+        var ast := new ASTGenerator()
+        ast.nodeStack.push(source)
+        var dummyMethod := new MethodNode(expression.position, 
+                "<dummy method for invariant>", MethodNodeType.METHOD)
+        dummyMethod.parent := target.parent
+        dummyMethod.parameters.append(target.parameters[0])
+        ast.nodeStack.push(dummyMethod)
+        var symbolTable := new SymbolTable(source, source.symbolTable)
+        var block := new Block(expression.position, symbolTable)
+        dummyMethod.add(block)
+        ast.nodeStack.push(block)
+        var compiled := ast.convertExpression(expression)
+        var result := new Assert(expression.position, compiled)
+        var msg := "(" + expression + ") was false"
+        result.message := ast.convertExpression(
+                "new panda.core.InvariantError(" +
+                msg.format("panda") + ")->(panda.core.Error)", 
+                expression.position)
+        return result
+    }
+    @post(@return.parent = null)
+
+    method compileInvariant(invariant:ExpressionWithContext, 
+            target:MethodNode):Statement {
+        return compileInvariant(invariant.context->(ClassNode), target,
+                invariant.expression)
+    }
+
+    @class
+    method getPostconditionsForSingleMethod(source:MethodNode, 
+            target:MethodNode):Array<ExpressionWithContext> {
+        var result := new Array<ExpressionWithContext>()
+        var foundCount := 0
+        for post in source.annotations.post {
+            var expr := new ExpressionWithContext(post, source)
+            result.append(expr)
+        }
+        return result
+    }
+    
+    @private
+    @class
+    method getPostconditionsForMethodAndAncestors(searchClass:ClassNode,
+            target:MethodNode):Array<ExpressionWithContext> {
+        var result := new Array<ExpressionWithContext>()
+        if !CompilerSettings.postconditions
+            return result
+        var match:MethodNode?
+        if searchClass = target.owner
+            match := target
+        else
+            match := target.findMatchingMethod(searchClass)
+        if match != null
+            result.appendAll(getPostconditionsForSingleMethod(match, target))
+        if target.annotations.isOverride {
+            var superclass := searchClass.superclass
+            if superclass != null {
+                result.appendAll(getPostconditionsForMethodAndAncestors(
+                        superclass, target))
+            }
+            for intf in searchClass.interfaces {
+                result.appendAll(getPostconditionsForMethodAndAncestors(
+                        intf.classNode,
+                        target))
+            }
+        }
+        return result
+    }
+ 
+    @class
+    method getPostconditionsForMethodAndAncestors(
+            m:MethodNode):Array<ExpressionWithContext> {
+        return getPostconditionsForMethodAndAncestors(m.owner, m)
+    }
+
+    ============================================================================
+    Returns a list of assertions that verify that all of a class' non-nullable
+    fields have been properly initialized.
+
+    @param cl the class to check
+    @param selfParameter the self parameter referring to the object
+    @returns an array of assertion statements
+    ============================================================================
+    method getInitializationChecks(cl:ClassNode, 
+            selfParameter:Parameter):Array<Statement> {
+        def result := new Array<Statement>()
+        def ast := new ASTGenerator()
+        for child in cl.children {
+            if child-?>(FieldNode) {
+                def f := child->(FieldNode)
+                if !f.annotations.isClass & !f.annotations.isThread &
+                        !f.type.isPrimitive & !f.type.isNullable {
+                    def check := new NotEqual(f.position)
+                    def selfValue := new VariableReference(f.position, 
+                            selfParameter)
+                    check.add(new FieldReference(f.position, selfValue, f))
+                    check.add(new NullLiteral(f.position, f.type))
+                    def assertion := new Assert(f.position, check)
+                    assertion.message := ast.convertExpression(
+                            "new panda.core.PostconditionError('field \\'" + 
+                            f.name + 
+                            "\\' was not initialized')->(panda.core.Error)", 
+                            f.position)
+                    result.append(assertion)
+                }
+            }
+        }
+        return result
+    }
+
+    @private
+    @class
+    method getInvariantsForClassAndAncestors(searchClass:ClassNode,
+            target:MethodNode):Array<ExpressionWithContext> {
+        var result := new Array<ExpressionWithContext>()
+        if !CompilerSettings.invariants | 
+                target.methodType = MethodNodeType.FUNCTION |
+                target.annotations.isClass
+            return result
+        for invariant in searchClass.annotations.invariants
+            result.append(new ExpressionWithContext(invariant, searchClass))
+        var superclass := searchClass.superclass
+        if superclass != null {
+            result.appendAll(getInvariantsForClassAndAncestors(superclass,
+                    target))
+        }
+        for intf in searchClass.interfaces {
+            result.appendAll(getInvariantsForClassAndAncestors(
+                    intf.classNode,
+                    target))
+        }
+        return result
+    }
+    
+    ============================================================================
+    Returns `true` if a modification of the specified value is legal from within
+    functional code.
+    ============================================================================
+    @pre(!v.type.isImmutable)
+    method checkModification(v:Value, values:Map):Bit {
+        var value := DataFlowAnalyzer.getValue(v, values)
+        return value.selfOnly
+    }
+
+    method checkMethodCallSafety(m:MethodNode, parameters:Array<Value>, 
+            values:Map, position:Position) {
+        if m.methodType != MethodNodeType.FUNCTION {
+            if m.annotations.isLimited | m.annotations.isSelf {
+                for i, p in parameters {
+                    if p.type.isImmutable
+                        continue
+                    if m.annotations.isSelf & i > 0
+                        break
+                    if !checkModification(p, values) {
+                        var msg:String
+                        if i = 0 & !m.annotations.isClass {
+                            msg := "on potentially-visible " +
+                                    "object '" + p + "'"
+                        }
+                        else {
+                            msg := "with potentially-visible " +
+                                    " object '" + p + 
+                                    "' as a parameter"
+                        }
+                        PandaCompiler.reportError(
+                                new CompilerException(
+                                    "cannot call " + m + " " + msg + 
+                                    " from within a function", 
+                                    position))
+                    }
+                }
+            }
+            else {
+                -- permit Panda.log to be called from anywhere
+                if m.owner.name != class(Panda).name {
+                    PandaCompiler.reportError(
+                            new CompilerException("cannot call " + 
+                            m + " from within a function", 
+                            position))
+                }
+            }
+        }
+
+    }
+
+    ============================================================================
+    Verifies that a function does not have side effects.
+    ============================================================================
+    method verifyFunction(cn:ControlNode, visited:Array<ControlNode>) {
+        for node in visited {
+            if node = cn
+                return
+        }
+        visited.append(cn)
+        var values := cn.inValues
+        for n in cn.nodes {
+            switch n.class {
+                case class(VariableAssignment): {
+                    var va := n->(VariableAssignment)
+                    var key := DataFlowAnalyzer.getKey(new VariableReference(
+                            va.variable), values)
+                    var value := DataFlowAnalyzer.getValue(va.value, values)
+                    values[key] := value
+                }
+                case class(FieldAssignment): {
+                    if !checkModification(n->(FieldAssignment).object, values) {
+                        PandaCompiler.reportError(new CompilerException(
+                                "cannot modify fields of potentially-visible " +
+                                "object '" + n->(FieldAssignment).object + 
+                                "' from within a function", n.position))
+                    }
+                }
+                case class(IndexedAssignment): {
+                    checkModification(n->(IndexedAssignment).array, values)
+                    if !checkModification(n->(IndexedAssignment).array, values) {
+                        PandaCompiler.reportError(
+                                new CompilerException(
+                                    "cannot modify elements of " +
+                                    "potentially-visible array '" + 
+                                    n->(IndexedAssignment).array + 
+                                    "' from within a function", n.position))
+                    }
+                }
+                case class(DynamicCall): {
+                    var m := n->(DynamicCall).methodValue
+                    if !m.type->(MethodType).isFunction {
+                        PandaCompiler.reportError(
+                                new CompilerException(
+                                    "cannot call a method from within a " + 
+                                    "function", n.position))
+                    }
+                }
+                case class(MethodCall): {
+                    var m := n->(MethodCall)
+                    checkMethodCallSafety(m.methodNode, m.parameters, values,
+                            m.position)
+                }
+                case class(Construct): {
+                    var c := n->(Construct)
+-- FIXME constructors are assumed to be functional at the moment
+--                    checkMethodCallSafety(c.methodNode, c.parameters, values,
+--                            c.position)
+                }
+            }
+        }
+        for exit in cn.exits {
+            verifyFunction(exit, visited)
+        }
+    }
+    
+    constructor(ast:ASTGenerator, cfg:CFGGenerator, dfa:DataFlowAnalyzer) {
+        super.constructor(ast, cfg, dfa)
+    }
+
+    ============================================================================
+    Scans a method, statically analyzing it for safety violations and adding
+    dynamic checks as needed.
+    ============================================================================
+    @override
+    method transform(m:MethodNode, analysis:MethodAnalysis) {
+        def pre := getPreconditionsForMethodAndAncestors(m.owner, m)
+        if pre != null
+            insertAtBeginning(analysis, wrapPreconditionInAssert(pre), m.block)
+
+        def post := getPostconditionsForMethodAndAncestors(m)
+        def invariants := getInvariantsForClassAndAncestors(m.owner, m)
+        def methodExits := analysis.exit.entrances
+        for exitNode in methodExits {
+            def exit := exitNode.nodes[exitNode.nodes.length - 1]
+            if exit-?>(Throw) | exit-?>(Unreachable)
+                continue
+            if exit-!>(Return) & m.returnType != VoidType.VOID
+                error("method can exit without returning a value", exit)
+            
+            if post.length + invariants.length > 0 | 
+                    m.methodType = MethodNodeType.CONSTRUCTOR {
+                var returnValue:ReusedValueDefinition? := null
+                if exit-?>(Return) {
+                    def ret := exit->(Return)
+                    var v := ret.value
+                    if v != null {
+                        returnValue := ASTGenerator.makeReusable(v)
+                        returnValue.replace(returnValue.createReference())
+                        insertBefore(analysis, new ValueStatement(returnValue), 
+                                exit->(Return))
+                    }
+                }
+                var statement:Node? := exit
+                while statement-!>(Statement) & statement != null
+                    statement := statement.parent
+                def statements := new Array<Statement>()
+                for p in post {
+                    statements.append(compilePostcondition(p, returnValue, m,
+                            analysis))
+                }
+                for invariant in invariants
+                    statements.append(compileInvariant(invariant, m))
+                if m.methodType = MethodNodeType.CONSTRUCTOR {
+                    statements.appendAll(getInitializationChecks(m.owner,
+                            m.parameters[0]))
+                }
+                if statement = null {
+                    for s in statements
+                        insertAtBeginning(analysis, s, m.block)
+                }
+                else {
+                    for s in statements {
+                        def parent := s.parent
+                        if exit-?>(Return) | exit-?>(Break) | 
+                                exit-?>(Continue) {
+                            insertBefore(analysis, s, statement->(Statement))
+                        }
+                        else
+                            insertAfter(analysis, s, statement->(Statement))
+                    }
+                }
+            }
+        }
+        if m.methodType = MethodNodeType.FUNCTION & 
+                !m.annotations.isUnsafeFunction
+            verifyFunction(analysis.entrance, [])
+    }
+
+    @protected
+    method error(msg:String, node:Node) {
+        error(msg, node.position)
+    }
+
+    @protected
+    method error(msg:String, position:Position) {
+        throw new CompilerException(msg, position)
+    }
+}

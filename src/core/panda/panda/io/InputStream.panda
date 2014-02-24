@@ -1,0 +1,221 @@
+package panda.io
+
+================================================================================
+A source of data from which `Int8`s or `Chars` may be read. `InputStream`
+contains a pair of methods, `readInt8()` and `readUInt8()`, at least one of
+which must be overridden to create a working `InputStream`. All other methods 
+are ultimately implemented in terms of these method, and so a functional 
+`InputStream` can be created by overriding one method. However, better 
+performance may generally be achieved by also overriding the bulk read methods.
+================================================================================
+@abstract 
+class InputStream {
+    @private
+    constant BUFFER_SIZE := 2048
+    
+    @readonly
+    var closed:Bit
+    
+    ============================================================================
+    Reads a single `Int8` from the stream.
+
+    The default implementation calls `readUInt8()` and converts its result to an
+    `Int8`.
+    
+    @returns the `Int8` read, or `null` if the end of the stream has been
+            reached
+    ============================================================================
+    @pre(!closed)
+    method readInt8():Int8? {
+        var result := readUInt8()
+        if result != null
+            return result->>(Int8)
+        return null
+    }
+    
+    ============================================================================
+    Reads a single `UInt8` from the stream.
+    
+    The default implementation calls `readInt8()` and converts its result to a
+    `UInt8`.
+    
+    @returns the `UInt8` read, or `null` if the end of the stream has been
+            reached
+    ============================================================================
+    @pre(!closed)
+    method readUInt8():UInt8? {
+        var result := readInt8()
+        if result != null
+            return result->>(UInt8)
+        return null
+    }
+
+    ============================================================================
+    Reads a number of `Int8`s into an array. The size of the array constrains
+    the maximum number of `Int8`s that will be read, and the read `Int8`s will
+    be inserted into the array starting at index `0`. The number of `Int8`s
+    actually read may be less than the length of the array. A `null` return
+    value signifies that the end of the stream has been reached.
+
+    The default implementation calls `readInt8()` in a loop.
+    
+    @param bytes the array into which to read
+    @returns the number of `Int8`s actually read, or `null` if there are no more
+            `Int8`s available
+    ============================================================================
+    @pre(!closed)
+    method read(bytes:Array<Int8>):Int? {
+        var index := 0
+        while index < bytes.length {
+            var b:Int8? := readInt8()
+            if b = null
+                break
+            bytes[index] := b
+            index += 1
+        }
+        if index > 0
+            return index
+        else
+            return null
+    }
+    @post(@return = null | @return <= bytes.length)
+    @post(bytes.length = @pre(bytes.length))
+    
+    ============================================================================
+    Reads a number of `UInt8`s into an array. The size of the array constrains
+    the maximum number of `UInt8`s that will be read, and the read `UInt8`s will
+    be inserted into the array starting at index `0`. The number of `UInt8`s
+    actually read may be less than the length of the array. A `null` return
+    value signifies that the end of the stream has been reached.
+    
+    The default implementation calls `readUInt8()` in a loop.
+
+    @param bytes the array into which to read
+    @returns the number of `UInt8`s actually read, or `null` if there are no 
+            more `UInt8`s available
+    ============================================================================
+    @pre(!closed)
+    method read(bytes:Array<UInt8>):Int? {
+        var index := 0
+        while index < bytes.length {
+            var b:UInt8? := readUInt8()
+            if b = null
+                break
+            bytes[index] := b
+            index += 1
+        }
+        if index > 0
+            return index
+        else
+            return null
+    }
+    @post(@return = null | @return <= bytes.length)
+    @post(bytes.length = @pre(bytes.length))
+    
+    ============================================================================
+    Reads a single `Char` from the stream. There is not necessarily a
+    one-to-one correspondence between bytes and `Char`s; the exact mapping
+    depends upon the stream's encoding.
+
+    **IMPLEMENTATION NOTE**: Unicode support isn't in yet, therefore this just
+    returns a UInt8 zero-extended to a Char.
+    
+    @returns the Char read, or `null` if the end of the stream has been reached
+    ============================================================================
+    @pre(!closed)
+    method readChar():Char? {
+        var i := readUInt8()
+        if i != null
+            return i->(Char) 
+        else
+            return null
+    }
+    
+    ============================================================================
+    Reads a number of `Char`s into an array. The size of the array constrains
+    the maximum number of `Char`s that will be read, and the read `Char`s will
+    be inserted into the array starting at index `0`. The number of `Char`s
+    actually read may be less than the length of the array. A `null` return
+    value signifies that the end of the stream has been reached.
+    
+    **IMPLEMENTATION NOTE**: Unicode support isn't in yet, therefore this just
+    zero-extends Int8s to Chars.
+
+    @returns the number of `Char`s actually read, or `null` if there are no more
+            `Char`s available
+    ============================================================================
+    @pre(!closed)
+    method read(chars:Array<Char>):Int? {
+        var index := 0
+        while index < chars.length {
+            var c := readChar()
+            if c = null
+                break
+            chars[index] := c
+            index += 1
+        }
+        if index > 0
+            return index
+        else
+            return null
+    }
+    
+    ============================================================================
+    Reads a complete line from the stream.
+    
+    @returns the next line, or `null` if the end of the stream has been reached
+    ============================================================================
+    @pre(!closed)
+    method readLine():String? {
+        var result := new MutableString()
+        loop {
+            var c:Char? := readChar()
+            if c = null {
+                if result.length = 0
+                    return null
+                break
+            }
+            if c->(Int) = 10
+                break
+            result.append(c->(Char) )
+        }
+        return result->>(String)
+    }
+    
+    ============================================================================
+    Closes the input stream. Once a stream has been closed, it is an error to
+    attempt to read from it.
+    ============================================================================
+    @pre(!closed)
+    method close() {
+        closed := true
+    }
+    @post(closed)
+    
+    ============================================================================
+    Reads the entire contents of this `InputStream`, sending it to the specified
+    `OutputStream` as it is read. Once the end of the stream is reached, the
+    `InputStream` is automatically closed.
+
+    @param o the `OutputStream` to which to write
+    ============================================================================
+    @static
+    @pre(!closed)
+    method send(o:OutputStream) {
+        var buffer := new Array<UInt8>(BUFFER_SIZE)
+        loop {
+            var c := read(buffer)
+            if c = null
+                break
+            o.write(buffer, 0, c)
+        }
+        close()
+    }
+    @post(closed)
+
+    method readAsString():String {
+        var buffer := new MemoryOutputStream()
+        send(buffer)
+        return buffer->>(String)
+    }
+}

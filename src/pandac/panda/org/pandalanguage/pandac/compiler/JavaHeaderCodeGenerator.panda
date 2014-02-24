@@ -1,0 +1,107 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.tree.Annotation
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.SymbolTable
+
+class JavaHeaderCodeGenerator : CodeGenerator {
+    var rootPath := new File("uninitialized")
+    var jcg := new JavaCodeGenerator()
+
+    method generateClass(cl:ClassNode) {
+        var packageName := cl.packageName
+        var classOut:OutputStream? := null
+        var interfaceOut:OutputStream? := null
+        for i in 0 ... cl.length - 1 {
+            assert (classOut = null) = (interfaceOut = null)
+            if cl[i]-?>(MethodNode) {
+                var m := cl[i]->(MethodNode)
+                if m.annotations.isExternal {
+                    var first := classOut = null
+                    if classOut = null {
+                        var name := cl.name
+                        var lastDot := name.lastIndexOf(".")
+                        if lastDot != null
+                            name := name[lastDot + 1..]
+                        name += "_External"
+                        var destDir:File
+                        if packageName != null {
+                            destDir := rootPath.resolve(
+                                packageName.replace(".", "/"))
+                        }
+                        else
+                            destDir := rootPath
+                        destDir.createDirectories()
+                        classOut := new BufferedOutputStream(
+                                destDir.resolve(name + 
+                                    "Impl.java").openOutputStream())
+                        if packageName != null
+                            classOut.writeLine("package " + packageName + ";")
+                        else
+                            classOut.writeLine("package unnamed;")
+                        classOut.writeLine()
+                        classOut.writeLine("class " + name + 
+                                "Impl implements " + cl.name + "_External {")
+
+                        interfaceOut := new BufferedOutputStream(
+                                destDir.resolve(name + 
+                                        ".java").openOutputStream())
+                        if packageName != null
+                            interfaceOut.writeLine("package " + packageName + 
+                                    ";")
+                        else
+                            interfaceOut.writeLine("package unnamed;")
+                        interfaceOut.writeLine()
+                        interfaceOut.writeLine("interface " + name + " {")
+                    }
+                    assert interfaceOut != null
+                    if !first {
+                        classOut.writeLine()
+                        interfaceOut.writeLine()
+                    }
+                    var signature := new MutableString()
+                    signature.append(
+                            jcg.getJavaType(m.returnType) + " " +
+                            jcg.getName(m) + "(")
+                    for j in 0 ... m.parameters.length - 1 {
+                        if j != 0
+                            signature.append(", ")
+                        var p := m.parameters[j]
+                        signature.append(jcg.getJavaType(p.type) + " " + p.name)
+                    }
+                    signature.append(")")
+                    classOut.writeLine("    @Override")
+                    classOut.writeLine("    public " + signature + " {")
+                    classOut.writeLine("        throw new " + 
+                            "UnsupportedOperationException();")
+                    classOut.writeLine("    }")
+
+                    interfaceOut.writeLine("    " + signature + ";")
+                }
+            }
+        }
+        if classOut != null {
+            assert interfaceOut != null
+            classOut.writeLine("}")
+            interfaceOut.writeLine("}")
+            classOut.close()
+            interfaceOut.close()
+        }
+    }
+    
+    @override
+    method generateCode(target:File) {
+        if !target.isDirectory()
+            throw new CompilerException("Java output must be to a directory")
+        MethodNamer.nameMethods(new JavaMethodNamingStrategy())
+        rootPath := target
+        var classes := SymbolTable.master.classes
+        for i in 0 ... classes.length - 1 {
+            if classes[i].state = ClassNodeState.DEFINED
+                generateClass(classes[i])
+        }
+    }
+}

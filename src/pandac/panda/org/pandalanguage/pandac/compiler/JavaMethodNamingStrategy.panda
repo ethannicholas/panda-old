@@ -1,0 +1,121 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.Type
+
+class JavaMethodNamingStrategy (MethodNamingStrategy) {
+    constant PANDAMAIN_NAME := "$pandaMain"
+
+    constant MAPPED_NAMES := new HashMap(["+", "-", "*", "/", "//", "^", "[]", 
+            "[]:=", "[..]", "[..]:=", "[...]", "[...]:=", "=", ">", "<", ">=",
+            "<=", "|", "||", "&", "&&", "~", "~~", "!", "!!", "<<", ">>", "new", 
+            "clone", "equals", "finalize", "getClass", "hashCode", "notify", 
+            "notifyAll", "toString", "wait", "char", "boolean", "byte", "short", 
+            "int", "long", "float", "double", "goto", "native", "main"],
+            ["$ADD", "$SUB", "$MUL", "$DIV", "$INTDIV", "$POW", "$ARR", "$ARREQ", 
+            "$SLE", "$SLEEQ", "$SLI", "SLIEQ", "$EQ", "$GT", "$LT", "$GE", 
+            "$LE", "$OR", "$BOR", "$AND", "$BAND", "$XOR", "$BXOR", "$NOT", 
+            "$BNOT", "$SHL", "$SHR", "new$constructor", "$clone", "$equals", 
+            "$finalize", "$getClass", "$hashCode", "$notify", "$notifyAll", 
+            "$toString", "$wait", "$char", "$boolean", "$byte", "$short", 
+            "$int", "$long", "$float", "$double", "$goto", "$native", 
+            PANDAMAIN_NAME])
+            ->>(ImmutableHashMap)
+
+    @private
+    constant PANDASTART_NAME := "pandaStart"
+
+    -- we have issues in Java with signed vs. unsigned numbers. Since Java 
+    -- itself can't distinguish between the two (write(i:Int8) and 
+    -- write(u:UInt8) would both have signature write(byte b) in Java), we need
+    -- to disambiguate them. And since we can't, in general, know in advance 
+    -- when we'll need to do this (consider a class containing write(i:Int8) and
+    -- an interface containing write(u:UInt8), and then a class subclassing from
+    -- one and implementing the other) we play it safe by always fully
+    -- qualifying the name of any method containing unsigned parameters.
+    @private
+    function forceLong(m:MethodNode):Bit {
+        for p in m.parameters {
+            var t := p.type
+            if t.isInteger & !t->(IntType).signed
+                return true
+        }
+        return false
+    }
+
+    @private
+    function determineShortName(rawName:String, returnType:Type):String {
+        if rawName.startsWith(ASTGenerator.SHIM_PREFIX) {
+            return ASTGenerator.SHIM_PREFIX + determineShortName(
+                    rawName[ASTGenerator.SHIM_PREFIX.length..], returnType)
+        }
+        var result := new MutableString()
+        var mapped := MAPPED_NAMES[rawName]->(String?)
+        if mapped != null
+            result.append(mapped)
+        else if rawName = "->>" {
+            result.append("$CNV")
+            result.append(MethodNamer.escapeTypeName(returnType.name))
+        }
+        else if rawName.endsWith(":=") {
+            result.append(rawName[0 .. rawName.length() - 2])
+            result.append("$SET")
+        }
+        else
+            result.append(rawName)
+        return result->>(String)
+    }
+
+
+    @override
+    function shortName(m:MethodNode):String {
+        if forceLong(m)
+            return longName(m)
+        return determineShortName(m.name, m.returnType)
+    }
+
+    @override
+    function mediumName(m:MethodNode):String {
+        return longName(m)
+    }
+
+    @override
+    function longName(m:MethodNode):String {
+        var result := determineShortName(m.name, m.returnType)->>(MutableString)
+        if m.annotations.isClass
+            result.append("_class")
+        for i, p in m.parameters {
+            if i = 0 & !m.annotations.isClass
+                continue
+            var name:String
+            var t := p.type
+            result.append("_")
+            if t.isPrimitive {
+                var index := t.name.lastIndexOf(".")
+                if index != null
+                    result.append(t.name[index + 1..])
+                else
+                    result.append(t.name)
+            }
+            else {
+                result.append(MethodNamer.escapeTypeName(t.name))
+            }
+        }
+        return result->>(String)
+    }
+
+    @override
+    method disambiguation(m:MethodNode):String {
+        var result := new MutableString()
+        for i, p in m.parameters {
+            if i = 0 & !m.annotations.isClass
+                continue
+            if result.length > 0
+                result.append(", ")
+            result.append(new JavaCodeGenerator().getJavaType(p.type))
+        }
+        return result->>(String)
+    }
+}

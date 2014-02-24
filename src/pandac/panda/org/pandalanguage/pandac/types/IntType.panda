@@ -1,0 +1,113 @@
+package org.pandalanguage.pandac.types
+
+================================================================================
+The four `Int` types.
+================================================================================
+class IntType : PrimitiveType {
+    constant REAL_CAST_COST := 4
+
+    constant INT8 := new IntType(1)
+
+    constant INT16 := new IntType(2)
+                         
+    constant INT32 := new IntType(4)
+                         
+    constant INT64 := new IntType(8)
+    
+    constant UINT8 := new IntType(1, false)
+
+    constant UINT16 := new IntType(2, false)
+                         
+    constant UINT32 := new IntType(4, false)
+                         
+    constant UINT64 := new IntType(8, false)
+
+    var signed:Bit
+    
+    @private
+    constructor(size:Int) {
+        constructor(size, true)
+    }
+
+    @private
+    constructor(size:Int, signed:Bit) {
+        super.constructor(getName(size, signed), size)
+        self.signed := signed
+    }
+
+    @private
+    @class
+    function getName(size:Int, signed:Bit):String {
+        var prefix:String
+        if signed
+            prefix := "Int"
+        else
+            prefix := "UInt"
+        return "panda.core." + prefix + size * 8            
+    }
+
+    @override
+    method canExplicitCastTo(target:Type):Bit {
+        if target.isPrimitive
+            return target.isNumeric
+        return wrapperVersion().canExplicitCastTo(target)
+    }
+
+    @override
+    method implicitCastCost(target:Type):Int {
+        if target.isNumber {
+            if target->(PrimitiveType).size < size
+                return NO_MATCH
+            var s := size
+            var result := 0
+            if target-?>(IntType) {
+                if signed & !target->(IntType).signed
+                    return NO_MATCH
+                if !signed & target->(IntType).signed { 
+                    if s = target->(IntType).size
+                        return NO_MATCH
+                    result += 1
+                }
+            }
+            while s < target->(PrimitiveType).size {
+                s *= 2
+                result += 1
+            }
+            if target.isReal
+                result += REAL_CAST_COST
+            return result
+        }
+        else if target.isWrapper {
+            var result := implicitCastCost(target.unwrapWrapper)
+            if result != NO_MATCH & target.isNullable
+                result += NullableType.TO_NULLABLE_CAST_COST
+            return result
+        }
+        if !target.unwrapWrapper.isPrimitive
+            return wrapperVersion().implicitCastCost(target)
+        return NO_MATCH
+    }
+
+    @override
+    function isInteger():Bit {
+        return true
+    }
+
+    @override
+    function isNumber():Bit {
+        return true
+    }
+
+    @override
+    function isNumeric():Bit {
+        return true
+    }
+
+    @override
+    function variableType():Type {
+        if size < 4
+            return INT32
+        else
+            return self
+    }
+}

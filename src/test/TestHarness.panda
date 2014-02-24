@@ -1,0 +1,93 @@
+class TestHarness {
+    var pandac:String
+    var src:File
+    var target:File
+    var java:String?
+    
+    constructor(pandac:String, src:File, target:File) {
+        self.pandac := pandac
+        self.src := src
+        self.target := target
+    }
+    
+    method runTest(name:String) {
+        Console.writeLine("### compiling test " + name + "...")
+        var panda := src.resolve("test/" + name + "/" + name + ".panda")
+        var exe := target.resolve("test/" + name + "/" + name)
+        if exe.exists()
+            exe.delete()
+        var parent := exe.parent()
+        if parent != null
+            parent.createDirectories()
+        var output := target.resolve("test/" + name + "/" + name + ".out")
+        if output.exists()
+            output.delete()
+        var outputStream := output.openOutputStream()
+        var pandacParsed := pandac.parse(#/([^ ]+)\s+(.+)/#)
+        var pandacExe:String
+        var params:Array<String>
+        if pandacParsed != null {
+            pandacExe := pandacParsed[0]
+            params := pandacParsed[1].split(#/\s+/#)
+        }
+        else {
+            pandacExe := pandac
+            params := new Array<String>()
+        }
+        params.append("-o")
+        params.append(exe.path)
+        if java != null {
+            params.append("-f")
+            params.append("jar")
+        }
+        params.append(panda.path)
+        System.exec(new File(pandacExe), null, outputStream, null, params...)
+        outputStream.close()
+        if output.readAsString().length = 0 {
+            var inputStream:InputStream? := null
+            var input := src.resolve("test/" + name + "/" + name + ".in")
+            if input.exists()
+                inputStream := input.openInputStream()
+            if output.exists()
+                output.delete()
+            outputStream := output.openOutputStream()
+            Console.writeLine("### running test " + name + "...")
+            if java = null
+                System.exec(exe, inputStream, outputStream, null)
+            else
+                System.exec(new File(java), inputStream, outputStream, null, "-jar", exe.path)
+            outputStream.close()
+        }
+        var expected := src.resolve("test/" + name + "/" + name + ".expected")
+        var expectedData := expected.readAsString()
+        var actualData := output.readAsString()
+        if expectedData = actualData
+            Console.writeLine("passed")
+        else {
+            Console.writeLine("failed with output: '" + actualData + "'")
+            unreachable
+        }
+    }
+    
+    method runAllTests() {
+        var files := src.resolve("test").list()
+        for i in 0 ... files.length - 1 {
+            if files[i].isDirectory()
+                runTest(files[i].name)
+        }
+    }
+    
+    @class
+    method main(arg:Array<String>) {
+        var start := 0
+        var java:String? := null
+        if arg[start] = "--java" {
+            java := arg[start + 1]
+            start += 2
+        }
+        var test := new TestHarness(arg[start], new File(arg[start + 1]),
+                new File(arg[start + 2]))
+        test.java := java
+        test.runAllTests()
+    }
+}

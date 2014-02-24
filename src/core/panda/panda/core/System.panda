@@ -1,0 +1,170 @@
+package panda.core
+
+@private
+class Environment : Immutable {
+    function [](key:String):String? {
+        return pandaGetEnv(key)
+    }
+    
+    @private
+    @class
+    @external
+    function pandaGetEnv(key:String):String?
+}
+
+enum OperatingSystemType {
+    MACOSX,
+    LINUX,
+    OTHER_UNIX,
+    WINDOWS
+}
+
+class OperatingSystemInfo : Value {
+    var type:OperatingSystemType
+
+    @private
+    constructor(type:OperatingSystemType) {
+        self.type := type
+    }
+}
+
+================================================================================
+Provides utility methods that interface with the operating environment.
+================================================================================
+@static
+class System {
+    ============================================================================
+    An object which can be indexed to retrieve system environment variables, 
+    e.g. `System.environment["PANDA_HOME"]` will retrieve the value of the
+    `PANDA_HOME` environment variable.
+    ============================================================================
+    constant environment := new Environment()
+
+    @private
+    constructor() {
+        -- no instances
+    }
+
+    ============================================================================
+    Returns the operating system the program is running under.
+    ============================================================================
+    @class
+    @external
+    function operatingSystem():OperatingSystemInfo
+
+    ============================================================================
+    Terminates the currently-running program with an exit code of `0` (normal
+    exit).
+    ============================================================================
+    @class
+    method exit() {
+        exit(0)
+    }
+    
+    ============================================================================
+    Terminates the currently-running program with the specified exit code. By
+    convention, an exit code of `0` means 'success' and any other number
+    represents an error.
+    
+    @param exitCode the process exit code
+    ============================================================================
+    @class
+    @external
+    method exit(exitCode:Int)
+    
+    ============================================================================
+    Executes a system program which reads from the standard input and writes to
+    the standard output and error streams. The call to `exec` will block until
+    the program terminates.
+
+    @param command the executable file to run
+    @param args the command's arguments
+    ============================================================================
+    @class
+    method exec(command:File, args:String...) {
+        exec(command, File.currentDirectory(), args...)
+    }
+        
+    ============================================================================
+    Executes a system program which reads from the standard input and writes to
+    the standard output and error streams. The call to `exec` will block until
+    the program terminates.
+
+    @param command the executable file to run
+    @param dir the working directory of the child process
+    @param args the command's arguments
+    ============================================================================
+    @class
+    @external
+    method exec(command:File, dir:File, args:String...)
+    
+    ============================================================================
+    Executes a system program with explicit input, output, and error streams. 
+    The call to `exec` will block until the program terminates. The 
+    `inputStream` will be actively read from until the program exits; therefore 
+    you should not pass `Console.inputStream` (generally the keyboard) for
+    `inputStream` unless the program is actually expecting input, to avoid
+    unnecessarily requesting keyboard input. A `null` `inputStream` will cause
+    the child process to receive zero bytes of input, and `null` `outputStream`
+    or `errorStream` will cause all data from these streams to be ignored
+    without effect. Behavior is undefined if the parent process quits before
+    the child process does.
+
+    **IMPLEMENTATION NOTE:** The handling of the streams is a hack for now; they
+    must be file streams (which includes stdin / stdout) in order to work
+    properly.
+
+    @param command the executable file to run
+    @param inputStream the input stream from which the process will read
+    @param outputStream the standard output stream to which the process will
+            write
+    @param errortStream the standard error stream to which the process will
+            write
+    @param args the command's arguments
+    ============================================================================
+    @class    
+    method exec(command:File, inputStream:InputStream?, 
+            outputStream:OutputStream?, errorStream:OutputStream?, 
+            args:String...) {
+        exec(command, File.currentDirectory(), inputStream, outputStream,
+                errorStream, args...)
+    }
+
+    ============================================================================
+    As @link(exec(File, InputStream?, OutputStream?, OutputStream?, String...)),
+    but also allows you to specify the working directory of the newly spawned
+    child process.
+
+    @param command the executable file to run
+    @param dir the working directory of the child process
+    @param inputStream the input stream from which the process will read
+    @param outputStream the standard output stream to which the process will
+            write
+    @param errortStream the standard error stream to which the process will
+            write
+    @param args the command's arguments
+    ============================================================================
+    @class 
+    -- FIXME hack until we have concurrency
+    @pre(inputStream = null | inputStream-?>(FileInputStream))
+    @pre(outputStream-?>(FileOutputStream))
+    @pre(errorStream = null)
+    method exec(command:File, dir:File, inputStream:InputStream?, 
+            outputStream:OutputStream?, errorStream:OutputStream?, 
+            args:String...) {
+        var inHandle:$NativePointer
+        if inputStream != null
+            inHandle := inputStream->(FileInputStream).nativeFile
+        else
+            inHandle := null
+        execStream(command.path, dir.path, inHandle, 
+                outputStream->(FileOutputStream).nativeFile,
+                args)
+    }
+
+    @private
+    @class
+    @external 
+    method execStream(path:String, dir:String, inHandle:$NativePointer, 
+            outHandle:$NativePointer, args:Array<String>)
+}

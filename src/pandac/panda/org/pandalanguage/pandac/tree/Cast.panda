@@ -1,0 +1,57 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.RealLiteralType
+uses org.pandalanguage.pandac.types.Type
+
+enum CastType {
+    IMPLICIT,
+    EXPLICIT,
+    CONVERT
+}
+
+class Cast : Value {
+    ============================================================================
+    A safe cast is one which has been proven never to fail, e.g.
+        if foo-?>(String)
+            Console.writeLine(foo->(String))
+    The cast there cannot fail and thus no runtime checks are needed.
+    ============================================================================
+    var safe:Bit
+
+    var castType:CastType
+    
+    @pre(value.type-!>(RealLiteralType))
+    constructor(value:Value, type:Type, castType:CastType) {
+        constructor(value.position, value, type, castType)
+    }
+    
+    -- STRING_OR_CHAR and REAL_LITERAL need to be handled directly by 
+    -- ASTGenerator, not via a Cast
+    @pre(value.type-!>(RealLiteralType))
+    @pre(value.type-!>(StringOrCharType))
+    constructor(position:Position, value:Value, type:Type, castType:CastType) {
+        super.constructor(position, type)
+        self.castType := castType
+        add(value)
+    }
+    
+    @override
+    method findConverterTo(t:Type):MethodNode? {
+        if castType = CastType.IMPLICIT
+            return value.findConverterTo(t)
+        return super.findConverterTo(t)
+    }
+
+    function value():Value {
+        return self[0]->(Value)
+    }
+    
+    @override
+    function format(fmt:String):String {
+        if type = CastType.EXPLICIT
+            return "(" + value + "->" + type.displayName + ")"
+        else
+            return value->>(String)
+    }
+}

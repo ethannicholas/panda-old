@@ -1,0 +1,367 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
+
+enum MethodNodeType {
+    METHOD,
+    FUNCTION,
+    CONSTRUCTOR
+}
+
+================================================================================
+Represents a (static or instance) method of a class.
+================================================================================
+class MethodNode : Node {
+    constant MAIN_NAME       := "main"
+
+    constant START_NAME      := "start"
+
+    constant CONVERT_NAME    := "->>"
+
+    constant FINALIZE_NAME   := "finalize"
+
+    constant CLASS_INIT_NAME := "$classInit"
+
+    ============================================================================
+    The name of the method.
+    ============================================================================
+    var name:String
+    
+    ============================================================================
+    METHOD, FUNCTION, or CONSTRUCTOR.
+    ============================================================================
+    var methodType:MethodNodeType
+    
+    ============================================================================
+    The contents of the doccomment attached to the method, or `null` if none.
+    ============================================================================
+    var doccomment:String?
+
+    ============================================================================
+    The annotations attached to this method.
+    ============================================================================
+    var annotations := new Annotations()
+
+    ============================================================================
+    The method's parameters. This must include the implicit `self` parameter of 
+    instance methods or constructors. The types here are "actual" types, meaning
+    that generics are lowered to their bounds (for instance, `Array<T>` might
+    become `Array<Object>`). See `genericParameterTypes` for the actual generic 
+    types.
+    ============================================================================
+    var parameters := new Array<Parameter>()
+
+    ============================================================================
+    The method's generic parameter types, prior to being lowered to their 
+    bounds. If the parameters are not generic, the entries in this array will be
+    the same as the types in the `parameters` array.
+    ============================================================================
+    var genericParameterTypes := new Array<Type>()
+    
+    ============================================================================
+    The method's local variables. This includes variables corresponding to 
+    parameters which have been "promoted" to local variables.
+    ============================================================================
+    var localVariables := new Array<Variable>()
+    
+    ============================================================================
+    The method's actual return type.
+    ============================================================================
+    var returnType:Type := VoidType.VOID
+
+    ============================================================================
+    The method's generic return type.
+    ============================================================================
+    var genericReturnType:Type := VoidType.VOID
+
+    ============================================================================
+    Creates a new `MethodNode`.
+    
+    @param name the name of the method
+    ============================================================================
+    constructor(position:Position, name:String, methodType:MethodNodeType) {
+        super.constructor(position)
+        self.name := name
+        self.methodType := methodType
+    }
+    
+    constructor(name:String, methodType:MethodNodeType) {
+        self.name := name
+        self.methodType := methodType
+    }
+
+    constructor(name:String, methodType:MethodNodeType, 
+            parameters:Array<Parameter>) {
+        constructor(name, methodType)
+        for p in parameters
+            self.parameters.append(p)
+    }
+
+    constructor(position:Position, name:String, methodType:MethodNodeType, 
+            parameters:Array<Parameter>) {
+        super.constructor(position)
+        self.name := name
+        self.methodType := methodType
+        for p in parameters
+            self.parameters.append(p)
+    }
+
+    function owner():ClassNode {
+        return parent->(ClassNode)
+    }
+    
+    function block():Block {
+        return self[0]->(Block)
+    }
+    
+    ============================================================================
+    True if the method is declared virtual (in other words, it needs to appear 
+    in the class' VTABLE). This is false for class and static methods.
+    ============================================================================
+    function isDeclaredVirtual():Bit {
+        var a := annotations
+        return !a.isClass & !a.isStatic &
+                methodType != MethodNodeType.CONSTRUCTOR
+    }
+    
+    ============================================================================
+    True if the method is effectively virtual. Methods are effectively virtual
+    if we need to use VTABLE lookup to call them; methods declared in static
+    classes and virtual methods which are not ever actually overridden (during
+    sealed compilation) are effectively static rather than effectively virtual.
+    ============================================================================
+    function isEffectivelyVirtual():Bit {
+        return isDeclaredVirtual & !owner.annotations.isStatic()
+    }
+
+    ============================================================================
+    Finds a method with the same signature in a different class.
+    
+    @param cl the class to search for a matching method
+    @returns a matching method, or `null` if none
+    ============================================================================
+    method findMatchingMethod(cl:ClassNode):MethodNode? {
+        var p1 := effectiveParameterTypes(cl)
+        outer: for i in 0 ... cl.length - 1 {
+            if cl[i]-?>(MethodNode) {
+                var m := cl[i]->(MethodNode)
+                if name = m.name & !m.annotations.isClass {
+                    var p2 := m.parameters
+                    -- different return types are significant for ->>()
+                    if m.name = MethodNode.CONVERT_NAME & 
+                            returnType != m.returnType
+                        continue
+                    if p1.length = p2.length {
+                        -- skip parameter 0, it is self and won't match
+                        for j in 1 ... p1.length - 1 {
+                            if p1[j] != p2[j].type {
+                                continue outer
+                            }
+                        }
+                        return m
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    method type():Type {
+        var signature := "("->>(MutableString)
+        for i, p in parameters {
+            if i > 0
+                signature.append(", ")
+            signature.append(p.type.name)
+        }
+        signature.append(")")
+        if methodType = MethodNodeType.FUNCTION
+            signature.append("=>*")
+        else
+            signature.append("=&>*")
+        signature.append("(")
+        if returnType != VoidType.VOID
+            signature.append(returnType.name)
+        signature.append(")")
+        return owner.symbolTable.getType(position, signature->>(String))
+    }
+
+    ============================================================================
+    Given a raw type possibly containing generics, such as `Array<Array<T>>`,
+    and a list of generic parameters and their corresponding concrete types,
+    returns the actual types represented. For instance, given `Array<Array<T>>`,
+    with `T` as a generic parameter and `String` as the concrete type, would
+    return `Array<Array<String>>`.
+    ============================================================================
+    @class
+    method replaceGenerics(position:Position, symbolTable:SymbolTable, raw:Type, 
+            genericParameters:Array<GenericParameterType>,
+            concreteTypes:ImmutableArray<Type>):Type {
+        for i, g in genericParameters {
+            if raw = g
+                return concreteTypes[i]
+        }
+        if raw.unwrapNullable-!>(GenericType)
+            return raw
+        var name := raw.baseName->>(MutableString)
+        name.append("<")
+        for i, p in raw.unwrapNullable->(GenericType).parameters {
+            if i > 0
+                name.append(",")
+            name.append(replaceGenerics(position, symbolTable, p, 
+                    genericParameters, concreteTypes))
+        }
+        return symbolTable.getType(position, name + ">")
+    }
+
+    ============================================================================
+    Returns the parameter types this method should be treated as having while a
+    part of class `cl`. Generally these will be the same as the types present in
+    the `parameters` array, but methods with generic types have three sets of
+    parameter types: the generic types, the lowered types, and the effective
+    types. For instance, consider the method:
+
+        interface Example<K, V> {
+            method foo(key:K, value:V)
+        }
+
+    The three sets of parameter types we need to consider are:
+
+    * The declared parameter types, in this case `[K, V]` (found in
+        `genericParameterTypes)
+    * The lowered parameter types (the type bounds against which the method is
+      actually compiled), in this case `[Object, Object]` (found in
+        `parameters`)
+    * The effective parameter types when the method is instantiated into a
+      particular instance of the generic class: for instance, in 
+      `Example<String, File>` the method's effective types would be 
+      `[String, File]` (found via this function).
+    ============================================================================
+    method effectiveParameterTypes(cl:ClassNode):Array<Type> {
+        var type := cl.type()
+        if type.unwrapNullable-!>(GenericType)
+            return genericParameterTypes->>(Array<Type>)
+        var result := new Array<Type>()
+        for p in genericParameterTypes {
+            result.append(replaceGenerics(position, owner.symbolTable, p, 
+                    owner.genericParameterTypes,
+                    type.unwrapNullable->(GenericType).parameters))
+        }
+        return result
+    }
+    
+    ============================================================================
+    Returns true if this method overrides `parent`.
+    ============================================================================
+    function isOverrideOf(parent:MethodNode):Bit {
+        if parent.name != name
+            return false
+        var isClass := parent.annotations.isClass
+        if isClass != annotations.isClass
+            return false
+        if parent.name = CONVERT_NAME & parent.returnType != returnType
+            return false
+        var parentParams := parent.parameters
+        if parentParams.length != parameters.length
+            return false
+        var start:Int
+        if isClass
+            start := 0
+        else {
+            -- skip 0; self will not match because we are looking at two
+            -- different classes
+            start := 1
+            assert parentParams[0].name = Parameter.SELF_NAME
+            assert parameters[0].name = Parameter.SELF_NAME
+        }
+        for i in start ... parentParams.length - 1 {
+            if parentParams[i].type != parameters[i].type
+                return false
+        }
+        return true
+    }
+
+    ============================================================================
+    Returns the method in `cl` or any of its ancestors which this method 
+    overrides, or `null` if none. Note that this method ignores the `@static`
+    annotation; improperly overridden static methods are caught in 
+    `ASTGenerator`.
+    ============================================================================
+    @private
+    method findOverriddenMethod(cl:ClassNode):MethodNode? {
+        var result:MethodNode? := null
+        if cl != owner
+            result := findMatchingMethod(cl)
+        if result = null {
+            var superclass := cl.superclass
+            if superclass != null
+                result := findOverriddenMethod(superclass)
+        }
+        if result = null {
+            for intf in cl.interfaces {
+                result := findOverriddenMethod(intf.classNode)
+                if result != null
+                    break
+            }
+        }
+        return result
+    }
+    
+    ============================================================================
+    Returns the method which this method overrides, or `null` if none.
+    ============================================================================
+    method findOverriddenMethod():MethodNode? {
+        return findOverriddenMethod(owner)
+    }
+
+
+    function unwrap():MethodNode {
+        return self
+    }
+
+    @override
+    method markLive() {
+        if !live {
+            super.markLive()
+            for p in parameters
+                p.type.markLive()
+            returnType.markLive()
+        }
+    }
+
+    @override
+    function format(fmt:String):String {
+        var result := new MutableString()
+        switch methodType {
+            case MethodNodeType.METHOD: result.append("method ")
+            case MethodNodeType.FUNCTION: result.append("function ")
+            case MethodNodeType.CONSTRUCTOR: result.append("constructor ")
+            default: unreachable
+        }
+        result.append(name)
+        result.append("(")
+        var start:Int
+        if annotations.isClass
+            start := 0
+        else
+            start := 1
+        for i in start ... parameters.length - 1 {
+            if i > start
+                result.append(", ")
+            result.append(parameters[i].name)
+            if parameters[i].isConvert
+                result.append("->>")
+            else
+                result.append(":")
+            result.append(parameters[i].type.name)
+        }
+        result.append(")")
+        if returnType != VoidType.VOID {
+            result.append(":")
+            result.append(returnType.name)
+        }
+        return result->>(String)
+    }
+}

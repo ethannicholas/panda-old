@@ -1,0 +1,67 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.types.ArrayType
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.TupleType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+
+================================================================================
+Represents a tuple literal. Tuple literals are turned into concrete tuple 
+instances (via a Construct) once their types are determined.
+================================================================================
+class UnresolvedTuple : Value {
+    constant UNRESOLVED_TUPLE := new UnresolvedType("<tuple>")
+
+    constructor(position:Position, values:Array<Value>) {
+        super.constructor(position, UNRESOLVED_TUPLE)
+        for i in 0 ... values.length - 1
+            add(values[i])
+    }
+
+    @override
+    method implicitCastCost(raw:Type):Int {
+        if !raw.isTuple
+            return variableType().implicitCastCost(raw)
+        def t := raw->(TupleType)
+        if t.types.length != values.length
+            return Type.NO_MATCH
+        var result := 0
+        for i, v in values {
+            var cost := v.implicitCastCost(t.types[i])
+            if cost = Type.NO_MATCH
+                return Type.NO_MATCH
+            result += cost
+        }
+        return result
+    }
+
+    @override
+    method canExplicitCastTo(t:Type):Bit {
+        return canImplicitCastTo(t)
+    }
+
+    @override
+    method findConverterTo(t:Type):MethodNode? {
+        return variableType().findConverterTo(t)
+    }
+
+    @override
+    method variableType(preferImmutable:Bit):Type {
+        def name := "("->>(MutableString)
+        for i, v in values {
+            if i > 0
+                name.append(",")
+            name.append(v.variableType().displayName)
+        }
+        name.append(")")
+        return SymbolTable.master.getType(position, name->>(String))
+    }
+
+    function values():Array<Value> {
+        var result := new Array<Value>()
+        for i in 0 ... length - 1
+            result.append(self[i]->(Value))
+        return result
+    }
+}

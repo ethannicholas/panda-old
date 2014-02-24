@@ -1,0 +1,118 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.types.ArrayType
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+
+================================================================================
+Represents an array created with the array literal syntax, e.g. `[1, 2, 3]`.
+`UnresolvedArray` is turned into a `NewArrayWithValues` once its type is 
+determined.
+================================================================================
+class UnresolvedArray : Value {
+    constant UNRESOLVED_ARRAY := new UnresolvedType("<array>")
+
+    constructor(position:Position, values:Array<Value>) {
+        super.constructor(position, UNRESOLVED_ARRAY)
+        for i in 0 ... values.length - 1
+            add(values[i])
+    }
+
+    @override
+    method implicitCastCost(t:Type):Int {
+        if !t.isArray
+            return variableType().implicitCastCost(t)
+        var result := 0
+        for v in values {
+            var cost := v.implicitCastCost(t.elementType)
+            if cost = Type.NO_MATCH
+                return Type.NO_MATCH
+            result += cost
+        }
+        return result
+    }
+
+    @override
+    method canExplicitCastTo(t:Type):Bit {
+        return canImplicitCastTo(t)
+    }
+
+    @override
+    method findConverterTo(t:Type):MethodNode? {
+        return variableType().findConverterTo(t)
+    }
+
+    @override
+    method variableType(preferImmutable:Bit):Type {
+        if length = 0 {
+            if preferImmutable
+                return ArrayType.IMMUTABLE_ARRAY_ANY()
+            else
+                return ArrayType.ARRAY_ANY()
+        }
+        else {
+            var elementType:Type
+            var strings := false
+            -- ensure that ["ABC", "A"] ends up as String rather than Value
+            for v in values {
+                if v.type = ClassType.STRING()
+                    strings := true
+                else if v.type != StringOrCharType.STRING_OR_CHAR {
+                    strings := false
+                    break
+                }
+            }
+            if strings
+                elementType := ClassType.STRING()
+            else {
+                elementType := values[0].type.unwrapWrapper
+                -- ensure that [1.2, 1] ends up as Real rather than Number
+                var numbers := true
+                if elementType.isNumber {
+                    for i in 1 .. values.length {
+                        var type := values[i].type.unwrapWrapper()
+                        if type.isNumber {
+                            elementType := new Add().getOperandType(
+                                    new org.pandalanguage.pandac.compiler.Dummy(elementType), 
+                                    values[i])->(Type)
+                        }
+                        else {
+                            numbers := false
+                            break
+                        }
+                    }
+                    if numbers
+                        elementType := elementType.variableType()
+                }
+                else
+                    numbers := false
+                if !numbers {
+                    -- FIXME use a fold when that's working
+                    elementType := self[0]->(Value).variableType(
+                            preferImmutable)
+                    for i in 1 ... length - 1 {
+                        elementType := Type.union(elementType, 
+                                self[i]->(Value).variableType(
+                                    preferImmutable))
+                    }
+                }
+            }
+            var base:Type
+            if preferImmutable & elementType.isImmutable
+                base := ClassType.IMMUTABLE_ARRAY()
+            else
+                base := ClassType.ARRAY()
+            return SymbolTable.master.getType(position, base.name + "<" + 
+                    elementType.name + ">")
+        }
+    }
+
+    function values():Array<Value> {
+        var result := new Array<Value>()
+        for i in 0 ... length - 1
+            result.append(self[i]->(Value))
+        return result
+    }
+}

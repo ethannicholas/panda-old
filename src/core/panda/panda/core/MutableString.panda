@@ -1,0 +1,528 @@
+package panda.core
+
+================================================================================
+A modifiable string object. Use the `->>` operator to convert between `String`
+and `MutableString`.
+================================================================================
+@static
+class MutableString {
+    @private
+    constant DEFAULT_LENGTH := 16
+    
+    ============================================================================
+    The string's contents.
+    ============================================================================
+    @private
+    var chars:Array<Char>
+
+    ============================================================================
+    The string's actual length (which may be less than the buffer length).
+    ============================================================================
+    @readonly
+    var length:Int
+    
+    ============================================================================
+    Creates a new, empty `MutableString`.
+    ============================================================================
+    constructor() {
+        clear()
+    }
+
+    ============================================================================
+    Creates a new `MutableString` with the same contents as a.
+    ============================================================================
+    constructor(s:String) {
+        chars := s->>(Array<Char>)
+        length := s.length
+    }
+    
+    ============================================================================
+    Returns a single character from the string.
+    
+    @param i the index of the character to return
+    @returns the character at the specified index
+    ============================================================================
+    @pre(i < length)
+    function [](i:Int):Char {
+        return chars[i]
+    }
+
+    ============================================================================
+    Sets a single character of the string.
+
+    @param chars the character array to copy
+    ============================================================================
+    @self
+    @pre(i < length)
+    method []:=(i:Int, c:Char) {
+        chars[i] := c
+    }
+    
+    ============================================================================
+    Trims the string's internal representation to exactly fit the characters it
+    contains.
+    ============================================================================
+    @self
+    method trimToLength() {
+        if chars.length = length
+            return
+        chars := chars[0 .. length]
+    }
+    @post(length = @pre(length))
+    @post(chars.length = length)
+    
+    ============================================================================
+    Increases the string's capacity, if necessary, to ensure that it can fit at
+    least `minLength` characters.
+    ============================================================================
+    @private 
+    @self
+    @pre(minLength >= 0)
+    method ensureCapacity(minLength:Int) {
+        if minLength > chars.length {
+            var newLength := chars.length.max(DEFAULT_LENGTH)
+            while (newLength < minLength) {
+                newLength *= 2
+            }
+            var newChars := new Array<Char>(newLength)
+            for i in 0 ... length - 1
+                newChars[i] := chars[i]
+            chars := newChars
+        }
+    }
+    @post(chars.length >= minLength)
+
+    @self
+    method [..]:=(start:Int, end:Int, s:String) {
+        def previousLength := chars.length
+        chars[start .. end] := s->>(Array<Char>)
+        length += chars.length - previousLength
+    }
+
+    @self
+    method [..]:=(var start:Int?, var end:Int?, s:String) {
+        if start = null
+            start := 0
+        if end = null
+            end := length
+        self[start->(Int) .. end->(Int)] := s
+    }
+    
+    @self
+    @pre(step != 0)
+    method [..]:=(start:Int, end:Int, step:Int, s:String) {
+        def previousLength := chars.length
+        chars[start .. end by step] := s->>(Array<Char>)
+        length += chars.length - previousLength
+    }
+        
+    @self
+    method [..]:=(var start:Int?, var end:Int?, step:Int, s:String) {
+        if start = null {
+            if step > 0
+                start := 0
+            else
+                start := length - 1
+        }
+        if end = null {
+            if step > 0
+                end := length
+            else
+                end := -1
+        }
+        self[start->(Int) .. end->(Int) by step] := s
+    }
+    
+    @self
+    method [...]:=(start:Int, end:Int, s:String) {
+        def previousLength := chars.length
+        chars[start ... end] := s->>(Array<Char>)
+        length += chars.length - previousLength
+    }
+
+    @self
+    method [...]:=(var start:Int?, var end:Int?, s:String) {
+        if start = null
+            start := 0
+        if end = null
+            end := length - 1
+        self[start->(Int) ... end->(Int)] := s
+    }
+    
+    @self
+    @pre(step != 0)
+    method [...]:=(start:Int, end:Int, step:Int, s:String) {
+        def previousLength := chars.length
+        chars[start ... end by step] := s->>(Array<Char>)
+        length += chars.length - previousLength
+    }
+        
+    @self
+    method [...]:=(var start:Int?, var end:Int?, step:Int, s:String) {
+        if start = null {
+            if step > 0
+                start := 0
+            else
+                start := length - 1
+        }
+        if end = null {
+            if step > 0
+                end := length - 1
+            else
+                end := 0
+        }
+        self[start->(Int) ... end->(Int) by step] := s
+    }
+     
+    ============================================================================
+    Inserts a new string at the specified index.
+    
+    @param index the position at which to insert the new string
+    @param s the string to insert
+    ============================================================================
+    @self
+    method insert(index:Int, s:String) {
+        self[index .. index] := s
+    }
+    
+    ============================================================================
+    Deletes a subrange of the string.
+    
+    @param start the first character to remove
+    @param end the index just after the last character to remove
+    ============================================================================
+    @self
+    method remove(start:Int, end:Int) {
+        self[start .. end] := ""
+    }
+
+    @self
+    method replace(search:String, replacement:String) {
+        -- FIXME PERFORMANCE: this is a quick-and-dirty implementation
+        var src := self->>(String)
+        clear()
+        append(src.replace(search, replacement))
+    }
+
+    ============================================================================
+    Replaces all matches of the `regex` regular expression within this 
+    `MutableString` with the given replacement string. The replacement string 
+    may contain `$1`-style regular expression group references; for instance 
+    `s.replace(regex, "$1")` will replace every occurrence of the regex with the 
+    contents of its first group.
+    ============================================================================
+    @self
+    method replace(regex:RegularExpression, replacement:String) {
+        replace(regex, replacement, true)
+    }
+
+    ============================================================================
+    As @link(replace(RegularExpression, String)), but allows the interpretation 
+    of `$1`-style group references to be controlled. With `allowGroupReferences`
+    set to `false`, the replacement string is treated literally, with no special 
+    handling for `$1`-style sequences.
+
+    @param search the regular expression to search for
+    @param replacement the replacement text
+    @param allowGroupReferences if false, `$1`-style group references are 
+           ignored
+    @returns a string with all matches replaced
+    ============================================================================
+    @self
+    method replace(regex:RegularExpression, replacement:String,
+            allowGroupReferences:Bit) {
+        -- FIXME PERFORMANCE: this is a quick-and-dirty implementation
+        var src := self->>(String)
+        clear()
+        append(src.replace(regex, replacement, allowGroupReferences))
+    }    
+
+    ============================================================================
+    Deletes all occurrences of the `search` string within this `MutableString`.
+    ============================================================================
+    @self
+    method delete(search:String) {
+        replace(search, "")
+    }
+
+    ============================================================================
+    Deletes all matches of the `regex` regular expression within this 
+    `MutableString`.
+    ============================================================================
+    @self
+    method delete(regex:RegularExpression) {
+        replace(regex, "")
+    }
+
+    ============================================================================
+    Removes all characters from the string.
+    ============================================================================
+    @self
+    method clear() {
+        chars := new Array<Char>(DEFAULT_LENGTH)
+        length := 0
+    }
+    
+    ============================================================================
+    Appends a character to the end of the string.
+
+    @param c the character to append
+    ============================================================================
+    @self
+    method append(c:Char) {
+        ensureCapacity(length + 1)
+        chars[length] := c
+        length := length + 1
+    }
+    @post(length = @pre(length) + 1)
+
+    ============================================================================
+    Appends a new string to the end of this string. As `s` is a *convert* 
+    parameter, any type which can be converted to a `String` may be passed to
+    `append`.
+
+    @param c the character to append
+    ============================================================================
+    @self
+    method append(s->>String) {
+        self[length .. length] := s
+    }
+    @post(length = @pre(length) + s.length)
+    
+    ============================================================================
+    Returns `true` if this string begins with the substring `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string begins with the substring `s`
+    ============================================================================
+    function startsWith(s:String):Bit {
+        if length < s.length        
+            return false
+        for i in 0 ... s.length - 1 {
+            if self[i] != s[i]
+                return false
+        }
+        return true
+    }
+
+    ============================================================================
+    Returns `true` if this string ends with the substring `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string ends with the substring `s`
+    ============================================================================
+    function endsWith(s:String):Bit {
+        if length < s.length
+            return false
+        var start := length - s.length
+        for i in 0 ... s.length - 1 {
+            if self[i + start] != s[i]
+                return false
+        }
+        return true
+    }
+    
+    ============================================================================
+    Returns `true` if this string contains the specified substring.
+    
+    @param s the string to search for
+    @returns `true` if the substring was found
+    ============================================================================
+    function in(s:String):Bit {
+        return indexOf(s) != null
+    }
+    
+    ============================================================================
+    Returns `true` if this string contains the specified character.
+    
+    @param c the character to search for
+    @returns `true` if the character was found
+    ============================================================================
+    function in(c:Char):Bit {
+        return indexOf(c) != null
+    }
+    
+    ============================================================================
+    Returns the index of the first occurrence of the string `s` within this
+    string, or `null` if not found.
+    
+    @param s the string to search for
+    @param start the index to begin searching from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    function indexOf(s:String):Int? {
+        return indexOf(s, 0)
+    }
+
+    ============================================================================
+    Returns the index of the first occurrence of the string `s` within this
+    string, starting from the specified `index`, or `null` if not found.
+    
+    @param s the string to search for
+    @param start the index to begin searching from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    @pre(start >= 0)
+    @pre(start <= length)
+    function indexOf(s:String, start:Int):Int? {
+        if length < s.length
+            return null
+        outer: for i in start ... length - s.length {
+            for j in 0 ... s.length - 1 {
+                if self[i + j] != s[j]
+                    continue outer
+            }
+            return i
+        }
+        return null
+    }
+    @post(@return = null | @return < length)
+    
+    ============================================================================
+    Returns the index of the first occurrence of the character `c` within this
+    string, or `null` if not found.
+    
+    @param c the character to search for
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    function indexOf(c:Char):Int? {
+        return indexOf(c, 0)
+    }
+
+    ============================================================================
+    Returns the index of the first occurrence of the character `c` within this
+    string, starting from the specified `index`, or `null` if not found.
+    
+    @param c the character to search for
+    @param start the index to begin searching from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    @pre(start >= 0)
+    @pre(start <= length)
+    function indexOf(c:Char, start:Int):Int? {
+        for i in start ... length - 1
+            if self[i] = c
+                return i
+        return null
+    }
+    @post(@return = null | self[@return] = c)
+
+    ============================================================================
+    Returns the index of the last occurrence of the character `c` within this
+    string, or `null` if not found.
+    
+    @param c the character to search for
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    function lastIndexOf(c:Char):Int? {
+        return lastIndexOf(c, length - 1)
+    }
+
+    ============================================================================
+    Returns the index of the last occurrence of the character `c` within this
+    string, starting from the specified `index`, or `null` if not found.
+    
+    @param c the character to search for
+    @param start the index to begin searching backwards from
+    @returns the index of the match, or `null` if not found
+    ============================================================================
+    @pre(start >= 0)
+    @pre(start <= length)
+    function lastIndexOf(c:Char, start:Int):Int? {
+        for i in start ... 0 by -1
+            if self[i] = c
+                return i
+        return null
+    }
+    @post(@return = null | self[@return] = c)
+
+    @pre(start >= 0 & start <= length)
+    @pre(end >= 0 & end <= length)
+    function [..](start:Int, end:Int):String {
+        return new String(chars[start .. end])
+    }
+
+    function [..](start:Int, end:Int, step:Int):String {
+        return self->>(String)[start .. end by step]
+    }
+
+    function [..](start:Int?, end:Int?, step:Int):String {
+        return self->>(String)[start .. end by step]
+    }
+
+    @pre(start >= 0 & start < length)
+    @pre(end >= 0 & end < length)
+    function [...](start:Int, end:Int):String {
+        return new String(chars[start ... end])
+    }
+
+    function [...](start:Int, end:Int, step:Int):String {
+        return self->>(String)[start ... end by step]
+    }
+
+    function [...](start:Int?, end:Int?, step:Int):String {
+        return self->>(String)[start ... end by step]
+    }
+
+    ============================================================================
+    @inherit
+    ============================================================================
+    @override
+    @math(overflow)
+    function hash():Int32 {
+        var result := 0
+        for i in 0 ... length - 1
+            result := result * 101 + self[i]->>(Int)
+        return result
+    }
+
+    ============================================================================
+    @inherit
+    ============================================================================
+    @override
+    function =(o:Object):Bit {
+        -- FIXME this test shouldn't be necessary
+        if o-!>(MutableString)
+            return false
+        var s := o->(MutableString)
+        if length != s.length
+            return false
+        for i in 0 ... length - 1 {
+            if self[i] != s[i]
+                return false
+        }
+        return true
+    }
+
+    ============================================================================
+    Returns the contents of this `MutableString` copied into a new, independent
+    `String`.
+    
+    @returns a new `String` containing the same characters as this 
+            `MutableString`
+    ============================================================================
+    @override
+    function ->>():String {
+        return new String(chars[..length])
+    }
+
+    @override
+    function format(fmt:String):String {
+        return self->>(String).format(fmt)
+    }
+    
+    ============================================================================
+    Returns a `MutableString` containing the same characters as the given
+    `String`.
+    
+    @returns a new `MutableString` containing the same characters as the 
+             `String`
+    ============================================================================
+    @class
+    @safeReturn
+    function ->>(s->>String):MutableString {
+        var result := new MutableString()
+        result.append(s)
+        return result
+    }
+}

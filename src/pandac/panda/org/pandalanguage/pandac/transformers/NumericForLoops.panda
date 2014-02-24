@@ -1,0 +1,422 @@
+package org.pandalanguage.pandac.transformers
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.tree.Add
+uses org.pandalanguage.pandac.tree.And
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
+uses org.pandalanguage.pandac.tree.Equal
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.ForEach
+uses org.pandalanguage.pandac.tree.GreaterThanOrEqual
+uses org.pandalanguage.pandac.tree.GreaterThan
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.LessThanOrEqual
+uses org.pandalanguage.pandac.tree.LessThan
+uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.Or
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.RealLiteral
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.Statement
+uses org.pandalanguage.pandac.tree.StringLiteral
+uses org.pandalanguage.pandac.tree.Subtract
+uses org.pandalanguage.pandac.tree.UnaryMinus
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.Type
+
+================================================================================
+Converts for-each loops over a numeric range into more straightforward loops
+which don't actually create a range array.
+
+Note that this optimization is *required*. In addition to the obvious "oh my god
+it's so slow" effect of disabling this, the range operator is implemented by
+numeric loops. If this optimization were disabled and you recompiled the core
+libraries, the range operator would then be implemented by the range operator, 
+which would obviously not be good.
+================================================================================
+class NumericForLoops : MethodTransformer {
+    constructor(ast:ASTGenerator, cfg:CFGGenerator, dfa:DataFlowAnalyzer) {
+        super.constructor(ast, cfg, dfa)
+    }
+
+    @private
+    function getLiteral(i:Int64, t:Type):Value {
+        if t.isReal
+            return new RealLiteral(i, t)
+        if i < 0 {
+            return new UnaryMinus(Position.INTERNAL,
+                    new IntegerLiteral(i.abs->(UInt64), t), t)
+        }        
+        return new IntegerLiteral(i->(UInt64), t)
+    }
+
+    function unsignedVersion(var t:Type):Type {
+        t := t.unwrapWrapper
+        switch t {
+            case IntType.INT8: return IntType.UINT8
+            case IntType.INT16: return IntType.UINT16
+            case IntType.INT32: return IntType.UINT32
+            case IntType.INT64: return IntType.UINT64
+        }
+        return t
+    }
+
+    -- "What the...? Why is this so complicated?!?"
+    -- There's probably a simpler way to do this, but the problem of "loop from
+    -- left to right by step" is harder than it sounds. Overflows are a real
+    -- problem, particularly when you're looping to the minimum / maximum value
+    -- supported by the type you're using, and even moreso when the step is
+    -- greater than 1. So I have to jump through a lot of hoops to ensure that
+    -- we correctly detect the end of the loop, never going past it and 
+    -- overflowing.
+
+    ============================================================================
+    Rewrites a loop which does not include a step value.
+    ============================================================================
+    @pre(f.label != null)
+    method rewriteLoop(ast:ASTGenerator, m:MethodNode, analysis:MethodAnalysis,
+            f:ForEach, start:Value, end:Value, endInclusive:Bit) {
+        def fBlock := f.block
+        fBlock.removeFromParent()
+        start.removeFromParent()
+        end.removeFromParent()
+        def b := new Block(f.position, f.parent->(Block).symbolTable)
+        b.add(new ValueStatement(new VariableAssignment(f.position, 
+                f.loopVariable, start)))
+        var test:Value
+        if endInclusive
+            test := new LessThanOrEqual()
+        else
+            test := new LessThan()
+        test.add(new VariableReference(f.position, f.loopVariable))
+        def endRef := new ReusedValueDefinition(end)
+        test.add(endRef)
+        def ifNode := new If(f.position, test)
+        b.add(ifNode)
+        def loopNode := new LoopWithContinueBlock(f.position, f.label)
+        def ifBlock := new Block(b.symbolTable)
+        ifBlock.add(loopNode)
+        ifNode.add(ifBlock)
+        def loopBlock := new Block(b.symbolTable)
+        loopNode.add(loopBlock)
+        loopBlock.add(fBlock)
+
+        def continueBlock := new Block(b.symbolTable)
+        var inc:Value := new Add(f.position, f.loopVariable.type)
+        inc.add(new VariableReference(f.loopVariable))
+        inc.add(getLiteral(1, f.loopVariable.type))
+        if f.loopVariable.type.isReal {
+            -- reals are simpler: we can just add 1 and then check whether we've
+            -- gone past our bounds (since we can safely assume that the loop
+            -- bound is nowhere near the max real). For ints, that wouldn't work 
+            -- if we were iterating to, say, 127 in an Int8: we can't actually 
+            -- go past our bound because it would overflow, so we need to handle
+            -- things a bit differently there (and the handling we do there 
+            -- won't work for reals, because you can skip past a real when
+            -- incrementing by 1, and that isn't true for ints)
+            var breakTest:Value
+            if endInclusive
+                breakTest := new GreaterThan(f.position)
+            else
+                breakTest := new GreaterThanOrEqual(f.position)
+            breakTest.add(new VariableReference(f.loopVariable))
+            breakTest.add(endRef.createReference())
+            def breakIf := new If(f.position, breakTest)
+            def breakBlock := new Block(b.symbolTable)
+            breakIf.add(breakBlock)
+            breakBlock.add(new Break(f.position, f.label->(String)))
+            continueBlock.add(new ValueStatement(new VariableAssignment(
+                    f.loopVariable, inc)))
+            continueBlock.add(breakIf)
+        }
+        else {
+            def breakTest := new Equal(f.position)
+            breakTest.add(new VariableReference(f.loopVariable))
+            breakTest.add(endRef.createReference())
+            def breakIf := new If(f.position, breakTest)
+            def breakBlock := new Block(b.symbolTable)
+            breakIf.add(breakBlock)
+            breakBlock.add(new Break(f.position, f.label->(String)))
+            if endInclusive
+                continueBlock.add(breakIf)
+            continueBlock.add(new ValueStatement(new VariableAssignment(
+                    f.loopVariable, inc)))
+            if !endInclusive
+                continueBlock.add(breakIf)
+        }
+        loopNode.add(continueBlock)
+
+        replace(m, analysis, f, b)
+    }
+
+    ============================================================================
+    Rewrites a loop which has a step that is a compile-time constant.
+    ============================================================================
+    @pre(f.label != null)
+    method rewriteLoop(ast:ASTGenerator, m:MethodNode, analysis:MethodAnalysis, 
+            f:ForEach, start:Value, end:Value, endInclusive:Bit, step:Int) {
+        def fBlock := f.block
+        fBlock.removeFromParent()
+        start.removeFromParent()
+        end.removeFromParent()
+        def b := new Block(f.position, f.parent->(Block).symbolTable)
+        b.add(new ValueStatement(new VariableAssignment(f.position, 
+                f.loopVariable, start)))
+        var test:Value
+        if endInclusive {
+            if step > 0
+                test := new LessThanOrEqual()
+            else
+                test := new GreaterThanOrEqual()
+        }
+        else {
+            if step > 0
+                test := new LessThan()
+            else
+                test := new GreaterThan()
+        }
+        test.add(new VariableReference(f.position, f.loopVariable))
+        def endRef := new ReusedValueDefinition(end)
+        test.add(endRef)
+        def ifNode := new If(f.position, test)
+        b.add(ifNode)
+        def loopNode := new LoopWithContinueBlock(f.position, f.label)
+        def ifBlock := new Block(b.symbolTable)
+        ifBlock.add(loopNode)
+        ifNode.add(ifBlock)
+        def loopBlock := new Block(b.symbolTable)
+        loopNode.add(loopBlock)
+        loopBlock.add(fBlock)
+
+        def continueBlock := new Block(b.symbolTable)
+        var next:Value
+        if step > 0
+            next := new Add(f.position)
+        else
+            next := new Subtract(f.position)
+        next.add(new VariableReference(f.loopVariable))
+        next.add(getLiteral(step.abs, f.loopVariable.type))
+        next.type := f.loopVariable.type
+        var breakTest:Value
+        if endInclusive
+            breakTest := new LessThan(f.position)
+        else
+            breakTest := new LessThanOrEqual(f.position)
+        def sub := new Subtract(f.position, 
+                unsignedVersion(f.loopVariable.type))
+        sub.permitOverflow := true
+        breakTest.add(sub)
+        if step > 0 {
+            sub.add(new Cast(f.position, endRef.createReference(),
+                    unsignedVersion(f.loopVariable.type), CastType.CONVERT))
+            sub.add(new Cast(f.position, new VariableReference(
+                    f.loopVariable), unsignedVersion(f.loopVariable.type),
+                    CastType.CONVERT))
+        }
+        else {
+            sub.add(new Cast(f.position, new VariableReference(
+                    f.loopVariable), unsignedVersion(f.loopVariable.type),
+                    CastType.CONVERT))
+            sub.add(new Cast(f.position, endRef.createReference(),
+                    unsignedVersion(f.loopVariable.type),
+                    CastType.CONVERT))
+        }
+        def stepLiteral := new Cast(f.position,
+                getLiteral(step.abs, f.loopVariable.type),
+                unsignedVersion(f.loopVariable.type), CastType.CONVERT)
+        breakTest.add(new Cast(f.position, stepLiteral,
+                unsignedVersion(f.loopVariable.type), CastType.CONVERT))
+        def breakIf := new If(f.position, breakTest)
+        def breakBlock := new Block(b.symbolTable)
+        breakIf.add(breakBlock)
+        breakBlock.add(new Break(f.position, f.label->(String)))
+        continueBlock.add(breakIf)
+        continueBlock.add(new ValueStatement(new VariableAssignment(
+                f.loopVariable, next)))
+        loopNode.add(continueBlock)
+
+        replace(m, analysis, f, b)
+    }
+
+    ============================================================================
+    Rewrites a loop which has a step that is not a constant.
+    ============================================================================
+    @pre(f.label != null)
+    method rewriteLoop(ast:ASTGenerator, m:MethodNode, analysis:MethodAnalysis,
+            f:ForEach, start:Value, end:Value, endInclusive:Bit, step:Value) {
+        def fBlock := f.block
+        fBlock.removeFromParent()
+        start.removeFromParent()
+        end.removeFromParent()
+        step.removeFromParent()
+        def b := new Block(f.position, f.parent->(Block).symbolTable)
+        b.add(new ValueStatement(new VariableAssignment(f.position, 
+                f.loopVariable, start)))
+        
+        def test := new Or()
+        def testLeft := new And()
+        def testLeftLeft := new GreaterThan()
+        def stepRef := new ReusedValueDefinition(step)
+        testLeftLeft.add(stepRef)
+        testLeftLeft.add(getLiteral(0, stepRef.type))
+        testLeft.add(testLeftLeft)
+        var testLeftRight:Value
+        if endInclusive
+            testLeftRight := new LessThanOrEqual()
+        else
+            testLeftRight := new LessThan()
+        testLeftRight.add(new VariableReference(f.loopVariable))
+        def endRef := new ReusedValueDefinition(end)
+        b.add(new ValueStatement(endRef))
+        testLeftRight.add(endRef.createReference())
+        testLeft.add(testLeftRight)
+        def testRight := new And()
+        def testRightLeft := new LessThan()
+        testRightLeft.add(stepRef.createReference())
+        testRightLeft.add(getLiteral(0, stepRef.type))
+        testRight.add(testRightLeft)
+        var testRightRight:Value
+        if endInclusive
+            testRightRight := new LessThanOrEqual()
+        else
+            testRightRight := new LessThan()
+        testRightRight.add(endRef.createReference())
+        testRightRight.add(new VariableReference(f.loopVariable))
+        testRight.add(testRightRight)
+        test.add(testLeft)
+        test.add(testRight)
+
+        def ifNode := new If(f.position, test)
+        b.add(ifNode)
+        def loopNode := new LoopWithContinueBlock(f.position, f.label)
+        def ifBlock := new Block(b.symbolTable)
+        ifBlock.add(loopNode)
+        ifNode.add(ifBlock)
+        def loopBlock := new Block(b.symbolTable)
+        loopNode.add(loopBlock)
+        loopBlock.add(fBlock)
+
+        def continueBlock := new Block(b.symbolTable)
+
+        def breakTest := new Or()
+        def breakLeft := new And()
+        def breakLeftLeft := new GreaterThan()
+        breakLeftLeft.add(stepRef.createReference())
+        breakLeftLeft.add(getLiteral(0, stepRef.type))
+        breakLeft.add(breakLeftLeft)
+        var breakLeftRight:Value
+        if endInclusive
+            breakLeftRight := new LessThan()
+        else
+            breakLeftRight := new LessThanOrEqual()
+        def unsigned := unsignedVersion(f.loopVariable.type)
+        var leftSub := new Subtract(f.position, unsigned)
+        leftSub.permitOverflow := true
+        leftSub.add(new Cast(f.position, endRef.createReference(), unsigned,
+                CastType.CONVERT))
+        leftSub.add(new Cast(f.position, new VariableReference(f.loopVariable),
+                unsigned, CastType.CONVERT))
+        breakLeftRight.add(leftSub)
+        breakLeftRight.add(stepRef.createReference())
+        breakLeft.add(breakLeftRight)
+        def breakRight := new And()
+        def breakRightLeft := new LessThan()
+        breakRightLeft.add(stepRef.createReference())
+        breakRightLeft.add(getLiteral(0, stepRef.type))
+        breakRight.add(breakRightLeft)
+        var breakRightRight:Value
+        if endInclusive
+            breakRightRight := new LessThan()
+        else
+            breakRightRight := new LessThanOrEqual()
+        def rightSub := new Subtract(f.position, unsigned)
+        rightSub.permitOverflow := true
+        rightSub.add(new Cast(f.position, new VariableReference(f.loopVariable),
+                unsigned, CastType.CONVERT))
+        rightSub.add(new Cast(f.position, endRef.createReference(), unsigned,
+                CastType.CONVERT))
+        breakRightRight.add(rightSub)
+        breakRightRight.add(new UnaryMinus(f.position,
+                stepRef.createReference()))
+        breakRight.add(breakRightRight)
+        breakTest.add(breakLeft)
+        breakTest.add(breakRight)
+
+        def breakIf := new If(f.position, breakTest)
+        def breakBlock := new Block(b.symbolTable)
+        breakIf.add(breakBlock)
+        breakBlock.add(new Break(f.position, f.label->(String)))
+        continueBlock.add(breakIf)
+        def next := new Add(f.position, f.loopVariable.type)
+        next.permitOverflow := true
+        next.add(new VariableReference(f.loopVariable))
+        next.add(stepRef.createReference())
+        continueBlock.add(new ValueStatement(new VariableAssignment(
+                f.loopVariable, next)))
+        loopNode.add(continueBlock)
+        replace(m, analysis, f, b)
+    }
+
+    method transform(ast:ASTGenerator, m:MethodNode, analysis:MethodAnalysis, 
+            node:Node) {
+        if node-?>(ForEach) {
+            def f := node->(ForEach)
+            def list := f.list
+            if f.indexVariable = null & list-?>(MethodCall) {
+                def listM := list->(MethodCall)
+                def name := listM.methodNode.name
+                if (name = "[..]" | name = "[...]") & 
+                        listM.methodNode.owner.type().isWrapper {
+                    def start := listM.parameters[0]
+                    def end := listM.parameters[1]
+                    transform(ast, m, analysis, f.block)
+                    if f.label = null
+                        f.label := "$numericFor" + ast.nextCount()
+                    if listM.parameters.length > 2 {
+                        def step := listM.parameters[2]
+                        if step-?>(IntegerLiteral) {
+                            rewriteLoop(ast, m, analysis, f, start, end, 
+                                    name = "[...]", 
+                                    step->(IntegerLiteral).value->(Int32))
+                        }
+                        else if step-?>(UnaryMinus) & step[0]-?>(IntegerLiteral) {
+                            rewriteLoop(ast, m, analysis, f, start, end, 
+                                    name = "[...]", 
+                                    -(step[0]->(IntegerLiteral).value->>(Int32)))
+                        }
+                        else {
+                            rewriteLoop(ast, m, analysis, f, start, end, 
+                                    name = "[...]", step)
+                        }
+                    }
+                    else {
+                        rewriteLoop(ast, m, analysis, f, start, end, 
+                                name = "[...]")
+                    }
+                    return
+                }
+            }
+        }
+        for child in node.children {
+            if child-?>(Statement)
+                transform(ast, m, analysis, child)
+        }
+    }
+
+    @override
+    method transform(m:MethodNode, analysis:MethodAnalysis) {
+        for node in m.children
+            transform(ast, m, analysis, node)
+    }
+}

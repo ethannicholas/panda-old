@@ -1,0 +1,77 @@
+package org.pandalanguage.pandac.types
+
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.SymbolTable
+
+================================================================================
+A wrapper for a primitive type.
+================================================================================
+class WrapperType : ClassType {
+    constant SUFFIX := "Wrapper"
+
+    @private
+    var base:PrimitiveType
+
+    @class
+    method wrapperFor(t:PrimitiveType):WrapperType {
+        var result := SymbolTable.master.getType(Position.INTERNAL, 
+                getNameFor(t))
+        if result-?>(WrapperType)
+            return result->(WrapperType)
+        else {
+            throw new InternalCompilerException(result + 
+                    " is not an instance of WrapperType")
+        }
+    }
+
+    constructor(base:PrimitiveType) {
+        super.constructor(getNameFor(base))
+        self.base := base
+        var cl := new ClassNode(Position.INTERNAL, name, SymbolTable.master)
+        SymbolTable.master.putClass(cl)
+    }
+
+    @override
+    method canExplicitCastTo(t:Type):Bit {
+        if t.unwrapWrapper.isPrimitive
+            return primitiveVersion.canExplicitCastTo(t.unwrapWrapper)
+        return super.canExplicitCastTo(t)
+    }
+
+    @override
+    method implicitCastCost(t:Type):Int {
+        if t.unwrapWrapper.isPrimitive {
+            var result := primitiveVersion.implicitCastCost(t.unwrapWrapper)
+            if t.isNullable & result != NO_MATCH
+                result += NullableType.TO_NULLABLE_CAST_COST
+            return result
+        }
+        return super.implicitCastCost(t)
+    }    
+
+    @private
+    @class
+    function getNameFor(t:PrimitiveType):String {
+        return t.name + SUFFIX
+    }
+
+    function primitiveVersion():PrimitiveType {
+        return base
+    }
+
+    @override
+    function isWrapper():Bit {
+        return true
+    }
+
+    @override
+    function unwrapWrapper():Type {
+        return base
+    }
+
+    @override
+    function displayName():String {
+        assert name.endsWith(SUFFIX)
+        return name[..name.length - SUFFIX.length]
+    }
+}

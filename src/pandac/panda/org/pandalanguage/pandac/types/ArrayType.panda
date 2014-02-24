@@ -1,0 +1,563 @@
+package org.pandalanguage.pandac.types
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.tree.Add
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.BitLiteral
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.IndexedAssignment
+uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+
+================================================================================
+An array (mutable or immutable) of another type.
+================================================================================
+class ArrayType : GenericType {
+    @class
+    method ARRAY_ANY():ArrayType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Array<Object?>).name)->(ArrayType)
+    }
+
+    @class
+    method ARRAY_STRING():ArrayType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Array<String>).name)->(ArrayType)
+    }
+
+    @class
+    method IMMUTABLE_ARRAY_ANY():ArrayType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(ImmutableArray<Immutable?>).name)->(ArrayType)
+    }
+
+    constructor(arrayClass:ClassType, elementType:Type) {
+        super.constructor(arrayClass, [elementType])
+    }
+
+    @override
+    function elementType():Type {
+        return parameters[0]
+    }
+
+    @override
+    function isArray():Bit {
+        return true
+    }
+
+    @override
+    method performBasicClassInitialization() {
+        classNode.annotations.isStatic := true
+        var immutable := name.startsWith(ClassNode.IMMUTABLE_ARRAY_NAME)
+        if immutable {
+            classNode.supertype := SymbolTable.master.getType(
+                    classNode.position, 
+                    ClassNode.IMMUTABLE_ARRAY_NAME)->(ClassType)
+        }
+        else {
+            classNode.supertype := SymbolTable.master.getType(
+                    classNode.position, 
+                    ClassNode.ARRAY_NAME)->(ClassType)
+        }
+        var dedupLine := 0
+        var length := new FieldNode(new Position(displayName, dedupLine, 0), 
+                "$length", Type.INDEX_TYPE)
+        dedupLine += 1
+        length.annotations.isReadOnly := true
+        if immutable
+            length.annotations.isStatic := true
+        classNode.add(length)
+        classNode.symbolTable.putVariable(length)
+
+        var selfParam := new Parameter("self", self)
+        var parameters := new Array<Parameter>(selfParam)
+        var lengthMethod := new MethodNode(new Position(displayName + ":length", 
+                dedupLine, 0), "length", MethodNodeType.FUNCTION,
+                parameters)
+        dedupLine += 1
+        lengthMethod.returnType := IntType.INT32
+        var block := new Block(classNode.symbolTable)
+        block.add(new Return(new FieldReference(new VariableReference(selfParam),
+                length)))
+        lengthMethod.add(block)
+        lengthMethod.annotations.isStatic := true
+        classNode.add(lengthMethod)
+        classNode.symbolTable.putMethod(lengthMethod)
+    }
+
+    -- FIXME PERFORMANCE: should be reusing implementations of these methods
+    -- where possible, rather than recompiling them for every single array type
+    @override
+    method performFinalClassInitialization() {
+        if isImmutable & !elementType.isImmutable {
+            PandaCompiler.reportError(new CompilerException(
+                    "immutable arrays may not have mutable elements",
+                    classNode.position))
+        }
+
+        -- FIXME HACK uggghhhh long past time for this to die. ASTGenerator
+        -- relies on the node's position to match the same entities up between
+        -- passes, so we need to ensure these fields and methods have different 
+        -- positions
+        var dedupLine := 2
+        var arrayClass := classNode
+        if arrayClass.state = ClassNodeState.DEFINED | 
+                arrayClass.state = ClassNodeState.EXTERNALLY_DEFINED
+            return
+        if arrayClass.state = ClassNodeState.EXTERNAL_INSTANCE
+            arrayClass.state := ClassNodeState.EXTERNALLY_DEFINED
+        else
+            arrayClass.state := ClassNodeState.DEFINED
+        var immutable := 
+                name.startsWith(ClassNode.IMMUTABLE_ARRAY_NAME)
+        var supertype := arrayClass.supertype
+        assert supertype != null
+        var position := arrayClass.position
+        var maxLength := new FieldNode(new Position(displayName, 
+                dedupLine, 0), "$maxLength", Type.INDEX_TYPE)
+        dedupLine += 1
+        maxLength.annotations.isPrivate := true
+        arrayClass.add(maxLength)
+        arrayClass.symbolTable.putVariable(maxLength)
+        var element := new FieldNode(new Position(displayName, 
+                dedupLine, 0), FieldNode.ELEMENTS_NAME, elementType)
+        dedupLine += 1
+        arrayClass.add(element)
+        arrayClass.symbolTable.putVariable(element)
+
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function join(del:panda.core.String):panda.core.String {\n" +
+                "var result := new panda.core.MutableString()\n" +
+                "for i, v in self {\n" + 
+                "   if i > 0\n" +
+                "       result.append(del)\n" +
+                "   result.append(v)\n" +
+                "}\n" +
+                "return result->>(panda.core.String)\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC]), 
+                    new Position(displayName + ":join", dedupLine, 0))
+        dedupLine += 1
+
+        def formatPosition := new Position(displayName + "->>(String)", 
+                dedupLine, 0)
+        def formatAnnotations := new Annotations([AnnotationType.SYNTHETIC, 
+                AnnotationType.OVERRIDE])
+        formatAnnotations.pre.append(new PandaParser().parseExpression("true", 
+                formatPosition))
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function format(fmt:String):panda.core.String {\n" +
+                "var result := '['->>(MutableString)\n" +
+                "for i, v in self {\n" +
+                "if i > 0 result.append(', ')\n" +
+                "result.append(panda.core.Panda.format(v, fmt)) }\n" +
+                "result.append(']')\n" +
+                "return result->>(String)" +
+                "}", formatAnnotations, formatPosition)
+        dedupLine += 1
+
+        var mutableVersion := name
+        if immutable {
+            assert mutableVersion.startsWith(class(ImmutableArray).name)
+            mutableVersion := class(Array).name + 
+                    mutableVersion[class(ImmutableArray).name.length..]
+            new ASTGenerator().compileMethod(arrayClass, 
+                    "function ->>():" + mutableVersion + " {\n" +
+                    "var result := new " + mutableVersion + "()\n" +
+                    "for v in self { result.append(v) }\n" +
+                    "return result\n" +
+                    "}", new Annotations([AnnotationType.SYNTHETIC]), 
+                    new Position(displayName + ":->>(" + 
+                            mutableVersion + ")", dedupLine, 0))
+            dedupLine += 1
+            new ASTGenerator().compileMethod(arrayClass, 
+                    "function ->>(src:" + mutableVersion + "):" + name + 
+                    " {\n" +
+                    "return new " + name + "(src, 0, src.length)\n" +
+                    "}", new Annotations([AnnotationType.SYNTHETIC, 
+                        AnnotationType.CLASS]), 
+                    new Position(displayName + ":->>(" + displayName + ")", 
+                    dedupLine, 0))
+            dedupLine += 1
+        }
+        else {
+            -- length:=
+            var selfParam := new Parameter("self", self)
+            var lengthParam := new Parameter("length", INDEX_TYPE)
+            var lengthParameters := new Array<Parameter>(selfParam, lengthParam)
+            var setLength := new MethodNode("length:=", MethodNodeType.METHOD,
+                    lengthParameters)
+            var block := new Block(arrayClass.symbolTable)
+            -- FIXME method should have its own symbol table
+            block.symbolTable.putVariable(selfParam)
+            block.symbolTable.putVariable(lengthParam)
+            setLength.add(block)
+            arrayClass.add(setLength)
+            var superclass := supertype.classNode
+            var pandaSetArrayLength := superclass[0]->(MethodNode)
+            var call := new MethodCall(pandaSetArrayLength, false,
+                    new Array<Value>(new Cast(new VariableReference(selfParam),
+                            arrayClass.symbolTable.getType(position,
+                                    ClassNode.OBJECT_NAME), 
+                            CastType.IMPLICIT),
+                        new IntegerLiteral(elementType.size->(UInt), 
+                            Type.INDEX_TYPE),
+                        new BitLiteral(true),
+                        new VariableReference(lengthParam)))
+            block.add(new ValueStatement(call))
+            setLength.annotations.isStatic := true
+            arrayClass.symbolTable.putMethod(setLength)
+
+            -- append
+            selfParam := new Parameter("self", self)
+            var elementParam := new Parameter("element", elementType)
+            var appendParameters := new Array<Parameter>(selfParam, 
+                    elementParam)
+            var append := new MethodNode("append", MethodNodeType.METHOD,
+                    appendParameters)
+            block := new Block(arrayClass.symbolTable)
+            block.symbolTable.putVariable(selfParam)
+            block.symbolTable.putVariable(elementParam)
+            append.add(block)
+            arrayClass.add(append)
+            var lengthVar := new LocalVariable("length", IntType.INT32)
+            append.localVariables.append(lengthVar)
+            def length  := arrayClass[0]->(FieldNode)
+            assert length.name = "$length"
+            var getLength := new FieldReference(
+                    new VariableReference(selfParam), length)
+            block.add(new ValueStatement(new VariableAssignment(lengthVar, 
+                    getLength)))
+            var newLength := new Add()
+            newLength.add(new VariableReference(lengthVar))
+            newLength.add(new IntegerLiteral(1, IntType.INT32))
+            call := new MethodCall(setLength, true,
+                    new Array<Value>(new VariableReference(selfParam),
+                        newLength))
+            block.add(new ValueStatement(call))
+            block.add(new IndexedAssignment(new VariableReference(selfParam),
+                    new VariableReference(lengthVar), 
+                    new VariableReference(elementParam)))
+            append.annotations.isStatic := true
+            append.annotations.isSelf := true
+            arrayClass.symbolTable.putMethod(append)
+
+            -- appendAll
+            new ASTGenerator().compileMethod(arrayClass, 
+                    "method appendAll(src:" + name + ") {\n" +
+                    "for v in src append(v)\n" +
+                    "}", new Annotations([AnnotationType.SYNTHETIC,
+                        AnnotationType.SELF]), 
+                    new Position(displayName + ":appendAll", dedupLine, 0))
+            dedupLine += 1
+        }
+
+        var convert := ""
+        if immutable
+            convert := "->>(" + name + ")"
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function [..](left:panda.core.Int32," +
+                "right:panda.core.Int32):" + name + " {\n" +
+                "var result := new " + mutableVersion + "()\n" +
+                "for i in left .. right\n" +
+                "    result.append(self[i])" +
+                "return result" + convert + "\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC, 
+                    AnnotationType.SAFERETURN]),
+                new Position(displayName + ":[..]1", dedupLine, 0))
+        dedupLine += 1
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function [..](var left:panda.core.Int32?," +
+                "var right:panda.core.Int32?):" + name + " {\n" +
+                "if left = null\n" +
+                "    left := 0\n" +
+                "if right = null" +
+                "    right := length\n" +
+                "var result := new " + mutableVersion + "()\n" +
+                "for i in left .. right\n" +
+                "    result.append(self[i])" +
+                "return result" + convert + "\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC, 
+                    AnnotationType.SAFERETURN]),
+                new Position(displayName + ":[..]2", dedupLine, 0))
+        dedupLine += 1
+        new ASTGenerator().compileMethod(arrayClass,
+                "function [..](var left:panda.core.Int32?," +
+                "var right:panda.core.Int32?, step:panda.core.Int32):" + name + 
+                " {\n" +
+                "if left = null {\n" +
+                "    if step > 0\n" +
+                "        left := 0\n" +
+                "    else\n" +
+                "        left := length - 1\n" +
+                "}\n" +
+                "if right = null {" +
+                "    if step > 0\n" +
+                "        right := length\n" +
+                "    else\n" +
+                "        right := -1" +
+                "}\n" +
+                "var result := new " + mutableVersion + "()\n" +
+                "for i in left .. right by step\n" +
+                "    result.append(self[i])" +
+                "return result" + convert + "\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC,
+                    AnnotationType.SAFERETURN]),
+                new Position(displayName + ":[..]3", dedupLine, 0))
+        dedupLine += 1
+
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function [...](left:panda.core.Int32," +
+                "right:panda.core.Int32):" + name + " {\n" +
+                "var result := new " + mutableVersion + "()\n" +
+                "for i in left ... right\n" +
+                "    result.append(self[i])" +
+                "return result" + convert + "\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC, 
+                    AnnotationType.SAFERETURN]),
+                new Position(displayName + ":[...]1", dedupLine, 0))
+        dedupLine += 1
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function [...](var left:panda.core.Int32?," +
+                "var right:panda.core.Int32?):" + name + " {\n" +
+                "if left = null\n" +
+                "    left := 0\n" +
+                "if right = null" +
+                "    right := length - 1\n" +
+                "var result := new " + mutableVersion + "()\n" +
+                "for i in left ... right\n" +
+                "    result.append(self[i])" +
+                "return result" + convert + "\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC, 
+                    AnnotationType.SAFERETURN]),
+                new Position(displayName + ":[...]2", dedupLine, 0))
+        dedupLine += 1
+        new ASTGenerator().compileMethod(arrayClass,
+                "function [...](var left:panda.core.Int32?," +
+                "var right:panda.core.Int32?, step:panda.core.Int32):" + name + 
+                " {\n" +
+                "if left = null {\n" +
+                "    if step > 0\n" +
+                "        left := 0\n" +
+                "    else\n" +
+                "        left := length - 1\n" +
+                "}\n" +
+                "if right = null {" +
+                "    if step > 0\n" +
+                "        right := length - 1\n" +
+                "    else\n" +
+                "        right := 0" +
+                "}\n" +
+                "var result := new " + mutableVersion + "()\n" +
+                "for i in left ... right by step\n" +
+                "    result.append(self[i])" +
+                "return result" + convert + "\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC,
+                    AnnotationType.SAFERETURN]),
+                new Position(displayName + ":[..]3", dedupLine, 0))
+        dedupLine += 1
+        if !immutable {
+            new ASTGenerator().compileMethod(arrayClass,
+                "method [..]:=(var start:panda.core.Int32?, " +
+                    "var end:panda.core.Int32?, " +
+                    "step:panda.core.Int32, s->>" + name + ") {\n" +
+                    "if start = null {\n" +
+                        "if step > 0\n" +
+                            "start := 0\n" +
+                        "else\n" + 
+                            "start := length - 1\n" +
+                    "}\n" +
+                    "if end = null {\n" +
+                        "if step > 0\n" +
+                            "end := length\n" +
+                        "else\n" +
+                            "end := -1\n" +
+                    "}\n" + 
+                    "if step = 1 {\n" +
+                        "var oldLength := end - start\n" +
+                        "var newLength := s.length\n" + 
+                        "if oldLength > newLength {\n" +
+                            "var copyDest := start + newLength\n" +
+                            "var delta := end - start - s.length\n" +
+                            "for i in copyDest .. copyDest + length - end\n" +
+                                "self[i] := self[i + delta]\n" +
+                            "self.length += newLength - oldLength\n" +
+                        "}\n" +
+                        "else {\n" +
+                            "var originalArrayLength := length\n" +
+                            "self.length += newLength - oldLength\n" +
+                            "var copyDest := start + newLength\n" +
+                            "var delta := end - start - s.length\n" +
+                            "for i in copyDest + originalArrayLength - end - 1 .. copyDest - 1" +
+                                    "by -1\n"+
+                                "self[i] := self[i + delta]\n" +
+                        "}\n" +
+                        "for i in start .. start + s.length\n" +
+                            "self[i] := s[i - start]\n" +
+                    "}\n" +
+                    "else {\n" +
+                        "var src := 0\n" +
+                        "for dest in start .. end by step {\n" +
+                            "self[dest] := s[src]\n" +
+                            "src += 1\n" +
+                        "}\n" +
+                        "if src != s.length\n" +
+                            "throw new SafetyError(\n" +
+                                    "'slice source and destination " +
+                                    "lengths do not match')\n" +
+                    "}\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC,
+                    AnnotationType.SELF]),
+                new Position(displayName + ":[..]:=", dedupLine, 0))
+            dedupLine += 1
+            new ASTGenerator().compileMethod(arrayClass,
+                "method [...]:=(var start:panda.core.Int32?, " +
+                    "var end:panda.core.Int32?, " +
+                    "step:panda.core.Int32, s->>" + name + ") {\n" +
+                    "if start = null {\n" +
+                        "if step > 0\n" +
+                            "start := 0\n" +
+                        "else\n" + 
+                            "start := length - 1\n" +
+                    "}\n" +
+                    "if end = null {\n" +
+                        "if step > 0\n" +
+                            "end := length - 1\n" +
+                        "else\n" +
+                            "end := 0\n" +
+                    "}\n" + 
+                    "if step = 1 {\n" +
+                        "var oldLength := end - start + 1\n" +
+                        "var newLength := s.length\n" + 
+                        "if oldLength > newLength {\n" +
+                            "var copyDest := start + newLength\n" +
+                            "var delta := end - start - s.length\n" +
+                            "for i in copyDest .. copyDest + length - end\n" +
+                                "self[i] := self[i + delta]\n" +
+                            "self.length += newLength - oldLength\n" +
+                        "}\n" +
+                        "else {\n" +
+                            "var originalArrayLength := length\n" +
+                            "self.length += newLength - oldLength\n" +
+                            "var copyDest := start + newLength - 1\n" +
+                            "var delta := end - start + 1 - s.length\n" +
+                            "for i in copyDest + originalArrayLength - end - 1 .. copyDest - 1" +
+                                    "by -1\n"+
+                                "self[i] := self[i + delta]\n" +
+                        "}\n" +
+                        "for i in start .. start + s.length\n" +
+                            "self[i] := s[i - start]\n" +
+                    "}\n" +
+                    "else {\n" +
+                        "var src := 0\n" +
+                        "for dest in start ... end by step {\n" +
+                            "self[dest] := s[src]\n" +
+                            "src += 1\n" +
+                        "}\n" +
+                        "if src != s.length\n" +
+                            "throw new SafetyError(\n" +
+                                    "'slice source and destination " +
+                                    "lengths do not match')\n" +
+                    "}\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC,
+                    AnnotationType.SELF]),
+                new Position(displayName + ":[...]:=", dedupLine, 0))
+            dedupLine += 1
+        }
+
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function filter(f:(\{elementType.name})=>(panda.core.Bit)):\{name} {\n" +
+                "def result := new \{mutableVersion}()\n" +
+                "for v in self\n" +
+                "    if f(v) result.append(v)\n" +
+                "return result" + convert + "\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC, 
+                        AnnotationType.SAFERETURN]),
+                new Position(displayName + ":filter", dedupLine, 0))
+        dedupLine += 1
+
+        def foldPosition := new Position(displayName + ":fold1", dedupLine, 0)
+        def foldAnnotations := new Annotations([AnnotationType.SYNTHETIC, 
+                AnnotationType.SAFERETURN])
+        foldAnnotations.pre.append(new PandaParser().parseExpression(
+                "length > 0", formatPosition))
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function fold(f:(\{elementType.name},\{elementType.name})=>(\{elementType.name})):\{elementType.name} {\n" +
+                "var result:\{elementType.name} := self[0]\n" +
+                "for i in 1 .. length\n" +
+                "    result := f(result, self[i])\n" +
+                "return result\n" +
+                "}", foldAnnotations, foldPosition)
+        dedupLine += 1
+
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function fold(f:(\{elementType.name},\{elementType.name})=>(\{elementType.name}), identity:\{elementType.name}):\{elementType.name} {\n" +
+                "var result:\{elementType.name} := identity\n" +
+                "for v in self\n" +
+                "    result := f(result, v)\n" +
+                "return result\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC, 
+                        AnnotationType.SAFERETURN]),
+                new Position(displayName + ":fold2", dedupLine, 0))
+
+        new ASTGenerator().compileMethod(arrayClass, 
+                "method apply(f:(\{elementType.name})=&>()) {\n" +
+                "for v in self\n" +
+                "    f(v)\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC]),
+                new Position(displayName + ":apply", dedupLine, 0))
+        dedupLine += 1
+
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function in(needle:\{elementType.name}):Bit {\n" +
+                "for v in self\n" +
+                "    if v = needle return true\n" +
+                "return false\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC]),
+                new Position(displayName + ":in", dedupLine, 0))
+        dedupLine += 1
+
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function =(o:Object):Bit {\n" +
+                "if o-!>(\{name})\n" +
+                "    return false\n" +
+                "def other := o->(\{name})\n" +
+                "if length != other.length return false\n" +
+                "for i, v in self\n" +
+                "    if v != other[i] return false\n" +
+                "return true\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC, 
+                    AnnotationType.OVERRIDE]),
+                new Position(displayName + ":=", dedupLine, 0))
+        dedupLine += 1
+
+        constant MULTIPLIER := 53
+        new ASTGenerator().compileMethod(arrayClass, 
+                "function hash():Int {\n" +
+                "var result := 0\n" +
+                "for v in self\n" +
+                "    result := result * \{MULTIPLIER} + v.hash\n" +
+                "return result\n" +
+                "}", new Annotations([AnnotationType.SYNTHETIC,
+                    AnnotationType.OVERRIDE, AnnotationType.OVERFLOW]),
+                new Position(displayName + ":hash", dedupLine, 0))
+        dedupLine += 1
+    }
+}

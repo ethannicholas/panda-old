@@ -1,0 +1,803 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.CompilerSettings
+uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.compiler.InternalCompilerException
+uses org.pandalanguage.pandac.compiler.Module
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.compiler.UnresolvedTypeException
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.parser.ParseNode
+uses org.pandalanguage.pandac.parser.ParseNodeType
+uses org.pandalanguage.pandac.parser.TokenNode
+uses org.pandalanguage.pandac.parser.TokenType
+uses org.pandalanguage.pandac.types.ArrayType
+uses org.pandalanguage.pandac.types.BitType
+uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.MethodType
+uses org.pandalanguage.pandac.types.NativePointerType
+uses org.pandalanguage.pandac.types.NullableType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.RealType
+uses org.pandalanguage.pandac.types.TupleType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+uses org.pandalanguage.pandac.types.VoidType
+uses org.pandalanguage.pandac.types.WrapperType
+
+class SymbolTable {
+    constant GETTYPE_QUEUE_KEY := "SymbolTable.getType"
+
+    @thread
+    def responseQueue := new MessageQueue()
+
+    @thread
+    var master := new SymbolTable()
+    
+    var owner:Node?
+    var parent:SymbolTable?
+    -- additional interface symboltables that are in scope from this symboltable
+    var interfaces := new Array<SymbolTable>()
+    var variables := new HashMap()
+    var methods := new HashMap()
+    var types := new HashMap()
+    var classMap := new HashMap()
+    -- FIXME need an order-preserving hashtable
+    var classOrder := new Array<ClassNode>()
+    -- package which owns this symboltable. Classes in this package are 
+    -- imported, but unlike normal "uses packagename.*" declarations classes
+    -- found in the current package "win" against other similar names without
+    -- being considered ambiguous
+    var inPackage:String? := null
+    var packageUses := new Array<String>()
+    var classUses := new HashMap()
+
+    @private    
+    constructor() {
+    }
+    
+    constructor(owner:Node) {
+        constructor()
+        self.owner := owner
+        if owner-?>(ClassNode) {
+            for p in ClassNode.DEFAULT_IMPORTS
+                usePackage(p)
+        }
+    }
+    
+    constructor(owner:Node, parent:SymbolTable) {
+        constructor(owner)
+        self.parent := parent
+    }
+
+    @class
+    method initMaster() {
+        master.putType(IntType.INT8)
+        master.putType(new WrapperType(IntType.INT8))
+        master.putType(IntType.INT16)
+        master.putType(new WrapperType(IntType.INT16))
+        master.putType(IntType.INT32)
+        master.putType(new WrapperType(IntType.INT32))
+        master.putType(IntType.INT64)
+        master.putType(new WrapperType(IntType.INT64))
+        master.putType(IntType.UINT8)
+        master.putType(new WrapperType(IntType.UINT8))
+        master.putType(IntType.UINT16)
+        master.putType(new WrapperType(IntType.UINT16))
+        master.putType(IntType.UINT32)
+        master.putType(new WrapperType(IntType.UINT32))
+        master.putType(IntType.UINT64)
+        master.putType(new WrapperType(IntType.UINT64))
+        master.putType(RealType.REAL32)
+        master.putType(new WrapperType(RealType.REAL32))
+        master.putType(RealType.REAL64)
+        master.putType(new WrapperType(RealType.REAL64))
+        master.putType(BitType.BIT)
+        master.putType(new WrapperType(BitType.BIT))
+        master.putType(CharType.CHAR)
+        master.putType(new WrapperType(CharType.CHAR))
+        master.putType(NativePointerType.NATIVE_POINTER)
+        master.putType(IntType.INT32, "Int")
+        master.putType(IntType.UINT32, "UInt")
+        master.putType(RealType.REAL64, "Real")
+    }
+
+    method getType(position:Position, name:String):Type {
+        var result := types[name]->(Type?)
+        if result = null {
+            result := getType(Type.parseTypeName(name, position))
+            if result-!>(UnresolvedType)
+                types[name] := result
+        }
+        return result
+    }
+
+    @private
+    function resolveName(var name:String, position:Position):String? {
+        var rawName := name
+        var nullable := name.endsWith("?")
+        if nullable
+            name := name[0 .. name.length - 1 by 1]
+        var result:String? := null
+        result := classUses[name]->(String?)
+        if result = null {
+            var t := types[name]->(Type?)
+            if t != null
+                result := t.name
+        }
+        if result = null & master.types[name] != null
+            result := master.types[name]->(Type).name
+        if result = null & classMap[name] != null
+            result := classMap[name]->(ClassNode).name
+        if result = null & !("." in name) {
+            -- not found, see if it's in a used package
+            var inPackage := self.inPackage
+            if inPackage != null {
+                var qualifiedName := inPackage + "." + name
+                var check := types[qualifiedName]->(Type?)
+                if check = null & self != master
+                    check := master.types[qualifiedName]->(Type?)
+                if check != null
+                    result := check.name
+            }
+            if result = null {
+                for p in packageUses {
+                    var qualifiedName := p + "." + name
+                    var check := types[qualifiedName]->(Type?)
+                    if check = null & self != master
+                        check := master.types[qualifiedName]->(Type?)
+                    if check != null {
+                        if result != null & result != check.name {
+                            throw new CompilerException("class '" + rawName +
+                                    "' is ambiguously referenced, both " + 
+                                    result + " and " + check.displayName + " match", 
+                                    position)
+                        }
+                        result := check.name
+                    }
+                }
+            }
+        }
+        if result = null {
+            var parent := self.parent
+            if parent != null
+                return parent.resolveName(rawName, position)
+            else
+                return null
+        }
+        if master.types[result] = null | 
+                !master.types[result]->(Type).isPrimitive {
+            if master.classMap[result] = null {
+                -- class hasn't been seen yet, we'll need to return an 
+                -- UnresolvedType
+                return null 
+            }
+        }
+        if nullable
+            result += "?"
+        return result
+    }
+
+    ============================================================================
+    Given the parse tree for a type name, return the fully qualified name (e.g.
+    "Array<String>" becomes "panda.collections.Array<panda.core.String>").
+    Returns `null` if the name could not be resolved.
+    ============================================================================
+    @private
+    @pre(node.type = ParseNodeType.TYPE)
+    function resolveName(node:ParseNode):String? {
+        var result := new MutableString()
+        if node[0]-?>(TokenNode) {
+            var type := node[0]->(TokenNode).token.type
+            if type = TokenType.LPAREN {
+                result.append("(")
+                var i := 1
+                var count := 0
+                loop {
+                    if node[i]-?>(TokenNode) & 
+                            node[i]->(TokenNode).token.type = TokenType.RPAREN {
+                        i += 1
+                        result.append(")")
+                        if i >= node.length - 1 {
+                            if count < 2 {
+                                throw new CompilerException("tuple types " +
+                                        "must have at least two elements", 
+                                        node.position)
+                            }
+                            break
+                        }
+                        var isFunction:Bit
+                        def yield := node[i]->(TokenNode).token.type
+                        if yield = TokenType.YIELDS | 
+                                yield = TokenType.YIELDS_IMMUTABLE {
+                            isFunction := true
+                        }
+                        else
+                            isFunction := false
+                        result.append(node[i])
+                        i += 1
+                        assert node[i]->(TokenNode).token.type = 
+                                TokenType.LPAREN
+                        result.append("(")
+                        i += 1
+                        if node[i]-?>(TokenNode) {
+                            assert node[i]->(TokenNode).token.type =
+                                    TokenType.RPAREN
+                            if isFunction {
+                                throw new CompilerException("functions must " +
+                                        "have a return type", node.position)
+                            }
+                            break
+                        }
+                        var r := resolveName(node[i])
+                        if r = null
+                            return null
+                        result.append(r)
+                        i += 1
+                        break
+                    }
+                    var r := resolveName(node[i])
+                    if r = null
+                        return null
+                    if i > 1
+                        result.append(",")
+                    result.append(r)
+                    count += 1
+                    i += 1
+                    if node[i]->(TokenNode).token.type = TokenType.COMMA
+                        i += 1
+                }
+                if i < node.length {
+                    if node[i]->(TokenNode).token.type = TokenType.RPAREN {
+                        result.append(")")
+                        i += 1
+                    }
+                }
+                if i < node.length {
+                    assert node[i]->(TokenNode).token.type = TokenType.QUESTION
+                    result.append("?")
+                }
+                return result->>(String)
+            }
+        }
+        for i, n in node.children {
+            if n.type = ParseNodeType.GENERIC_PARAMETERS {
+                var base := resolveName(result->>(String), node.position)
+                if base = null
+                    return null
+                result.clear()
+                result.append(base)
+                result.append("<")
+                for j in 1 ... n.length - 2 by 2 {
+                    var p := resolveName(n[j])
+                    if p = null
+                        return null
+                    if j > 1
+                        result.append(", ")
+                    result.append(p)
+                }
+                result.append(">")
+                if node->>(String).endsWith("?")
+                    result.append("?")
+                return result->>(String)
+            }
+            else
+                result.append(n)
+        }
+        -- not generic
+        return resolveName(result->>(String), node.position)
+    }
+
+    @private
+    @pre(self = master)
+    method createClassFor(t:ClassType, position:Position) {
+        if classMap[t.name] = null {
+            var cl := new ClassNode(t.name, self)
+            cl.position := position
+            putClass(cl)
+        }
+        t.performBasicClassInitialization()
+        if PandaCompiler.symbolsLoaded
+            t.performFinalClassInitialization()
+    }
+
+    @private
+    @pre(self = master)
+    method createType(node:ParseNode):Type {
+        if node[0]-?>(TokenNode) {
+            if node[0]->(TokenNode).token.type = TokenType.LPAREN {
+                var params := new Array<Type>()
+                var returnType:Type := VoidType.VOID
+                var i := 1
+                var isFunction := false
+                var isImmutable := false
+                var isTuple := false
+                loop {
+                    if node[i]-?>(TokenNode) {
+                        assert node[i]->(TokenNode).token.type = 
+                                TokenType.RPAREN
+                        i += 1
+                        if i >= node.length - 1 {
+                            isTuple := true
+                            break
+                        }
+                        def yields := node[i]->>(String)
+                        isFunction := !("&" in yields)
+                        isImmutable := yields.endsWith("*")
+                        i += 1
+                        assert node[i]->(TokenNode).token.type = 
+                                TokenType.LPAREN
+                        i += 1
+                        if node[i]-?>(TokenNode) {
+                            assert node[i]->(TokenNode).token.type =
+                                    TokenType.RPAREN
+                            break
+                        }
+                        returnType := getType(node[i])
+                        i += 1
+                        break
+                    }
+                    params.append(getType(node[i]))
+                    i += 1
+                    if node[i]-?>(TokenNode) & 
+                            node[i]->(TokenNode).token.type = TokenType.COMMA
+                        i += 1
+                }
+                var name := "("->>(MutableString)
+                for j, p in params {
+                    if j > 0
+                        name.append(",")
+                    name.append(params[j].displayName)
+                }
+                name.append(")")
+                var result:Type
+                if isTuple {
+                    if i < node.length {
+                        assert node[i]->(TokenNode).token.type = 
+                                TokenType.QUESTION
+                        def base := getType(node.position, name->>(String))
+                        result := new NullableType(base->(ClassType))
+                    }
+                    else {
+                        result := new TupleType(params->>(ImmutableArray<Type>))
+                        putType(result)
+                        createClassFor(result->(ClassType), node.position)
+                    }
+                }
+                else {
+                    assert node[i]->(TokenNode).token.type = TokenType.RPAREN
+                    i += 1
+                    if i < node.length {
+                        assert node[i]->(TokenNode).token.type = 
+                                TokenType.QUESTION
+                        if isFunction 
+                            name.append("=>")
+                        else
+                            name.append("=&>")
+                        if isImmutable
+                            name.append("*")
+                        name.append("(")
+                        if returnType != VoidType.VOID
+                            name.append(returnType.displayName)
+                        name.append(")")
+                        def base := getType(node.position, name->>(String))
+                        result := new NullableType(base->(ClassType))
+                    }
+                    else {
+                        result := new MethodType(
+                                params->>(ImmutableArray<Type>), 
+                                returnType, isFunction, isImmutable)
+                    }
+                    putType(result)
+                }
+                return result
+            }
+        }
+        var nullable := false
+        var baseName := new MutableString()
+        var name := new MutableString()
+        var generics:Array<Type>? := null
+        for child in node.children {
+            if child-?>(TokenNode) {
+                var tokenType := child->(TokenNode).token.type
+                if tokenType = TokenType.IDENTIFIER | 
+                        tokenType = TokenType.DOT {
+                    baseName.append(child)
+                    name.append(child)
+                }
+                else if tokenType = TokenType.QUESTION {
+                    name.append("?")
+                    nullable := true
+                }
+                else
+                    throw new InternalCompilerException(child.position)
+            }
+            else if child.type = ParseNodeType.GENERIC_PARAMETERS {
+                generics := []
+                for i in 1 ... child.length - 2 by 2
+                    generics.append(getType(child[i]))
+                name.append("<")
+                for i, g in generics {
+                    if i > 0
+                        name.append(",")
+                    name.append(g.name)
+                }
+                name.append(">")
+            }
+            else
+                throw new UnimplementedException(child->>(String))
+        }
+        assert types[name] = null
+        if nullable {
+            assert name.endsWith("?")
+            var base := getType(node.position, name[0 .. name.length - 1])
+            if base.isPrimitive
+                base := base->(PrimitiveType).wrapperVersion()
+            -- due to aliasing of primitive types, we can actually end up here
+            -- when the class already exists. Double-check!
+            var result:Type? := master.types[base.name + "?"]->(Type?)
+            if result = null {
+                result := new NullableType(base->(ClassType))
+                putType(result)
+            }
+            return result
+        }
+        else if generics != null {
+            var base := getType(node.position, baseName->>(String))
+            if base.isPrimitive {
+                throw new CompilerException(baseName + 
+                        " does not have generic parameters", node.position)
+            }
+            if baseName->>(String) = class(Array).name | 
+                    baseName->>(String) = class(ImmutableArray).name {
+                if generics.length != 1 {
+                    throw new CompilerException(baseName + 
+                            " expected exactly 1 generic parameter")
+                }
+                var result := new ArrayType(base->(ClassType), generics[0])
+                putType(result)
+                createClassFor(result, node.position)
+                return result
+            }
+            else {
+                var result := new GenericType(base->(ClassType), 
+                        generics->>(ImmutableArray<Type>))
+                putType(result)
+                createClassFor(result, node.position)
+                return result
+            }
+        }
+        else {
+            assert name->>(String) = baseName->>(String)
+            var result := new ClassType(name->>(String))
+            putType(result)
+            createClassFor(result, node.position)
+            return result
+        }
+    }
+
+    @private
+    @pre(node.type = ParseNodeType.TYPE)
+    method getType(node:ParseNode):Type {
+        var name := resolveName(node)
+        var result:Type? := null
+        var parent := self.parent
+        if name != null {
+            result := master.types[name]->(Type?)
+            if result = null {
+                result := master.createType(Type.parseTypeName(name, 
+                        node.position))
+            }
+            return result
+        }
+        else if parent != null
+            return parent.getType(node)
+        else
+            return new UnresolvedType(node->>(String), node.position)
+    }
+    
+    method putType(t:Type) {
+        putType(t, t.name)
+        if t.isWrapper & t.isNullable
+            putType(t, t.displayName)
+    }
+
+    @private
+    @pre(types[s] = null)
+    method putType(t:Type, s:String) {
+        types[s] := t
+        if t.name.startsWith(ClassNode.CORE) & t.name.endsWith("Wrapper") {
+            var primitive := t.name[ClassNode.CORE.length ..
+                    t.name.length - "Wrapper".length] + "?"
+            if types[primitive] = null
+                types[primitive] := getType(Position.INTERNAL, t.name + "?")
+        }
+    }
+
+    -- FIXME: simplify when real HashMap is available
+    function classes():Array<ClassNode> {
+        var result := new Array<ClassNode>()
+        for cl in classOrder
+            result.append(cl)
+        return result
+    }
+    
+    function getClass(name:String):ClassNode? {
+        var result := classMap[name]->(ClassNode?)
+        var parent := self.parent
+        if result = null & parent != null
+            result := parent.getClass(name)
+        return result
+    }
+
+    method putClass(c:ClassNode) {
+        assert classMap[c.name] = null
+        classMap[c.name] := c
+        classOrder.append(c)
+    }
+    
+    method putVariable(v:Variable) {
+        var st:SymbolTable? := self
+        while st != null & st.owner-!>(ClassNode) {
+            def owner := st.owner
+            if st.variables[v.name] != null {
+                throw new CompilerException("'" + v + "' was already defined " +
+                        "at " + st.variables[v.name]->(Variable).position, 
+                        v.position)
+            }
+            st := st.parent
+        }
+        variables[v.name] := v
+    }
+    
+    function getVariable(name:String):Variable? {
+        var result := variables[name]->(Variable?)
+        var parent := self.parent
+        if result = null & parent != null
+            result := parent.getVariable(name)
+        return result
+    }
+
+    method useModule(m:Module) {
+        CompilerSettings.addModule(m)
+    }
+
+    method usePackage(packageName:String) {
+        if packageName = "panda.gl"
+            useModule(Module.PANDAGL)
+        packageUses.append(packageName)
+    }
+
+    @pre(classUses[alias] = null)
+    method useClass(className:String, alias:String) {
+        if className.startsWith("panda.gl.")
+            useModule(Module.PANDAGL)
+        classUses[alias] := className
+    }
+    
+    @pre(owner-?>(ClassNode))
+    method putMethod(m:MethodNode) {
+        var named := methods[m.name]->(Array<MethodNode>?)
+        if named = null {
+            named := new Array<MethodNode>()
+            methods[m.name] := named
+            assert methods[m.name] != null
+        }
+        named.append(m)
+    }
+
+    -- FIXME PERFORMANCE this is O(n^2), which is ugly, but n is always
+    -- going to be small so it's probably not a huge deal
+    @private
+    method addNonOverriddenMethods(destList:Array<MethodNode>, 
+            additions:Array<MethodNode>) {
+        outer: for addition in additions {
+            for dest in destList {
+                if dest.isOverrideOf(addition)
+                    continue outer
+            }
+            destList.append(addition)
+        }
+    }
+    
+    @private
+    @safeReturn
+    method getMethodsNamed(name:String):Array<MethodNode> {
+        var current := methods[name]->(Array<MethodNode>?)
+        var result:Array<MethodNode>
+        if current != null
+            result := new Array<MethodNode>(current, 0, current.length)
+        else
+            result := new Array<MethodNode>()
+        var parent := self.parent
+        if parent != null {
+            if parent.owner-!>(ClassNode) |
+                    !parent.owner->(ClassNode).annotations.isUnspecified()
+            addNonOverriddenMethods(result, parent.getMethodsNamed(name))
+        }
+        for intf in interfaces
+            addNonOverriddenMethods(result, intf.getMethodsNamed(name))
+        return result
+    }
+
+    @private
+    constant VARARG_COST := 1
+
+    constant CONVERT_COST := 10
+    
+    @class
+    method matchCost(m:MethodNode, params:Array<Value>):Int {
+        if m.methodType = MethodNodeType.CONSTRUCTOR & params.length > 0 &
+                m.parameters[0].type != params[0].type {
+            -- constructor called on mismatched type means we're in a subclass,
+            -- and since constructors are not inherited we need to ignore it
+            return Type.NO_MATCH
+        }
+        var result := 0
+        var methodParams := m.parameters
+        var isVarArg := methodParams.length > 0 & 
+                methodParams[methodParams.length - 1].isVarArg
+        if isVarArg
+            result += VARARG_COST
+        if params.length > 0 & params[params.length - 1]-?>(Unwrap) {
+            -- we handle unwrap parameters (such as the call foo(bar, baz...))
+            -- by simply turning off varargs; the last parameter is already an
+            -- array and we just let it be treated as such
+            isVarArg := false
+        }
+        if isVarArg {
+            -- strip off vararg parameter, it's not required
+            methodParams := new Array<Parameter>()
+            for i in 0 ... m.parameters.length - 2
+                methodParams.append(m.parameters[i])
+        }
+        -- do we have the right number of parameters?
+        if !isVarArg & params.length != methodParams.length | 
+                isVarArg & params.length < methodParams.length
+            return Type.NO_MATCH
+
+        for i, param in methodParams {
+            var targetType := param.type.unwrapGenerics()
+            var cost := params[i].implicitCastCost(targetType)
+            if cost = Type.NO_MATCH {
+                if methodParams[i].isConvert & 
+                        params[i].canConvertTo(targetType)
+                    result += CONVERT_COST
+                else
+                    return Type.NO_MATCH
+            }
+            else
+                result += cost
+        }
+        
+        if isVarArg {
+            -- verify that all remaining parameters match the vararg
+            var varArg := m.parameters[m.parameters.length - 1]
+            var varArgType := varArg.type.elementType
+            varArgType := varArgType.unwrapGenerics()
+            for i in methodParams.length .. params.length {
+                var cost := params[i].implicitCastCost(varArgType)
+                if cost = Type.NO_MATCH {
+                    if varArg.isConvert & 
+                            params[i].canConvertTo(varArgType)
+                        result += CONVERT_COST
+                    else
+                        return Type.NO_MATCH
+                }
+                else
+                    result += cost
+            }
+        }
+        return result
+    }
+    
+    ============================================================================
+    Looks up a method in the symbol table.
+    
+    @param name the name of the method to find
+    @param params the method parameters
+    @param classMethod `true` if the call is class, `false` if instance, `null` 
+            if either
+    @return the best matching method, or `null` if none
+    ============================================================================
+    method getMethod(position:Position, name:String, rawParams:Array<Value>, 
+            classMethod:Bit?):MethodNode? {
+        var params := rawParams
+        def possibleMatches := getMethodsNamed(name)
+        var result := new Array<MethodNode>()
+        var minCost := Type.NO_MATCH
+        -- classMethod is nullable, so can't simply do "if classMethod". null
+        -- is interpreted as both true and false for the purpose of this and the
+        -- next comparison.
+        if classMethod != false {
+            -- class methods
+            for m in possibleMatches {
+                if m.annotations.isClass {
+                    def cost := matchCost(m, params)
+                    if cost < minCost {
+                        result := new Array<MethodNode>(m)
+                        minCost := cost
+                    }
+                    else if cost = minCost & cost != Type.NO_MATCH
+                        result.append(m)
+                }
+            }
+        }
+        if classMethod != true {
+            -- instance methods
+            if classMethod = null {
+                -- null classMethod means we weren't sure whether it was 
+                -- instance or class, and therefore the params array doesn't
+                -- contain the self parameter yet
+                var newParams := new Array<Value>()
+                newParams.append(new Dummy(owner->(ClassNode).type()))
+                for p in params
+                    newParams.append(p)
+                params := newParams
+            }
+            for m in possibleMatches {
+                if !m.annotations.isClass {
+                    def cost := matchCost(m, params)
+                    if cost < minCost {
+                        result := new Array<MethodNode>(m)
+                        minCost := cost
+                    }
+                    else if cost = minCost & cost != Type.NO_MATCH
+                        result.append(m)
+                }
+            }
+        }
+        if result.length > 1 {
+            var error := "call to '"->>(MutableString)
+            error.append(name)
+            var parameterTypes:Array<String> := []
+            for p in rawParams
+                parameterTypes.append(p.type.displayName)
+            error.append("' with parameters (" + parameterTypes.join(", ") + 
+                    ") is ambiguous. The following methods are all equally " +
+                    "good matches:\n")
+            for i in 0 .. result.length {
+                if i > 0                
+                    error.append("\n")
+                error.append("    ")
+                error.append(result[i])
+                error.append(" (")
+                error.append(result[i].position)
+                error.append(")")
+            }
+            throw new CompilerException(error->>(String), position)
+        }
+        if result.length = 1
+            return result[0]
+        assert result.length = 0
+        return null
+    }
+    @post(@return = null | classMethod = null | 
+            @return.annotations.isClass = classMethod)
+
+    @override     
+    function format(fmt:String):String {
+        var owner := self.owner
+        if owner != null
+            return "SymbolTable(" + owner + ")"
+        else
+            return "SymbolTable(MASTER)"
+    }
+-*
+    @class
+    method getType(name:String):Type? {
+        def queue := Thread.context[GETTYPE_QUEUE_KEY]->(MessageQueue)
+        queue.post(name)
+        queue.post(responseQueue)
+        return responseQueue.getMessage()->(Type?)
+    }
+*-
+    method error(msg:String, position:Position) {
+        Console.writeLine(position + ": " + msg)
+        System.exit(1)
+    }
+}

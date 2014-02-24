@@ -1,0 +1,192 @@
+package org.pandalanguage.pandac.compiler
+
+@private
+enum SharedMapCommand {
+    GET,
+    SET,
+    CONTAINS,
+    KEYS,
+    VALUES,
+    ENTRIES,
+    LENGTH,
+    REMOVE,
+    CLEAR
+}
+
+================================================================================
+An implementation of `Map` which can be safely used by multiple threads. The 
+fact that `SharedMap` is declared `Immutable` is perhaps somewhat misleading: 
+`SharedMap` really represents an immutable handle to a (private) mutable data 
+structure. Because it is immutable, `SharedMap` can easily be shared between
+multiple threads.
+
+IMPLEMENTATION NOTE: currently, each separate `SharedMap` instance creates its
+own message handling thread. In the future, either these threads will become so
+lightweight that this isn't a concern, or multiple `SharedMap` instances will be
+pooled together to run on a single thread. But for right now, be careful not to
+create too many instances because threads are fairly heavy.
+
+FIXME: I'm pretty sure I'm going to eliminate the implementation of Map here and
+just let this have its own, very similar but unrelated API. The methods here 
+violate functional safety constraints, and that's going to end up being a 
+problem sooner or later.
+================================================================================
+class SharedMap : Immutable (Map) {
+    @private
+    var queue:MessageQueue
+
+    -- quite a bit of ugliness is due to current lack of generics; we should be
+    -- able to declare this as a Map<Immutable, Immutable> later on to eliminate
+    -- a lot of casts and conversions
+    constructor() {
+        def t := new Thread(method() {
+            def queue := Thread.currentThread.queue
+            def contents := new HashMap()
+            loop {
+                def msg := queue.getMessage()
+                if msg-?>((SharedMapCommand, MessageQueue)) {
+                    def command, replyTo := msg->((SharedMapCommand,
+                            MessageQueue))
+                    switch command {
+                        case SharedMapCommand.KEYS:
+                            replyTo.post(toImmutable(contents.keys))
+                        case SharedMapCommand.VALUES: 
+                            replyTo.post(toImmutable(contents.values))
+                        case SharedMapCommand.ENTRIES: 
+                            replyTo.post(toImmutable(contents.entries))
+                        case SharedMapCommand.LENGTH: 
+                            replyTo.post(contents.length())
+                        default: 
+                            unreachable
+                    }
+                }
+                else if msg-?>(SharedMapCommand) {
+                    assert msg = SharedMapCommand.CLEAR
+                    contents.clear()
+                }
+                else if msg-?>((SharedMapCommand, Immutable?)) {
+                    def command, payload := msg->((SharedMapCommand, 
+                            Immutable?))
+                    assert command = SharedMapCommand.SET
+                    def key, value := payload->((Immutable?, Immutable?))
+                    contents[key] := value
+                }
+                else {
+                    def command, payload, replyTo := 
+                            msg->((SharedMapCommand, Immutable?, 
+                                MessageQueue))
+                    switch command {
+                        case SharedMapCommand.GET: 
+                            replyTo.post(contents[payload]->(Immutable?))
+                        case SharedMapCommand.REMOVE:
+                            replyTo.post(contents.remove(payload))
+                        case SharedMapCommand.CONTAINS: 
+                            replyTo.post(payload in contents)
+                        default: 
+                            unreachable
+                    }
+                }
+            }
+        })
+        queue := t.queue
+        t.preventsExit := false
+        t.start()
+    }
+
+    @private
+    @class 
+    function toImmutable(arr:Array<Object?>):ImmutableArray<Immutable?> {
+        def result := new Array<Immutable?>()
+        for value in arr
+            result.append(value->(Immutable?))
+        return result->>(ImmutableArray<Immutable?>)
+    }
+
+    @private
+    @class 
+    function toImmutable(arr:Array<(Object?, Object?)>):ImmutableArray<(Immutable?, Immutable?)> {
+        def result := new Array<(Immutable?, Immutable?)>()
+        for (key, value) in arr
+            result.append((key->(Immutable?), value->(Immutable?)))
+        return result->>(ImmutableArray<(Immutable?, Immutable?)>)
+    }
+
+    @override
+    @unsafeFunction
+    function [](key:Object?):Object? {
+        def reply := Thread.currentThread.queue
+        queue.post((SharedMapCommand.GET, key->(Immutable?), reply))
+        return reply.getMessage()
+    }
+
+    @override
+    @unsafeFunction
+    function in(key:Object?):Bit {
+        def reply := Thread.currentThread.queue
+        queue.post((SharedMapCommand.CONTAINS, key->(Immutable?), reply))
+        return reply.getMessage()->(Bit)
+    }
+
+    @override
+    @unsafeFunction
+    function keys():Array<Object?> {
+        def reply := Thread.currentThread.queue
+        queue.post((SharedMapCommand.KEYS, reply))
+        def result := reply.getMessage()->(ImmutableArray<Immutable?>)
+        return new Array<Object?>(result, 0, result.length)
+    }
+
+    @override
+    @unsafeFunction
+    function values():Array<Object?> {
+        def reply := Thread.currentThread.queue
+        queue.post((SharedMapCommand.VALUES, reply))
+        def result := reply.getMessage()->(ImmutableArray<Immutable?>)
+        return new Array<Object?>(result, 0, result.length)
+     }
+
+    @override
+    @unsafeFunction
+    function entries():Array<(Object?, Object?)> {
+        def reply := Thread.currentThread.queue
+        queue.post((SharedMapCommand.ENTRIES, reply))
+        def raw := reply.getMessage()->(ImmutableArray<(Immutable?, 
+                Immutable?)>)
+        def result := new Array<(Object?, Object?)>()
+        for (key, value) in raw
+            result.append((key, value))
+        return result
+    }
+
+    @override
+    @unsafeFunction
+    function length():Int {
+        def reply := Thread.currentThread.queue
+        queue.post((SharedMapCommand.LENGTH, reply))
+        return reply.getMessage()->(Int)
+    }
+
+    @override
+    method []:=(key:Object?, value:Object?) {
+        queue.post((SharedMapCommand.SET, (key->(Immutable?), 
+                value->(Immutable?))->(Immutable?)))
+    }
+
+    @override
+    method remove(key:Object?):Bit {
+        def reply := Thread.currentThread.queue
+        queue.post((SharedMapCommand.REMOVE, key->(Immutable?)))
+        return reply.getMessage()->(Bit)
+    }
+
+    @override
+    method clear() {
+        queue.post(SharedMapCommand.CLEAR)
+    }
+
+    @override
+    method addAll(map:MapView) {
+        for (key, value) in map.entries
+            self[key] := value
+    }
+}

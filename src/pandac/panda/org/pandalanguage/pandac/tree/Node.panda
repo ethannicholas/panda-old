@@ -1,0 +1,174 @@
+package org.pandalanguage.pandac.tree
+
+================================================================================
+Represents a node in the abstract syntax tree.
+================================================================================
+@abstract
+class Node {
+    ============================================================================
+    The position of this node within its compilation unit.
+    ============================================================================
+    var position:Position
+    
+    ============================================================================
+    The parent node of this node, or `null` if it has no parent.
+    ============================================================================
+    property parent:Node?
+
+    ============================================================================
+    Nodes which are not live can be eliminated from the output.
+    ============================================================================
+    @readonly
+    var live := false
+
+    ============================================================================
+    An array containing the children of this node.
+    ============================================================================
+    var children := new Array<Node>()
+    
+    ============================================================================
+    Additional properties attached to this node.
+    ============================================================================
+    @private
+    var properties:Map?
+
+    constructor() {
+        self.position := Position.INTERNAL
+    }
+    
+    constructor(position:Position) {
+        self.position := position
+    }
+    
+    ============================================================================
+    Returns the specified child of this node.
+    
+    @param index the child to return
+    ============================================================================
+    function [](index:Int):Node {
+        return children[index]
+    }
+
+    ============================================================================
+    Sets the specified child of this node.
+    
+    @param index the index of the child to set
+    @param value the new child
+    ============================================================================
+    method []:=(index:Int, value:Node) {
+        children[index] := value
+    }
+
+    function length():Int {
+        return children.length
+    }
+
+    ============================================================================
+    Adds a new child node. Each node may appear in the tree only once, so it is
+    an error to add a node which already has a parent.
+    
+    @param n the node to add
+    ============================================================================
+    @self
+    @pre(n.parent = null)
+    method add(n:Node) {
+        var p := n.parent
+        if p != null {
+            throw new AssertionError("cannot add " + n.class + "(" + 
+                    n.position + ") to " + class + 
+                    ", already contained in " + p.class)
+        }
+        -- FIXME clean this up when Array API is finished
+        children.append(n)
+        n.parent := self
+    }
+
+    @pre(n != self)
+    @self
+    method parent:=(n:Node?) {
+        self._parent := n
+    }
+    
+    ============================================================================
+    Removes this node from its parent node.
+    ============================================================================
+    method removeFromParent() {
+        var parent := self.parent
+        assert parent != null
+        var preParent := parent
+        var preParentLength := parent.children.length
+        -- FIXME clean this up when Array API is finished
+        for i in 0 ... parent.children.length - 1 {
+            if parent.children[i] = self {
+                for j in i ... parent.children.length - 2
+                    parent.children[j] := parent.children[j + 1]
+                parent.children.length -= 1
+                self.parent := null
+                return
+            }
+        }
+        assert false
+    }
+
+    ============================================================================
+    Replaces this node with another node.
+    ============================================================================
+    method replace(n:Node) {
+        var p := parent
+        assert p != null
+        for i in 0 .. p.length {
+            if p[i] = self {
+                p[i] := n
+                n.parent := p
+                parent := null
+                return
+            }
+        }
+        assert false
+    }
+
+    function getProperty(key:String):Object? {
+        var properties := self.properties
+        if properties = null
+            return null
+        else
+            return properties[key]
+    }
+    
+    method setProperty(key:String, value:Object) {
+        var properties := self.properties
+        if properties = null {
+            properties := new HashMap()
+            self.properties := properties
+        }
+        properties[key] := value
+    }
+
+    method clearProperty(key:String) {
+        var properties := self.properties
+        if properties != null
+            properties.remove(key)
+    }
+
+    method markLive() {
+        if !live {
+            live := true
+            var parent := self.parent
+            if parent != null
+                parent.markLive()
+        }
+    }
+
+    method writeTree(out:IndentedOutputStream) {
+        out.writeLine(self)
+        out.level += 1
+        for i in 0 ... length - 1
+            children[i].writeTree(out)
+        out.level -= 1
+    }
+
+    @override
+    function format(fmt:String):String {
+        return class.name
+    }
+}

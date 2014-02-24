@@ -1,0 +1,332 @@
+package org.pandalanguage.pandac.types
+
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.InternalCompilerException
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.parser.ParseNode
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.SymbolTable
+
+================================================================================
+Represents a Panda type. This includes class types (`panda.core.Object`),
+primitive types (`Int32`), nullable types (`panda.core.Object?`), and special
+types (`STRING_OR_CHAR`, `REAL_LITERAL`), among others.
+
+Each type has two names: the `name` property, which is the actual, internal name
+of the type, and the `displayName` property, which is the user-visible name of
+the type that should be reported in error messages. `displayName` is not unique,
+as e.g. the types `panda.core.Int32` and `panda.core.Int32Wrapper` both get
+displayed as `panda.core.Int32`. To avoid mistakes relating to `name` vs.
+`displayName`, `Type` deliberately has a useless convert-to-string operator
+which forces you to pick one or the other name property.
+================================================================================
+@abstract
+class Type : Immutable {
+    constant NO_MATCH := Int32.MAX
+    constant CONVERT_COST := 4
+
+    ============================================================================
+    Used by constructs such as PossibleIndexedAssignment and UnresolvedLambda,
+    where we will either eventually work out the actual types or generate a 
+    compiler error.
+
+    This is different from most uses of UnresolvedType -- usually UnresolvedType
+    represents that the *type itself* is unresolved. Type.UNRESOLVED represents
+    things that *themselves* unresolved, and consequently cannot yet express 
+    their type.
+    ============================================================================
+    constant UNRESOLVED := new UnresolvedType("$unresolved")
+
+    @class
+    function INDEX_TYPE():IntType {
+        return IntType.INT32
+    }
+
+    @class
+    method ANY():Type {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Object).name + "?")
+    }
+
+    var name:String
+
+    @protected
+    constructor(name:String) {
+        self.name := name
+    }
+
+    @static
+    method canImplicitCastTo(target:Type):Bit {
+        return implicitCastCost(target) != NO_MATCH
+    }
+
+    @abstract
+    method canExplicitCastTo(target:Type):Bit
+
+    ============================================================================
+    Returns the "cost" of an implicit cast from this type to another type.
+    Lower scores mean that the cast is more preferable compared to higher-scored 
+    matches. NO_MATCH means no conversion is possible.
+    ============================================================================
+    method implicitCastCost(target:Type):Int {
+       if self = target
+            return 0
+        return NO_MATCH
+    }
+    
+    @private
+    @class
+    method converterCost(m:MethodNode, from:Type, target:Type):Int {
+        if m.name = MethodNode.CONVERT_NAME & m.parameters.length = 1 &
+                m.returnType = target {
+            var p := m.parameters[0]
+            if from.canImplicitCastTo(p.type)
+                return from.implicitCastCost(p.type)
+            else if p.isConvert & from.canConvertTo(p.type)
+                return CONVERT_COST
+        }
+        return NO_MATCH
+    }
+    
+    @protected
+    @class 
+    @pre(from != VoidType.VOID & target != VoidType.VOID)
+    method findConverter(cl:ClassNode, from:Type, target:Type):MethodNode? {
+        var bestMatch:MethodNode? := null
+        var bestCost := NO_MATCH
+        for child in cl.children {
+            if child-?>(MethodNode) {
+                var m := child->(MethodNode)
+                var cost := converterCost(m, from, target)
+                if cost < bestCost {
+                    bestMatch := m
+                    bestCost := cost
+                }
+            }
+        }
+        var superclass := cl.superclass
+        if superclass != null {
+            var m := findConverter(superclass, from, target)
+            if m != null & converterCost(m, from, target) < bestCost
+                bestMatch := m
+        }
+        return bestMatch
+    }
+    
+    @class
+    function parseTypeName(name:String, position:Position):ParseNode {
+        var p := new PandaParser()
+        var result := p.parseType(name, position)
+        return result
+    }
+
+    ============================================================================
+    Finds a method which will convert from this type to the given target type. 
+    ============================================================================
+    method findConverterTo(target:Type):MethodNode? {
+        return null
+    }
+
+    method canConvertTo(target:Type):Bit {
+        return canImplicitCastTo(target) | findConverterTo(target) != null
+    }
+    
+    @class
+    method union(var type1:Type, var type2:Type):Type {
+        if type1 = type2
+            return type1
+        if type1 = NullType.NULL
+            return type2.getNullableVersion()
+        if type2 = NullType.NULL
+            return type1.getNullableVersion()
+        if type1 = StringOrCharType.STRING_OR_CHAR {
+            if type2 = ClassType.STRING() | type2 = CharType.CHAR
+                return type2
+            type1 := CharType.CHAR
+        }
+        if type2 = StringOrCharType.STRING_OR_CHAR {
+            if type1 = ClassType.STRING() | type2 = CharType.CHAR
+                return type1
+            type2 := CharType.CHAR
+        }
+        var nullable := false
+        if type1.isNullable {
+            type1 := type1.unwrapNullable
+            nullable := true
+        }
+        if type2.isNullable {
+            type2 := type2.unwrapNullable
+            nullable := true
+        }
+        if type1 = RealLiteralType.REAL_LITERAL
+            type1 := RealType.REAL32
+        if type2 = RealLiteralType.REAL_LITERAL
+            type2 := RealType.REAL32
+        if type1-?>(PrimitiveType)
+            type1 := type1->(PrimitiveType).wrapperVersion()
+        if type2-?>(PrimitiveType)
+            type2 := type2->(PrimitiveType).wrapperVersion()
+        var ancestors1 := new Array<Type>()
+        var test1:Type? := type1
+        while test1 != null {
+            ancestors1.append(test1)
+            var cl := test1->(ClassType).classNode
+            var superclass := cl.superclass
+            if superclass != null
+                test1 := superclass.type()
+            else
+                test1 := null
+        }
+        var ancestors2 := new Array<Type>()
+        var test2:Type? := type2
+        while test2 != null {
+            ancestors2.append(test2)
+            var cl := test2->(ClassType).classNode
+            var superclass := cl.superclass
+            if superclass != null
+                test2 := superclass.type()
+            else
+                test2 := null
+        }
+        var index := 0
+        while index < ancestors1.length & index < ancestors2.length &
+                ancestors1[ancestors1.length - index - 1] = 
+                    ancestors2[ancestors2.length - index - 1]
+            index += 1
+        var type := ancestors1[ancestors1.length - index]
+        if type = ClassType.ARRAY() | type = ClassType.IMMUTABLE_ARRAY()
+            type := ClassType.OBJECT()
+        while !type.isPrimitive & type.classNode.annotations.isUnspecified
+            type := type.classNode.supertype->(Type)
+        if nullable
+            type := type.getNullableVersion()
+
+        return type
+    }
+
+    ============================================================================
+    If a variable or field is initialized with value of this type, returns the 
+    actual type that the variable or field should be set to.
+    ============================================================================
+    method variableType():Type {
+        return self
+    }
+
+    method getNullableVersion():NullableType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                name + "?")->(NullableType)
+    }
+
+    method unwrapGenerics():Type {
+        return self
+    }
+
+    function unwrapNullable():Type {
+        return self
+    }
+
+    function unwrapWrapper():Type {
+        return self
+    }
+
+    function unwrapRealLiteral():PrimitiveType {
+        throw new InternalCompilerException(self + " is not a primitive")
+    }
+
+    function isNullable():Bit {
+        return false
+    }
+
+    function isWrapper():Bit {
+        return false
+    }
+
+    function isPrimitive():Bit {
+        return false
+    }
+
+    function isInteger():Bit {
+        return false
+    }
+
+    function isReal():Bit {
+        return false
+    }
+
+    ============================================================================
+    `true` if this type represents a number (an `Int` or `Real`). `Char` is not
+    considered a number.
+    ============================================================================
+    function isNumber():Bit {
+        return false
+    }
+
+    ============================================================================
+    `true` if this type could be considered a number in some sense. All number
+    types return `true`, as does `Char`.
+    ============================================================================
+    function isNumeric():Bit {
+        return false
+    }
+
+    function isArray():Bit {
+        return false
+    }
+
+    function isTuple():Bit {
+        return false
+    }
+
+    function isImmutable():Bit {
+        return isPrimitive
+    }
+
+    function isMethod():Bit {
+        return false
+    }
+
+    function classNode():ClassNode {
+        throw new InternalCompilerException(self + " is not a class type")
+    }
+
+    function elementType():Type {
+        throw new InternalCompilerException(self + " is not an array type")
+    }
+
+    function methodParameters():ImmutableArray<Type> {
+        throw new InternalCompilerException(self + " is not a method type")
+    }
+
+    function returnType():Type {
+        throw new InternalCompilerException(self + " is not a method type")
+    }
+
+    function size():Int {
+        return 8
+    }
+
+    function baseName():String {
+        return name
+    }
+
+    function displayName():String {
+        return name
+    }
+
+    method markLive() {
+        if !isPrimitive
+            classNode.markLive()
+    }
+
+    @override
+    function hash():Int {
+        return name.hash
+    }
+
+    @override
+    function ->>():String {
+        return class.simpleName + "<" + name + ">"
+    }
+}

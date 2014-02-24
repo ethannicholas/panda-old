@@ -1,0 +1,197 @@
+package org.pandalanguage.plex
+
+uses org.pandalanguage.plex.AcceptState
+uses org.pandalanguage.plex.NFA
+uses org.pandalanguage.plex.RemappedState
+uses org.pandalanguage.plex.runtime.DFA
+
+class DFAStateLabel {
+    var states:Array<Int>
+
+    constructor(states:Array<Int>) {
+        self.states := states
+    }
+
+    @override
+    function hash():Int {
+        var result := 0
+        for i in 0 ... states.length - 1
+            result ~~= states[i]
+        return result
+    }
+
+    @override
+    function =(raw:Object):Bit {
+        var other := raw->(DFAStateLabel)
+        if other.states.length != states.length
+            return false
+        for i in 0 ... states.length - 1 {
+            if other.states[i] != states[i]
+                return false
+        }
+        return true
+    }
+
+    @override
+    function ->>():String {
+        var result := "<"->>(MutableString)
+        for i in 0 ... states.length - 1 {
+            if i > 0
+                result.append(", ")
+            result.append(states[i])
+        }
+        result.append(">")
+        return result->>(String)
+    }
+}
+
+class DFAState {
+    var id:Int
+    var label:DFAStateLabel
+    var scanned:Bit
+
+    constructor(id:Int, label:DFAStateLabel) {
+        self.id := id
+        self.label := label
+    }
+
+    @override
+    function ->>():String {
+        var result := class.name->>(MutableString)
+        result.append("<")
+        result.append(id)
+        result.append(", ")
+        result.append(label)
+        result.append(">")
+        return result->>(String)
+    }
+}
+
+class NFAtoDFA {
+    var nfa:NFA
+    var states := new HashMap()
+    var transitions := new Array<Array<Int>>()
+    var accepts := new Array<Int>()
+
+    constructor(nfa:NFA) {
+        self.nfa := nfa
+    }
+
+    -- quick-and-extremely-dirty QuickSort, until I have time to do proper
+    -- sorting in the core libraries
+    -- FIXME replace this with a real sort implementation
+    @class
+    method sort(a:Array<Int>) {
+        if a.length <= 1
+            return
+        var pivotIndex := a.length // 2
+        var pivot := a[pivotIndex]
+        var pre := new Array<Int>()
+        var post := new Array<Int>()
+        for i in 0 ... a.length - 1 {
+            if i = pivotIndex
+                continue
+            var v := a[i]
+            if v < pivot
+                pre.append(v)
+            else
+                post.append(v)
+        }
+        sort(pre)
+        sort(post)
+        for i in 0 ... pre.length - 1
+            a[i] := pre[i]
+        a[pre.length] := pivot
+        for i in 0 ... post.length - 1
+            a[i + pre.length + 1] := post[i]
+    }
+
+    method getState(label:DFAStateLabel):DFAState {
+        var result := states[label]->(DFAState?)
+        if result = null {
+            result := new DFAState(states.length, label)
+            states[label] := result
+        }
+        return result
+    }
+
+    method add(nfaState:Int, states:Array<Int>) {
+        var state := nfa.states[nfaState]
+        if state-?>(RemappedState) {
+            var next := state->(RemappedState).states
+            for i in 0 ... next.length - 1
+                add(next[i], states)
+        }
+        else {
+            for i in 0 ... states.length - 1 {
+                if states[i] = nfaState
+                    return
+            }
+            states.append(nfaState)
+        }
+    }
+
+    method addTransition(c:Char, start:Int, next:Int) {
+        while transitions.length <= c->(Int)
+            transitions.append(new Array<Int>())
+        var a := transitions[c->(Int)]
+        while a.length <= start
+            a.append(-1)
+        assert a[start] = -1
+        a[start] := next
+    }
+
+    method scanState(state:DFAState) {
+        state.scanned := true
+        for c in 9->(Char) ... 127->(Char)  {
+            var next := new Array<Int>()
+            var bestAccept := Int32.MAX
+            for i in 0 ... state.label.states.length - 1 {
+                var nfaState := nfa.states[state.label.states[i]]
+                if nfaState.accept(c) {
+                    outer: for j in 0 ... nfaState.next.length - 1 {
+                        var nextState := nfaState.next[j]
+                        if nfa.states[nextState]-?>(AcceptState) {
+                            bestAccept := bestAccept.min(
+                                    nfa.states[nextState]->(AcceptState).token)
+                        }
+                        add(nextState, next)
+                    }
+                }
+            }
+
+            sort(next)
+            var nextState := getState(new DFAStateLabel(next))
+            addTransition(c, state.id, nextState.id)
+            if bestAccept < Int32.MAX {
+                while accepts.length <= nextState.id
+                    accepts.append(-1)
+                accepts[nextState.id] := bestAccept
+            }
+            if !nextState.scanned
+                scanState(nextState)
+        }
+    }
+
+    method createDFA():DFA {
+        -- create state 0, the "reject" state
+        getState(new DFAStateLabel(new Array<Int>()))
+        -- map DFA states to the set of NFA states each represents
+        var startStates := new Array<Int>(nfa.startStates.length)
+        for i in 0 ... nfa.startStates.length - 1
+            startStates[i] := nfa.startStates[i]
+        sort(startStates)
+        -- state 1 is the start state
+        var start := getState(new DFAStateLabel(startStates))
+        scanState(start)
+
+        var outTransitions := new Array<ImmutableArray<Int>>()
+        for i in 0 ... transitions.length - 1 {
+            outTransitions.append(new ImmutableArray<Int>(transitions[i], 0,
+                    transitions[i].length))
+        }
+        return new DFA(new ImmutableArray<ImmutableArray<Int>>(outTransitions, 
+                0, outTransitions.length), new ImmutableArray<Int>(accepts, 0, 
+                accepts.length))
+    }
+}

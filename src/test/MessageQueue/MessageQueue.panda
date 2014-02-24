@@ -1,0 +1,108 @@
+-- Simple simulation of a lengthy computation. We have a Producer produce data
+-- for each Consumer to operate on. Each Consumer takes a long time to calculate
+-- its result, and then posts the results to a Destination which aggregates and
+-- sorts the data.
+
+class Producer : Thread {
+    constant MAX := 1000
+    var queue:MessageQueue
+    
+    constructor(queue:MessageQueue) {
+        self.queue := queue
+    }
+    
+    @override
+    method run() {
+        for i in 1 .. MAX + 1
+            queue.post(i)
+    }
+}
+
+class Consumer : Thread {
+    @private
+    var sourceQueue:MessageQueue
+    
+    @private
+    var destQueue:MessageQueue
+    
+    constructor(sourceQueue:MessageQueue, destQueue:MessageQueue) {
+        self.sourceQueue := sourceQueue
+        self.destQueue := destQueue
+    }
+
+    @override
+    method run() {
+        loop {
+            var msg := sourceQueue.getMessage()->(Int)
+            sleep(1000)
+            destQueue.post(msg^2)
+        }
+    }
+}
+
+class Destination : Thread {
+    @private
+    var destQueue:MessageQueue
+    
+    constructor(destQueue:MessageQueue) {
+        self.destQueue := destQueue
+    }
+    
+    -- quick-and-extremely-dirty QuickSort, until I have time to do proper
+    -- sorting in the core libraries
+    -- FIXME replace this with a real sort implementation
+    @private
+    method sort(a:Array<Int>) {
+        if a.length <= 1
+            return
+        def pivotIndex := a.length // 2
+        def pivot := a[pivotIndex]
+        def pre := new Array<Int>()
+        def post := new Array<Int>()
+        for i in 0 .. a.length {
+            if i = pivotIndex
+                continue
+            var v := a[i]
+            if v < pivot
+                pre.append(v)
+            else
+                post.append(v)
+        }
+        sort(pre)
+        sort(post)
+        for i in 0 .. pre.length
+            a[i] := pre[i]
+        a[pre.length] := pivot
+        for i in 0 .. post.length
+            a[i + pre.length + 1] := post[i]
+    }
+    
+    @override
+    method run() {
+        def results := new Array<Int>()
+        while results.length < Producer.MAX {
+            def msg := destQueue.getMessage()
+            results.append(msg->(Int))
+        }
+        sort(results)
+        for i in 0 .. results.length
+            Console.writeLine(results[i])
+        System.exit()
+    }
+}
+
+class Test {
+    constant THREADS := 500
+
+    @class
+    method main() {
+        def sourceQueue := new MessageQueue()
+        def destQueue := new MessageQueue()
+        def p := new Producer(sourceQueue)
+        def d := new Destination(destQueue)
+        for i in 0 .. THREADS
+            new Consumer(sourceQueue, destQueue).start()
+        p.start()
+        d.start()
+    }
+}

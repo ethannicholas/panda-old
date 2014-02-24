@@ -1,0 +1,320 @@
+enum TokenType {
+    EOF,
+    LPAREN,
+    RPAREN,
+    NUMBER,
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    EXP,
+    SIN,
+    COS,
+    TAN,
+    PI
+}
+
+class Token {
+    var type:TokenType
+    var text:String
+    
+    @class
+    method getTokenName(type:TokenType):String {
+        switch type {
+            case TokenType.EOF: return "<end of file>"
+            case TokenType.LPAREN: return "("
+            case TokenType.RPAREN: return ")"
+            case TokenType.NUMBER: return "<number>"
+            case TokenType.ADD: return "+"
+            case TokenType.SUB: return "-"
+            case TokenType.MUL: return "*"
+            case TokenType.DIV: return "/"
+            case TokenType.EXP: return "^"
+            case TokenType.SIN: return "sin"
+            case TokenType.COS: return "cos"
+            case TokenType.TAN: return "tan"
+            default: return "<error>"
+        }
+    }
+    
+    constructor(type:TokenType, text:Char) {
+        self.type := type
+        self.text := text->>(String)
+    }
+
+    constructor(type:TokenType, text:String) {
+        self.type := type
+        self.text := text
+    }
+    
+    @override
+    function ->>():String {
+        return "Token(\{type}, \{text})"
+    }
+}
+
+class Lexer {
+    var input:String
+    var position:Int
+    var pushbackToken:Token?
+    
+    constructor(input:String) {
+        self.input := input
+    }
+
+    method isDigit(c:Char):Bit {
+        return c >= "0" & c <= "9" | c = "."
+    }
+    
+    method isLetter(c:Char):Bit {
+        return c >= "a" & c <= "z"
+    }
+    
+    method nextToken():Token {
+        def pushbackToken := self.pushbackToken
+        if pushbackToken != null {
+            self.pushbackToken := null
+            return pushbackToken
+        }
+        else
+            return readToken()
+    }
+    
+    method pushback(t:Token) {
+        pushbackToken := t
+    }
+    
+    method error(s:String) {
+        Console.writeLine(s)
+        System.exit(1)
+    }
+    
+    @private
+    method readToken():Token {
+        loop {
+            if position = input.length
+                return new Token(TokenType.EOF, "<end of file>")
+            def c := input[position]
+            position += 1
+            if c = "("
+                return new Token(TokenType.LPAREN, c)
+            else if c =")"
+                return new Token(TokenType.RPAREN, c)
+            else if c = "+"
+                return new Token(TokenType.ADD, c)
+            else if c = "-"
+                return new Token(TokenType.SUB, c)
+            else if c = "*"
+                return new Token(TokenType.MUL, c)
+            else if c = "/"
+                return new Token(TokenType.DIV, c)
+            else if c = "^"
+                return new Token(TokenType.EXP, c)
+            else if isDigit(c) {
+                def result := c->>(MutableString)
+                while position < input.length & isDigit(input[position]) {
+                    result.append(input[position])
+                    position += 1
+                }
+                return new Token(TokenType.NUMBER, result->>(String))
+            }
+            else if isLetter(c) {
+                def result := c->>(MutableString)
+                while position < input.length & isLetter(input[position]) {
+                    result.append(input[position])
+                    position += 1
+                }
+                switch result->>(String) {
+                    case "sin": return new Token(TokenType.SIN, result->>(String))
+                    case "cos": return new Token(TokenType.COS, result->>(String))
+                    case "tan": return new Token(TokenType.TAN, result->>(String))
+                    case "pi": return new Token(TokenType.PI, result->>(String))
+                    default: error("unknown identifier '\{result}'")
+                }
+            }
+            else if c != " "
+                error("unexpected character '\{c}'")
+        }
+    }
+}
+
+class RealStack {
+    @private
+    var contents:Array<Real> := new Array<Real>()
+    
+    method push(r:Real) {
+        contents.append(r)
+    }
+    
+    method pop():Real {
+        def r := contents[contents.length - 1]
+        contents.length -= 1
+        return r
+    }
+}
+
+================================================================================
+A simple calculator. Implements the following grammar:
+
+term = SUB? NUMBER | PI | LPAREN expression RPAREN
+exponentExpression = term (EXP term)*
+multiplicativeExpression = exponentExpression ((MUL|DIV) exponentExpression)*
+additiveExpression = multiplicativeExpression ((ADD|SUB) multiplicativeExpression)*
+expression = additiveExpression | 
+    SIN LPAREN expression RPAREN | 
+    COS LPAREN expression RPAREN | 
+    TAN LPAREN expression RPAREN
+================================================================================
+class Calculator {
+    var lexer := new Lexer("")
+    var stack := new RealStack()
+    
+    method expect(type:TokenType) {
+        def t := lexer.nextToken()
+        if t.type != type {
+            throw new ParseException("expected \{Token.getTokenName(type)}, " +
+                    "but found \{t.text}")
+        }
+    }
+    
+    method term() {
+        var t := lexer.nextToken()
+        if t.type = TokenType.SUB {
+            t := lexer.nextToken()
+            if t.type != TokenType.NUMBER {
+                Console.writeLine("expected a number, but found \{t.text}")
+                return
+            }
+            def n := t.text->>(Real?)
+            assert n != null
+            stack.push(0 - n)
+        }
+        else if t.type = TokenType.NUMBER {
+            def n := t.text->>(Real?)
+            assert n != null
+            stack.push(n)
+        }
+        else if t.type = TokenType.LPAREN {
+            expression()
+            expect(TokenType.RPAREN)
+        }
+        else if t.type = TokenType.PI {
+            stack.push(Real.PI)
+        }
+        else
+            Console.writeLine("expected a number, but found \{t.text}")
+    }
+    
+    method exponentExpression() {
+        term()
+        loop {
+            def t := lexer.nextToken()
+            if t.type = TokenType.EXP {
+                term()
+                def right := stack.pop()
+                def left := stack.pop()
+                stack.push(left ^ right)
+            }
+            else {
+                lexer.pushback(t)
+                break
+            }
+        }
+    }
+
+    method multiplicativeExpression() {
+        exponentExpression()
+        loop {
+            def t := lexer.nextToken()
+            if t.type = TokenType.MUL {
+                exponentExpression()
+                stack.push(stack.pop() * stack.pop())
+            }
+            else if t.type = TokenType.DIV {
+                exponentExpression()
+                def right := stack.pop()
+                def left := stack.pop()
+                stack.push(left / right)
+            }
+            else {
+                lexer.pushback(t)
+                break
+            }
+        }
+    }
+
+    method additiveExpression() {
+        multiplicativeExpression()
+        loop {
+            def t := lexer.nextToken()
+            if t.type = TokenType.ADD {
+                multiplicativeExpression()
+                stack.push(stack.pop() + stack.pop())
+            }
+            else if t.type = TokenType.SUB {
+                multiplicativeExpression()
+                def right := stack.pop()
+                def left := stack.pop()
+                stack.push(left - right)
+            }
+            else {
+                lexer.pushback(t)
+                break
+            }
+        }
+    }
+    
+    method expression() {
+        def t := lexer.nextToken()
+        switch t.type {
+            case TokenType.SIN: {
+                expect(TokenType.LPAREN)
+                expression()
+                expect(TokenType.RPAREN)
+                stack.push(stack.pop().sin)
+            }
+            case TokenType.COS: {
+                expect(TokenType.LPAREN)
+                expression()
+                expect(TokenType.RPAREN)
+                stack.push(stack.pop().cos)
+            }
+            case TokenType.TAN: {
+                expect(TokenType.LPAREN)
+                expression()
+                expect(TokenType.RPAREN)
+                stack.push(stack.pop().tan)
+            }
+            default: {
+                lexer.pushback(t)
+                additiveExpression()
+            }
+        }
+    }
+
+    method calculate(input:String):Real {
+        lexer := new Lexer(input)
+        expression()
+        expect(TokenType.EOF)
+        return stack.pop()
+    }
+    
+    @class
+    method main(arg:Array<String>) {
+        Console.writeLine("Simple calculator. Try typing an expression " +
+                "like '(8 * 6) ^ 2'.")
+        def c := new Calculator()
+        loop {
+            Console.write("expression: ")
+            def expr := Console.readLine()
+            if expr = null | expr.trim() = "quit" | expr.trim() = "exit"
+                break
+            try {
+                Console.writeLine(c.calculate(expr))
+            }
+            catch e:ParseException {
+                Console.writeLine(e.message)
+            }
+        }
+    }
+}

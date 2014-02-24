@@ -1,0 +1,76 @@
+package org.pandalanguage.pandac.analysis
+
+uses org.pandalanguage.pandac.compiler.XMLWriter
+uses org.pandalanguage.pandac.types.Type
+
+================================================================================
+Represents a value propagating through the program.
+================================================================================
+class DataFlowValue : Value {
+    ============================================================================
+    Bound on the runtime type of the value in question. The most general bound
+    is `Object?`, which can hold any value, but more specific bounds will be
+    determined where possible.
+    ============================================================================
+    var type:Type
+    -- true if the value is provably not visible outside the current method
+    var selfOnly:Bit
+    
+    var definitelyAssigned:Bit
+
+    var definitelyUnassigned:Bit
+
+    constructor(type:Type) {
+        self.type := type
+    }
+
+    constructor(type:Type, selfOnly:Bit) {
+        constructor(type)
+        self.selfOnly := selfOnly
+    }
+
+    @pre(!definitelyAssigned | !definitelyUnassigned)
+    constructor(type:Type, selfOnly:Bit, definitelyAssigned:Bit, 
+            definitelyUnassigned:Bit) {
+        constructor(type, selfOnly)
+        self.definitelyAssigned := definitelyAssigned
+        self.definitelyUnassigned := definitelyUnassigned
+    }
+
+    function filterToNonNull():DataFlowValue {
+        return new DataFlowValue(type.unwrapNullable, selfOnly, 
+                definitelyAssigned, definitelyUnassigned)
+    }
+    
+    function filterToNull():DataFlowValue {
+        -- eventually this will be smarter, but for right this second the best
+        -- way to handle this is just to return self -- if the value was
+        -- nullable, it still is, and if it wasn't, we don't want to falsely
+        -- imply that it now could be
+        return self
+    }
+
+    method writeXML(xml:XMLWriter) {
+        xml.open("value")
+        xml.textTag("type", type)
+        xml.textTag("selfOnly", selfOnly)
+        xml.textTag("definitelyAssigned", definitelyAssigned)
+        xml.close("value")
+    }
+    
+    @override
+    function =(o:Object):Bit {
+        if o-!>(DataFlowValue)
+            return false
+        var other := o->(DataFlowValue)
+        return type = other.type & selfOnly = other.selfOnly &
+                definitelyAssigned = other.definitelyAssigned &
+                definitelyUnassigned = other.definitelyUnassigned
+    }
+
+    @override
+    function format(fmt:String):String {
+        return "\{class.name}<\{type.name}, \{selfOnly}, " +
+                "\{definitelyAssigned}, \{definitelyUnassigned}>"
+    }
+}

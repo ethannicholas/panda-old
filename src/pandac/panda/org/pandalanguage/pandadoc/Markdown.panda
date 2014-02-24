@@ -1,0 +1,730 @@
+package org.pandalanguage.pandac.pandadoc
+
+================================================================================
+Processes the PandaDoc dialect of Markdown. Note that while this is obviously
+Markdown-inspired, it is not and is not intended to be actually 
+Markdown-compatible. Lots of Markdown features are missing and lots of things
+are handled differently.
+================================================================================
+class Markdown {
+    constant TAB_WIDTH := 4
+
+    @private
+    var listLevel := 0
+
+    method process(markdown:String):String {
+        var result := markdown->>(MutableString)
+
+        -- canonicalize line endings
+        result.replace(#/\r\n/#, "\n")
+        result.replace(#/\r/#, "\n")
+        result.delete(#/^[ \t]+$/#)
+        result.replace(#/\t/#, "    ")
+        result.append("\n\n")
+
+        var minSpaces := Int32.MAX
+        var lines := result->>(String).split("\n")
+        for i in 1 ... lines.length - 1 {
+            if lines[i].matches(#/\s*/#)
+                continue
+            var spaces := 0
+            while lines[i][spaces] = " "
+                spaces += 1
+            minSpaces := spaces.min(minSpaces)
+        }
+        if minSpaces < Int32.MAX
+            unindent(result, minSpaces)
+
+        --hashHTMLBlocks(text);
+        --stripLinkDefinitions(text)
+        handleBlocks(result)
+--        unEscapeSpecialChars(result)
+
+        return result->>(String)
+    }
+
+ -*   private TextEditor encodeBackslashEscapes(TextEditor text) {
+        char[] normalChars = "`_>!".toCharArray();
+        char[] escapedChars = "*{}[]()#+-.".toCharArray();
+
+        // Two backslashes in a row
+        text.replaceAllLiteral("\\\\\\\\", CHAR_PROTECTOR.encode("\\"));
+
+        // Normal characters don't require a backslash in the regular expression
+        encodeEscapes(text, normalChars, "\\\\");
+        encodeEscapes(text, escapedChars, "\\\\\\");
+
+        return text;
+    }
+
+    private TextEditor encodeEscapes(TextEditor text, char[] chars, String slashes) {
+        for (char ch : chars) {
+            String regex = slashes + ch;
+            text.replaceAllLiteral(regex, CHAR_PROTECTOR.encode(String.valueOf(ch)));
+        }
+        return text;
+    }*-
+
+    -*private void stripLinkDefinitions(TextEditor text) {
+        Pattern p = Pattern.compile("^[ ]{0,3}\\[(.+)\\]:" + // ID = $1
+                "[ \\t]*\\n?[ \\t]*" + // Space
+                "<?(\\S+?)>?" + // URL = $2
+                "[ \\t]*\\n?[ \\t]*" + // Space
+                "(?:[\"(](.+?)[\")][ \\t]*)?" + // Optional title = $3
+                "(?:\\n+|\\Z)",
+                Pattern.MULTILINE);
+
+        text.replaceAll(p, new Replacement() {
+            public String replacement(Matcher m) {
+                String id = m.group(1).toLowerCase();
+                String url = encodeAmpsAndAngles(new TextEditor(m.group(2))).toString();
+                String title = m.group(3);
+
+                if (title == null) {
+                    title = "";
+                }
+                title = replaceAll(title, "\"", "&quot;");
+                linkDefinitions.put(id, new LinkDefinition(url, title));
+                return "";
+            }
+        });
+    }*-
+
+    @private
+    method handleBlocks(text:MutableString) {
+        --doHeaders(text);
+        --doHorizontalRules(text);
+        --doLists(text);
+        handleCodeBlocks(text)
+        -*doBlockQuotes(text);
+        hashHTMLBlocks(text);*-
+        formParagraphs(text)
+    }
+-*
+    @private
+    method makeHorizontalRules(text:MutableString) {
+        var hrDelimiters := new Array<String>("\\*", "-", "_")
+        for i in 0 ... htmlDelimiters.length - 1 {
+            var regex := new RegularExpression("^[ ]{0,2}([ ]?" + 
+                    hrDelimiters[i] + "[ ]?){3,}[ ]*$")
+            text.replace(regex, "<hr />")
+        }
+    }
+*-
+    -*private void hashHTMLBlocks(TextEditor text) {
+        // Hashify HTML blocks:
+        // We only want to do this for block-level HTML tags, such as headers,
+        // lists, and tables. That's because we still want to wrap <p>s around
+        // "paragraphs" that are wrapped in non-block-level tags, such as anchors,
+        // phrase emphasis, and spans. The list of tags we're looking for is
+        // hard-coded:
+
+        String[] tagsA = {
+            "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "table",
+            "dl", "ol", "ul", "script", "noscript", "form", "fieldset", "iframe", "math"
+        };
+        String[] tagsB = {"ins", "del"};
+
+        String alternationA = join("|", tagsA);
+        String alternationB = alternationA + "|" + join("|", tagsB);
+
+        int less_than_tab = tabWidth - 1;
+
+        // First, look for nested blocks, e.g.:
+        //   <div>
+        //       <div>
+        //       tags for inner block must be indented.
+        //       </div>
+        //   </div>
+        //
+        // The outermost tags must start at the left margin for this to match, and
+        // the inner nested divs must be indented.
+        // We need to do this before the next, more liberal match, because the next
+        // match will start at the first `<div>` and stop at the first `</div>`.
+        Pattern p1 = Pattern.compile("(" +
+                "^<(" + alternationA + ")" +
+                "\\b" +
+                "(.*\\n)*?" +
+                "</\\2>" +
+                "[ ]*" +
+                "(?=\\n+|\\Z))", Pattern.MULTILINE |  Pattern.CASE_INSENSITIVE);
+
+        Replacement protectHTML = new Replacement() {
+            public String replacement(Matcher m) {
+                String literal = m.group();
+                return "\n\n" + HTML_PROTECTOR.encode(literal) + "\n\n";
+            }
+        };
+        text.replaceAll(p1, protectHTML);
+
+        // Now match more liberally, simply from `\n<tag>` to `</tag>\n`
+        Pattern p2 = Pattern.compile("(" +
+                "^" +
+                "<(" + alternationB + ")" +
+                "\\b" +
+                "(.*\\n)*?" +
+                ".*</\\2>" +
+                "[ ]*" +
+                "(?=\\n+|\\Z))", Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
+        text.replaceAll(p2, protectHTML);
+
+        // Special case for <hr>
+        Pattern p3 = Pattern.compile("(?:" +
+                "(?<=\\n\\n)" +
+                "|" +
+                "\\A\\n?" +
+                ")" +
+                "(" +
+                "[ ]{0," + less_than_tab + "}" +
+                "<(hr)" +
+                "\\b" +
+                "([^<>])*?" +
+                "/?>" +
+                "[ ]*" +
+                "(?=\\n{2,}|\\Z))", Pattern.CASE_INSENSITIVE);
+        text.replaceAll(p3, protectHTML);
+
+        // Special case for standalone HTML comments:
+        Pattern p4 = Pattern.compile("(?:" +
+                "(?<=\\n\\n)" +
+                "|" +
+                "\\A\\n?" +
+                ")" +
+                "(" +
+                "[ ]{0," + less_than_tab + "}" +
+                "(?s:" +
+                "<!" +
+                "(--.*?--\\s*)+" +
+                ">" +
+                ")" +
+                "[ ]*" +
+                "(?=\\n{2,}|\\Z)" +
+                ")");
+        text.replaceAll(p4, protectHTML);
+    }*-
+
+    @private 
+    method formParagraphs(text:MutableString) {
+        text.delete(#/\A\n+/#)
+        text.delete(#/\n+\z/#)
+
+        if text.length = 0
+            return
+        var paragraphs := text->>(String).split(#/\n{2,}/#)
+        if paragraphs.length > 1 {
+            text.clear()
+            for i in 0 ... paragraphs.length - 1 {
+                text.append("<p>\n")
+                var paragraph := paragraphs[i]->>(MutableString)
+                handleSpans(paragraph)
+                text.append(paragraph)
+                text.append("\n</p>\n")
+            }
+        }
+        else
+            handleSpans(text)
+    }
+
+    @private
+    method unindent(text:MutableString) {
+        unindent(text, 4)
+    }
+
+    @private
+    @pre(spaces >= 0)
+    method unindent(text:MutableString, spaces:Int) {
+        if spaces = 0
+            return
+        text.delete(new RegularExpression("^(\\t|[ ]{1," + spaces + "})", 
+                RegularExpression.MULTILINE))
+    }
+
+    @private 
+    method handleCodeBlocks(text:MutableString) {
+        var lines := text->>(String).split("\n")
+        text.clear()
+        var inPre := false
+        var pattern := #/\s{4,}\S.*/#
+        for i in 0 ... lines.length - 1 {
+            var line := lines[i]
+            if !inPre & line.matches(pattern) {
+                inPre := true
+                text.append('<pre>')
+            }
+            else if inPre & !line.matches(pattern) {
+                inPre := false
+                text.append("</pre>")
+            }
+            if inPre
+                line := line[4..]
+            text.append(line)
+            text.append("\n")
+        }
+    }
+-*
+    private void encodeCode(TextEditor ed) {
+        ed.replaceAll("&", "&amp;");
+        ed.replaceAll("<", "&lt;");
+        ed.replaceAll(">", "&gt;");
+        ed.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+        ed.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+        ed.replaceAll("\\{", CHAR_PROTECTOR.encode("{"));
+        ed.replaceAll("\\}", CHAR_PROTECTOR.encode("}"));
+        ed.replaceAll("\\[", CHAR_PROTECTOR.encode("["));
+        ed.replaceAll("\\]", CHAR_PROTECTOR.encode("]"));
+        ed.replaceAll("\\\\", CHAR_PROTECTOR.encode("\\"));
+    }
+
+    private TextEditor doLists(TextEditor text) {
+        int lessThanTab = tabWidth - 1;
+
+        String wholeList =
+                "(" +
+                "(" +
+                "[ ]{0," + lessThanTab + "}" +
+                "((?:[-+*]|\\d+[.]))" + // $3 is first list item marker
+                "[ ]+" +
+                ")" +
+                "(?s:.+?)" +
+                "(" +
+                "\\z" + // End of input is OK
+                "|" +
+                "\\n{2,}" +
+                "(?=\\S)" + // If not end of input, then a new para
+                "(?![ ]*" +
+                "(?:[-+*]|\\d+[.])" +
+                "[ ]+" +
+                ")" + // negative lookahead for another list marker
+                ")" +
+                ")";
+
+        if (listLevel > 0) {
+            Replacement replacer = new Replacement() {
+                public String replacement(Matcher m) {
+                    String list = m.group(1);
+                    String listStart = m.group(3);
+                    String listType;
+
+                    if (listStart.matches("[*+-]")) {
+                        listType = "ul";
+                    } else {
+                        listType = "ol";
+                    }
+
+                    // Turn double returns into triple returns, so that we can make a
+                    // paragraph for the last item in a list, if necessary:
+                    list = replaceAll(list, "\\n{2,}", "\n\n\n");
+
+                    String result = processListItems(list);
+
+                    // Trim any trailing whitespace, to put the closing `</ol>` or `</ul>`
+                    // up on the preceding line, to get it past the current stupid
+                    // HTML block parser. This is a hack to work around the terrible
+                    // hack that is the HTML block parser.
+                    result = result.replaceAll("\\s+$", "");
+
+                    String html;
+                    if ("ul".equals(listType)) {
+                        html = "<ul>" + result + "</ul>\n";
+                    } else {
+                        html = "<ol>" + result + "</ol>\n";
+                    }
+                    return html;
+                }
+            };
+            Pattern matchStartOfLine = Pattern.compile("^" + wholeList, Pattern.MULTILINE);
+            text.replaceAll(matchStartOfLine, replacer);
+        } else {
+            Replacement replacer = new Replacement() {
+                public String replacement(Matcher m) {
+                    String list = m.group(1);
+                    String listStart = m.group(3);
+                    String listType;
+
+                    if (listStart.matches("[*+-]")) {
+                     listType = "ul";
+                    } else {
+                     listType = "ol";
+                    }
+
+                    // Turn double returns into triple returns, so that we can make a
+                    // paragraph for the last item in a list, if necessary:
+                    list = replaceAll(list, "\n{2,}", "\n\n\n");
+
+                    String result = processListItems(list);
+
+                    String html;
+                    if ("ul".equals(listType)) {
+                        html = "<ul>\n" + result + "</ul>\n";
+                    } else {
+                        html = "<ol>\n" + result + "</ol>\n";
+                    }
+                    return html;
+                }
+            };
+            Pattern matchStartOfLine = Pattern.compile("(?:(?<=\\n\\n)|\\A\\n?)" + wholeList, Pattern.MULTILINE);
+            text.replaceAll(matchStartOfLine, replacer);
+
+        }
+
+        return text;
+    }
+
+    private String processListItems(String list) {
+        // The listLevel variable keeps track of when we're inside a list.
+        // Each time we enter a list, we increment it; when we leave a list,
+        // we decrement. If it's zero, we're not in a list anymore.
+        //
+        // We do this because when we're not inside a list, we want to treat
+        // something like this:
+        //
+        //       I recommend upgrading to version
+        //       8. Oops, now this line is treated
+        //       as a sub-list.
+        //
+        // As a single paragraph, despite the fact that the second line starts
+        // with a digit-period-space sequence.
+        //
+        // Whereas when we're inside a list (or sub-list), that line will be
+        // treated as the start of a sub-list. What a kludge, huh? This is
+        // an aspect of Markdown's syntax that's hard to parse perfectly
+        // without resorting to mind-reading. Perhaps the solution is to
+        // change the syntax rules such that sub-lists must start with a
+        // starting cardinal number; e.g. "1." or "a.".
+        listLevel++;
+
+        // Trim trailing blank lines:
+        list = replaceAll(list, "\\n{2,}\\z", "\n");
+
+        Pattern p = Pattern.compile("(\\n)?" +
+                "^([ \\t]*)([-+*]|\\d+[.])[ ]+" +
+                "((?s:.+?)(\\n{1,2}))" +
+                "(?=\\n*(\\z|\\2([-+\\*]|\\d+[.])[ \\t]+))",
+                Pattern.MULTILINE);
+        list = replaceAll(list, p, new Replacement() {
+            public String replacement(Matcher m) {
+                String text = m.group(4);
+                TextEditor item = new TextEditor(text);
+                String leadingLine = m.group(1);
+                if (!isEmptyString(leadingLine) || hasParagraphBreak(item)) {
+                    item = runBlockGamut(item.outdent());
+                } else {
+                    // Recurse sub-lists
+                    item = doLists(item.outdent());
+                    item = runSpanGamut(item);
+                }
+                return "<li>" + item.trim().toString() + "</li>\n";
+            }
+        });
+        listLevel--;
+        return list;
+    }
+
+    private boolean hasParagraphBreak(TextEditor item) {
+        return item.toString().indexOf("\n\n") != -1;
+    }
+
+    private boolean isEmptyString(String leadingLine) {
+        return leadingLine == null || leadingLine.equals("");
+    }
+
+    private TextEditor doHeaders(TextEditor markup) {
+        // setext-style headers
+        markup.replaceAll("^(.*)\n====+$", "<h1>$1</h1>");
+        markup.replaceAll("^(.*)\n----+$", "<h2>$1</h2>");
+
+        // atx-style headers - e.g., "#### heading 4 ####"
+        Pattern p = Pattern.compile("^(#{1,6})\\s*(.*?)\\s*\\1?$", Pattern.MULTILINE);
+        markup.replaceAll(p, new Replacement() {
+            public String replacement(Matcher m) {
+                String marker = m.group(1);
+                String heading = m.group(2);
+                int level = marker.length();
+                String tag = "h" + level;
+                return "<" + tag + ">" + heading + "</" + tag + ">\n";
+            }
+        });
+        return markup;
+    }
+
+    private String join(String separator, String[] strings) {
+        int length = strings.length;
+        StringBuilder buf = new StringBuilder();
+        if (length > 0) {
+            buf.append(strings[0]);
+            for (int i = 1; i < length; i++) {
+                buf.append(separator).append(strings[i]);
+            }
+        }
+        return buf.toString();
+    }*-
+
+    method handleCodeSpans(text:MutableString) {
+        text.replace(#/(`+)(.+?)(?<!`)\1(?!`)/#, "<code>$2</code>")
+    }
+
+    method handleSpans(text:MutableString) {
+--        text = escapeSpecialCharsWithinTagAttributes(text);
+        handleCodeSpans(text)
+--        text = encodeBackslashEscapes(text);
+
+--        doImages(text);
+--        doAnchors(text);
+--        doAutoLinks(text);
+
+--        text = escapeSpecialCharsWithinTagAttributes(text);
+
+--        encodeAmpsAndAngles(text);
+        doItalicsAndBold(text)
+
+--        // Manual line breaks
+--        text.replaceAll(" {2,}\n", " <br />\n");
+    }
+-*
+    /**
+     * escape special characters
+     *
+     * Within tags -- meaning between < and > -- encode [\ ` * _] so they
+     * don't conflict with their use in Markdown for code, italics and strong.
+     * We're replacing each such character with its corresponding random string
+     * value; this is likely overkill, but it should prevent us from colliding
+     * with the escape values by accident.
+     *
+     * @param text
+     * @return
+     */
+    private TextEditor escapeSpecialCharsWithinTagAttributes(TextEditor text) {
+        Collection<HTMLToken> tokens = text.tokenizeHTML();
+        TextEditor newText = new TextEditor("");
+
+        for (HTMLToken token : tokens) {
+            String value = token.getText();
+            if (token.isTag()) {
+                value = value.replaceAll("\\\\", CHAR_PROTECTOR.encode("\\"));
+                value = value.replaceAll("`", CHAR_PROTECTOR.encode("`"));
+                value = value.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                value = value.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+            }
+            newText.append(value);
+        }
+
+        return newText;
+    }
+
+    private void doImages(TextEditor text) {
+        // Inline image syntax
+        text.replaceAll("!\\[(.*)\\]\\((.*) \"(.*)\"\\)", "<img src=\"$2\" alt=\"$1\" title=\"$3\" />");
+        text.replaceAll("!\\[(.*)\\]\\((.*)\\)", "<img src=\"$2\" alt=\"$1\" />");
+
+        // Reference-style image syntax
+        Pattern imageLink = Pattern.compile("(" +
+                "[!]\\[(.*?)\\]" + // alt text = $2
+                "[ ]?(?:\\n[ ]*)?" +
+                "\\[(.*?)\\]" + // ID = $3
+                ")");
+        text.replaceAll(imageLink, new Replacement() {
+            public String replacement(Matcher m) {
+                String replacementText;
+                String wholeMatch = m.group(1);
+                String altText = m.group(2);
+                String id = m.group(3).toLowerCase();
+                if ("".equals(id)) {
+                    id = altText.toLowerCase();
+                }
+
+                // imageDefinition is the same as linkDefinition
+                LinkDefinition defn = linkDefinitions.get(id);
+                if (defn != null) {
+                    String url = defn.getUrl();
+                    url = url.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                    url = url.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                    String title = defn.getTitle();
+                    String titleTag = "";
+                    if (title != null && !title.equals("")) {
+                        title = title.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                        title = title.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                        titleTag = " alt=\"" + altText + "\" title=\"" + title + "\"";
+                    }
+                    replacementText = "<img src=\"" + url + "\"" + titleTag + "/>";
+                } else {
+                    replacementText = wholeMatch;
+                }
+                return replacementText;
+            }
+        });
+    }
+
+    private TextEditor doAnchors(TextEditor markup) {
+        // Internal references: [link text] [id]
+        Pattern internalLink = Pattern.compile("(" +
+                "\\[(.*?)\\]" + // Link text = $2
+                "[ ]?(?:\\n[ ]*)?" +
+                "\\[(.*?)\\]" + // ID = $3
+                ")");
+        markup.replaceAll(internalLink, new Replacement() {
+            public String replacement(Matcher m) {
+                String replacementText;
+                String wholeMatch = m.group(1);
+                String linkText = m.group(2);
+                String id = m.group(3).toLowerCase();
+                if ("".equals(id)) { // for shortcut links like [this][]
+                    id = linkText.toLowerCase();
+                }
+
+                LinkDefinition defn = linkDefinitions.get(id);
+                if (defn != null) {
+                    String url = defn.getUrl();
+                    // protect emphasis (* and _) within urls
+                    url = url.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                    url = url.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                    String title = defn.getTitle();
+                    String titleTag = "";
+                    if (title != null && !title.equals("")) {
+                        // protect emphasis (* and _) within urls
+                        title = title.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                        title = title.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                        titleTag = " title=\"" + title + "\"";
+                    }
+                    replacementText = "<a href=\"" + url + "\"" + titleTag + ">" + linkText + "</a>";
+                } else {
+                    replacementText = wholeMatch;
+                }
+                return replacementText;
+            }
+        });
+
+        // Inline-style links: [link text](url "optional title")
+        Pattern inlineLink = Pattern.compile("(" + // Whole match = $1
+                "\\[(.*?)\\]" + // Link text = $2
+                "\\(" +
+                "[ \\t]*" +
+                "<?(.*?)>?" + // href = $3
+                "[ \\t]*" +
+                "(" +
+                "(['\"])" + // Quote character = $5
+                "(.*?)" + // Title = $6
+                "\\5" +
+                ")?" +
+                "\\)" +
+                ")", Pattern.DOTALL);
+        markup.replaceAll(inlineLink, new Replacement() {
+            public String replacement(Matcher m) {
+                String linkText = m.group(2);
+                String url = m.group(3);
+                String title = m.group(6);
+                // protect emphasis (* and _) within urls
+                url = url.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                url = url.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                StringBuilder result = new StringBuilder();
+                result.append("<a href=\"").append(url).append("\"");
+                if (title != null) {
+                    // protect emphasis (* and _) within urls
+                    title = title.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                    title = title.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                    title = replaceAll(title, "\"", "&quot;");
+                    result.append(" title=\"");
+                    result.append(title);
+                    result.append("\"");
+                }
+                result.append(">").append(linkText);
+                result.append("</a>");
+                return result.toString();
+            }
+        });
+
+        // Last, handle reference-style shortcuts: [link text]
+        // These must come last in case you've also got [link test][1]
+        // or [link test](/foo)
+        Pattern referenceShortcut = Pattern.compile("(" + // wrap whole match in $1
+                                                        "\\[" +
+                                                        "([^\\[\\]]+)" + // link text = $2; can't contain '[' or ']'
+                                                        "\\]" +
+                                                    ")", Pattern.DOTALL);
+        markup.replaceAll(referenceShortcut, new Replacement() {
+            public String replacement(Matcher m) {
+                String replacementText;
+                String wholeMatch = m.group(1);
+                String linkText = m.group(2);
+                String id = m.group(2).toLowerCase(); // link id should be lowercase
+                id = id.replaceAll("[ ]?\\n", " "); // change embedded newlines into spaces
+
+                LinkDefinition defn = linkDefinitions.get(id.toLowerCase());
+                if (defn != null) {
+                    String url = defn.getUrl();
+                    // protect emphasis (* and _) within urls
+                    url = url.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                    url = url.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                    String title = defn.getTitle();
+                    String titleTag = "";
+                    if (title != null && !title.equals("")) {
+                        // protect emphasis (* and _) within urls
+                        title = title.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
+                        title = title.replaceAll("_", CHAR_PROTECTOR.encode("_"));
+                        titleTag = " title=\"" + title + "\"";
+                    }
+                    replacementText = "<a href=\"" + url + "\"" + titleTag + ">" + linkText + "</a>";
+                } else {
+                    replacementText = wholeMatch;
+                }
+                return replacementText;
+         }
+        });
+
+        return markup;
+    }
+*-
+
+    @private
+    method doItalicsAndBold(markup:MutableString) {
+        markup.replace(#/(\*\*|__)(?=\S)(.+?[*_]*)(?<=\S)\1/#, 
+                "<strong>$2</strong>")
+        markup.replace(#/(\*|_)(?=\S)(.+?)(?<=\S)\1/#, "<em>$2</em>")
+    }
+
+-*
+    private TextEditor encodeAmpsAndAngles(TextEditor markup) {
+        // Ampersand-encoding based entirely on Nat Irons's Amputator MT plugin:
+        // http://bumppo.net/projects/amputator/
+        markup.replaceAll("&(?!#?[xX]?(?:[0-9a-fA-F]+|\\w+);)", "&amp;");
+        markup.replaceAll("<(?![a-zA-Z/?\\$!])", "&lt;");
+        return markup;
+    }
+
+    private String deleteAll(String text, String regex) {
+        return replaceAll(text, regex, "");
+    }
+
+    private String replaceAll(String text, String regex, String replacement) {
+        TextEditor ed = new TextEditor(text);
+        ed.replaceAll(regex, replacement);
+        return ed.toString();
+    }
+
+    private String replaceAll(String markup, Pattern pattern, Replacement replacement) {
+        TextEditor ed = new TextEditor(markup);
+        ed.replaceAll(pattern, replacement);
+        return ed.toString();
+    }
+
+    @Override
+    public String toString() {
+        return "Markdown Processor for Java 0.4.0 (compatible with Markdown 1.0.2b2)";
+    }
+
+    public static void main(String[] args) {
+        StringBuilder buf = new StringBuilder();
+        char[] cbuf = new char[1024];
+        java.io.Reader in = new java.io.InputStreamReader(System.in);
+        try {
+            int charsRead = in.read(cbuf);
+            while (charsRead >= 0) {
+                buf.append(cbuf, 0, charsRead);
+                charsRead = in.read(cbuf);
+            }
+            System.out.println(new MarkdownProcessor().markdown(buf.toString()));
+        } catch (java.io.IOException e) {
+            System.err.println("Error reading input: " + e.getMessage());
+            System.exit(1);
+        }
+    }*-
+}

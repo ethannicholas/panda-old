@@ -1,0 +1,476 @@
+package org.pandalanguage.plex
+
+uses org.pandalanguage.plex.AcceptState
+uses org.pandalanguage.plex.AnyState
+uses org.pandalanguage.plex.NFA
+uses org.pandalanguage.plex.RemappedState
+uses org.pandalanguage.plex.SingleCharState
+uses org.pandalanguage.plex.State
+uses org.pandalanguage.plex.TableState
+
+@abstract
+class Node {
+    @abstract
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int>
+
+    @abstract
+    @override
+    function ->>():String
+}
+
+class Set : Node {
+    var inverse := false
+
+    @readonly
+    var contents := new Array<Object>()
+
+    @class
+    method set(table:Array<Bit>, c:Char) {
+        var i := c->(Int)
+        while table.length <= i
+            table.append(false)
+        table[i] := true
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        var table := new Array<Bit>()
+        for i in 0 ... contents.length - 1 {
+            if contents[i]-?>(SingleChar)
+                set(table, contents[i]->(SingleChar).value)
+            else {
+                var r := contents[i]->(CharSet)
+                for j in 0 ... r.contents.length - 1
+                    set(table, r.contents[j])
+            }
+        }
+        -- FIXME use ->>(ImmutableArray) when that exists
+        return Regex.singleton(context.addState(new TableState(inverse, 
+                new ImmutableArray<Bit>(table, 0, table.length), accept...)))
+    }
+
+    @override
+    function ->>():String {
+        var result := new MutableString()
+        result.append("[")
+        for i in 0 ... contents.length - 1
+            result.append(contents[i])
+        result.append("]")
+        return result->>(String)
+    }
+}
+
+class Star : Node {
+    @readonly
+    var contents:Node
+
+    constructor(contents:Node) {
+        self.contents := contents
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        var next := new Array<Int>()
+        for i in 0 ... accept.length - 1
+            next.append(accept[i])
+        var stateId := context.addState(new RemappedState([]))
+        next.append(stateId)
+        var start := contents.makeStartStates(context, next)
+        for i in 0 ... accept.length - 1
+            start.append(accept[i])
+        var newStates := new Array<State>()
+        for i in 0 ... context.states.length - 1
+            newStates.append(context.states[i])
+        newStates[stateId] := new RemappedState(new ImmutableArray<Int>(start, 
+                0, start.length))
+        context.states := new ImmutableArray<State>(newStates, 0, 
+                newStates.length)
+        return start
+    }    
+
+    @override
+    function ->>():String {
+        return contents + "*"
+    }
+}
+
+class Plus : Node {
+    @readonly
+    var contents:Node
+
+    constructor(contents:Node) {
+        self.contents := contents
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        -- a lot of ugliness has crept in here over time, largely due to
+        -- having to work around the immutability of various objects when these
+        -- objects were not originally built as immutable and I didn't want to
+        -- have to completely rewrite everything. Probably should have.
+        var next := new Array<Int>()
+        for i in 0 ... accept.length - 1
+            next.append(accept[i])
+        var dummy := new RemappedState()
+        var index := context.addState(dummy)
+        next.append(index)
+        var start := contents.makeStartStates(context, next)
+        var remapped := new RemappedState(new ImmutableArray<Int>(start, 0, 
+                start.length))
+        var newStates := context.states[0 .. index]->>(Array<State>)
+        newStates.append(remapped)
+        newStates.appendAll(context.states[index + 1..]->>(Array<State>))
+        context.states := newStates->>(ImmutableArray<State>)
+        return start
+    }    
+
+    @override
+    function ->>():String {
+        return contents + "+"
+    }
+}
+
+class Option : Node {
+    @readonly
+    var contents:Node
+
+    constructor(contents:Node) {
+        self.contents := contents
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        var states := new Array<Int>()
+        for i in 0 ... accept.length - 1
+            states.append(accept[i])
+        var start := contents.makeStartStates(context, accept)
+        for i in 0 ... start.length - 1
+            states.append(start[i])
+        return states
+    }    
+
+    @override
+    function ->>():String {
+        return contents + "?"
+    }
+}
+
+class Union : Node {
+    @readonly
+    var left:Node
+
+    @readonly
+    var right:Node
+
+    constructor(left:Node, right:Node) {
+        self.left := left
+        self.right := right
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        var result := new Array<Int>()
+        var states := left.makeStartStates(context, accept)
+        for i in 0 ... states.length - 1
+            result.append(states[i])
+        states := right.makeStartStates(context, accept)
+        for i in 0 ... states.length - 1
+            result.append(states[i])
+        return result
+    }    
+
+    @override
+    function ->>():String {
+        return left + "|" + right
+    }
+}
+
+class SingleChar : Node {
+    @readonly
+    var value:Char
+
+    constructor(value:Char) {
+        self.value := value
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        return Regex.singleton(context.addState(new SingleCharState(value, 
+                accept...)))
+    }    
+
+    @override
+    function ->>():String {
+        return value->>(String)
+    }
+}
+
+class CharSet : Node {
+    var contents:Array<Char>
+
+    constructor(a:Char, b:Char) {
+        contents := new Array<Char>()
+        for c in a ... b
+            contents.append(c)
+    }
+
+    constructor(contents:String) {
+        self.contents := contents->>(Array<Char>)
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        var table := new Array<Bit>()
+        for j in 0 ... contents.length - 1
+            Set.set(table, contents[j])
+        return Regex.singleton(context.addState(new TableState(false, 
+                new ImmutableArray<Bit>(table, 0, table.length),
+                accept...)))
+    }    
+
+    @override
+    function ->>():String {
+        return new String(contents)
+    }
+}
+
+
+class Any : Node {
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        return Regex.singleton(context.addState(new AnyState(accept...)))
+    }    
+
+    @override
+    function ->>():String {
+        return "."
+    }
+}
+
+class Concat : Node {
+    @readonly
+    var left:Node
+
+    @readonly
+    var right:Node
+
+    constructor(left:Node, right:Node) {
+        self.left := left
+        self.right := right
+    }
+
+    @override
+    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+        var rightStates := right.makeStartStates(context, accept)
+        return left.makeStartStates(context, rightStates)
+    }
+
+    @override
+    function ->>():String {
+        return "(" + left + right + ")"
+    }
+}
+
+class Regex {
+    constant EOF := 0->(Char) 
+
+    var source:String
+    var index := 0
+    var stack := new Stack()
+    var regexNode:Node
+
+    constructor(source:String) {
+        self.source := source
+        regex()
+        self.regexNode := stack.pop()->(Node)
+    }
+
+    @private
+    function peek():Char {
+        if index = source.length
+            return EOF
+        return source[index]
+    }
+
+    @private
+    method expect(c:Char) {
+        if peek != c
+            throw new ParseException("expected '" + c + "' at index " + index)
+        index += 1
+    }
+
+    @private
+    method elementary() {
+        switch peek {
+            case "(": group()
+            case "[": set()
+            case ".": any()
+            default: char()
+        }
+    }
+
+    @private
+    method basic() {
+        elementary()
+        switch peek {
+            case "*": {
+                stack.push(new Star(stack.pop()->(Node)))
+                index += 1
+            }
+            case "+": {
+                stack.push(new Plus(stack.pop()->(Node)))
+                index += 1
+            }
+            case "?": {
+                stack.push(new Option(stack.pop()->(Node)))
+                index += 1
+            }
+        }
+    }
+
+    @private
+    method simple() {
+        basic()
+        loop {
+            switch peek {
+                case "|", ")", EOF: break
+                default: {
+                    simple()
+                    var b := stack.pop()->(Node)
+                    var a := stack.pop()->(Node)
+                    stack.push(new Concat(a, b))
+                }
+            }
+        }
+    }
+
+    @private
+    method getEscape(c:Char):Object {
+        switch c {
+            case "s": return new CharSet(" \t\n\r")
+            case "n": return new SingleChar("\n")
+            case "t": return new SingleChar("\t")
+            case "r": return new SingleChar("\r")
+            default: return new SingleChar(c)
+        }
+    }
+
+    @private
+    method char() {
+        var c := peek
+        switch c {
+            case "(", ")", "+", "*", ".", "|": return
+            case "\\": {
+                index += 1
+                stack.push(getEscape(peek))
+                index += 1
+            }
+            default: {
+                stack.push(new SingleChar(c))
+                index += 1
+            }
+        }
+    }
+
+    @private
+    method any() {
+        expect(".")
+        stack.push(new Any())
+    }
+
+    @private
+    method group() {
+        expect("(")
+        regex()
+        expect(")")
+    }
+
+    @private
+    method setChar() {
+        var c := peek
+        switch c {
+            case "]": return
+            case "\\": {
+                index += 1
+                stack.push(getEscape(peek))
+                index += 1
+            }
+            default: {
+                stack.push(new SingleChar(c))
+                index += 1
+            }
+        }
+    }
+
+    @private
+    method setItem() {
+        setChar()
+        if peek = "-" {
+            expect("-")
+            if peek = "]" {
+                index -= 1
+                setChar()
+                assert peek = "]"
+            }
+            else {
+                setChar()
+                var b := stack.pop()->(SingleChar).value
+                var a := stack.pop()->(SingleChar).value
+                stack.push(new CharSet(a, b))
+            }
+        }
+    }
+
+    @private
+    method setItems() {
+        setItem()
+        if peek != "]"
+            setItems()
+    }
+
+    @private
+    method set() {
+        expect("[")
+        constant MARKER := "SET"
+        stack.push(MARKER)
+        var set := new Set()
+        if peek = "^" {
+            index += 1
+            set.inverse := true
+        }
+        setItems()
+        var item := stack.pop()
+        while item != MARKER {
+            set.contents.append(item)
+            item := stack.pop()
+        }
+        stack.push(set)
+        expect("]")
+    }
+
+    @class
+    function singleton(i:Int):Array<Int> {
+        var result := new Array<Int>(1)
+        result[0] := i
+        return result
+    }
+
+    @private
+    method regex() {
+        simple()
+        switch peek {
+            case "|": {
+                expect("|")
+                regex()
+                var b := stack.pop()->(Node)
+                var a := stack.pop()->(Node)
+                stack.push(new Union(a, b))
+            }
+            case EOF: return
+        }
+    }
+
+    method addToNFA(context:NFA, accept:Int):Array<Int> {
+        return regexNode.makeStartStates(context, singleton(accept))
+    }
+}

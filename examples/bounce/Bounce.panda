@@ -1,0 +1,159 @@
+uses panda.gl.Color
+uses panda.gl.Renderer
+uses panda.gl.Window
+uses panda.gl.events.Event
+uses panda.gl.events.EventType
+uses panda.gl.events.KeyboardEvent
+uses panda.gl.events.MouseEvent
+uses panda.gl.events.MouseMotionEvent
+uses panda.gl.shapes.Rectangle
+uses panda.gl.images.Image
+
+class Ball {
+    constant FRICTION:Real := 0.1
+    constant ELASTICITY:Real := 0.7
+
+    var x:Real
+    var y:Real
+    var width:Int
+    var height:Int
+    var xv:Real
+    var yv:Real
+    var Image:Image
+    var dying:Bit
+
+    constructor(Image:Image) {
+        self.Image := Image
+        self.width := Image.width
+        self.height := Image.height
+    }
+
+    method step(ticks:Real):Bit {
+        x += xv * ticks / 16
+        y += yv * ticks / 16
+        yv += Bounce.G
+        if !dying & y + height > Bounce.WINDOW_HEIGHT {
+            xv *= 1 - FRICTION
+            yv := -yv * 0.7
+            if yv > -2
+                dying := true
+            y := Bounce.WINDOW_HEIGHT - height
+        }
+        return y < Bounce.WINDOW_HEIGHT
+    }
+
+    method render(renderer:Renderer) {
+        def x := self.x->>(Int)
+        def y := self.y->>(Int)
+        renderer.drawImage(Image, new Rectangle(x, y, width, height))
+    }
+}
+
+class Bounce {
+    constant G:Real := 0.18
+    constant WINDOW_WIDTH := 1280
+    constant WINDOW_HEIGHT := 720
+    constant X_SPREAD := 3
+    constant Y_SPREAD := 6
+    constant MAX_DROPRATE := 15
+    constant SOFT_MAX := 2000
+
+    @class
+    method loadImages(renderer:Renderer):Array<Image> {
+        var result := new Array<Image>()
+        result.append(Image.load(new File("images/basketball.png")))
+        result.append(Image.load(new File("images/bowling.png")))
+        result.append(Image.load(new File("images/golf.png")))
+        result.append(Image.load(new File("images/soccer.png")))
+        result.append(Image.load(new File("images/tennis.png")))
+        return result
+    }
+
+    @class
+    method main() {
+        constant ballWidth:Int16 := 50
+        constant ballHeight:Int16 := 50
+        def window := new Window("Click and drag", new Rectangle(200, 200, 
+                WINDOW_WIDTH, WINDOW_HEIGHT))
+        def renderer := window.renderer
+        def Images := loadImages(renderer)
+        var x:Real := 0
+        var y:Real := 0
+        var xv:Real := 2
+        var yv:Real := 0
+        var g:Real := 0.18
+        renderer.paint := Color.WHITE
+        var balls := new Array<Ball>()
+        var mouseDown := false
+        var mouseHoldTime := 0
+        var pendingDrops:Real := 0
+        var mouseX:Real := 0
+        var mouseY:Real := 0
+        var currentBall := 0
+        var lastTime := Panda.currentTime()
+        loop {
+            def now := Panda.currentTime()
+            def ticks := now - lastTime
+            renderer.clear()
+            for i in balls.length - 1 ... 0 by -1 {
+                if balls[i].step(ticks)
+                    balls[i].render(renderer)
+                else {
+                    for j in i ... balls.length - 2
+                        balls[j] := balls[j + 1] 
+                    balls.length -= 1
+                }
+            }
+            renderer.present()
+            while window.eventQueue.hasMessage() {
+                def event := window.eventQueue.getMessage()->(Event)
+                if event.type = EventType.KEYDOWN
+                    System.exit(0)
+                else if event.type = EventType.MOUSEUP {
+                    mouseDown := false
+                    currentBall += 1
+                    if currentBall > Images.length
+                        currentBall := 0
+                }
+                else if event.type = EventType.MOUSEDOWN {
+                    def mb := event->(MouseEvent)
+                    mouseDown := true
+                    mouseHoldTime := 0
+                    pendingDrops := 1
+                    mouseX := mb.position.x
+                    mouseY := mb.position.y
+                }                    
+                else if event.type = EventType.MOUSEMOTION {
+                    def mm := event->(MouseMotionEvent)
+                    mouseX := mm.position.x
+                    mouseY := mm.position.y
+                }
+            }
+            if mouseDown {
+                while pendingDrops >= 1 {
+                    var ImageIndex := currentBall
+                    if ImageIndex = Images.length
+                        ImageIndex := Random.int(Images.length)
+                    def ball := new Ball(Images[ImageIndex])
+                    ball.x := mouseX - ball.width / 2
+                    ball.y := mouseY - ball.height / 2
+                    ball.xv := (Random.real64() - 0.5) * X_SPREAD
+                    ball.yv := (Random.real64() - 0.5) * Y_SPREAD
+                    balls.append(ball)
+                    if balls.length > SOFT_MAX {
+                        for i in 0 ... balls.length - 1 {
+                            if !balls[i].dying {
+                                balls[i].dying := true
+                                break
+                            }
+                        }
+                    }
+                    pendingDrops -= 1
+                }
+                mouseHoldTime += 1
+                pendingDrops += MAX_DROPRATE.min(mouseHoldTime / 20)
+            }
+            lastTime := now
+        }
+    }
+}

@@ -1,0 +1,46 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.Type
+
+================================================================================
+Represents a class name occurring in the source code; during the compilation
+process this will be turned into either a `ClassLiteral` or a 
+`ClassObjectLiteral`, depending upon the context.
+
+THIS IS NO LONGER IN USE. Early versions of Panda allowed class names to be used
+directly as class objects, e.g. `def cl := Int32` would assign the Int32 class
+object to the variable. This doesn't play nicely with generics due to parsing
+ambiguity around the `<` and `>` tokens (consider `foo(x < y, z > w)` -- is this
+a generic type `x<y, z>` followed by another token, or is it two separate 
+booleans? So I introduced the class(Foo) syntax and removed this capability, but
+I have left much of the code path intact for now.
+================================================================================
+class UnresolvedClassLiteral : Value {
+    var value:ClassType
+    
+    constructor(value:Type) {
+        constructor(Position.INTERNAL, value)
+    }
+    
+    constructor(position:Position, var value:Type) {
+        super.constructor(position, ClassType.CLASS())
+        if value.isPrimitive
+            value := value->(PrimitiveType).wrapperVersion()
+        self.value := value->(ClassType)
+    }
+
+    @override
+    function format(fmt:String):String {
+        return value.name
+    }
+
+    function ->>():ClassLiteral {
+        return new ClassLiteral(position, value)
+    }
+
+    function ->>():ClassObjectLiteral {
+        return new ClassObjectLiteral(position, value)
+    }
+}

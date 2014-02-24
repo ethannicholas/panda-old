@@ -1,0 +1,271 @@
+package panda.core
+
+================================================================================
+Matchers are created from `RegularExpression` objects, and hold all of the state
+necessary to match a regular expression against a string.
+================================================================================
+@static
+class Matcher {
+    @private
+    constant REPLACEMENT_GROUPS := #/\$(0|[1-9]\d*)/#
+
+    ============================================================================
+    The text the matcher currently searching against.
+    ============================================================================
+    property searchText := ""
+    
+    @private
+    var regex:RegularExpression
+
+    ============================================================================
+    `true` if the have successfully found a match.
+    ============================================================================
+    @private
+    var matched:Bit
+    
+    ============================================================================
+    The position that @link(appendReplacement(String)) or @link(appendTail())
+    will start copying from.
+    ============================================================================
+    @private
+    var replacementIndex:Int
+
+    --@package FIXME uncomment this
+    constructor(regex:RegularExpression, searchText:String) {
+        self.regex := regex.clone()
+        self.searchText := searchText
+    }
+    
+    ============================================================================
+    Changes the text the matcher is searching against and resets the matcher.
+    ============================================================================
+    @self
+    method searchText:=(text:String) {
+        _searchText := text
+        replacementIndex := 0
+        matched := false
+        setText(regex.nativeHandle, text)
+    }
+    
+    ============================================================================
+    Returns `true` if `text` matches the matcher's regular expression. Every 
+    character of `text` must be part of the match.
+    
+    @param text the string to check for a match
+    @returns `true` if the string matches
+    ============================================================================
+    @self
+    method matches():Bit {
+        matched := matches(regex.nativeHandle)
+        replacementIndex := searchText.length
+        return matched
+    }
+        
+    ============================================================================
+    Returns the next occurrence of the matcher's regular expression within the 
+    string. Returns a `Bit` indicating whether or not a match was found. Use 
+    @link(start()), @link(end()),  and @link(group(Int)) for more information 
+    about the match.
+    
+    @returns `true` if a match was found
+    ============================================================================
+    @self
+    @pre(matched | replacementIndex = 0)
+    method find():Bit {
+        var start:Int
+        if matched {
+            start := self.end
+            if self.start = start { -- zero-character match, skip ahead one
+                start += 1
+                if start >= searchText.length {
+                    matched := false
+                    return matched
+                }
+            }
+        }
+        else
+            start := 0
+        matched := find(regex.nativeHandle, start)
+        return matched
+    }
+    
+    ============================================================================
+    Returns the first occurrence of the matcher's regular expression within the 
+    string starting at the character `start`. Returns whether or not a match was 
+    found. Use @link(start()), @link(end()), and @link(group(Int)) for more 
+    information about the match.
+    
+    @param text the string to search for a match
+    @param start the index to start the search at
+    @returns `true` if a match was found
+    ============================================================================
+    @self
+    method find(start:Int):Bit {
+        replacementIndex := start
+        matched := find(regex.nativeHandle, start)
+        return matched
+    }
+
+    ============================================================================
+    Following a successful `match` or `find`, returns one of the regular 
+    expression capture groups. Group `0` returns the entire captured text, while
+    groups `1` and above refer to parenthesized capture groups within the 
+    regular expression.
+    
+    @param i the index of the capture group to return
+    @returns the text of the capture group
+    ============================================================================
+    @pre(matched)
+    function group(i:Int):String {
+        return group(regex.nativeHandle, i)
+    }
+    
+    ============================================================================
+    Returns the number of capture groups in this `RegularExpression`, including
+    the special group 0 (which contains the entire string).
+    
+    @returns the number of capture groups
+    ============================================================================
+    @pre(matched)
+    function groupCount():Int {
+        return groupCount(regex.nativeHandle)
+    }
+    
+    ============================================================================
+    Returns the character index of the beginning of the last match, following a
+    successful `find()`.
+    
+    @returns the beginning of the match
+    ============================================================================
+    @pre(matched)
+    function start():Int {
+        return start(regex.nativeHandle)
+    }
+    
+    ============================================================================
+    Returns the character index just after the end of the last match, following 
+    a successful `find()`.
+    
+    @returns the end of the match
+    ============================================================================
+    @pre(matched)
+    function end():Int {
+        return end(regex.nativeHandle)
+    }
+    
+    ============================================================================
+    After a successful match, appends a replacement for the match to a
+    `MutableString`. The text appended to the `MutableString` will include all
+    unmatched characters between the last match and the current match, and the
+    `replacement` string may include references to match groups using the syntax
+    `$1`, `$2`, etc.
+
+    `appendReplacement` is intended to be used in a loop with `find()` and
+    completed with `appendTail()`, such as in this example:
+
+        def result := new MutableString()
+        def regex := #/\s+/#
+        def matcher := regex.matcher("Hello, can anyone hear me?")
+        while matcher.find()
+            matcher.appendReplacement(result, "|")
+        matcher.appendTail(result)
+        Console.writeLine(result)
+
+    This will display the text `"Hello,|can|anyone|hear|me?"`.
+
+    @param target the `MutableString` to append to
+    @param replacement the replacement string, optionally containing `$1`-style
+           group references
+    ============================================================================
+    @pre(matched)
+    @limited
+    method appendReplacement(target:MutableString, replacement:String) {
+        appendReplacement(target, replacement, true)
+    }
+
+    ============================================================================
+    As @link(appendReplacement(MutableString, String)), but allows the 
+    interpretation of `$1`-style group references to be controlled. With
+    `allowGroupReferences` set to `false`, the replacement string is treated
+    literally, with no special handling for `$1`-style sequences.
+
+    @param target the `MutableString` to append to
+    @param replacement the replacement string
+    @param allowGroupReferences if false, `$1`-style group references are 
+           ignored
+    ============================================================================
+    @limited
+    method appendReplacement(target:MutableString, replacement:String, 
+            allowGroupReferences:Bit) {
+        target.append(searchText[replacementIndex .. start])
+        if allowGroupReferences {
+            var ref := REPLACEMENT_GROUPS.matcher(replacement)
+            var lastEnd:Int := 0
+            while ref.find() {
+                var rawGroup := ref.group(1)->>(Int?)
+                var groupIdx := rawGroup->(Int)
+                var newEnd := ref.end
+                while groupIdx >= groupCount { -- no such group, pull digits off
+                    groupIdx //= 10
+                    newEnd -= 1
+                }
+                target.append(replacement[lastEnd .. ref.start])
+                lastEnd := newEnd
+                if groupIdx > 0 | rawGroup = 0
+                    target.append(group(groupIdx))
+                else {
+                    target.append("$")
+                }
+            }
+            target.append(replacement[lastEnd..])
+        }
+        else
+            target.append(replacement)
+        replacementIndex := end
+    }
+
+    
+    ============================================================================
+    Appends all remaining unmatched text to the target `MutableString`. See
+    @link(appendReplacement) for a usage example.
+    ============================================================================
+    @limited
+    method appendTail(target:MutableString) {
+        target.append(searchText[replacementIndex..])
+    }
+
+    @private
+    @class
+    @external
+    method setText(nativeHandle:$NativePointer, text:String)
+
+    @private
+    @class
+    @external
+    method matches(nativeHandle:$NativePointer):Bit
+
+    @private
+    @class
+    @external
+    method find(nativeHandle:$NativePointer, startIndex:Int):Bit
+
+    @private
+    @class
+    @external
+    function group(nativeHandle:$NativePointer, group:Int):String
+
+    @private
+    @class
+    @external
+    function groupCount(nativeHandle:$NativePointer):Int
+
+    @private
+    @class
+    @external
+    function start(nativeHandle:$NativePointer):Int
+    
+    @private
+    @class
+    @external
+    function end(nativeHandle:$NativePointer):Int
+}

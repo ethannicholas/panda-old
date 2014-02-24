@@ -1,0 +1,90 @@
+package panda.core
+
+================================================================================
+A regular expression which can be used to match strings and extract text from
+them.
+
+`RegularExpression` supports Perl 5-compatible regular expression syntax. The 
+syntax `#/expression/#` may be used as a shortcut to embed `RegularExpression` 
+objects within Panda source code.
+================================================================================
+@static
+class RegularExpression : Immutable {
+    constant MULTILINE := 1
+
+    ============================================================================
+    The pattern text.
+    ============================================================================
+    @readonly
+    var pattern:String
+    
+    ============================================================================
+    Pointer to the native `URegularExpression`.
+    ============================================================================
+    --@package FIXME uncomment this
+    var nativeHandle:$NativePointer
+    
+    ============================================================================
+    Creates a new `RegularExpression` compiled from the specified regular
+    expression string.
+    
+    @param pattern the expression to compile
+    ============================================================================
+    constructor(pattern:String) {
+        constructor(pattern, 0)
+    }
+
+    constructor(pattern:String, flags:Int) {
+        self.pattern := pattern
+        compile(pattern, flags)
+    }
+    
+    @safeReturn
+    function matcher(text:String):Matcher {
+        return new Matcher(self, text)
+    }
+
+    @override
+    function format(fmt:String):String {
+        return "#/" + pattern + "/#"
+    }
+    
+    -- release the native resources
+    @override
+    method finalize() {
+        close(nativeHandle)
+    }
+    
+    ============================================================================
+    Escapes characters within a string so that they will be interpreted 
+    literally rather than as special characters (*, +, ?, |, {, [, (, ), ^, $, 
+    ., #, and \).
+    
+    @param s the string to escape
+    @returns a copy of `s` with special characters escaped
+    ============================================================================
+    @class
+    method escape(s:String):String {
+        var result := new MutableString()
+        for i in 0 ... s.length - 1 {
+            var c := s[i]
+            if c in "*+?|{[()^$.#\\"
+                result.append("\\")
+            result.append(c)
+        }
+        return result->>(String)
+    }
+    
+    --@package FIXME uncomment this
+    @external
+    function clone():RegularExpression
+
+    @private
+    @external
+    method compile(regex:String, flags:Int)
+
+    @private
+    @class
+    @external
+    method close(nativeHandle:$NativePointer)
+}

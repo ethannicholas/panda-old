@@ -1,0 +1,91 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.types.Type
+
+================================================================================
+Applies a pluggable naming strategy to all of the methods in a class, in order
+to name methods in a fashion which is compatible with and unambiguous in the
+target language.
+================================================================================
+class MethodNamer {
+    constant NAMED := "named"
+    constant NAME := "name"
+
+    @class
+    function escapeTypeName(name:String):String {
+        return name.replace(".", "$").replace("<", "$LT").
+                            replace(">", "$GT").replace("?", "$Z").
+                            replace("*", "$p").replace("(", "$LP").
+                            replace(")", "$RP").replace("=", "$EQ").
+                            replace(",", "$C").replace("&", "$AM")
+    }
+
+    @class
+    method nameMethods(st:MethodNamingStrategy) {
+        for cl in SymbolTable.master.classes
+            nameMethods(cl, st)
+    }
+
+    ============================================================================
+    Goes through all of the methods in a class, giving each a NAME property
+    in accordance with the specified `MethodNamingStrategy`.
+    ============================================================================
+    @private
+    @class
+    method nameMethods(cl:ClassNode, st:MethodNamingStrategy) {
+        if cl.getProperty(NAMED) = true
+            return
+        cl.setProperty(NAMED, true)
+        var sc := cl.superclass
+        if sc != null
+            nameMethods(sc, st)
+        for intf in cl.interfaces
+            nameMethods(intf.classNode, st)
+        var disambiguationBuckets:Map := new HashMap()
+        for child in cl.children {
+            if child-?>(MethodNode) {
+                var m := child->(MethodNode)
+                addToBucket(disambiguationBuckets, st.disambiguation(m), m)
+            }
+        }
+        for bucket in disambiguationBuckets.values {
+            var shortBuckets:Map := new HashMap()
+            for m in bucket->(Array<MethodNode>)
+                addToBucket(shortBuckets, st.shortName(m), m)
+            -- FIXME eliminate casts when we have generics
+            for (key, value) in shortBuckets.entries {
+                var shortBucket := value->(Array<MethodNode>)
+                if shortBucket.length = 1
+                    shortBucket[0].setProperty(NAME, key->(String))
+                else {
+                    var mediumBuckets:Map := new HashMap()
+                    for m in shortBucket
+                        addToBucket(mediumBuckets, st.mediumName(m), m)
+                    for (mKey, mValue) in mediumBuckets.entries {
+                        var mediumBucket := mValue->(Array<MethodNode>)
+                        if mediumBucket.length = 1
+                            mediumBucket[0].setProperty(NAME, mKey->(String))
+                        else {
+                            for m in mediumBucket
+                                m.setProperty(NAME, st.longName(m))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @private
+    @class
+    method addToBucket(buckets:Map, name:String, m:MethodNode) {
+        var bucket := buckets[name]->(Array<MethodNode>?)
+        if bucket = null {
+            bucket := new Array<MethodNode>()
+            buckets[name] := bucket
+        }
+        bucket.append(m)
+    }
+}

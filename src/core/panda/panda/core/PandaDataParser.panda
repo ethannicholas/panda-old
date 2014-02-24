@@ -1,0 +1,284 @@
+package panda.core
+
+================================================================================
+Implements the `String.parse(String)` method for reading Panda-formatted data
+(this format is almost identical to JSON).
+================================================================================
+class PandaDataParser {
+    var data:PushbackInputStream
+    var index := 0
+    
+    constructor(data:String) {
+        constructor(new MemoryInputStream(data))
+    }
+
+    constructor(data:InputStream) {
+        self.data := new PushbackInputStream(data)
+    }
+
+    method peek():Char {
+        var result := read()
+        data.pushback(result)
+        index -= 1
+        return result
+    }
+
+    method readOptional():Char? {
+        index += 1
+        return data.readChar()
+    }
+
+    method read():Char {
+        var result := data.readChar()
+        if result = null {
+            throw new ParseException("unexpected end of string while " +
+                    "parsing")
+        }
+        index += 1
+        return result
+    }
+
+    method checkNext(c:Char):Bit {
+        var next := read()
+        if next = c
+            return true
+        data.pushback(next)
+        index -= 1
+        return false
+    }
+
+    method expect(c:Char) {
+        var next := read()
+        if next != c {
+            throw new ParseException("expected '" + c + "' at index " + 
+                    (index - 1) + ", but found '" + next + "'")
+        }
+    }
+
+    method skipWhitespace() {
+        var n := read()
+        while n.isWhitespace
+            n := read()
+        data.pushback(n)
+        index -= 1
+    }
+
+    @self
+    method parse():Immutable? {
+        skipWhitespace()
+        var result := readValue()
+        var n := data.readChar()
+        index += 1
+        while n != null & n.isWhitespace {
+            n := data.readChar()
+            index += 1
+        }
+        if n != null {
+            throw new ParseException("unexpected data at index " + 
+                    (index - 1))
+        }
+        return result
+    }
+
+    @private
+    method readValue():Immutable? {
+        switch peek() {
+            case '"': return readString()
+            case "[": return readArray()
+            case "{": return readMap()
+            case "-", '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+                return readNumber()
+            case "n": return readNull()
+            case "t": return readTrue()
+            case "f": return readFalse()
+            default:
+                throw new ParseException("expected value at index " + index)
+        }
+    }
+
+    @private
+    method readArray():ImmutableArray<Immutable?> {
+        var result:Array<Immutable?> := []
+        expect("[")
+        skipWhitespace()
+        if !checkNext("]") {
+            do {
+              skipWhitespace()
+              result.append(readValue())
+              skipWhitespace()
+            } 
+            while checkNext(",")
+            expect("]")
+        }
+        return result->>(ImmutableArray<Immutable?>)
+    }
+
+    @private
+    method readMap():ImmutableHashMap {
+        var result := new HashMap()
+        expect("{")
+        skipWhitespace()
+        if !checkNext("}") {
+            do {
+                skipWhitespace()
+                var key := readValue()
+                skipWhitespace()
+                expect(":")
+                skipWhitespace()
+                result[key] := readValue()
+                skipWhitespace()
+            } 
+            while checkNext(",")
+            expect("}")
+        }
+        return result->>(ImmutableHashMap)
+    }
+
+    @private
+    method readNull():Immutable? {
+        expect("n")
+        expect("u")
+        expect("l")
+        expect("l")
+        return null
+    }
+
+    @private
+    method readTrue():Bit {
+        expect("t")
+        expect("r")
+        expect("u")
+        expect("e")
+        return true
+    }
+
+    @private
+    method readFalse():Bit {
+        expect("f")
+        expect("a")
+        expect("l")
+        expect("s")
+        expect("e")
+        return false
+    }
+
+    @private
+    method readString():String {
+        var result := new MutableString()
+        expect('"')
+        var c := read()
+        while c != '"' {
+            if c = "\\" {
+                c := read()
+                switch c {
+                    case "t": result.append("\t")
+                    case "n": result.append("\n")
+                    case "r": result.append("\r")
+                    case "\\": result.append("\\")
+                    case '"': result.append('"')
+                    case "'": result.append("'")
+                    default: {
+                        throw new ParseException(
+                                "invalid escape sequence '\\" + c + "' at " + 
+                                (index - 1))
+                    }
+                }
+            }
+            else
+                result.append(c)
+            c := read()
+        }
+        return result->>(String)
+    }
+
+    -- FIXME PERFORMANCE quick and dirty slow implementation
+    @private
+    @pre(base >= 2 & base <= 36)
+    function parseInt(s:String, base:Int):Int64 {
+        var result:Int64 := 0
+        var digits := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        var digitsLower := "0123456789abcdefghijklmnopqrstuvwxyz"
+        for i in 0 ... s.length - 1 {
+            var digit := digits.indexOf(s[i])
+            if digit = null
+                digit := digitsLower.indexOf(s[i])
+            assert digit != null
+            result := result * base + digit
+        }
+        return result
+    }
+
+    @private
+    function isDigit(c:Char, base:Int):Bit {
+        switch base {
+            case 10: return c in "0123456789"
+            case 16: return c in "0123456789ABCDEFabcdef"
+            case 2: return c = "0" | c = "1"
+        }
+        return false
+    }
+
+    @private
+    method readNumber():Number {
+        var result := new MutableString()
+        if checkNext("-")
+            result.append("-")
+        var base := 10
+        var d:Char? := read()
+        if d = "0" {
+            var next := readOptional()
+            if next = null
+                return 0
+            if next = "b" | next = "B" {
+                base := 2
+                d := read()
+            }
+            else if next = "x" | next = "X" {
+                base := 16
+                d := read()
+            }
+            else {
+                result.append(d)
+                d := next
+            }
+        }
+        while d != null & isDigit(d, base) {
+            result.append(d)
+            d := readOptional()
+        }
+        if base != 10
+            return parseInt(result->>(String), base)
+        var real := false
+        if d = "." {
+            real := true
+            result.append(".")
+            d := readOptional()
+            if d != null
+            while d != null & isDigit(d, 10) {
+                result.append(d)
+                d := readOptional()
+            }
+        }
+        if d = "e" {
+            real := true
+            result.append("e")
+            d := read()
+            if d = "+" | d = "-" {
+                result.append(d)
+                d := read()
+            }
+            while d != null & isDigit(d, 10) {
+                result.append(d)
+                d := readOptional()
+            }
+        }
+        if d != null {
+            data.pushback(d)
+            index -= 1
+        }
+        if real
+            return result->>(String)->>(Real?)->(Real)
+        else
+            return result->>(String)->>(Int?)->(Int)
+    }
+}

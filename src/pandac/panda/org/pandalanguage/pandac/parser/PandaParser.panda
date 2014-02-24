@@ -1,0 +1,2141 @@
+package org.pandalanguage.pandac.parser
+
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.tree.Position
+
+================================================================================
+Recursive-descent parser which constructs a parse tree from Panda source code. 
+The Panda grammar is *mostly* context-free LALR(1), but there are a couple spots 
+where we require additional lookahead or a bit of context. I have done my best 
+to keep the comments at the beginning of each method which formally describe the 
+grammar accurate, but don't take them as gospel without looking at the code.
+================================================================================
+class PandaParser {
+    ============================================================================
+    The lexer we are using as a token source.
+    ============================================================================
+    @private
+    var lexer:PandaLexer := new PandaLexer()
+    
+    ============================================================================
+    Holds nodes inserted using `pushback()`. `nextToken()` will pull from here
+    first.
+    ============================================================================
+    @private
+    var pushbackBuffer := new Array<Token>()
+    
+    ============================================================================
+    Current indentation level for debug output.
+    ============================================================================
+    @private
+    var indent := 0
+    
+    ============================================================================
+    True if we are currently in a method with a return type.
+    ============================================================================
+    @private
+    var expectReturnValue:Bit
+    
+    ============================================================================
+    True if we are currently in a 'case' (causes us to treat ':' as ending the
+    case value rather than beginning a typeDeclaration for a lambda).
+    ============================================================================
+    @private
+    var inCase:Bit
+    
+    ============================================================================
+    Loop labels we have encountered while parsing the current method.
+    ============================================================================
+    @private
+    var loopLabels := new Array<String>()
+
+    ============================================================================
+    The root parse node.
+    ============================================================================
+    @private
+    var root:ParseNode?
+    
+    ============================================================================
+    `open()` will add new nodes as childen of currentNode.
+    ============================================================================
+    @private
+    var currentNode := root
+    
+    ============================================================================
+    Returns the next token from the lexer.
+    
+    @return the next token in the input stream
+    ============================================================================
+    @protected
+    method nextToken():Token {
+        var result:Token
+        if pushbackBuffer.length > 0 {
+            result := pushbackBuffer[pushbackBuffer.length - 1]
+            pushbackBuffer.length -= 1
+        }
+        else {
+            result := lexer.next()
+            if result.type = TokenType.UNTERMINATED_STRING
+                error("unterminated string literal", result)
+        }
+        var cn := currentNode
+        assert cn != null
+        cn.add(new TokenNode(result))
+        return result
+    }
+    
+    ============================================================================
+    "Unreads" the specified token, pushing it back onto the stream so it will be
+    the next token read.
+    
+    @param t the token to push back
+    ============================================================================
+    @protected
+    method pushback(t:Token) {
+        var cn := currentNode
+        assert cn != null
+        var last := cn.length - 1
+        assert cn[last]-?>(TokenNode) &
+                cn[last]->(TokenNode).token = t
+        cn.length -= 1
+        pushbackBuffer.append(t)
+    }
+    
+    ============================================================================
+    Returns the next token without consuming it.
+    
+    @return the next token from the lexer
+    ============================================================================
+    @protected
+    method peek():Token {
+        if pushbackBuffer.length = 0
+            pushback(nextToken())
+        return pushbackBuffer[pushbackBuffer.length - 1]
+    }
+
+    ============================================================================
+    Peeks at the next token, and consumes it if it is of the specified type.
+    Returns the token if it matches, or `null` otherwise.
+    
+    @param type the type of token to look for
+    @return the matching token or `null`
+    ============================================================================
+    @protected
+    method checkNext(type:TokenType):Token? {
+        var t := nextToken()
+        if t.type = type
+            return t
+        else {
+            pushback(t)
+            return null
+        }
+    }
+
+    ============================================================================
+    Consumes the next token in the input stream, reporting a compile error if it
+    is not of the expected type. Returns the consumed token whether or not it
+    generated an error.
+    
+    @param type the expected type of token
+    @return the next token
+    ============================================================================
+    @protected
+    method expect(type:TokenType, message:String):Token {
+        var t := nextToken()
+        if t.type != type
+            error("expected " + message + ", but found '" + t + "'", t)
+        return t
+    }
+
+    @protected
+    method open(type:ParseNodeType) {
+        var p := new ParseNode(type)
+        var cn := currentNode
+        assert cn != null
+        cn.add(p)
+        p.parent := cn
+        currentNode := p
+    }
+    
+    @protected
+    method close(type:ParseNodeType) {
+        var cn := currentNode
+        assert cn != null & cn.type = type
+        currentNode := cn.parent
+    }
+    
+    @protected
+    method error(s:String, t:Token) {
+        error(s, t.position)
+    }
+    
+    @protected
+    method error(s:String, position:Position) {
+        throw new CompilerException(s, position)
+    }
+    
+    ============================================================================
+    compilationUnit = bodyEntry* EOF
+    ============================================================================
+    @protected
+    method compilationUnit() {
+        open(ParseNodeType.COMPILATION_UNIT)
+        var node := currentNode
+        while peek().type != TokenType.EOF {
+            bodyEntry()
+        }
+        close(ParseNodeType.COMPILATION_UNIT)
+    }
+
+    ============================================================================
+    instanceDeclaration = INSTANCE type
+    ============================================================================
+    @protected
+    method instanceDeclaration() {
+        open(ParseNodeType.INSTANCE_DECLARATION)
+        expect(TokenType.INSTANCE, "'@$instance'")
+        type()
+        close(ParseNodeType.INSTANCE_DECLARATION)
+    }
+
+    ============================================================================
+    bodyEntry = (DOCCOMMENT? annotations (classDeclaration | 
+                    interfaceDeclaration | enum | methodDeclaration) |
+                packageDeclaration | usesStatement | instance | simpleStatement
+    ============================================================================
+    @protected
+    method bodyEntry() {
+        open(ParseNodeType.BODY_ENTRY)
+        var t := peek()
+        switch t.type {
+            case TokenType.DOCCOMMENT, TokenType.PROTECTED, TokenType.PRIVATE,
+                    TokenType.ATCLASS, TokenType.STATIC, TokenType.ABSTRACT,
+                    TokenType.EXTERNAL, TokenType.OVERRIDE, TokenType.READONLY, 
+                    TokenType.MATH, TokenType.LIMITED, TokenType.SAFERETURN, 
+                    TokenType.PRE, TokenType.WRAPPER_METHOD, TokenType.CLASS, 
+                    TokenType.INTERFACE, TokenType.ENUM, TokenType.METHOD, 
+                    TokenType.FUNCTION: {
+                checkNext(TokenType.DOCCOMMENT)
+                annotations()
+                t := peek()
+                switch t.type {
+                    case TokenType.CLASS: classDeclaration()
+                    case TokenType.INTERFACE: interfaceDeclaration()
+                    case TokenType.METHOD, TokenType.FUNCTION:
+                            methodDeclaration()
+                    case TokenType.ENUM: enumeration()
+                    default: {                    
+                        nextToken()
+                        error("expected 'class' or 'method', found '" + t.text + 
+                                "' instead", t)
+                    }
+                }
+            }
+            case TokenType.PACKAGE: packageDeclaration()
+            case TokenType.USES: usesStatement()
+            case TokenType.INSTANCE: instanceDeclaration()
+            default: simpleStatement()
+        }
+        close(ParseNodeType.BODY_ENTRY)
+    }
+    
+    ============================================================================
+    packageDeclaration = PACKAGE IDENTIFIER (DOT IDENTIFIER)*
+    ============================================================================
+    @protected
+    method packageDeclaration() {
+        open(ParseNodeType.PACKAGE_DECLARATION)
+        expect(TokenType.PACKAGE, "'package'")
+        expect(TokenType.IDENTIFIER, "package name")
+        while checkNext(TokenType.DOT) != null
+            expect(TokenType.IDENTIFIER, "identifer as part of package name")
+        close(ParseNodeType.PACKAGE_DECLARATION)
+    }
+
+    ============================================================================
+    usesStatement = USES IDENTIFIER (DOT IDENTIFIER)* (DOT STAR)?
+            (AS IDENTIFIER)?
+    ============================================================================
+    @protected
+    method usesStatement() {
+        open(ParseNodeType.USES_STATEMENT)
+        expect(TokenType.USES, "'uses'")
+        expect(TokenType.IDENTIFIER, "class name")
+        while checkNext(TokenType.DOT) != null {
+            var token := nextToken()
+            if token.type != TokenType.IDENTIFIER & token.type != TokenType.MUL
+                throw new CompilerException("expected identifier or '*', " +
+                        "found '" + token + "'", token.position)
+        }
+        if checkNext(TokenType.AS) != null
+            expect(TokenType.IDENTIFIER, "identifier")
+        close(ParseNodeType.USES_STATEMENT)
+    }
+
+    ============================================================================
+    interfaces = LPAREN TYPE (COMMA TYPE)* RPAREN
+    ============================================================================
+    @protected
+    method interfaces() {
+        open(ParseNodeType.INTERFACES)
+        expect(TokenType.LPAREN, "'('")
+        type()
+        while checkNext(TokenType.COMMA) != null
+            type()
+        expect(TokenType.RPAREN, "')' to complete interfaces")
+        close(ParseNodeType.INTERFACES)
+    }
+
+    ============================================================================
+    classMembers = classMemberDeclaration*
+    ============================================================================
+    @protected
+    method classMembers() {
+        open(ParseNodeType.CLASS_MEMBERS)
+        while peek().type != TokenType.RBRACE
+            classMemberDeclaration()
+        close(ParseNodeType.CLASS_MEMBERS)
+    }
+
+    ============================================================================
+    classDeclaration = CLASS IDENTIFIER genericParametersDeclaration? 
+            (COLON classType)? interfaces? LBRACE classMembers RBRACE
+    ============================================================================
+    @protected
+    method classDeclaration() {
+        open(ParseNodeType.CLASS_DECLARATION)
+        expect(TokenType.CLASS, "'class'")
+        expect(TokenType.IDENTIFIER, "class' name (an identifier)")
+        if peek().type = TokenType.LT
+            genericParametersDeclaration()
+        if checkNext(TokenType.COLON) != null
+            classType()
+        if peek().type = TokenType.LPAREN
+            interfaces()
+        expect(TokenType.LBRACE, "'{' to begin class body")
+        classMembers()
+        expect(TokenType.RBRACE, "'}' to complete class body")
+        close(ParseNodeType.CLASS_DECLARATION)
+    }
+    
+    ============================================================================
+    interfaceDeclaration = INTERFACE IDENTIFIER genericParametersDeclaration? 
+            (COLON classType (COMMA classType)*)? LBRACE classMemberDeclaration* 
+            RBRACE
+    ============================================================================
+    @protected
+    method interfaceDeclaration() {
+        open(ParseNodeType.INTERFACE_DECLARATION)
+        expect(TokenType.INTERFACE, "'interface'")
+        expect(TokenType.IDENTIFIER, "interface's name (an identifier)")
+        if peek().type = TokenType.LT
+            genericParametersDeclaration()
+        if checkNext(TokenType.COLON) != null {
+            classType()
+            while checkNext(TokenType.COMMA) != null
+                classType()
+        }
+        expect(TokenType.LBRACE, "'{' to begin interface body")
+        classMembers()
+        expect(TokenType.RBRACE, "'}' to complete interface body")
+        close(ParseNodeType.INTERFACE_DECLARATION)
+    }
+
+    ============================================================================
+    enum = ENUM LBRACE (DOCCOMMENT? IDENTIFIER (COMMA DOCCOMMENT? IDENTIFIER)*)? 
+            RBRACE
+    ============================================================================
+    @protected
+    method enumeration() {
+        open(ParseNodeType.ENUM)
+        expect(TokenType.ENUM, "'enum'")
+        expect(TokenType.IDENTIFIER, "enum's name (an identifier)")
+        expect(TokenType.LBRACE, "'{' to begin enum body")
+        var t := nextToken()
+        if t.type = TokenType.DOCCOMMENT
+            t := nextToken()
+        if t.type = TokenType.IDENTIFIER {
+            while checkNext(TokenType.RBRACE) = null {
+                expect(TokenType.COMMA, 
+                        "',' or '}', to either continue or complete enum")
+                checkNext(TokenType.DOCCOMMENT)
+                expect(TokenType.IDENTIFIER, "enum entry name (an identifier)")
+            }
+        }
+        else if t.type != TokenType.RBRACE {
+            error("expected '}' to complete enum body, but found '" + t + "'", 
+                    t)
+        }
+        close(ParseNodeType.ENUM)
+    }
+    
+    ============================================================================
+    classMemberDeclaration = invariant | 
+            DOCCOMMENT? annotations (methodDeclaration | fieldDeclaration |
+                constantFieldDeclaration)
+    ============================================================================
+    @protected
+    method classMemberDeclaration() {
+        open(ParseNodeType.CLASS_MEMBER_DECLARATION)
+        if peek().type = TokenType.INVARIANT
+            invariant()
+        else {
+            checkNext(TokenType.DOCCOMMENT)
+            annotations()
+            switch peek().type {
+                case TokenType.METHOD,
+                     TokenType.FUNCTION,
+                     TokenType.CONSTRUCTOR: methodDeclaration()
+                case TokenType.VAR, TokenType.DEF, TokenType.PROPERTY: 
+                        fieldDeclaration()
+                case TokenType.CONSTANT: constantFieldDeclaration()
+                default: {
+                    var t := nextToken()
+                    error("expected 'method', 'var', or 'constant', but " +
+                        "found '" + t + "'", t)
+                }
+            }
+        }
+        close(ParseNodeType.CLASS_MEMBER_DECLARATION)
+    }
+    
+    ============================================================================
+    methodName = IDENTIFIER | ADD | SUB | MUL | DIV | INTDIV | POW | EQ | GT | 
+            LT | GTEQ | LTEQ | REM | AND | BITWISEAND | OR | BITWISEOR | XOR |
+            BITWISEXOR | NOT | BITWISENOT | SHIFTLEFT | SHIFTRIGHT | IN | 
+            CONVERT | (LBRACKET (DOTDOT | ELLIPSIS)? RBRACKET ASSIGNMENT?)
+    ============================================================================
+    @protected
+    method methodName() {
+        open(ParseNodeType.METHOD_NAME)
+        var t := nextToken()
+        switch t.type {
+            case TokenType.IDENTIFIER: {
+                checkNext(TokenType.ASSIGNMENT)
+            }
+            case TokenType.ADD,
+                 TokenType.SUB,
+                 TokenType.MUL,
+                 TokenType.DIV,
+                 TokenType.INTDIV,
+                 TokenType.POW,
+                 TokenType.EQ,
+                 TokenType.GT,
+                 TokenType.LT,
+                 TokenType.GTEQ,
+                 TokenType.LTEQ,
+                 TokenType.REM,
+                 TokenType.AND,
+                 TokenType.BITWISEAND,
+                 TokenType.OR,
+                 TokenType.BITWISEOR,
+                 TokenType.XOR,
+                 TokenType.BITWISEXOR,
+                 TokenType.NOT,
+                 TokenType.BITWISENOT,
+                 TokenType.SHIFTLEFT,
+                 TokenType.SHIFTRIGHT,
+                 TokenType.IN,
+                 TokenType.CONVERT: { }
+            case TokenType.LBRACKET: {
+                if checkNext(TokenType.DOTDOT) = null
+                    checkNext(TokenType.ELLIPSIS)
+                expect(TokenType.RBRACKET, "']'")
+                checkNext(TokenType.ASSIGNMENT)
+            }
+            default: error("'" + t.text + "' is not a valid method name",
+                    t)
+        }
+        close(ParseNodeType.METHOD_NAME)
+    }
+
+    ============================================================================
+    methodDeclaration = (METHOD | FUNCTION | CONSTRUCTOR) 
+            (methodName if not constructor) 
+            genericParametersDeclaration? parameterPrototypeList 
+            typeDeclaration? block? postcondition*
+    ============================================================================
+    @protected
+    method methodDeclaration() {
+        open(ParseNodeType.METHOD_DECLARATION)
+        loopLabels.length := 0
+        def methodType := nextToken()
+        switch methodType.type {
+            case TokenType.FUNCTION, TokenType.METHOD, TokenType.CONSTRUCTOR: { 
+            }
+            default: error("expected 'method', 'function', or 'constructor'",
+                    methodType)
+        }
+
+        var cn := currentNode
+        assert cn != null
+        if cn[0]->(TokenNode).token.type != TokenType.CONSTRUCTOR
+            methodName()
+        if peek().type = TokenType.LT
+            genericParametersDeclaration()
+        parameterPrototypeList()
+        if methodType = TokenType.FUNCTION | peek().type = TokenType.COLON {
+            expectReturnValue := true
+            typeDeclaration()
+        }
+        else
+            expectReturnValue := false
+        if peek().type = TokenType.LBRACE
+            block()
+        while peek().type = TokenType.POST | peek().type = TokenType.POST_AND
+            postcondition()
+        close(ParseNodeType.METHOD_DECLARATION)
+    }
+
+    ============================================================================
+    parameterPrototype = VAR? IDENTIFIER (COLON | CONVERT) type ELLIPSIS?
+    ============================================================================
+    @protected
+    method parameterPrototype() {
+        open(ParseNodeType.PARAMETER_PROTOTYPE)
+        checkNext(TokenType.VAR)
+        expect(TokenType.IDENTIFIER, "parameter name (an identifier)")
+        var t := nextToken()
+        if t.type != TokenType.COLON & t.type != TokenType.CONVERT
+            error("expected ':' or '->>' after parameter name", t)
+        type()
+        checkNext(TokenType.ELLIPSIS)
+        close(ParseNodeType.PARAMETER_PROTOTYPE)
+    }
+    
+    ============================================================================
+    parameterPrototypeList = LPAREN parameterPrototype 
+            (COMMA parameterPrototype)* RPAREN
+    ============================================================================
+    @protected
+    method parameterPrototypeList() {
+        open(ParseNodeType.PARAMETER_PROTOTYPE_LIST)
+        expect(TokenType.LPAREN, "'(' to begin parameter list")
+        if peek().type != TokenType.RPAREN {
+            parameterPrototype()
+            while checkNext(TokenType.COMMA) != null
+                parameterPrototype()
+        }
+        expect(TokenType.RPAREN, "')' to complete parameter list")
+        close(ParseNodeType.PARAMETER_PROTOTYPE_LIST)
+    }
+
+    ============================================================================
+    methodValue = (FUNCTION | METHOD) parameterPrototypeList 
+            typeDeclaration? block
+    ============================================================================
+    @protected
+    method methodValue() {
+        open(ParseNodeType.METHOD_VALUE)
+        var t := nextToken()
+        if t.type != TokenType.FUNCTION & t.type != TokenType.METHOD {
+            throw new CompilerException("expected 'function' or 'method', " +
+                    "but found '" + t + "'", t.position)
+        }
+        parameterPrototypeList()
+        if peek().type = TokenType.COLON {
+            typeDeclaration()
+            expectReturnValue := true
+        }
+        block()
+        close(ParseNodeType.METHOD_VALUE)
+    }
+
+    ============================================================================
+    fieldDeclaration = (VAR | DEF | PROPERTY) (IDENTIFIER | UNDERSCORE) 
+            typeDeclaration? (COMMA (IDENTIFIER | UNDERSCORE) typeDeclaration?)*
+            (ASSIGNMENT expression)?
+    ============================================================================
+    @protected
+    method fieldDeclaration() {
+        open(ParseNodeType.FIELD_DECLARATION)
+        if checkNext(TokenType.DEF) = null & 
+                checkNext(TokenType.PROPERTY) = null
+            expect(TokenType.VAR, "'var'")
+        if checkNext(TokenType.UNDERSCORE) = null
+            expect(TokenType.IDENTIFIER, "field name (an identifier)")
+        if peek().type = TokenType.COLON
+            typeDeclaration()
+        while checkNext(TokenType.COMMA) != null {
+            if checkNext(TokenType.UNDERSCORE) = null
+                expect(TokenType.IDENTIFIER, "field name (an identifier)")
+            if peek().type = TokenType.COLON
+                typeDeclaration()
+        }
+        if checkNext(TokenType.ASSIGNMENT) != null
+            expression()
+        close(ParseNodeType.FIELD_DECLARATION)
+    }
+    
+    ============================================================================
+    typeDeclaration = COLON type
+    ============================================================================
+    @protected
+    method typeDeclaration() {
+        open(ParseNodeType.TYPE_DECLARATION)
+        expect(TokenType.COLON, "':'")
+        type()
+        close(ParseNodeType.TYPE_DECLARATION)
+    }
+
+    ============================================================================
+    varDeclaration = (VAR | DEF) (IDENTIFIER | UNDERSCORE) typeDeclaration? 
+            (COMMA (IDENTIFIER | UNDERSCORE) typeDeclaration?)* (ASSIGNMENT 
+            expression)?
+    ============================================================================
+    @protected
+    method varDeclaration() {
+        open(ParseNodeType.VAR_DECLARATION)
+        if checkNext(TokenType.DEF) = null
+            expect(TokenType.VAR, "'var'")
+        if checkNext(TokenType.UNDERSCORE) = null
+            expect(TokenType.IDENTIFIER, "variable name (an identifier)")
+        if peek().type = TokenType.COLON
+            typeDeclaration()
+        while checkNext(TokenType.COMMA) != null {
+            if checkNext(TokenType.UNDERSCORE) = null
+                expect(TokenType.IDENTIFIER, "variable name (an identifier)")
+            if peek().type = TokenType.COLON
+                typeDeclaration()
+        }
+        if checkNext(TokenType.ASSIGNMENT) != null
+            expression()
+        close(ParseNodeType.VAR_DECLARATION)
+    }
+    
+    ============================================================================
+    constantFieldDeclaration = CONSTANT IDENTIFIER typeDeclaration? ASSIGNMENT 
+            expression
+    ============================================================================
+    @protected
+    method constantFieldDeclaration() {
+        open(ParseNodeType.CONSTANT_FIELD_DECLARATION)
+        expect(TokenType.CONSTANT, "'constant'")
+        expect(TokenType.IDENTIFIER, "constant name (an identifier)")
+        if peek().type = TokenType.COLON
+            typeDeclaration()
+        expect(TokenType.ASSIGNMENT, "':=' to define a value for a constant")
+        expression()
+        close(ParseNodeType.CONSTANT_FIELD_DECLARATION)
+    }
+    
+    ============================================================================
+    constantDeclaration = CONSTANT IDENTIFIER typeDeclaration? ASSIGNMENT
+            expression
+    ============================================================================
+    @protected
+    method constantDeclaration() {
+        open(ParseNodeType.CONSTANT_DECLARATION)
+        expect(TokenType.CONSTANT, "'constant'")
+        expect(TokenType.IDENTIFIER, "constant name (an identifier)")
+        if peek().type = TokenType.COLON
+            typeDeclaration()
+        expect(TokenType.ASSIGNMENT, "':=' to define a value for a constant")
+        expression()
+        close(ParseNodeType.CONSTANT_DECLARATION)
+    }
+    
+    ============================================================================
+    genericParametersDeclaration = LT IDENTIFIER typeDeclaration? 
+            (COMMA IDENTIFIER typeDeclaration?)? GT
+    ============================================================================
+    @protected
+    method genericParametersDeclaration() {
+        open(ParseNodeType.GENERIC_PARAMETERS_DECLARATION)
+        expect(TokenType.LT, "'<'")
+        expect(TokenType.IDENTIFIER, "generic parameter name (an identifier)")
+        if peek().type = TokenType.COLON
+            typeDeclaration()
+        while checkNext(TokenType.COMMA) != null {
+            expect(TokenType.IDENTIFIER, 
+                    "generic parameter name (an identifier)")
+            if peek().type = TokenType.COLON
+                typeDeclaration()
+        }
+        expect(TokenType.GT, 
+                "',' or '>', to continue or complete generic parameters")
+        close(ParseNodeType.GENERIC_PARAMETERS_DECLARATION)
+    }
+
+    ============================================================================
+    genericParameters = LT type (COMMA type)? GT
+    ============================================================================
+    @protected
+    method genericParameters() {
+        open(ParseNodeType.GENERIC_PARAMETERS)
+        expect(TokenType.LT, "'<'")
+        type()
+        while checkNext(TokenType.COMMA) != null
+            type()
+        expect(TokenType.GT, 
+                "',' or '>', to continue or complete generic parameters")
+        close(ParseNodeType.GENERIC_PARAMETERS)
+    }
+    
+    ============================================================================
+    annotations = PROTECTED | PRIVATE | ATCLASS | IMMUTABLE | SINGLETON |
+            STATIC | ABSTRACT | NATIVE | OVERRIDE | WRAPPER_METHOD |
+            mathAnnotation | precondition
+    ============================================================================
+    @protected
+    method annotations() {
+        open(ParseNodeType.ANNOTATIONS)
+        loop {
+            var t := nextToken()
+            switch t.type {
+                case TokenType.PROTECTED,
+                     TokenType.PRIVATE,
+                     TokenType.ATCLASS,
+                     TokenType.THREAD,
+                     TokenType.ABSTRACT,
+                     TokenType.EXTERNAL,
+                     TokenType.OVERRIDE,
+                     TokenType.READONLY,
+                     TokenType.LIMITED,
+                     TokenType.ATSELF,
+                     TokenType.SAFERETURN,
+                     TokenType.UNSAFEFUNCTION,
+                     TokenType.STATIC,
+                     TokenType.WRAPPER_METHOD: { }
+                case TokenType.MATH: {
+                    pushback(t)
+                    mathAnnotation()
+                }
+                case TokenType.PRE, TokenType.PRE_OR: {
+                    pushback(t)
+                    precondition()
+                }
+                default: {
+                    pushback(t)
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.ANNOTATIONS)
+    }
+    
+    ============================================================================
+    mathAnnotation = MATH LPAREN OVERFLOW RPAREN
+    ============================================================================
+    @protected
+    @self
+    method mathAnnotation() {
+        open(ParseNodeType.MATH_ANNOTATION)
+        expect(TokenType.MATH, "'@math'")
+        expect(TokenType.LPAREN, "'(' for @math annotation")
+        expect(TokenType.OVERFLOW, "'overflow' for @math annotation")
+        expect(TokenType.RPAREN, "')' to complete @math annotation")
+        close(ParseNodeType.MATH_ANNOTATION)
+    }
+    
+    ============================================================================
+    invariant = INVARIANT LPAREN expression RPAREN
+    ============================================================================
+    @protected
+    @self
+    method invariant() {
+        open(ParseNodeType.INVARIANT)
+        expect(TokenType.INVARIANT, "'@invariant'")
+        expect(TokenType.LPAREN, "'(' for @invariant")
+        expression()
+        expect(TokenType.RPAREN, "')' to complete @invariant")
+        close(ParseNodeType.INVARIANT)
+    }
+    
+    ============================================================================
+    precondition = PRE LPAREN expression RPAREN
+    ============================================================================
+    @protected
+    @self
+    method precondition() {
+        open(ParseNodeType.PRECONDITION)
+        if checkNext(TokenType.PRE_OR) = null
+            expect(TokenType.PRE, "'@pre'")
+        expect(TokenType.LPAREN, "'(' for precondition")
+        expression()
+        expect(TokenType.RPAREN, "')' to complete precondition")
+        close(ParseNodeType.PRECONDITION)
+    }
+
+    ============================================================================
+    postcondition = POST LPAREN expression RPAREN
+    ============================================================================
+    @protected
+    @self
+    method postcondition() {
+        open(ParseNodeType.POSTCONDITION)
+        if checkNext(TokenType.POST_AND) = null
+            expect(TokenType.POST, "'@post'")
+        expect(TokenType.LPAREN, "'(' for postcondition")
+        expression()
+        expect(TokenType.RPAREN, "')' to complete postcondition")
+        close(ParseNodeType.POSTCONDITION)
+    }
+
+    -- there's a bit of awkwardness here with how we handle the 
+    -- ParseNodeType.TYPE. Basically there was a ton of code caring about the
+    -- structure of a type node, but the structure has become more complex over
+    -- time and updating the code to match the structure would be a lot of work.
+    -- I decided to relax the requirements on having the parse tree exactly 
+    -- match the grammar a bit. Therefore classType, simpleType, methodType, and 
+    -- type all result in a single TYPE node being generated.
+
+    ============================================================================
+    className = IDENTIFIER (DOT IDENTIFIER)* genericParameters?
+    ============================================================================
+    @protected
+    @self
+    method className() {
+        expect(TokenType.IDENTIFIER, "type name (an identifier)")
+        while checkNext(TokenType.DOT) != null
+            expect(TokenType.IDENTIFIER, "identifier as part of type name")
+        if peek().type = TokenType.LT
+            genericParameters()
+    }
+
+    ============================================================================
+    classType = className
+    ============================================================================
+    @protected
+    @self
+    method classType() {
+        open(ParseNodeType.TYPE)
+        className()
+        close(ParseNodeType.TYPE)
+    }
+
+    ============================================================================
+    simpleType = className QUESTION?
+    ============================================================================
+    @protected
+    @self
+    method simpleType() {
+        open(ParseNodeType.TYPE)
+        className()
+        checkNext(TokenType.QUESTION)
+        close(ParseNodeType.TYPE)
+    }
+
+    ============================================================================
+    methodOrTupleType = LPAREN (type (COMMA type)*)? RPAREN 
+            ((YIELDS | YIELDS_METHOD | YIELDS_IMMUTABLE | 
+            YIELDS_METHOD_IMMUTABLE) LPAREN type? RPAREN)? QUESTION?
+    ============================================================================
+    @protected
+    @self
+    method methodOrTupleType() {
+        open(ParseNodeType.TYPE)
+        expect(TokenType.LPAREN, "'('")
+        var t := nextToken()
+        if t.type != TokenType.RPAREN {
+            pushback(t)
+            type()
+            t := nextToken()
+            while t.type = TokenType.COMMA {
+                type()
+                t := nextToken()
+            }
+        }
+        def yields := peek().type
+        if yields = TokenType.YIELDS |
+                yields = TokenType.YIELDS_METHOD | 
+                yields = TokenType.YIELDS_IMMUTABLE |
+                yields = TokenType.YIELDS_METHOD_IMMUTABLE {
+            nextToken()
+            expect(TokenType.LPAREN, "'(' after '" + yields + "' in method type")
+            if checkNext(TokenType.RPAREN) = null {
+                type() 
+                expect(TokenType.RPAREN, "')' to complete method type")
+            }
+        }
+        checkNext(TokenType.QUESTION)
+        close(ParseNodeType.TYPE)
+    }
+
+    ============================================================================
+    type = methodOrTupleType | simpleType
+    ============================================================================
+    @protected
+    @self
+    method type() {
+        if peek().type = TokenType.LPAREN
+            methodOrTupleType()
+        else
+            simpleType()    
+    }
+    
+    ============================================================================
+    parameters = LPAREN (expression (COMMA expression)*)? RPAREN
+    ============================================================================
+    @protected
+    @self
+    method parameters() {
+        open(ParseNodeType.PARAMETERS)
+        expect(TokenType.LPAREN, "'(' to begin parameters")
+        if checkNext(TokenType.RPAREN) = null {
+            expression()
+            while checkNext(TokenType.COMMA) != null
+                expression()
+            expect(TokenType.RPAREN, "')' to complete parameters")
+        }
+        close(ParseNodeType.PARAMETERS)
+    }
+
+    ============================================================================
+    construct = NEW type parameters
+    ============================================================================
+    @protected
+    @self
+    method construct() {
+        open(ParseNodeType.CONSTRUCT)
+        expect(TokenType.NEW, "'new'")
+        type()
+        parameters()
+        close(ParseNodeType.CONSTRUCT)
+    }
+
+    ============================================================================
+    arrayLiteral = LBRACKET (expression (COMMA expression)*)? RBRACKET
+    ============================================================================
+    @protected
+    @self
+    method arrayLiteral() {
+        open(ParseNodeType.ARRAY_LITERAL)
+        expect(TokenType.LBRACKET, "'['")
+        if checkNext(TokenType.RBRACKET) = null {
+            expression()
+            while checkNext(TokenType.COMMA) != null
+                expression()
+            expect(TokenType.RBRACKET, "',' or ']' to continue or " +
+                    "complete array")
+        }
+        close(ParseNodeType.ARRAY_LITERAL)
+    }
+
+    ============================================================================
+    mapLiteral = LBRACE (expression COLON expression 
+            (COMMA expression COLON expression)*)? RBRACE
+    ============================================================================
+    @protected
+    @self
+    method mapLiteral() {
+        open(ParseNodeType.MAP_LITERAL)
+        expect(TokenType.LBRACE, "'{'")
+        if checkNext(TokenType.RBRACE) = null {
+            expression()
+            expect(TokenType.COLON, "':'")
+            expression()
+            while checkNext(TokenType.COMMA) != null {
+                expression()
+                expect(TokenType.COLON, "':'")
+                expression()
+            }
+            expect(TokenType.RBRACE, "',' or '}' to continue or " +
+                    "complete map")
+        }
+        close(ParseNodeType.MAP_LITERAL)
+    }
+
+
+    -- uh oh! we ran into something that started out looking like a lambda but
+    -- turned out not to be; undo it and treat it as a tuple instead. At some
+    -- point I may end up having to do a general lookahead solution, but so far
+    -- this is the only spot in the grammar requiring additional lookahead
+    @private
+    method rollbackLambda() {
+        def lambda := currentNode
+        assert lambda != null & lambda.type = ParseNodeType.LAMBDA
+        def term := lambda.parent
+        assert term != null & term.type = ParseNodeType.TERM
+        -- remove the lambda
+        term.children.length -= 1
+        -- push everything back
+        for i in lambda.children.length - 1 ... 0 by -1 {
+            def child := lambda.children[i]
+            assert child.type = ParseNodeType.TOKEN
+            pushback(child->(TokenNode).token)
+        }
+        currentNode := term
+        expect(TokenType.LPAREN, "'(' to begin tuple")
+        expression()
+        while checkNext(TokenType.COMMA) != null
+            expression()
+        expect(TokenType.RPAREN, "')' to complete tuple")
+        -- fixed! we pushed back the children of the bogus lambda node, killed 
+        -- the lambda, and reevaluated it as a tuple. We could get a slight
+        -- performance boost by just reparenting the lambda nodes and continuing
+        -- the parsing without pushing anything back, but that's significantly
+        -- more complicated.
+    }
+
+    ============================================================================
+    lambda = ((LPAREN ((IDENTIFIER typeDeclaration 
+                    (COMMA IDENTIFIER typeDeclaration)*) | 
+                    (IDENTIFIER (COMMA IDENTIFIER)*)) 
+              RPAREN) | IDENTIFIER typeDeclaration?)
+                YIELDS expression()
+
+    Note that lambda can "backtrack" by realizing that it has, in fact, just
+    encountered a tuple consisting of identifiers (which looks the same as the
+    start of a lambda, e.g. "(x, y)"). In this case it will fix the parse tree
+    to look like a tuple.
+    ============================================================================
+    @protected
+    @self
+    method lambda() {
+        open(ParseNodeType.LAMBDA)
+        var foundTypes := false
+        if peek().type = TokenType.LPAREN {
+            expect(TokenType.LPAREN, "'('")
+            expect(TokenType.IDENTIFIER, "identifier for lambda parameter")
+            if peek().type = TokenType.COLON {
+                foundTypes := true
+                typeDeclaration()
+            }
+            while checkNext(TokenType.COMMA) != null {
+                if checkNext(TokenType.IDENTIFIER) = null {
+                    rollbackLambda()
+                    return
+                }
+                if foundTypes
+                    typeDeclaration()
+            }
+            if checkNext(TokenType.RPAREN) = null {
+                rollbackLambda()
+                return
+            }
+        }
+        else {
+            expect(TokenType.IDENTIFIER, "identifier for lambda parameter")
+            if peek().type = TokenType.COLON {
+                typeDeclaration()
+                foundTypes := true
+            }
+        }
+        if foundTypes | peek().type = TokenType.YIELDS {
+            expect(TokenType.YIELDS, "'=>' after lambda parameters")
+            expression()
+            close(ParseNodeType.LAMBDA)
+        }
+        else
+            rollbackLambda()
+    }
+
+    ============================================================================
+    classLiteral = CLASS LPAREN className RPAREN
+    ============================================================================
+    @protected
+    @self
+    method classLiteral() {
+        open(ParseNodeType.CLASS_LITERAL)
+        expect(TokenType.CLASS, "'class'")
+        expect(TokenType.LPAREN, "'(' after 'class'")
+        classType()
+        expect(TokenType.RPAREN, "')' after class name")
+        close(ParseNodeType.CLASS_LITERAL)
+    }
+
+    ============================================================================
+    term = NUMBER | TRUE | FALSE | NULL | STRING | PLUGIN | IDENTIFIER | SELF |
+            SUPER | CLASS | LPAREN expression (COMMA expression)* RPAREN | 
+            lambda | construct | arrayLiteral | mapLiteral | methodValue | 
+            classLiteral | ATRETURN | PRE LPAREN expression RPAREN | 
+    ============================================================================
+    @protected
+    @self
+    method term() {
+        open(ParseNodeType.TERM)
+        var t := nextToken()
+        switch t.type {
+            case TokenType.NUMBER,
+                 TokenType.TRUE,
+                 TokenType.FALSE,
+                 TokenType.NULL,
+                 TokenType.STRING,
+                 TokenType.PLUGIN,
+                 TokenType.SELF,
+                 TokenType.SUPER: { }
+            case TokenType.IDENTIFIER: { 
+                if !inCase {
+                    -- check for a lambda
+                    var p := peek().type
+                    if p = TokenType.COLON | p = TokenType.YIELDS {
+                        pushback(t)
+                        lambda()
+                    }
+                }
+            }
+            case TokenType.LPAREN: {
+                -- figure out if we've got a parenthesized lambda, i.e.
+                -- (x:Real, y:Real) => x + y
+                var haveLambda := false
+                var id := checkNext(TokenType.IDENTIFIER)
+                if id != null {
+                    var p := peek().type
+                    pushback(id)
+                    if p = TokenType.COLON | p = TokenType.COMMA {
+                        pushback(t)
+                        lambda()
+                        haveLambda := true
+                    }
+                }
+                if !haveLambda {
+                    expression()
+                    while checkNext(TokenType.COMMA) != null
+                        expression()
+                    expect(TokenType.RPAREN, "')' to complete expression")
+                }
+            }
+            case TokenType.ATRETURN: { }
+            case TokenType.PRE: {
+                expect(TokenType.LPAREN, "'(' following '@pre'")
+                expression()
+                expect(TokenType.RPAREN, "')' to complete @pre")
+            }
+            case TokenType.NEW: {
+                pushback(t)
+                construct()
+            }
+            case TokenType.LBRACKET: {
+                pushback(t)
+                arrayLiteral()
+            }
+            case TokenType.LBRACE: {
+                pushback(t)
+                mapLiteral()
+            }
+            case TokenType.FUNCTION,
+                 TokenType.METHOD: {
+                pushback(t)
+                methodValue()
+            }
+            case TokenType.CLASS: {
+                if peek().type = TokenType.LPAREN {
+                    pushback(t)
+                    classLiteral()
+                }
+                -- else just leave the CLASS token to be handled as a reference
+                -- to self.class
+            }
+            default: {
+                error("expected an expression, but found '" + t + "'", t)
+            }
+        }
+        close(ParseNodeType.TERM)
+    }
+
+    ============================================================================
+    types = LPAREN (type (COMMA type)*)? RPAREN
+    ============================================================================
+    @protected
+    @self
+    method types() {
+        open(ParseNodeType.TYPES)
+        expect(TokenType.LPAREN, "'(' to begin parameters")
+        if checkNext(TokenType.RPAREN) = null {
+            type()
+            while checkNext(TokenType.COMMA) != null
+                type()
+            expect(TokenType.RPAREN, "')' to complete parameters")
+        }
+        close(ParseNodeType.TYPES)
+    }
+
+    ============================================================================
+    callExpression = term (parameters | 
+                LBRACKET (expression | (DOTDOT | ELLIPSIS) expression? 
+                        (BY expression)?) RBRACKET |
+                DOT (IDENTIFIER | CLASS | CONSTRUCTOR) |
+                MEMBER IDENTIFIER types? |
+                ((INSTANCEOF | NINSTANCEOF | CAST | CONVERT) 
+                        LPAREN type RPAREN)*
+    ============================================================================
+    @protected
+    @self
+    method callExpression() {
+        open(ParseNodeType.CALL_EXPRESSION)
+        term()
+        loop {
+            var t := nextToken()
+            switch t.type {
+                case TokenType.LPAREN: {
+                    pushback(t)
+                    parameters()
+                }
+                case TokenType.LBRACKET: {
+                    if peek().type != TokenType.DOTDOT
+                        expression()
+                    if checkNext(TokenType.DOTDOT) != null |
+                            checkNext(TokenType.ELLIPSIS) != null {
+                        var p := peek().type
+                        if p != TokenType.RBRACKET & p != TokenType.BY
+                            expression()
+                        if checkNext(TokenType.BY) != null
+                            expression()
+                    }
+                    expect(TokenType.RBRACKET, "']'")
+                }
+                case TokenType.DOT: {
+                    t := nextToken()
+                    if t.type != TokenType.IDENTIFIER & 
+                            t.type != TokenType.CLASS &
+                            t.type != TokenType.CONSTRUCTOR
+                        error("expected identifier, but found " + t.text, t)
+                }
+                case TokenType.MEMBER: {
+                    methodName()
+                    if peek().type = TokenType.LPAREN
+                        types()
+                }
+                case TokenType.INSTANCEOF,
+                        TokenType.NINSTANCEOF,
+                        TokenType.CAST,
+                        TokenType.CONVERT: {
+                    expect(TokenType.LPAREN, "'(' after '" + t + "'")
+                    type()
+                    expect(TokenType.RPAREN, "')' after type name")
+                }
+                default: {
+                    pushback(t)
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.CALL_EXPRESSION)
+    }
+
+    ============================================================================
+    exponentExpression = callExpression (POW callExpression)*
+    ============================================================================
+    @protected
+    @self
+    method exponentExpression() {
+        open(ParseNodeType.EXPONENT_EXPRESSION)
+        callExpression()
+
+        while checkNext(TokenType.POW) != null
+            callExpression()
+        close(ParseNodeType.EXPONENT_EXPRESSION)
+    }
+
+    ============================================================================
+    unaryOperator = SUB | NOT | BITWISENOT
+    ============================================================================
+    @protected
+    @self
+    method unaryOperator() {
+        open(ParseNodeType.UNARY_OPERATOR)
+        var t := nextToken()
+        if t.type != TokenType.SUB & t.type != TokenType.NOT & 
+                t.type != TokenType.BITWISENOT
+            error("expected '-', '!', or '!!", t)
+        close(ParseNodeType.UNARY_OPERATOR)
+    }
+
+    ============================================================================
+    unaryExpression = unaryOperator? exponentExpression
+    ============================================================================
+    @protected
+    @self
+    method unaryExpression() {
+        open(ParseNodeType.UNARY_EXPRESSION)
+        var t := peek()
+        switch t.type {
+            case TokenType.SUB, TokenType.NOT, TokenType.BITWISENOT: {
+                unaryOperator()
+            }
+        }
+        exponentExpression()
+        close(ParseNodeType.UNARY_EXPRESSION)
+    }
+
+    ============================================================================
+    Checks whether the character immediately following this token is a GT. See
+    `multiplicativeExpression` for details.
+    ============================================================================
+    @private
+    @self
+    method nextIsGT(t:Token):Bit {
+        var next := peek()
+        if next.type = TokenType.GT {
+            var p1 := t.position
+            var p2 := next.position
+            return p1.line = p2.line & p1.column + 1 = p2.column
+        }
+        return false
+    }
+
+
+    ============================================================================
+    multiplicativeExpression = unaryExpression ((MUL | DIV | INTDIV | REM |
+            SHIFTLEFT | SHIFTRIGHT | BITWISEAND | BITWISEXOR) unaryExpression)*
+    Note that SHIFTRIGHT is handled specially.
+    Sequences of GTs can happen as part of generic parameters (e.g.
+    Array<Array<String>>) and it is easier to combine separate GTs than it is to
+    split apart SHIFTRIGHT. So here we lookahead after encountering a GT and 
+    synthesize the shift right token if we encounter an additional GT.
+    ============================================================================
+    @protected
+    @self
+    method multiplicativeExpression() {
+        open(ParseNodeType.MULTIPLICATIVE_EXPRESSION)
+        unaryExpression()
+    
+        loop {
+            var t := nextToken()
+            switch t.type {
+                case TokenType.MUL, 
+                     TokenType.DIV,
+                     TokenType.INTDIV, 
+                     TokenType.REM,
+                     TokenType.SHIFTLEFT,
+                     TokenType.BITWISEAND,
+                     TokenType.BITWISEXOR: unaryExpression()
+                case TokenType.GT: {
+                    if nextIsGT(t) {
+                        -- ">>"
+                        var second := expect(TokenType.GT, "'>'")
+                        var cn := currentNode
+                        assert cn != null
+                        cn.children.length -= 1
+                        cn.children[cn.length - 1] := 
+                                new TokenNode(new Token(
+                                    TokenType.SHIFTRIGHT,
+                                    ">>", t.position))
+                        unaryExpression()
+                    }
+                    else {
+                        -- just a plain ">", don't handle it here
+                        pushback(t)
+                        break
+                    }
+                }
+                default: {
+                    pushback(t)
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.MULTIPLICATIVE_EXPRESSION)
+    }
+
+    ============================================================================
+    additiveExpression = multiplicativeExpression 
+            ((ADD | SUB | BITWISEOR) multiplicativeExpression)*
+    ============================================================================
+    @protected
+    @self
+    method additiveExpression() {
+        open(ParseNodeType.ADDITIVE_EXPRESSION)
+        multiplicativeExpression()
+    
+        loop {
+            var t := nextToken()
+            switch t.type {
+                case TokenType.ADD, TokenType.SUB, TokenType.BITWISEOR:
+                    multiplicativeExpression()
+                default: {
+                    pushback(t)
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.ADDITIVE_EXPRESSION)
+    }
+
+    ============================================================================
+    rangeExpression = additiveExpression ((DOTDOT | ELLIPSIS)
+            additiveExpression? 
+            (BY additiveExpression)?)?
+    ============================================================================
+    @protected
+    @self
+    method rangeExpression() {
+        open(ParseNodeType.RANGE_EXPRESSION)
+        additiveExpression()
+        if checkNext(TokenType.DOTDOT) != null | 
+                checkNext(TokenType.ELLIPSIS) != null {
+            def p := peek().type
+            if p = TokenType.NUMBER | p = TokenType.IDENTIFIER | 
+                    p = TokenType.SUB | p = TokenType.BITWISENOT |
+                    p = TokenType.STRING | p = TokenType.LPAREN
+                additiveExpression()
+            if checkNext(TokenType.BY) != null
+                additiveExpression()
+        }
+        close(ParseNodeType.RANGE_EXPRESSION)
+    }
+
+    ============================================================================
+    comparisonExpression = rangeExpression ((EQ | IDENTITY | NEQ | 
+            NIDENTITY | LT | GT | LTEQ | GTEQ | IN) rangeExpression)*
+    ============================================================================
+    @protected
+    @self
+    method comparisonExpression() {
+        open(ParseNodeType.COMPARISON_EXPRESSION)
+        rangeExpression()
+
+        loop {
+            var t := nextToken()
+            switch t.type {
+                case TokenType.EQ, 
+                     TokenType.IDENTITY,
+                     TokenType.NEQ,
+                     TokenType.NIDENTITY,
+                     TokenType.LT,
+                     TokenType.GT,
+                     TokenType.LTEQ,
+                     TokenType.GTEQ,
+                     TokenType.IN: rangeExpression()
+                default: {
+                    pushback(t)
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.COMPARISON_EXPRESSION)
+    }
+
+    ============================================================================
+    andExpression = comparisonExpression ((AND | XOR) comparisonExpression)*
+    ============================================================================
+    @protected
+    @self
+    method andExpression() {
+        open(ParseNodeType.AND_EXPRESSION)
+        comparisonExpression()
+
+        loop {
+            var t := nextToken()
+            switch t.type {
+                case TokenType.AND, TokenType.XOR:
+                    comparisonExpression()
+                default: {
+                    pushback(t)
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.AND_EXPRESSION)
+    }
+
+    ============================================================================
+    orExpression = andExpression (OR andExpression)*
+    ============================================================================
+    @protected
+    @self
+    method orExpression() {
+        open(ParseNodeType.OR_EXPRESSION)
+        andExpression()
+
+        while checkNext(TokenType.OR) != null
+            andExpression()
+        close(ParseNodeType.OR_EXPRESSION)
+    }
+
+    ============================================================================
+    expression = orExpression
+    ============================================================================
+    @protected
+    @self
+    method expression() {
+        open(ParseNodeType.EXPRESSION)
+        orExpression()
+        close(ParseNodeType.EXPRESSION)
+    }
+
+    ============================================================================
+    simpleStatement = assertStatement | varDeclaration | constantDeclaration | 
+            anyLoop | callOrAssignment | ifStatement | switchStatement |
+            tryStatement
+    ============================================================================
+    @protected
+    @self
+    method simpleStatement() {
+        open(ParseNodeType.SIMPLE_STATEMENT)
+        var t := peek()
+        switch t.type {
+            case TokenType.ASSERT: assertStatement()
+            case TokenType.VAR, TokenType.DEF: varDeclaration()
+            case TokenType.CONSTANT: constantDeclaration()
+            case TokenType.IDENTIFIER: {
+                nextToken()
+                if peek().type = TokenType.COLON {
+                    pushback(t)
+                    anyLoop()
+                }
+                else {
+                    pushback(t)
+                    callOrAssignment()
+                }
+            }
+            case TokenType.SELF,
+                    TokenType.NEW,
+                    TokenType.LBRACKET:
+                callOrAssignment()
+            case TokenType.SUPER,
+                 TokenType.CONSTRUCTOR: callOrAssignment()
+            case TokenType.WHILE,
+                 TokenType.FOR,
+                 TokenType.DO,
+                 TokenType.LOOP: anyLoop()
+            case TokenType.IF: ifStatement()
+            case TokenType.SWITCH: switchStatement()
+            case TokenType.TRY: tryStatement()
+            default: {
+                nextToken()
+                switch t.type {
+                    case TokenType.RETURN, TokenType.BREAK, TokenType.CONTINUE,
+                            TokenType.THROW, TokenType.UNREACHABLE: error("'" + 
+                            t + "' must be the final statement of a block", t)
+                    default: error("syntax error, expected statement but " +
+                            "found '" + t + "'", t)
+                }
+            }
+        }
+        close(ParseNodeType.SIMPLE_STATEMENT)
+    }
+
+    ============================================================================
+    block = LBRACE statement* terminalStatement? RBRACE
+    ============================================================================
+    @protected
+    @self
+    method block() {
+        open(ParseNodeType.BLOCK)
+        var block := currentNode
+        expect(TokenType.LBRACE, "'{'")
+        loop {
+            var t := peek()
+            switch t.type {
+                case TokenType.RETURN, TokenType.BREAK, TokenType.CONTINUE,
+                        TokenType.THROW, TokenType.UNREACHABLE: {
+                    terminalStatement()
+                    expect(TokenType.RBRACE, "'}' to complete block")
+                    break
+                }
+                case TokenType.RBRACE: {
+                    expect(TokenType.RBRACE, "'}' to complete block")
+                    break
+                }
+                default:
+                    statement()
+            }
+        }
+        close(ParseNodeType.BLOCK)
+    }
+
+    ============================================================================
+    statement = block | simpleStatement
+    ============================================================================
+    @protected
+    @self
+    method statement() {
+        open(ParseNodeType.STATEMENT)
+        if peek().type = TokenType.LBRACE
+            block()
+        else
+            simpleStatement()
+        close(ParseNodeType.STATEMENT)
+    }
+
+    ============================================================================
+    statementOrBlock = simpleStatement | block | terminalStatement
+    ============================================================================
+    @protected
+    @self
+    method statementOrBlock() {
+        open(ParseNodeType.STATEMENT_OR_BLOCK)
+        var t := peek()
+        switch t.type {
+            case TokenType.RETURN,
+                 TokenType.BREAK,
+                 TokenType.CONTINUE,
+                 TokenType.THROW,
+                 TokenType.UNREACHABLE: terminalStatement()
+            case TokenType.LBRACE: block()
+            default: simpleStatement()
+        }
+        close(ParseNodeType.STATEMENT_OR_BLOCK)
+    }
+
+    ============================================================================
+    assertStatement = ASSERT expression (COMMA expression)?
+    ============================================================================
+    @protected
+    @self
+    method assertStatement() {
+        open(ParseNodeType.ASSERT_STATEMENT)
+        expect(TokenType.ASSERT, "'assert'")
+        expression()
+        if checkNext(TokenType.COMMA) != null
+            expression()
+        close(ParseNodeType.ASSERT_STATEMENT)
+    }
+
+    ============================================================================
+    returnStatement = RETURN expression?
+    only looks for expression if expectReturnValue is true
+    ============================================================================
+    @protected
+    @self
+    method returnStatement() {
+        open(ParseNodeType.RETURN_STATEMENT)
+        expect(TokenType.RETURN, "'return'")
+        if expectReturnValue
+            expression()
+        close(ParseNodeType.RETURN_STATEMENT)
+    }
+
+    ============================================================================
+    breakStatement = BREAK IDENTIFIER?
+    only picks up IDENTIFIER it it matches a previously-seen loop label
+    ============================================================================
+    @protected
+    @self
+    method breakStatement() {
+        open(ParseNodeType.BREAK_STATEMENT)
+        expect(TokenType.BREAK, "'break'")
+        var t := peek()
+        if t.type = TokenType.IDENTIFIER {
+            var id := t.text
+            for i in 0 ... loopLabels.length - 1 {
+                if loopLabels[i] = id {
+                    nextToken()
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.BREAK_STATEMENT)
+    }
+
+    ============================================================================
+    continueStatement = CONTINUE IDENTIFIER?
+    only picks up IDENTIFIER it it matches a previously-seen loop label
+    ============================================================================
+    @protected
+    @self
+    method continueStatement() {
+        open(ParseNodeType.CONTINUE_STATEMENT)
+        expect(TokenType.CONTINUE, "'continue'")
+        var t := peek()
+        if t.type = TokenType.IDENTIFIER {
+            var id := t.text
+            for i in 0 ... loopLabels.length - 1 {
+                if loopLabels[i] = id {
+                    nextToken()
+                    break
+                }
+            }
+        }
+        close(ParseNodeType.CONTINUE_STATEMENT)
+    }
+
+    ============================================================================
+    terminalStatement = returnStatement | breakStatement | continueStatement |
+                        throwStatement | UNREACHABLE
+    ============================================================================
+    @protected
+    @self
+    method terminalStatement() {
+        open(ParseNodeType.TERMINAL_STATEMENT)
+        switch peek().type {
+            case TokenType.RETURN:   returnStatement()
+            case TokenType.BREAK:    breakStatement()
+            case TokenType.CONTINUE: continueStatement()
+            case TokenType.THROW:    throwStatement()
+            case TokenType.UNREACHABLE: expect(TokenType.UNREACHABLE, 
+                    "'unreachable'")
+        }
+        close(ParseNodeType.TERMINAL_STATEMENT)
+    }
+
+    ============================================================================
+    forTuple := LPAREN (IDENTIFIER | UNDERSCORE) typeDeclaration? (COMMA 
+            (IDENTIFIER | UNDERSCORE) typeDeclaration)+ RPAREN
+    ============================================================================
+    @protected
+    @self
+    method forTuple() {
+        open(ParseNodeType.FOR_TUPLE)
+        expect(TokenType.LPAREN, "'('")
+        if checkNext(TokenType.UNDERSCORE) = null {
+            expect(TokenType.IDENTIFIER, "variable name (an identifier) after " + 
+                "'(' in for-loop")
+        }
+        if peek().type = TokenType.COLON
+            typeDeclaration()
+        expect(TokenType.COMMA, "',' to introduce a second variable in for-loop")
+        if checkNext(TokenType.UNDERSCORE) = null {
+            expect(TokenType.IDENTIFIER, "variable name (an identifier) after " + 
+                    "',' in for-loop")
+        }
+        if peek().type = TokenType.COLON
+            typeDeclaration()
+        while checkNext(TokenType.COMMA) != null {
+            if checkNext(TokenType.UNDERSCORE) = null {
+                expect(TokenType.IDENTIFIER, "variable name (an identifier) " +
+                        "after ',' in for-loop")
+            }
+            if peek().type = TokenType.COLON
+                typeDeclaration()
+        }
+        expect(TokenType.RPAREN, "')' after list of variables in for-loop")
+        close(ParseNodeType.FOR_TUPLE)
+    }
+
+    ============================================================================
+    anyLoop = (IDENTIFIER COLON)? 
+        (
+            DO statementOrBlock WHILE expression |
+            LOOP statementOrBlock |
+            WHILE expression statementOrBlock |
+            FOR (IDENTIFIER typeDeclaration? 
+                (COMMA (IDENTIFIER typeDeclaration?) | forTuple)? |
+                forTuple)  IN expression
+        )
+    ============================================================================
+    @protected
+    @self
+    method anyLoop() {
+        open(ParseNodeType.ANY_LOOP)
+        var t := nextToken()
+        if t.type = TokenType.IDENTIFIER {
+            -- label
+            loopLabels.append(t.text)
+            expect(TokenType.COLON, "':' after loop label")
+            t := nextToken()
+        }
+        switch t.type {
+            case TokenType.DO: {
+                statementOrBlock()
+                expect(TokenType.WHILE, "'while'")
+                expression()
+            }
+            case TokenType.LOOP:
+                statementOrBlock()
+            case TokenType.WHILE: {
+                expression()
+                statementOrBlock()
+            }
+            case TokenType.FOR: {
+                if peek().type = TokenType.LPAREN
+                    forTuple()
+                else {
+                    expect(TokenType.IDENTIFIER, 
+                            "for-loop variable name (an identifier)")
+                    if peek().type = TokenType.COLON
+                        typeDeclaration()
+                    if checkNext(TokenType.COMMA) != null {
+                        if peek().type = TokenType.LPAREN
+                            forTuple()
+                        else {
+                            expect(TokenType.IDENTIFIER, 
+                                    "for-loop variable name (an identifier)")
+                            if peek().type = TokenType.COLON
+                                typeDeclaration()
+                        }
+                    }
+                }
+                expect(TokenType.IN, "'in' in for-loop")
+                expression()
+                statementOrBlock()
+            }
+        }
+        close(ParseNodeType.ANY_LOOP)
+    }
+
+    ============================================================================
+    ifStatement = IF expression statementOrBlock (ELSE statementOrBlock)?
+    ============================================================================
+    @protected
+    @self
+    method ifStatement() {
+        open(ParseNodeType.IF)
+        expect(TokenType.IF, "'if'")
+        expression()
+        statementOrBlock()
+        if checkNext(TokenType.ELSE) != null
+            statementOrBlock()
+        close(ParseNodeType.IF)
+    }
+
+    ============================================================================
+    switchCase = CASE expression (COMMA expression)* COLON statementOrBlock
+    ============================================================================
+    @protected
+    @self
+    method switchCase() {
+        open(ParseNodeType.SWITCH_CASE)
+        expect(TokenType.CASE, "'case'")
+        inCase := true
+        expression()
+        while checkNext(TokenType.COMMA) != null
+            expression()
+        inCase := false
+        expect(TokenType.COLON, "':' after case value")
+        statementOrBlock()
+        close(ParseNodeType.SWITCH_CASE)
+    }
+
+    ============================================================================
+    switchDefault = DEFAULT COLON statementOrBlock
+    ============================================================================
+    @protected
+    @self
+    method switchDefault() {
+        open(ParseNodeType.SWITCH_DEFAULT)
+        expect(TokenType.DEFAULT, "'default'")
+        expect(TokenType.COLON, "':' after 'default'")
+        statementOrBlock()
+        close(ParseNodeType.SWITCH_DEFAULT)
+    }
+    
+    ============================================================================
+    switchStatement = SWITCH expression LBRACE switchCase* switchDefault* RBRACE
+    ============================================================================
+    @protected
+    @self
+    method switchStatement() {
+        open(ParseNodeType.SWITCH_STATEMENT)
+        expect(TokenType.SWITCH, "'switch'")
+        expression()
+        expect(TokenType.LBRACE, "'{' to begin switch body")
+        while peek().type = TokenType.CASE
+            switchCase()
+        if peek().type = TokenType.DEFAULT
+            switchDefault()
+        expect(TokenType.RBRACE, "'}' to complete switch body")
+        close(ParseNodeType.SWITCH_STATEMENT)
+    }
+    
+    ============================================================================
+    catchBlock = CATCH IDENTIFIER typeDeclaration IDENTIFIER block
+    ============================================================================
+    @protected
+    @self
+    method catchBlock() {
+        open(ParseNodeType.CATCH_BLOCK)
+        expect(TokenType.CATCH, "'catch'")
+        expect(TokenType.IDENTIFIER, 
+                "error variable name for catch (an identifier)")
+        typeDeclaration()
+        block()
+        close(ParseNodeType.CATCH_BLOCK)
+    }
+    
+    ============================================================================
+    finallyBlock = FINALLY block
+    ============================================================================
+    @protected
+    @self
+    method finallyBlock() {
+        open(ParseNodeType.FINALLY_BLOCK)
+        expect(TokenType.FINALLY, "'finally'")
+        block()
+        close(ParseNodeType.FINALLY_BLOCK)
+    }
+
+    ============================================================================
+    tryStatement = TRY block ((catchBlock+ finallyBlock?) | finallyBlock)
+    ============================================================================
+    @protected
+    @self
+    method tryStatement() {
+        open(ParseNodeType.TRY_STATEMENT)
+        var tryToken := expect(TokenType.TRY, "'try'")
+        block()
+        var t := peek().type
+        if t != TokenType.CATCH & t != TokenType.FINALLY
+            error("try without catch or finally", tryToken)
+        while peek().type = TokenType.CATCH
+            catchBlock()
+        if peek().type = TokenType.FINALLY
+            finallyBlock()
+        close(ParseNodeType.TRY_STATEMENT)
+    }
+
+    ============================================================================
+    throwStatement = THROW expression
+    ============================================================================
+    @protected
+    @self
+    method throwStatement() {
+        open(ParseNodeType.THROW_STATEMENT)
+        expect(TokenType.THROW, "'throw'")
+        expression()
+        close(ParseNodeType.THROW_STATEMENT)
+    }
+
+    ============================================================================
+    Returns `true` if the token ID is one of the assignment operators.
+    ============================================================================
+    @protected
+    function isAssignmentOperator(type:TokenType):Bit {
+        return(type = TokenType.ASSIGNMENT |
+                type = TokenType.ADDEQ |
+                type = TokenType.SUBEQ |
+                type = TokenType.MULEQ |
+                type = TokenType.DIVEQ |
+                type = TokenType.INTDIVEQ |
+                type = TokenType.POWEQ |
+                type = TokenType.REMEQ |
+                type = TokenType.ANDEQ |
+                type = TokenType.BITWISEANDEQ |
+                type = TokenType.OREQ |
+                type = TokenType.BITWISEOREQ |
+                type = TokenType.XOREQ |
+                type = TokenType.BITWISEXOREQ |
+                type = TokenType.SHIFTLEFTEQ |
+                type = TokenType.SHIFTRIGHTEQ)
+    }
+
+    ============================================================================
+    assignmentOperator = ASSIGNMENT | ADDEQ | SUBEQ | MULEQ | DIVEQ | INTDIVEQ |
+            POWEQ | REMEQ | ANDEQ | BITWISEANDEQ | OREQ | BITWISEOREQ | XOREQ | 
+            BITWISEXOREQ | SHIFTLEFTEQ | SHIFTRIGHTEQ
+    ============================================================================
+    @protected
+    @self
+    method assignmentOperator() {
+        open(ParseNodeType.ASSIGNMENT_OPERATOR)
+        var t := nextToken()
+        if !isAssignmentOperator(t.type)
+            error("expected assignment operator, found '" + t.text + "'", t)
+        close(ParseNodeType.ASSIGNMENT_OPERATOR)
+    }
+
+    ============================================================================
+    lvalue = UNDERSCORE | ((IDENTIFIER | SELF | SUPER | CONSTRUCTOR | construct) 
+            (DOT IDENTIFIER | 
+                    parameters | 
+                    LBRACKET (expression | (DOTDOT | ELLIPSIS) expression? 
+                            (BY expression)?) RBRACKET | 
+                    (CAST | CONVERT) LPAREN type RPAREN)*)
+    Note that lvalue does not have its own parse node type; this was to prevent
+    a lot of rewriting on the ASTGenerator side of things.
+    ============================================================================
+    @protected
+    @self
+    method lvalue() {
+        if checkNext(TokenType.UNDERSCORE) != null
+            return
+        var t := nextToken()
+        if t.type = TokenType.IDENTIFIER | t.type = TokenType.SELF |
+                 t.type = TokenType.SUPER |t.type = TokenType.CONSTRUCTOR | 
+                 t.type = TokenType.NEW {
+            if t.type = TokenType.NEW {
+                pushback(t)
+                construct()
+            }
+            loop {
+                t := nextToken()
+                switch t.type {
+                    case TokenType.DOT: {
+                        var next := nextToken()
+                        if next.type != TokenType.IDENTIFIER &
+                                next.type != TokenType.CONSTRUCTOR {
+                            error("expected identifier, but found '" + next + 
+                                    "'", next)
+                        }
+                    }
+                    case TokenType.LPAREN: {
+                        pushback(t)
+                        parameters()
+                    }
+                    case TokenType.LBRACKET: {
+                        def range := peek().type
+                        if range != TokenType.DOTDOT & 
+                                range != TokenType.ELLIPSIS
+                            expression()
+                        if checkNext(TokenType.DOTDOT) != null |
+                                checkNext(TokenType.ELLIPSIS) != null {
+                            var p := peek().type
+                            if p != TokenType.RBRACKET & p != TokenType.BY
+                                expression()
+                            if checkNext(TokenType.BY) != null
+                                expression()
+                        }
+                        expect(TokenType.RBRACKET, "']'")
+                    }
+                    case TokenType.CAST, TokenType.CONVERT: {
+                        expect(TokenType.LPAREN, "'(' after '" + t + "'")
+                        type()
+                        expect(TokenType.RPAREN, "')' after type name")
+                    }
+                    default: {
+                        pushback(t)
+                        break
+                    }
+                }
+            }
+        }
+        else 
+            error("expected identifier, but found '" + t + "'", t)
+    }
+
+    ============================================================================
+    callOrAssignment = (lvalue ((COMMA lvalue)* assignmentOperator expression)?)
+            | (callExpression based on an ArrayLiteral)
+    ============================================================================
+    @protected
+    @self
+    method callOrAssignment() {
+        open(ParseNodeType.CALL_OR_ASSIGNMENT)
+        if peek().type = TokenType.LBRACKET {
+            callExpression()
+        }
+        else {
+            lvalue()
+            while checkNext(TokenType.COMMA) != null
+                lvalue()
+            if isAssignmentOperator(peek().type) {
+                assignmentOperator()
+                expression()
+            }
+        }
+        close(ParseNodeType.CALL_OR_ASSIGNMENT)
+    }
+    
+    @protected
+    @self
+    method writeTree(n:ParseNode) {
+        Console.write(" " * indent)
+        if n-?>(TokenNode)
+            Console.write(n->(TokenNode).token.text)
+        else
+            Console.write(n.type)
+        Console.writeLine()
+        indent += 2
+        for i in 0 ... n.length - 1
+            writeTree(n[i])
+        indent -= 2
+    }
+    
+    @protected
+    @self
+    method dumpText(n:ParseNode) {
+        Console.write(" " * indent)
+        if n-?>(TokenNode) {
+            Console.write(n->(TokenNode).token.text)
+            Console.write(" ")
+        }
+        for i in 0 ... n.length - 1
+            dumpText(n[i])
+    }
+
+    @private
+    method checkEnd(parsing:String) {
+        var next := nextToken()
+        if next.type != TokenType.EOF {
+            throw new CompilerException("unexpected token after end of " +
+                    parsing + ": '" + next.text + "'", next.position)
+        }
+    }
+
+    @self
+    method parseCompilationUnit(name:String, inStream:InputStream):ParseNode {
+        lexer := new PandaLexer(inStream, new Position(name, 1, 1))
+        root := new ParseNode(ParseNodeType.ROOT)
+        currentNode := root
+        compilationUnit()
+        var root := self.root
+        assert root != null
+        assert root.length = 1
+        checkEnd("compilation unit")
+        return root[0]
+    }
+
+    @self
+    method parseCompilationUnit(f:File):ParseNode {
+        return parseCompilationUnit(f.name, f.openInputStream())
+    }
+    
+    @self
+    method parseType(s:String, start:Position):ParseNode {
+        lexer := new PandaLexer(s, start)
+        root := new ParseNode(ParseNodeType.ROOT)
+        var root := self.root
+        assert root != null
+        currentNode := root
+        type()
+        assert root.length = 1
+        checkEnd("type")
+        return root[0]
+    }
+
+    @self
+    method parseStatement(s:String, start:Position):ParseNode {
+        lexer := new PandaLexer(s, start)
+        root := new ParseNode(ParseNodeType.ROOT)
+        var root := self.root
+        assert root != null
+        currentNode := root
+        statement()
+        assert root.length = 1
+        checkEnd("statement")
+        return root[0]
+    }
+
+    @self
+    method parseMethod(s:String, start:Position):ParseNode {
+        lexer := new PandaLexer(s, start)
+        root := new ParseNode(ParseNodeType.ROOT)
+        var root := self.root
+        assert root != null
+        currentNode := root
+        methodDeclaration()
+        assert root.length = 1
+        checkEnd("method")
+        return root[0]
+    }
+
+    @self
+    method parseExpressionWithExtraText(s:String, start:Position):(ParseNode, String) {
+        lexer := new PandaLexer(s, start)
+        root := new ParseNode(ParseNodeType.ROOT)
+        var root := self.root
+        assert root != null
+        currentNode := root
+        inCase := true
+        expression()
+        inCase := false
+        assert root.length = 1
+        def remaining := new MutableString()
+        while pushbackBuffer.length > 0 {
+            def next := nextToken()
+            if next.type != TokenType.EOF
+                remaining.append(next)
+        }
+        remaining.append(lexer.lex.source.readAsString())
+        return (root[0], remaining->>(String))
+    }
+
+    @self
+    method parseExpression(s:String, start:Position):ParseNode {
+        lexer := new PandaLexer(s, start)
+        root := new ParseNode(ParseNodeType.ROOT)
+        var root := self.root
+        assert root != null
+        currentNode := root
+        expression()
+        assert root.length = 1
+        checkEnd("expression")
+        return root[0]
+    }
+
+    @self
+    method parseCallExpression(s:String, start:Position):ParseNode {
+        lexer := new PandaLexer(s, start)
+        root := new ParseNode(ParseNodeType.ROOT)
+        var root := self.root
+        assert root != null
+        currentNode := root
+        callExpression()
+        assert root.length = 1
+        checkEnd("expression")
+        return root[0]
+    }
+}

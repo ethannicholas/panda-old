@@ -1,0 +1,66 @@
+package panda.io
+
+================================================================================
+A `FilterOutputStream` which buffers data written to its underlying stream, 
+writing it in chunks. This causes fewer (and bigger) writes to the underlying
+stream, generally making writes to files and network sockets much faster.
+
+Data written to a `BufferedOutputStream` can be held in memory for an arbitrary 
+length of time without being written to the underlying stream; it is important 
+to call `flush()` or `close()` to ensure that data is written in a timely 
+fashion.
+================================================================================
+class BufferedOutputStream : FilterOutputStream {
+    @private
+    constant DEFAULT_BUFFER_SIZE := 8192    
+
+    @private
+    var buffer:Array<Int8>
+
+    @private
+    var limit := 0
+
+    constructor(out:OutputStream) {
+        constructor(out, DEFAULT_BUFFER_SIZE)
+    }
+
+    constructor(out:OutputStream, bufferSize:Int) {
+        super.constructor(out)
+        buffer := new Array<Int8>(bufferSize)
+    }
+
+    @override
+    method write(i:Int8) {
+        if limit = buffer.length
+            flush()
+        buffer[limit] := i
+        limit += 1
+    }
+    
+    @override
+    method write(b:Array<Int8>, var offset:Int, var length:Int) {
+        while limit + length > buffer.length {
+            var bytes := buffer.length - limit
+            write(b, offset, bytes)
+            offset += bytes
+            length -= bytes
+            flush()
+        }
+        for i in offset ... offset + length - 1 {
+            buffer[limit] := b[i]
+            limit += 1
+        }
+    }
+
+    @override
+    method flush() {
+        super.write(buffer, 0, limit)
+        limit := 0
+    }
+
+    @override
+    method close() {
+        flush()
+        super.close()
+    }
+}

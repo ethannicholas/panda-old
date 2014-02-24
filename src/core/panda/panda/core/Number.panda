@@ -1,0 +1,230 @@
+package panda.core
+
+================================================================================
+Abstract superclass of all number types. Numbers are treated specially by the
+compiler: they may be created by integer or real literals such as `531` or
+`67.5`, and for performance reasons they are generally handled as primitive CPU 
+numbers rather than full object instances. 
+
+This is generally just an implementation detail, as you may call methods on 
+`Number`s, add them to collections, and otherwise treat them as full-fledged 
+objects. However, there is one major way in which numbers behave differently 
+from other objects: the instance of (`-?>`) and not instance of (`-!>`) 
+operators check to see if they fit within the specified range, and thus a number
+may appear to be an instance of multiple classes at the same time. An integer is
+an instance of any integer type which can represent it, and also both `Real` 
+classes, and all reals are instances of both `Real` classes. 
+
+Note that:
+
+* a `Real` will never claim to be an integer even if it has a fractional
+  part of zero 
+* All numbers claim to be an instance of both `Real32` and `Real64`, even if 
+  they must be represented by an approximation or an infinity
+================================================================================
+@abstract
+class Number : Primitive {
+    @private
+    constant FORMAT_PATTERN := 
+            #/(\+?)(,?)(?:(\d*)(?:(\.\d+)(\.\.\d+)?)?)?([bBoOdDhH]?)/#
+
+    ============================================================================
+    @hidden
+    ============================================================================
+    @abstract
+    function convertToString(thousandsSeparator:Char?):String
+
+    ============================================================================
+    @hidden
+    ============================================================================
+    @protected
+    @class 
+    function convertToString(var value:Int64, thousandsSeparator:Char?):String {
+        var max := 26
+        var result := new Array<Char>(max)
+        var index := max - 1
+        var digitCount := 0
+        if value >= 0 {
+            do {
+                if thousandsSeparator != null & digitCount = 3 {
+                    result[index] := thousandsSeparator
+                    index -= 1
+                    digitCount := 0
+                }
+                result[index] := (value % 10 + 48)->>(Char)
+                value //= 10
+                index -= 1
+                digitCount += 1
+            } 
+            while value > 0
+            index += 1
+        }
+        else {
+            do {
+                if thousandsSeparator != null & digitCount = 3 {
+                    result[index] := thousandsSeparator
+                    index -= 1
+                    digitCount := 0
+                }
+                result[index] := (48 - value % 10)->>(Char)
+                value //= 10
+                index -= 1
+                digitCount += 1
+            } 
+            while value < 0
+            result[index] := "-"
+        }
+        return new String(result[index..])
+    }
+
+    ============================================================================
+    @hidden
+    ============================================================================
+    @protected
+    @class 
+    function convertToString(var value:UInt64, 
+            thousandsSeparator:Char?):String {
+        var max := 26
+        var result := new Array<Char>(max)
+        var index := max - 1
+        var digitCount := 0
+        do {
+            if thousandsSeparator != null & digitCount = 3 {
+                result[index] := thousandsSeparator
+                index -= 1
+                digitCount := 0
+            }
+            result[index] := (value % 10 + 48)->>(Char)
+            value //= 10
+            index -= 1
+            digitCount += 1
+        } 
+        while value > 0
+        return new String(result[index + 1..])
+    }
+
+    ============================================================================
+    @hidden
+    ============================================================================
+    @protected
+    @class
+    -- FIXME PERFORMANCE: obviously this is less efficient than adding the
+    -- thousands separators during the conversion, but that's not an option in
+    -- the library I'm using and this was quicker than figuring out how to fix
+    -- the library
+    function convertToString(value:Real64, thousandsSeparator:Char?):String {
+        var raw := value->>(String)
+        if thousandsSeparator != null {
+            var dot := raw.indexOf(".")
+            if dot = null
+                dot := raw.length
+            var result := new MutableString()
+            var digit := dot % 3
+            if digit = 0
+                digit := 3
+            for i in 0 ... dot - 1 {
+                if digit = 0 {
+                    result.append(",")
+                    digit := 3
+                }
+                digit -= 1
+                result.append(raw[i])
+            }
+            result.append(raw[dot..])
+            return result->>(String)
+        }
+        return raw
+    }
+
+    ============================================================================
+    Formats the number for display according to the provided format string. The
+    format string is of the form:
+
+        [+][,][<minWholeDigits>][.<fractionDigits>[..<maxFractionDigits]][<base>]
+
+    A leading `"+"` causes positive numbers to include a plus sign.
+
+    A `","` causes the whole number portion to be separated into groups of three
+    digits, by the appropriate group separation character for the current locale
+    (e.g. commas in the USA).
+
+    `minWholeDigits` is the minimum number of digits to display for the whole
+    number portion of the number. Zeroes are used to pad the number to the
+    appropriate number of digits. If `minWholeDigits` is not specified, it 
+    defaults to `1`.
+
+    `fractionDigits` is the minimum number of fraction digits to display, with
+    zeroes being used to pad to the appropriate number of digits. If
+    `maxFractionDigits` is not specified, `fractionDigits` is both the minimum
+    and maximum number of digits to display.
+
+    `maxFractionDigits` is the maximum number of fraction digits to display.
+
+    If neither `fractionDigits` nor `maxFractionDigits` is specified, the number
+    will include enough fraction digits to uniquely distinguish it from adjacent
+    floating-point values.
+
+    `base` is either `"b"` (binary), `"o"` (octal), `"d"` (decimal), or `"h"`
+    (hexadecimal). Uppercase base specifiers are permitted as well. For 
+    hexadecimal numbers, a lowercase `"h"` will yield lowercase hexadecimal
+    digits and an uppercase `"H"` will yield uppercase hexadecimal digits. The
+    default base is decimal. It is an error to specify any base but decimal for
+    `Real` numbers.
+
+    As all components are optional, the empty format string (`""`) is legal and
+    yields the same result as `number->>(String)`.
+    ============================================================================
+    @override
+    @preOr(true)
+    function format(var fmt:String):String {
+        if fmt = "panda"
+            fmt := ""
+        var params := fmt.parse(FORMAT_PATTERN)
+        if params = null
+            throw new ParameterError("invalid format string: " + fmt)
+        var thousandsSeparator:Char?
+        if params[1] = ","
+            thousandsSeparator := ","
+        else
+            thousandsSeparator := null
+        var result := convertToString(thousandsSeparator)
+        if params[0] = "+" & !result.startsWith("-")
+            result := "+" + result
+        return result
+    }
+
+    @abstract
+    function ->>():Int8
+    
+    @abstract
+    function ->>():Int16
+    
+    @abstract
+    function ->>():Int32
+    
+    @abstract
+    function ->>():Int64
+
+    @abstract
+    function ->>():UInt8
+    
+    @abstract
+    function ->>():UInt16
+    
+    @abstract
+    function ->>():UInt32
+    
+    @abstract
+    function ->>():UInt64
+
+    @abstract
+    function ->>():Real32
+    
+    @abstract
+    function ->>():Real64
+
+    @override
+    function hash():Int32 {
+        return self->>(Int32)
+    }
+}

@@ -1,0 +1,197 @@
+package org.pandalanguage.pandac.types
+
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.SymbolTable
+
+================================================================================
+A type representing a class, such as `panda.lang.String`. `ClassType`s are 
+always resolved; a reference to something that looks like a class in the code, 
+but a name which hasn't actually been encountered yet, will be handled as an
+`UnresolvedType` until the name is either resolved or an 
+`UnresolvedTypeException` is thrown.
+================================================================================
+class ClassType : Type {
+    constant INTERFACE_CAST_COST := 4
+
+    @class
+    method CLASS():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Class).name)->(ClassType)
+    }
+
+    @class
+    method OBJECT():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Object).name)->(ClassType)
+    }
+
+    @class
+    method METHOD():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Method).name)->(ClassType)
+    }
+
+    @class
+    method MUTABLE_METHOD():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(MutableMethod).name)->(ClassType)
+    }
+
+    @class
+    method STRING():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(String).name)->(ClassType)
+    }
+
+    @class
+    method IMMUTABLE():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Immutable).name)->(ClassType)
+    }
+
+    @class
+    method NUMBER():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Number).name)->(ClassType)
+    }
+
+    @class
+    method ERROR():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Error).name)->(ClassType)
+    }
+
+    @class
+    method SAFETYERROR():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(SafetyError).name)->(ClassType)
+    }
+
+    @class
+    method PANDA():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Panda).name)->(ClassType)
+    }
+
+    @class
+    method ARRAY():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Array).name)->(ClassType)
+    }
+
+    @class
+    method HASHMAP():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(HashMap).name)->(ClassType)
+    }
+
+    @class
+    method TUPLE():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(Tuple).name)->(ClassType)
+    }
+
+    @class
+    method IMMUTABLE_ARRAY():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(ImmutableArray).name)->(ClassType)
+    }
+
+    @class
+    method IMMUTABLE_HASHMAP():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(ImmutableHashMap).name)->(ClassType)
+    }
+
+    @class
+    method IMMUTABLE_TUPLE():ClassType {
+        return SymbolTable.master.getType(Position.INTERNAL, 
+                class(ImmutableTuple).name)->(ClassType)
+    }
+
+    constructor(name:String) {
+        super.constructor(name)
+    }
+
+    @override
+    function classNode():ClassNode {
+        var result := SymbolTable.master.getClass(name)
+        assert result != null
+        return result
+    }
+
+    @override
+    method canExplicitCastTo(var target:Type):Bit {
+        target := target.unwrapWrapper
+        if canImplicitCastTo(target)
+            return true
+        return target.canImplicitCastTo(self)
+    }
+
+    @override
+    method findConverterTo(target:Type):MethodNode? {
+        var result:MethodNode? := null
+        result := findConverter(classNode, self, target)
+        if result = null & !target.isPrimitive {
+            var cl := target.unwrapNullable.classNode
+            result := findConverter(cl, self, target)
+        }
+        return result
+    }
+
+    @override
+    method implicitCastCost(target:Type):Int {
+        if self = target
+            return 0
+        if target = NativePointerType.NATIVE_POINTER
+            return NO_MATCH
+        if target.isNullable {
+            var result := implicitCastCost(target.unwrapNullable)
+            if result != NO_MATCH
+                result += NullableType.TO_NULLABLE_CAST_COST
+            return result
+        }
+        if unwrapWrapper = target.unwrapWrapper
+            return 0
+        var targetClass:ClassNode
+        if target.isPrimitive
+            targetClass := target->(PrimitiveType).wrapperVersion().classNode
+        else
+            targetClass := target->(ClassType).classNode
+        if targetClass.isInterface
+            return INTERFACE_CAST_COST
+        var parent:ClassType? := classNode.supertype
+        var best := NO_MATCH
+        if parent != null {
+            var result := parent.implicitCastCost(target)
+            if result != NO_MATCH
+                result += 1
+            best := best.min(result)
+        }
+        for intf in classNode.interfaces {
+            var result := intf.implicitCastCost(target)
+            if result != NO_MATCH
+                result += 1
+            best := best.min(result)
+        }
+        return best
+    }
+
+    @override
+    function isImmutable():Bit {
+        var cl:ClassNode? := classNode
+        while cl != null {
+            if cl.name = class(Immutable).name
+                return true
+            cl := cl.superclass
+        }
+        return false
+    }
+
+    method performBasicClassInitialization() {
+    }
+
+    method performFinalClassInitialization() {
+    }
+}

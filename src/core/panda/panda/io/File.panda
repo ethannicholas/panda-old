@@ -1,0 +1,295 @@
+package panda.io
+
+================================================================================
+Represents a file or directory in the filesystem. Provides methods to read, 
+write, and otherwise manipulate the file.
+================================================================================
+@static
+class File : Immutable {
+    constant SEPARATOR := "/"
+
+    -- FIXME the hardcoded value is, ironically, temporary
+    constant TEMP               := new File("/tmp")
+
+    ============================================================================
+    The path to the file.
+    ============================================================================
+    @readonly
+    var path:String
+    
+    ============================================================================
+    Creates a `File` referencing the specified path. Creating a `File` object
+    does not, by itself, create a physical file on disk; the `File` object
+    merely stores the path and allows filesystem operations to take place
+    against this path.
+    
+    @param path the (relative or absolute) path to the file
+    ============================================================================
+    constructor(path:String) {
+        self.path := path
+    }
+        
+    @class
+    method currentDirectory():File {
+        return new File(".")
+    }
+    
+    ============================================================================
+    Returns the name of the file, without its path information.
+    
+    @returns the name of the file
+    ============================================================================
+    function name():String {
+        var index := path.lastIndexOf(SEPARATOR)
+        if index = null
+            return path
+        else
+            return path[index + 1..]
+    }
+    
+    ============================================================================
+    Returns the simple name of the file, without its extension. For instance,
+    new `File("/tmp/foo.tar.gz").simpleName` returns `"foo"`. If the filename 
+    begins with a dot, the empty string is returned.
+    
+    @returns the simple name of the file
+    ============================================================================
+    function simpleName():String {
+        var index := name.indexOf(".")
+        if index != null
+            return name[0..index]
+        else
+            return name
+    }
+
+    ============================================================================
+    Returns the file's extension, including the leading dot. For instance,
+    new `File("/tmp/foo.tar.gz").simpleName` returns `".tar.gz"`. If the 
+    filename does not contain a dot, the empty string is returned.
+    
+    @returns the file's extension
+    ============================================================================
+    function extension():String {
+        var index := name.indexOf(".")
+        if index != null
+            return name[index..]
+        else
+            return ""
+    }
+    
+    ============================================================================
+    Returns a `File` representing the absolute path of this file.
+    
+    @returns the file's absolute path
+    ============================================================================
+    method absolute():File {
+        return new File(absolutePath())
+    }
+    
+    ============================================================================
+    Returns the directory containing this file, or `null` if the file does not
+    have a parent.
+    
+    @returns the path to the file
+    ============================================================================
+    method parent():File? {
+        if path = "/"
+            return null
+        var index := path.lastIndexOf(SEPARATOR)
+        if index != null
+            return new File(path[0 .. index])
+        else
+            return absolute().parent()
+    }
+    
+    ============================================================================
+    Resolves a potentially-relative path in the context of this `File`. For 
+    instance, if `foo` is the path `"/tmp"`, `foo.resolve("bar")` is equivalent 
+    to the path `"/tmp/bar"`. When passed an absolute path, such as 
+    `foo.resolve("/bar")`, the result is the absolute path (in this case 
+    `"/bar"`).
+    
+    @param path the path to resolve
+    ============================================================================
+    function resolve(path:String):File {
+        if path.startsWith("/")
+            return new File(path)
+        return new File(self.path + SEPARATOR + path)
+    }
+    
+    ============================================================================
+    Returns `true` if this file exists.
+    
+    @returns `true` if this file exists
+    ============================================================================
+    @external
+    method exists():Bit
+        
+    ============================================================================
+    Returns `true` if this file represents a directory.
+    
+    @returns `true` if this is a directory
+    ============================================================================
+    @external
+    method isDirectory():Bit
+        
+    ============================================================================
+    Creates a directory at this path. It is not an error to attempt to create a
+    directory which already exists.
+    ============================================================================
+    @external
+    method createDirectory()
+    
+    ============================================================================
+    Creates a directory at this path, including all required parent directories.
+    It is not an error to attempt to create a directory which already exists.
+    ============================================================================
+    method createDirectories() {
+        var p := parent()
+        if p != null & !p.exists()
+            p.createDirectories()
+        createDirectory()
+    }
+        
+    ============================================================================
+    Returns a list of files contained in this directory.
+    
+    @returns the contents of this directory
+    ============================================================================
+    @external
+    method list():Array<File>
+    
+    @override
+    function format(fmt:String):String {
+        return path
+    }
+
+    ============================================================================
+    Deletes the file. If the file is a directory, it must be empty or an 
+    exception will be thrown. FIXME fix spec once exceptions are in place.
+    ============================================================================
+    @external
+    method delete()
+    
+    ============================================================================
+    Returns a list of files in this directory matching a wildcard pattern.
+    Asterisks ("*") in the pattern mean "match any number of characters", and
+    question marks ("?") in the pattern mean "match a single character".
+    For example, `directory.list("*.png")` will return a list of all files with
+    the extension `".png"`.
+    
+    @param pattern the wildcard pattern to match
+    @returns the files matching the pattern
+    ============================================================================
+    method list(pattern:String):Array<File> {
+        var result := new MutableString()
+        for i in 0 ... pattern.length - 1 {
+            var c := pattern[i]
+            if c in "+?|{[()^$.#\\"
+                result.append("\\")
+            if c = "*"
+                result.append(".")
+            if c = "?"
+                result.append(".")
+            else
+                result.append(c)
+        }
+        return list(new RegularExpression(result->>(String)))
+    }
+
+    ============================================================================
+    Returns a list of files in this directory matching a regular expression.
+    For example, `directory.list(#/[abc].*\.png/#)` will return a list of all 
+    files with the extension `".png"` that begin with the characters `a`, `b`,
+    or `c`.
+    
+    @param pattern the wildcard pattern to match
+    @returns the files matching the pattern
+    ============================================================================
+    method list(pattern:RegularExpression):Array<File> {
+        var raw := list()
+        var result := new Array<File>()
+        for i in 0 ... raw.length - 1 {
+            if raw[i].name.matches(pattern)
+                result.append(raw[i])
+        }
+        return result
+    }
+
+    ============================================================================
+    Returns a new `InputStream` which reads from the file.
+    
+    @returns a stream for reading the file
+    ============================================================================
+    method openInputStream():InputStream {
+        return new FileInputStream(self)
+    }
+        
+    ============================================================================
+    Returns a new `OutputStream` for writing to the file. The file is reset to
+    zero length as part of opening the output stream.
+    
+    @returns a stream for reading the file
+    ============================================================================
+    method openOutputStream():OutputStream {
+        return new FileOutputStream(self)
+    }
+    
+    ============================================================================
+    Replaces the contents of the file with the specified string.
+    
+    @param s the string to write
+    ============================================================================
+    method write(s:String) {
+        var out := openOutputStream()
+        out.write(s)
+        out.close()
+    }
+    
+    ============================================================================
+    Replaces the contents of the file with the specified data.
+    
+    @param s the data to write
+    ============================================================================
+    method write(bytes:Array<Int8>) {
+        var out := openOutputStream()
+        out.write(bytes)
+        out.close()
+    }
+
+    ============================================================================
+    Reads the entire file into a `String` in memory.
+    ============================================================================
+    method readAsString():String {
+        var buffer := new MemoryOutputStream()
+        openInputStream().send(buffer)
+        return buffer->>(String)
+    }
+
+    ============================================================================
+    Returns the contents of the file broken up into lines.
+
+    **IMPLEMENTATION NOTE:** In the future this will be an iterator which reads
+    the file one line at a time. Right this second we just slurp the whole file
+    into memory.
+    ============================================================================
+    method lines():Array<String> {
+        return readAsString().split(#/\r?\n/#)
+    }
+    
+    @override
+    function =(o:Object):Bit {
+        if o-!>(File)
+            return false
+        return path = o->(File).path
+    }
+
+    @override
+    function hash():Int {
+        return path.hash
+    }
+        
+    @private
+    @external
+    method absolutePath():String
+}

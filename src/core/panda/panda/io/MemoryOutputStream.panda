@@ -1,0 +1,199 @@
+package panda.io
+
+================================================================================
+An `OutputStream` which stores data written to it in memory. After writing to
+it, its contents may be converted to an `Array` or to a `String`.
+================================================================================
+class MemoryOutputStream : OutputStream {
+    @private
+    constant DEFAULT_LENGTH := 16
+    
+    ============================================================================
+    The data buffer
+    ============================================================================
+    @private 
+    var buffer:Array<Int8>
+    
+    ============================================================================
+    The current length of the data in the buffer
+    ============================================================================
+    @readonly
+    var length:Int
+    
+    ============================================================================
+    Creates a new `MemoryOutputStream`.
+    ============================================================================
+    constructor() {
+        constructor(DEFAULT_LENGTH)
+    }
+    
+    ============================================================================
+    Creates a new `MemoryOutputStream` with the specified initial capacity (in
+    bytes).
+    
+    @param size the size of the memory buffer
+    ============================================================================
+    constructor(size:Int32) {
+        buffer := new Array<Int8>(size)
+    }
+    
+    ============================================================================
+    Ensures that the buffer can hold at least `minLength` bytes.
+    
+    @param minLength the minimum size of the memory buffer
+    ============================================================================
+    @private
+    method ensureCapacity(minLength:Int) {
+        if minLength > buffer.length {
+            var newLength := buffer.length.max(DEFAULT_LENGTH)
+            while newLength < minLength {
+                newLength *= 2
+            }
+            var newBuffer := new Array<Int8>(newLength)
+            for i in 0 ... length - 1
+                newBuffer[i] := buffer[i]
+            buffer := newBuffer
+        }
+    }
+    @post(buffer.length >= minLength)
+
+    @self
+    @override
+    method write(b:Int8) {
+        ensureCapacity(length + 1)
+        buffer[length] := b
+        length += 1
+    }
+    
+    @self
+    @override
+    method write(b->>Array<Int8>, offset:Int, length:Int) {
+        ensureCapacity(self.length + length)
+        for i in 0 ... length - 1
+            buffer[self.length + i] := b[i + offset]
+        self.length += length
+    }
+    
+    @self
+    @override
+    method write(b->>Array<Int8>) {
+        write(b, 0, b.length)
+    }
+    
+    @self
+    @override
+    method write(b:UInt8) {
+        ensureCapacity(length + 1)
+        buffer[length] := b->>(Int8)
+        length += 1
+    }
+    
+    @self
+    @override
+    method write(b->>Array<UInt8>) {
+        write(b, 0, b.length)
+    }
+    
+    @self
+    @override
+    method write(b->>Array<UInt8>, offset:Int, length:Int) {
+        for i in offset ... offset + length - 1
+            write(b[i])
+    }
+
+    @self
+    @override
+    method write(c:Char) {
+        write(c->>(UInt8))
+    }
+    
+    @self
+    @override
+    method write(c->>Array<Char>) {
+        write(c, 0, c.length)
+    }
+    
+    @self
+    @override
+    method write(c->>Array<Char>, offset:Int, length:Int) {
+        var bytes := new Array<Int8>(length)
+        for i in offset ... offset + length - 1
+            bytes[i - offset] := c[i]->>(Int8)
+        write(bytes)
+    }
+    
+    @self
+    @override
+    method write(s->>String) {
+        write(s->>(Array<Char>))
+    }
+
+    @self
+    @override
+    method write(s:String, params:Object...) {
+        super.write(s, params...)
+    }
+     
+    ============================================================================
+    Returns a single `Int8` from the buffer.
+    
+    @param i the index of the `Int8` to return
+    ============================================================================
+    @pre(i < length)
+    function [](i:Int):Int8 {
+        return buffer[i]
+    }
+    
+    ============================================================================
+    Returns a copy of the memory buffer as a `Int8` array.
+    
+    @returns all data written to the stream
+    ============================================================================
+    function ->>():Array<Int8> {
+        return new Array<Int8>(buffer, 0, length)
+    }
+
+    ============================================================================
+    Returns a copy of the memory buffer as a `UInt8` array.
+    
+    @returns all data written to the stream
+    ============================================================================
+    function ->>():Array<UInt8> {
+        var result := new Array<UInt8>()
+        for i in 0 ... length - 1
+            result[i] := buffer[i]->>(UInt8)
+        return result
+    }
+
+    ============================================================================
+    Returns a copy of the memory buffer as a `Char` array.
+    
+    @returns all data written to the stream
+    ============================================================================
+    function ->>():Array<Char> {
+        -- FIXME obviously missing encodings here...
+        var result := new Array<Char>(length)
+        for i in 0 ... length - 1
+            result[i] := buffer[i]->>(Char)
+        return result
+    }
+
+    ============================================================================
+    Returns a copy of the memory buffer as a String.
+    
+    @returns all data written to the stream
+    ============================================================================
+    @override
+    function format(fmt:String):String {
+        return new String(self->>(Array<Char>))
+    }
+
+    ============================================================================
+    Discards all data written to the stream so far.
+    ============================================================================
+    method reset() {
+        buffer := new Array<Int8>(DEFAULT_LENGTH)
+        length := 0
+    }
+    @post(length = 0)
+}

@@ -1,0 +1,98 @@
+package panda.gl
+
+uses panda.gl.shapes.Rectangle
+
+@private
+class GLMessageQueue : MessageQueue {
+    @override
+    method pendingMessages():Int {
+        pumpEvents()
+        return super.pendingMessages()
+    }
+    
+    @override
+    method hasMessage():Bit {
+        pumpEvents()
+        return super.hasMessage()
+    }
+    
+    @override
+    method getMessage():Object? {
+        waitForEvent()
+        return super.getMessage()
+    }
+    
+    @override
+    method getMessage(timeout:Int):Object? {
+        waitForEvent(timeout)
+        return super.getMessage(0)
+    }
+
+    @private
+    @external
+    method pumpEvents()
+
+    @private
+    @external
+    method waitForEvent()
+
+    @private
+    @external
+    method waitForEvent(timeout:Int)
+}
+
+class Window {
+    @readonly
+    var bounds:Rectangle
+
+    ============================================================================
+    `MessageQueue` to which `Events` such as key presses and mouse clicks are 
+    sent.
+
+    **IMPLEMENTATION NOTE:** As Panda does not support generics yet, you will
+    have to manually cast the objects in the queue to `panda.gl.Event` for the
+    time being. When generics are in, the type will be `MessageQueue<Event>` and
+    casts will no longer be necessary.
+    ============================================================================
+    @readonly
+    var eventQueue:MessageQueue := new GLMessageQueue()
+
+    @readonly
+    var renderer:Renderer
+
+    @private
+	var native:$NativePointer
+
+	constructor(title:String, bounds:Rectangle) {
+        self.bounds := bounds
+		init(title, bounds.x->>(Int), bounds.y->>(Int), bounds.width->>(Int), 
+                bounds.height->>(Int))
+        renderer := createRenderer()
+	}
+
+    ============================================================================
+    Call `m` followed by `renderer.present()` repeatedly in a loop, as close to 
+    sixty times per second as possible. `m` is expected to render a frame every 
+    time it is called; if it does not, the results are undefined. Because this
+    method automatically calls `present()` on the renderer, you should not do so
+    yourself.
+
+    The `Real` parameter to `m` is the amount of time, in milliseconds, from the
+    last time `m` was called. The first call to `m` will always report a time of
+    16.67ms (the correct rate for 60fps rendering), and the time of subsequent 
+    calls will be determined from the computer's clock.
+    ============================================================================
+    @external
+    method startRenderLoop(m:(Real)=&>())
+
+	@private
+    @external
+    method init(title:String, x:Int32, y:Int32, width:Int32, height:Int32)
+
+    @private
+    @external
+	method createRenderer():Renderer
+
+    @external
+    method close() 
+}

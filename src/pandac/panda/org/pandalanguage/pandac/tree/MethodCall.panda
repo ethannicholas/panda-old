@@ -1,0 +1,119 @@
+package org.pandalanguage.pandac.tree
+
+================================================================================
+Represents a method call.
+================================================================================
+class MethodCall : Value {
+    ============================================================================
+    The method being called.
+    ============================================================================
+    var methodNode:MethodNode
+    
+    ============================================================================
+    True if the method call should use virtual method lookup. This is always
+    false when the method itself is not virtual, but will also be false when a
+    superclass method is being invoked.
+    ============================================================================
+    var isVirtual:Bit
+    
+    ============================================================================
+    True if the method was called on 'super'.
+    ============================================================================
+    var isSuper:Bit
+
+    @invariant(!isSuper | !isVirtual)
+    
+    @pre(parameters.length = methodNode.parameters.length)
+    constructor(methodNode:MethodNode, virtual:Bit, parameters:Array<Value>) {
+        constructor(methodNode, virtual, false, parameters)
+    }
+
+    ============================================================================
+    Creates a new `MethodCall`.
+    
+    @param methodNode the method being called
+    @param virtual `true` if the call should use a virtual lookup
+    @param params the parameters to the method (including 'self', if applicable)
+    ============================================================================
+    @pre(methodNode-!>(MethodStub))
+    @pre(parameters.length = methodNode.parameters.length)
+    constructor(methodNode:MethodNode, virtual:Bit, isSuper:Bit,
+            parameters:Array<Value>) {
+        super.constructor(methodNode.returnType)
+        self.methodNode := methodNode
+        self.isVirtual := virtual
+        self.isSuper := isSuper
+        for i in 0 ... parameters.length - 1
+            add(parameters[i])
+    }
+
+    @pre(parameters.length = methodNode.parameters.length)
+    constructor(position:Position, methodNode:MethodNode, virtual:Bit, 
+            parameters:Array<Value>) {
+        constructor(position, methodNode, virtual, false, parameters)
+    }
+
+    ============================================================================
+    Creates a new `MethodCall`.
+
+    @param p the `ParseNode` from which this was created, for error-reporting
+            purposes
+    @param methodNode the method being called
+    @param virtual `true` if the call should use a virtual lookup
+    @param params the parameters to the method (including 'self', if applicable)
+    ============================================================================
+    @pre(parameters.length = methodNode.parameters.length)
+    constructor(position:Position, methodNode:MethodNode, virtual:Bit, 
+            isSuper:Bit, parameters:Array<Value>) {
+        super.constructor(position, methodNode.returnType)
+        self.methodNode := methodNode
+        self.isVirtual := virtual
+        self.isSuper := isSuper
+        for i in 0 ... parameters.length - 1
+            add(parameters[i])
+    }
+
+    function parameters():Array<Value> {
+        var result := new Array<Value>()
+        for i in 0 ... length - 1
+            result.append(self[i]->(Value))
+        return result
+    }
+    
+    @override
+    method markLive() {
+        if !live {
+            super.markLive()
+            methodNode.markLive()
+        }
+    }
+
+    @override
+    function format(fmt:String):String {
+        var result := new MutableString()
+        var start:Int
+        if methodNode.annotations.isClass {
+            result.append(methodNode.parent->(ClassNode).name)
+            result.append(".")
+            start := 0
+        }
+        else {
+            if parameters.length > 0 & (parameters[0]-!>(VariableReference) |
+                    parameters[0]->(VariableReference).variable.name != 
+                    Parameter.SELF_NAME)
+                result.append(parameters[0] + ".")
+            start := 1
+        }
+        result.append(methodNode.name)
+        if methodNode.name = "->>"
+            result.append(methodNode.returnType.name)
+        result.append("(")
+        for i in start .. parameters.length {
+            if i > start
+                result.append(", ")
+            result.append(parameters[i])
+        }
+        result.append(")")
+        return result->>(String)
+    }
+}

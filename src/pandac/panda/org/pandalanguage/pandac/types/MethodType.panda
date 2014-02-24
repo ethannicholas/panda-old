@@ -1,0 +1,116 @@
+package org.pandalanguage.pandac.types
+
+================================================================================
+Represents a method type, with a list of parameters and return type (which may
+be `void`).
+================================================================================
+class MethodType : ClassType {
+    @private
+    var _methodParameters:ImmutableArray<Type>
+    
+    @private
+    var _returnType:Type
+
+    @readonly
+    var isFunction:Bit
+
+    @private
+    var immutableMethod:Bit
+
+    constructor(methodParameters:ImmutableArray<Type>, returnType:Type,
+            isFunction:Bit, isImmutable:Bit) {
+        super.constructor(getName(methodParameters, returnType, isFunction,
+                isImmutable))
+        self._methodParameters := methodParameters
+        self._returnType := returnType
+        self.isFunction := isFunction
+        self.immutableMethod := isImmutable
+    }
+
+    @override
+    function methodParameters():ImmutableArray<Type> {
+        return _methodParameters
+    }
+
+    @override
+    function returnType():Type {
+        return _returnType
+    }
+
+    @private
+    @class
+    function getName(parameterTypes:ImmutableArray<Type>, 
+            returnType:Type, isFunction:Bit, isImmutable:Bit):String {
+        var parameters := new MutableString()
+        for i, p in parameterTypes {
+            if i > 0
+                parameters.append(",")
+            parameters.append(p.name)
+        }
+        var yields:String
+        if isFunction
+            yields := "=>"
+        else
+            yields := "=&>"
+        if isImmutable
+            yields += "*"
+        if returnType = VoidType.VOID
+            return "(" + parameters + ")" + yields + "()"
+        else
+            return "(" + parameters + ")" + yields + "(" + returnType.name + ")"
+    }
+    
+    @override
+    method implicitCastCost(var target:Type):Int {
+        if !immutableMethod & target.isImmutable
+            return NO_MATCH
+        var result := 0
+        if target.isNullable {
+            target := target.unwrapNullable
+            result += NullableType.TO_NULLABLE_CAST_COST
+        }
+        if self = target
+            return result
+        if target.isMethod {
+            if target->(MethodType).isFunction & !isFunction
+                return NO_MATCH
+            else if isFunction & !target->(MethodType).isFunction
+                result += 1
+            -- for right now, require an exact match on everything but 
+            -- isFunction. This could potentially be relaxed down the road.
+            for i, p in methodParameters
+                if p != target.methodParameters[i]
+                    return NO_MATCH
+            if target.returnType.isPrimitive & !returnType.isPrimitive &
+                    returnType != target.returnType
+                return NO_MATCH
+            var returnCost := returnType.implicitCastCost(target.returnType)
+            if returnCost = NO_MATCH
+                return NO_MATCH
+            result += returnCost
+            return result
+        }
+        return ClassType.METHOD().implicitCastCost(target)
+    }
+
+    @override
+    method canExplicitCastTo(target:Type):Bit {
+        return self = target | ClassType.METHOD().canImplicitCastTo(target)
+    }
+
+    @override
+    function isMethod():Bit {
+        return true
+    }
+
+    @override
+    function classNode():ClassNode {
+        var result:ClassNode?
+        if immutableMethod
+            result := SymbolTable.master.getClass(class(Method).name)
+        else
+            result := SymbolTable.master.getClass(class(MutableMethod).name)
+        assert result != null
+        return result
+    }
+}

@@ -1,0 +1,81 @@
+package org.pandalanguage.pandac.tree
+
+class VariableAssignment : Value {
+    var variable:Variable
+
+    ============================================================================
+    `true` if this assignment represents the initial value of a variable (as in
+    `def x := 3`).
+
+    We "really" allocate all variables at the beginning of the method, so:
+
+        method foo() {
+            loop {
+                var line := Console.readLine()
+                ...
+            }
+        }
+
+    compiles as if it were written:
+
+        method foo() {
+            var line:String?
+            loop {
+                line := Console.readLine()
+                ...
+            }
+        }
+
+    This is so we don't try to allocate more stack storage every iteration 
+    through the loop. Unfortunately, now we can't tell just by looking at the
+    code if our usage of `def`s is legal -- they are all allocated at the
+    beginning, and then might be assigned to once every iteration through a
+    loop. We could get all fancy in checking scoping and all that to determine
+    if the assignments are legal, but it's a lot easier just to keep track of
+    which one was the initial assignment and treat it as always legal.
+
+    NOTE: because this only matters for `def` variables, we currently don't 
+    bother setting it for things other than ordinary variable declarations 
+    (e.g. `for` loop variables, etc)
+    ============================================================================
+    var isInitialValue:Bit
+
+    constructor(v:Variable) {
+        super.constructor(v.type)
+        self.variable := v
+    }
+
+    constructor(position:Position, v:Variable) {
+        super.constructor(position, v.type)
+        self.variable := v
+    }
+
+    constructor(v:Variable, value:Value) {
+        constructor(v)
+        add(value)
+    }
+    
+    constructor(position:Position, v:Variable, value:Value) {
+        constructor(position, v)
+        add(value)
+    }
+
+    function value():Value {
+        if length = 0 {
+            var stack := new MutableString()
+            var p := self.parent
+            while p != null {
+                stack.append("/" + p.position)
+                p := p.parent
+            }
+            throw new AssertionError("broken variable assignment at " + 
+                    position + ", " + stack)
+        }
+        return self[0]->(Value)
+    }
+    
+    @override
+    function format(fmt:String):String {
+        return "(" + variable + " := " + value + ")"
+    }
+}

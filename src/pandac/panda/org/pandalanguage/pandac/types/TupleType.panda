@@ -1,0 +1,188 @@
+package org.pandalanguage.pandac.types
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.tree.Add
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.BitLiteral
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.IndexedAssignment
+uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+
+================================================================================
+A tuple; there is a `TupleType` for each different combination of types. Tuples
+must have at least two values.
+================================================================================
+class TupleType : ClassType {
+    var types:ImmutableArray<Type>
+
+    constructor(types:ImmutableArray<Type>) {
+        super.constructor(getName(types))
+        self.types := types
+    }
+
+    @private
+    function getName(types:ImmutableArray<Type>):String {
+        def result := "("->>(MutableString)
+        for i, t in types {
+            if i > 0
+                result.append(",")
+            result.append(t.displayName)
+        }
+        result.append(")")
+        return result->>(String)
+    }
+
+    @override
+    function isTuple():Bit {
+        return true
+    }
+
+    method typeBound():Type {
+        var bound := types[0]
+        for i in 1 ... types.length - 1
+            bound := Type.union(bound, types[i])
+        return bound
+    }
+
+    @override
+    method performFinalClassInitialization() {
+        if typeBound().isImmutable
+            classNode.supertype := ClassType.IMMUTABLE_TUPLE()
+        else
+            classNode.supertype := ClassType.TUPLE()
+        -- FIXME HACK uggghhhh long past time for this to die. ASTGenerator
+        -- relies on the node's position to match the same entities up between
+        -- passes, so we need to ensure these fields and methods have different 
+        -- positions
+        var dedupLine := 0
+        def tupleClass := classNode
+        if tupleClass.state = ClassNodeState.DEFINED | 
+                tupleClass.state = ClassNodeState.EXTERNALLY_DEFINED
+            return
+        if tupleClass.state = ClassNodeState.EXTERNAL_INSTANCE
+            tupleClass.state := ClassNodeState.EXTERNALLY_DEFINED
+        else
+            tupleClass.state := ClassNodeState.DEFINED
+        for i, type in types {
+            var field := new FieldNode(new Position(displayName, dedupLine, 0), 
+                    "$field" + i, type)
+            dedupLine += 1
+            field.annotations.isStatic := true
+            tupleClass.add(field)
+            tupleClass.symbolTable.putVariable(field)
+        }
+
+        var code := ("constructor(")->>(MutableString)
+        for i, type in types {
+            if i > 0
+                code.append(",")
+            code.append("$field" + i + ":" + type.displayName)
+        }
+        code.append(") {\n")
+        for i, type in types {
+            code.append("    self.$field" + i + " := $field" + i + "\n")
+        }
+        code.append("}")
+        new ASTGenerator().compileMethod(tupleClass, code->>(String), 
+                new Annotations([AnnotationType.SYNTHETIC]), 
+                new Position(displayName + ":constructor", dedupLine, 0))
+        dedupLine += 1
+
+        code := ("function [](index:panda.core.Int32):" +
+                typeBound().displayName + " {\n" +
+                "   switch index {\n")->>(MutableString)
+        for i, type in types {
+            code.append("        case " + i + ": return $field" + i + "\n")
+        }
+        code.append("        default: throw new IndexOutOfBoundsError(index->>(String))\n")
+        code.append("    }\n")
+        code.append("}")
+        new ASTGenerator().compileMethod(tupleClass, code->>(String), 
+                new Annotations([AnnotationType.SYNTHETIC]), 
+                new Position(displayName + ":[]", dedupLine, 0))
+        dedupLine += 1
+
+        def formatPosition := new Position(displayName + ":->>(String)", 
+                dedupLine, 0)
+        def formatAnnotations := new Annotations([AnnotationType.SYNTHETIC, 
+                AnnotationType.OVERRIDE])
+        formatAnnotations.pre.append(new PandaParser().parseExpression("true", 
+                formatPosition))
+        code := new MutableString("function format(fmt:String):panda.core.String {\n" +
+                "    def result := '('->>(MutableString)\n")
+        for i, type in types {
+            if i > 0
+                code.append("    result.append(', ')\n")
+            code.append("    result.append(panda.core.Panda.format($field" + i + ", fmt))\n")
+        }
+        code.append("    result.append(')')")
+        code.append("    return result->>(String)")
+        code.append("}")
+        new ASTGenerator().compileMethod(tupleClass, code->>(String), 
+                formatAnnotations, formatPosition)
+        dedupLine += 1
+
+        def equalPosition := new Position(displayName + ":=", 
+                dedupLine, 0)
+        code := new MutableString("function =(o:Object):panda.core.Bit {\n" +
+                "if o-!>(\{name}) return false\n" +
+                "def other := o->(\{name})")
+        for i, type in types {
+            code.append("    if $field\{i} != other.$field\{i} return false\n")
+        }
+        code.append("    return true")
+        code.append("}")
+        new ASTGenerator().compileMethod(tupleClass, code->>(String), 
+                new Annotations([AnnotationType.SYNTHETIC, 
+                AnnotationType.OVERRIDE]), equalPosition)
+        dedupLine += 1
+
+        def hashPosition := new Position(displayName + ":hash", 
+                dedupLine, 0)
+        constant MULTIPLIER := 53
+        code := new MutableString("function hash():panda.core.Int32 {\n")
+        for i, type in types {
+            if i = 0 {
+                if type.isNullable {
+                    code.append("    var result:Int\n")
+                    code.append("    if $field\{i} != null\n")
+                    code.append("        result := $field\{i}.hash\n")
+                    code.append("    else\n")
+                    code.append("        result := 0\n")
+                }
+                else
+                    code.append("    var result := $field\{i}.hash")
+            }
+            else {
+                if type.isNullable
+                    code.append("    if $field\{i} != null\n    ")
+                code.append("    result := result * \{MULTIPLIER} + $field\{i}.hash\n")
+            }
+        }
+        code.append("    return result")
+        code.append("}")
+        new ASTGenerator().compileMethod(tupleClass, code->>(String), 
+                new Annotations([AnnotationType.SYNTHETIC, 
+                AnnotationType.OVERRIDE]), hashPosition)
+        dedupLine += 1
+    }
+}

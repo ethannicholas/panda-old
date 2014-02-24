@@ -1,0 +1,96 @@
+package panda.io
+
+================================================================================
+An input stream which allows data to be "pushed back" into it, so that it may
+be read again. This is useful in situations such as parsing, in which you may
+wish to read until you encounter a delimiter and then push the delimiter back
+into the stream so that it can be handled by other code.
+================================================================================
+class PushbackInputStream : FilterInputStream {
+    @private
+    var pushbackBuffer := new Array<Int8>()
+
+    constructor(raw:InputStream) {
+        super.constructor(raw)
+    }
+
+    @override
+    method readInt8():Int8? {
+        if pushbackBuffer.length > 0 {
+            var result:Int8 := pushbackBuffer[pushbackBuffer.length - 1]
+            pushbackBuffer.length -= 1
+            return result
+        }
+        return super.readInt8()
+    }
+    
+    @override
+    method read(bytes:Array<Int8>):Int? {
+        if pushbackBuffer.length > 0 {
+            var index := 0
+            for i in (bytes.length - 1).min(pushbackBuffer.length - 1) ... 0 
+                    by -1 {
+                bytes[index] := pushbackBuffer[i]
+                index += 1
+                pushbackBuffer.length -= 1
+            }
+            return index
+        }
+        return super.read(bytes)
+    }
+
+    ============================================================================
+    Pushes back a single `Int8`, so that it will be the next byte read by the
+    stream.
+    ============================================================================
+    method pushback(v:Int8) {
+        pushbackBuffer.append(v)
+    }
+
+    ============================================================================
+    Pushes back a single `UInt8`, so that it will be the next byte read by the
+    stream.
+    ============================================================================
+    method pushback(v:UInt8) {
+        pushbackBuffer.append(v->>(Int8))
+    }
+
+    ============================================================================
+    Pushes back an array of `Int8`s.
+    ============================================================================
+    method pushback(v:Array<Int8>) {
+        for i in v.length - 1 ... 0 by -1
+            pushback(v[i])
+    }
+
+    ============================================================================
+    Pushes back an array of `UInt8`s.
+    ============================================================================
+    method pushback(v:Array<UInt8>) {
+        for i in v.length - 1 ... 0 by -1
+            pushback(v[i])
+    }
+
+    ============================================================================
+    Pushes back a single `Char`.
+    ============================================================================
+    method pushback(c:Char) {
+        -- FIXME unicode support
+        pushback(c->(Int8))
+    }
+
+    ============================================================================
+    Pushes back an array of `Char`s.
+    ============================================================================
+    method pushback(c:Array<Char>) {
+        for i in c.length - 1 ... 0 by -1
+            pushback(c[i])
+    }
+
+    ============================================================================
+    Pushes back a `String`.
+    ============================================================================
+    method pushback(s:String) {
+        pushback(s->>(Array<Char>))
+    }
+}

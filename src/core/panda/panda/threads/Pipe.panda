@@ -1,0 +1,91 @@
+package panda.threads
+
+================================================================================
+A communications channel which can be used to communicate between different 
+threads. A pipe provides an `InputStream` and an `OutputStream`; data written to
+the `OutputStream` becomes available for reading from the `InputStream`. Pipes
+are meant to have only a single `InputStream` and `OutputStream` created from
+them. It is possible to create multiple input and output streams for the same
+pipe, but this will cause unpredictable interleaving and fragmenting of data.
+================================================================================
+class Pipe : Immutable {
+    @private
+    def queue := new MessageQueue()
+
+    ============================================================================
+    Returns an `InputStream` for reading from this pipe. This method should be
+    called only once per pipe.
+    ============================================================================
+    method openInputStream():InputStream {
+        return new PipeInputStream(queue)
+    }
+
+    ============================================================================
+    Returns an `OutputStream` for writing to this pipe. This method should be
+    called only once per pipe.
+    ============================================================================
+    method openOutputStream():OutputStream {
+        return new PipeOutputStream(queue)
+    }
+}
+
+-- FIXME PERFORMANCE slow implementation for now, just to get it working. Need
+-- to implement the bulk read methods.
+@private
+class PipeInputStream : InputStream {
+    var queue:MessageQueue
+    var bufferIndex:Int
+    var buffer := new ImmutableArray<Int8>()
+
+    constructor(queue:MessageQueue) {
+        self.queue := queue
+    }
+
+    @override
+    method readInt8():Int8? {
+        if bufferIndex >= buffer.length {
+            def msg := queue.getMessage()
+            if msg = null {
+                close()
+                return null
+            }
+            if msg-?>(Int8)
+                return msg->(Int8)
+            buffer := msg->(ImmutableArray<Int8>)
+            bufferIndex := 0
+        }
+        def result:Int8 := buffer[bufferIndex]
+        bufferIndex += 1
+        return result
+    }
+}
+
+@private
+class PipeOutputStream : OutputStream {
+    var queue:MessageQueue
+
+    constructor(queue:MessageQueue) {
+        self.queue := queue
+    }
+
+    @override
+    method write(i:Int8) {
+        queue.post(i)
+    }
+
+    @override
+    method write(a:Array<Int8>) {
+        queue.post(a->>(ImmutableArray<Int8>))
+    }
+
+    @override
+    method write(a:ImmutableArray<Int8>) {
+        queue.post(a)
+    }
+
+    @override
+    method close() {
+        super.close()
+        queue.post(null)
+    }
+}

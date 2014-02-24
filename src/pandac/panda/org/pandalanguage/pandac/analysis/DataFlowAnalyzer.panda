@@ -1,0 +1,763 @@
+package org.pandalanguage.pandac.analysis
+
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.compiler.XMLWriter
+uses org.pandalanguage.pandac.tree.Annotation
+uses org.pandalanguage.pandac.tree.And
+uses org.pandalanguage.pandac.tree.AndLeft
+uses org.pandalanguage.pandac.tree.Assert
+uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BitLiteral
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
+uses org.pandalanguage.pandac.tree.Catch
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.Equal
+uses org.pandalanguage.pandac.tree.FieldAssignment
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.ForEach
+uses org.pandalanguage.pandac.tree.Identity
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.NewArrayWithLength
+uses org.pandalanguage.pandac.tree.NewArrayWithRange
+uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.NotEqual
+uses org.pandalanguage.pandac.tree.NotIdentity
+uses org.pandalanguage.pandac.tree.NullLiteral
+uses org.pandalanguage.pandac.tree.Or
+uses org.pandalanguage.pandac.tree.OrLeft
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.ReusedValue
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.tree.Ternary
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.Variable
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.While
+uses org.pandalanguage.pandac.types.BitType
+uses org.pandalanguage.pandac.types.Type
+
+class ValueKey {
+    var aliasClass:Object
+    var value:Object
+    
+    constructor(aliasClass:Object, value:Object) {
+        self.aliasClass := aliasClass
+        self.value := value
+    }
+    
+    @override
+    function hash():Int32 {
+        return aliasClass.hash ~~ value.hash
+    }
+    
+    method writeXML(xml:XMLWriter) {
+        xml.textTag("key", value)
+    }
+
+    @override
+    function =(o:Object):Bit {
+        if o-?>(ValueKey)
+            return aliasClass = o->(ValueKey).aliasClass & 
+                    value = o->(ValueKey).value
+        return false
+    }
+
+    @override
+    function format(fmt:String):String {
+        return class.name + "<" + value + ">"
+    }
+}
+
+class DataFlowAnalyzer {
+    var debug:XMLWriter?
+
+    @private
+    constant LOCAL_CLASS := "local"
+    
+    @private
+    var currentMethod:MethodNode?
+    
+    @private
+    var worklist := new Array<ControlNode>()
+
+    @private
+    var visited:Map := new HashMap()
+
+    -- only true while performing a full method analysis, we then turn it off
+    -- for incremental rescans to avoid having to do extra housekeeping
+    @private
+    var enforceStatics:Bit
+
+    @private
+    method merge(oldValue:DataFlowValue?, 
+            newValue:DataFlowValue):DataFlowValue {
+        var type:Type
+        if oldValue != null
+            type := Type.union(oldValue.type, newValue.type)
+        else
+            type := newValue.type
+        return new DataFlowValue(type,
+                (oldValue = null | oldValue.selfOnly) & newValue.selfOnly,
+                (oldValue = null | oldValue.definitelyAssigned) & 
+                        newValue.definitelyAssigned,
+                (oldValue = null | oldValue.definitelyUnassigned) & 
+                        newValue.definitelyUnassigned)
+    }
+    
+    @class
+    method getAliasClass(var n:Node, inValues:Map):Object {
+        if n-?>(Value)
+            n := unwrap(n->(Value))
+        if n-?>(VariableReference)
+            return LOCAL_CLASS
+        else if n-?>(FieldReference)
+            return n->(FieldReference).object.type
+        else if n-?>(FieldNode)
+            return n.parent->(ClassNode).type()
+        else -- FIXME: just a quick hack to test out this functionality
+            return n->(Value).type
+    }
+    
+    @private
+    method enqueue(c:ControlNode) {
+        for entry in worklist {
+            if entry = c
+                return
+        }
+        worklist.append(c)
+    }
+    
+    @private
+    @class
+    function unwrap(var value:Value):Value {
+        while value-?>(Cast) | value-?>(Ternary) | value-?>(VariableAssignment) |
+                value-?>(AndLeft) | value-?>(OrLeft) | value-?>(ReusedValue) |
+                value-?>(ReusedValueDefinition) {
+            if value-?>(Cast)
+                value := value->(Cast).value
+            if value-?>(Ternary) {
+                -- HACK hard-coding the only way we actually use ternaries 
+                value := value->(Ternary).test->(Equal).left
+            }
+            if value-?>(VariableAssignment)
+                value := value->(VariableAssignment).value
+            if value-?>(OrLeft)
+                value := value->(OrLeft).value
+            if value-?>(AndLeft)
+                value := value->(AndLeft).value
+            if value-?>(ReusedValue)
+                value := value->(ReusedValue).owner
+            if value-?>(ReusedValueDefinition)
+                value := value->(ReusedValueDefinition).value
+        }
+        return value
+    }
+    
+    @private
+    function isNull(value:Value, inValues:Map):Bit {
+        return value-?>(NullLiteral)
+    }
+    
+    @class
+    method getKey(node:Node, inValues:Map):ValueKey {
+        var alias:Object
+        var keyObject:Object
+        if node-?>(FieldNode) {
+            keyObject := node->(FieldNode)
+            alias := getAliasClass(node, inValues)
+        }
+        else {
+            var value := unwrap(node->(Value))
+            if value-?>(VariableReference)
+                keyObject := value->(VariableReference).variable
+            else if value-?>(FieldReference)
+                keyObject := value->(FieldReference).field
+            else
+                keyObject := value
+            alias := getAliasClass(value, inValues)
+        }
+        return new ValueKey(alias, keyObject)
+    }
+    
+    @class
+    method getInValue(n:Node, inValues:Map):DataFlowValue? {
+        return inValues[getKey(n, inValues)]->(DataFlowValue?)
+    }
+    
+    @class
+    method getInValue(va:VariableAssignment, 
+            inValues:Map):DataFlowValue? {
+        return getInValue(new VariableReference(va.variable), inValues)
+    }
+    
+    @class
+    method getInValue(fa:FieldAssignment, inValues:Map):DataFlowValue? {
+        return getInValue(fa.fieldNode, inValues)
+    }
+    
+    @class
+    method getValue(var rawValue:Value, inValues:Map):DataFlowValue {
+        var value := unwrap(rawValue)
+        var result := getInValue(value, inValues)
+        if result = null {
+            result := new DataFlowValue(value.type)
+            -- FIXME very simple and incomplete test here
+            if value-?>(Construct) | value-?>(NewArrayWithLength) |
+                    value-?>(NewArrayWithValues) | value-?>(NewArrayWithRange) |
+                    value-?>(NullLiteral)
+                result := new DataFlowValue(result.type, true, 
+                        result.definitelyAssigned, result.definitelyUnassigned)
+            else if value-?>(MethodCall) {
+                if value->(MethodCall).methodNode.annotations.isSafeReturn {
+                    result := new DataFlowValue(result.type, true, 
+                            result.definitelyAssigned, 
+                            result.definitelyUnassigned)
+                }
+            }
+        }
+        else {
+            result := new DataFlowValue(result.type, result.selfOnly, 
+                    result.definitelyAssigned, result.definitelyUnassigned)
+        }
+        while rawValue-?>(Cast) & rawValue->(Cast).castType = CastType.IMPLICIT
+            rawValue := rawValue->(Cast).value
+        if rawValue-?>(Cast) & rawValue->(Cast).castType != CastType.IMPLICIT {
+            result := new DataFlowValue(rawValue.type, result.selfOnly, 
+                    result.definitelyAssigned, result.definitelyUnassigned)
+        }
+        return result
+    }
+    
+    @private
+    function isInstanceOf(v:Value):Bit {
+        if v-?>(MethodCall) {
+            var m := v->(MethodCall).methodNode
+            if m.name.startsWith("instanceOf") & 
+                    m.parent->(ClassNode).name = ClassNode.PANDA_NAME {
+                return true
+            }
+        }
+        return false
+    }
+    
+    ============================================================================
+    Given a Bit-typed value, checks to see if it imposes any constraints on
+    values used within it (for instance, `a > 5` and `b != null` both imply
+    things about `a` or `b`). Returns an array of two `HashMaps`: the first map
+    contains values that apply if the value evaluates to `true`, and the second
+    map contains values that apply if the value evaluates to `false`.
+    ============================================================================
+    @private
+    @pre(v.type = BitType.BIT)
+    method evaluateBranch(v:Value, inValues:Map):Array<HashMap> {
+        var rawInValues := new HashMap(inValues)
+        var trueValues := new HashMap()
+        var falseValues := new HashMap()
+        if v-?>(Equal) | v-?>(NotEqual) | 
+                v-?>(Identity) | v-?>(NotIdentity) {
+            var left := unwrap(v->(BinaryOperation).left)
+            var right := unwrap(v->(BinaryOperation).right)
+            if (isNull(left, inValues) & 
+                    getInValue(right, inValues) != null) | 
+                    (isNull(right, inValues) & 
+                    getInValue(left, inValues) != null) {
+                -- this is a comparison against null, need to filter
+                -- outgoing type
+                var value:Value
+                var notNull:Bit
+                if isNull(left, inValues)
+                    value := right
+                else
+                    value := left
+                notNull := v-?>(NotEqual) | v-?>(NotIdentity)
+                var dfValue := getInValue(value, inValues)
+                var key := getKey(value, inValues)
+                inValues.remove(key)
+                assert dfValue != null
+                if notNull {
+                    trueValues[key] := dfValue.filterToNonNull()
+                    falseValues[key] := dfValue.filterToNull()
+                }
+                else {
+                    trueValues[key] := dfValue.filterToNull()
+                    falseValues[key] := dfValue.filterToNonNull()
+                }
+            }
+        }
+        else if isInstanceOf(v) {
+            -- panda.core.Panda makes some calls to instanceOf we need to ignore
+            var currentMethod := self.currentMethod
+            assert currentMethod != null
+            if currentMethod.owner.name != ClassNode.PANDA_NAME {
+                var mc := v->(MethodCall)
+                var value := unwrap(mc.parameters[0])
+                var nullable:Bit
+                if mc.parameters.length = 2 
+                    nullable := mc.parameters[1]->(BitLiteral).value
+                else
+                    nullable := false
+                var inValue := getInValue(value, inValues)
+                if inValue != null & inValue.type.isNullable & !nullable {
+                    var dfValue := getInValue(value, inValues)
+                    var key := getKey(value, inValues)
+                    inValues.remove(key)
+                    assert dfValue != null
+                    trueValues[key] := dfValue.filterToNonNull()
+                    falseValues[key] := dfValue
+                }
+            }
+        }
+        else if v-?>(And) {
+            -- a true result tells us that both the left and right branch were 
+            -- true, a false value only that one of the two was false
+            -- propagate all true results from both branches along the true
+            -- edge
+            -- FIXME: this will give the wrong results when both branches
+            -- contain the same value
+            def left := unwrap(v->(BinaryOperation).left)
+            def leftMaps := evaluateBranch(left, inValues)
+            trueValues.addAll(leftMaps[0])
+            def right := unwrap(v->(BinaryOperation).right)
+            def rightMaps := evaluateBranch(right, inValues)
+            trueValues.addAll(rightMaps[0])
+            
+            -- propagate the intersection of the false values along the false 
+            -- edge
+            for (key, value) in rawInValues.entries {
+                var leftValue := leftMaps[1][key]->(DataFlowValue?)
+                var rightValue := rightMaps[1][key]->(DataFlowValue?)
+                if leftValue = null & rightValue = null
+                    continue
+                if leftValue = null
+                    leftValue := value->(DataFlowValue?)
+                if rightValue = null
+                    rightValue := value->(DataFlowValue?)
+                if rightValue != null
+                    falseValues[key] := merge(leftValue, rightValue)
+                else
+                    falseValues[key] := leftValue
+            }
+
+        }
+        else if v-?>(Or) {
+            -- a false result tells us that both the left and right branch were 
+            -- false, a true value only that one of the two was true
+            -- propagate all false results from both branches along the false
+            -- edge
+            -- FIXME: this will give the wrong results when both branches
+            -- contain the same value
+            var left := unwrap(v->(BinaryOperation).left)
+            var leftMaps := evaluateBranch(left, inValues)
+            falseValues.addAll(leftMaps[1])
+            var right := unwrap(v->(BinaryOperation).right)
+            var rightMaps := evaluateBranch(right, inValues)
+            falseValues.addAll(rightMaps[1])
+            
+            -- propagate the intersection of the true values along the true 
+            -- edge
+            var rawEntries := rawInValues.entries
+            for (key, value) in rawEntries {
+                var leftValue := leftMaps[0][key]->(DataFlowValue?)
+                var rightValue := rightMaps[0][key]->(DataFlowValue?)
+                if leftValue = null & rightValue = null
+                    continue
+                if leftValue = null
+                    leftValue := value->(DataFlowValue?)
+                if rightValue = null
+                    rightValue := value->(DataFlowValue?)
+                if rightValue != null
+                    trueValues[key] := merge(leftValue, rightValue)
+                else
+                    trueValues[key] := leftValue
+            }
+        }
+        var result := new Array<HashMap>(trueValues, falseValues)
+        return result
+    }
+    @post(@return.length = 2)
+
+    @private
+    method isSubset(t1:Type, t2:Type):Bit {
+        if t1.isNullable & !t2.isNullable
+            return false
+        return t1.canImplicitCastTo(t2)
+    }
+
+    @private
+    method mergeOutValues(c:ControlNode) {
+        visited[c] := c
+        for i, exit in c.exits {
+            var inValues := exit.inValues
+            var entries := getOutValues(c, i).entries
+            var needsWork := visited[exit] = null
+            for (key, value) in entries {
+                var oldValue := inValues[key]->(DataFlowValue?)
+                var newValue := value->(DataFlowValue)
+                if oldValue = null | !isSubset(newValue.type, oldValue.type) {
+                    inValues[key] := merge(oldValue, newValue)
+                    needsWork := true
+                }
+            }
+            if needsWork
+                enqueue(exit)
+        }
+    }
+
+    ============================================================================
+    For the given exit number, returns the node's outValues. The exit number is
+    relevant because of code like this:
+
+        if foo != null
+            Console.writeLine(foo)
+        else
+            Console.writeLine("foo is null")
+
+    In the `if` statement's exit 0 (the first `writeLine()`), `foo` is known to 
+    be non-null. In exit 1 (the `else` branch), `foo` is known to be `null`.
+    ============================================================================
+    method getOutValues(c:ControlNode, exit:Int):Map {
+        def outs := new HashMap(c.inValues)
+        for node in c.nodes {
+            node.markLive()
+            if node-?>(VariableAssignment) {
+                def va := node->(VariableAssignment)
+                def key := new ValueKey(LOCAL_CLASS, va.variable)
+                if !va.isInitialValue & va.variable.annotations.isStatic {
+                    def inValue := getInValue(va, outs)
+                    if (enforceStatics & inValue != null & 
+                            !inValue.definitelyUnassigned) {
+                        PandaCompiler.reportError(
+                                "cannot modify static variable '" + 
+                                va.variable + "'", va.position)
+                    }
+                }
+                var newValue := getValue(va.value, outs)
+                newValue := new DataFlowValue(newValue.type, newValue.selfOnly,
+                        true, false)
+                outs[key] := newValue
+            }
+            else if node-?>(FieldAssignment) {
+                def fa := node->(FieldAssignment)
+                def key := getKey(fa.fieldNode, outs)
+                def inValue := getInValue(fa, outs)
+                if enforceStatics & fa.fieldNode.annotations.isStatic() &
+                        inValue != null
+                    PandaCompiler.reportError(
+                            "cannot modify static field '" + fa.fieldNode + "'",
+                            fa.position)
+                var newValue := getValue(fa.value, outs)
+                newValue := new DataFlowValue(newValue.type, newValue.selfOnly,
+                        true, false)
+                outs[key] := newValue
+            }
+            else if node-?>(ForEach) {
+                def f := node->(ForEach)
+                def idx := f.indexVariable
+                if idx != null {
+                    def idxKey := new ValueKey(LOCAL_CLASS, idx)
+                    def idxValue := new DataFlowValue(idx.type, true, true, 
+                            false)
+                    outs[idxKey] := idxValue
+                }
+                def v := f.loopVariable
+                def vKey := new ValueKey(LOCAL_CLASS, v)
+                def vValue := new DataFlowValue(v.type, true, true, false)
+                outs[vKey] := vValue
+            }
+            else if node-?>(If) {
+                assert c.exits.length >= 2
+                -- first exit is the "if" clause, subsequent exits are possible
+                -- else destinations
+                def branches := evaluateBranch(node->(If).test, outs)
+                outs.addAll(branches[exit.min(1)])
+            }
+            else if node-?>(While) {
+                assert c.exits.length >= 2
+                -- first exit is the loop body, subsequent exits are possible
+                -- exit destinations
+                def branches := evaluateBranch(node->(While).test, outs)
+                outs.addAll(branches[exit.min(1)])
+            }
+            else if node-?>(AndLeft) {
+                assert c.exits.length >= 2
+                -- first exit is the true clause, subsequent exits are possible
+                -- false destinations
+                def branches := evaluateBranch(node->(AndLeft).value, outs)
+                outs.addAll(branches[exit.min(1)])
+            }
+            else if node-?>(OrLeft) {
+                assert c.exits.length >= 2
+                -- first exit is the false clause, subsequent exits are possible
+                -- true destinations
+                def branches := evaluateBranch(node->(OrLeft).value, outs)
+                outs.addAll(branches[1 - exit.min(1)])
+            }
+            else if node-?>(Ternary) {
+                if true {
+                    -- I don't feel like messing with this at the moment. 
+                    -- Ternaries are currently internal-only and used only in 
+                    -- contexts where they are guaranteed to be safe.
+                    return outs
+                }
+            }
+            else if node-?>(Assert) {
+                def branches := evaluateBranch(node->(Assert).test, outs)
+                outs.addAll(branches[0])
+            }
+            else if node-?>(Catch) {
+                def exception := node->(Catch).exception
+                outs[getKey(new VariableReference(exception), outs)] := 
+                        new DataFlowValue(exception.type, true, true, false)
+            }
+        }
+        return outs
+    }
+
+    @private
+    method checkAssignmentsAndCasts(c:ControlNode) {
+        checkAssignmentsAndCasts(c, new Array<ControlNode>())
+    }
+
+    @private
+    method markTreeLive(n:Node) {
+        n.markLive()
+        for child in n.children
+            markTreeLive(child)
+    }
+
+    @private
+    method checkAssignmentsAndCasts(c:ControlNode, visited:Array<ControlNode>) {
+        -- FIXME architecture: this is in serious need of a refactoring; need to
+        -- unify the logic here with that in mergeOutValues.
+        -- FIXME need to use a set
+        for v in visited {
+            if v = c
+                return
+        }
+        visited.append(c)
+        -- all current outValues
+        var outs := new HashMap(c.inValues)
+        -- just variables assigned in this block
+        var newOuts := new HashMap()
+        outer: for node in c.nodes {
+            if node-?>(VariableAssignment) {
+                var va := node->(VariableAssignment)
+                var v := va.variable
+                var vr := new VariableReference(v)
+                var newValue := getValue(va.value, outs)
+                outs[getKey(vr, outs)] := newValue
+                newOuts[v] := v
+            }
+            else if node-?>(FieldAssignment) {
+                var fa := node->(FieldAssignment)
+                var key := getKey(fa.fieldNode, outs)
+                var value := getValue(fa.value, outs)
+                outs[key] := value
+            }
+            else if node-?>(Catch) {
+                var exception := node->(Catch).exception
+                outs[getKey(new VariableReference(exception), outs)] := 
+                                    new DataFlowValue(exception.type, true)
+                newOuts[exception] := exception
+            }
+            else if node-?>(ForEach) {
+                var f := node->(ForEach)
+                var idx := f.indexVariable
+                if idx != null {
+                    var idxKey := new ValueKey(LOCAL_CLASS, idx)
+                    var idxValue := new DataFlowValue(idx.type, true, true, 
+                            false)
+                    outs[idxKey] := idxValue
+                    newOuts[idx] := idx
+                }
+                var v := f.loopVariable
+                var vKey := new ValueKey(LOCAL_CLASS, v)
+                var vValue := new DataFlowValue(v.type, true, true, false)
+                outs[vKey] := vValue
+                newOuts[v] := v
+            }
+            else if node-?>(Assert) {
+                var branches := evaluateBranch(node->(Assert).test, outs)
+                var trueEntries := branches[0].entries
+                for (key, value) in trueEntries
+                    outs[key] := value->(DataFlowValue)
+            }
+            else if node-?>(VariableReference) {
+                var vr := node->(VariableReference)
+                if newOuts[vr.variable] = null {
+                    var value := getInValue(vr, c.inValues)
+                    if value = null | !value.definitelyAssigned {
+                        PandaCompiler.reportError(
+                                    new CompilerException("variable '" + 
+                                    vr.variable.name + 
+                                    "' may not have been assigned", 
+                                    vr.position))
+                    }
+                }
+            }
+            else if node-?>(Cast) {
+                def cast := node->(Cast)
+                def srcType := getValue(cast.value, outs).type
+                def removingNullable := srcType.isNullable & 
+                        !cast.type.isNullable
+                cast.safe := srcType.canImplicitCastTo(cast.type) &
+                        !removingNullable
+                if cast.castType = CastType.IMPLICIT {
+                    if removingNullable {
+                        -- FIXME HACK workaround for broken ternary handling.
+                        var inTernary := false
+                        var p := cast.parent
+                        while p != null {
+                            if p-?>(Ternary) {
+                                inTernary := true
+                                break
+                            }
+                            p := p.parent
+                        }
+                        if !inTernary {
+                            PandaCompiler.reportError(
+                                    new CompilerException(
+                                        "cannot use possibly-null value as " +
+                                        "non-nullable type " +
+                                        cast.type.displayName, cast.position))
+                        }
+                    }
+                }
+            }
+        }
+        for exit in c.exits
+            checkAssignmentsAndCasts(exit, visited)
+    }
+
+    method incrementalAnalysis(m:MethodNode, start:ControlNode) {
+        for entrance in start.entrances
+            mergeOutValues(entrance)
+        incrementalAnalysis(m)
+    }
+
+    @private
+    method incrementalAnalysis(m:MethodNode) {
+        currentMethod := m
+        while worklist.length > 0 {
+            def next := worklist[0]
+            for i in 0 ... worklist.length - 2
+                worklist[i] := worklist[i + 1]
+            worklist.length -= 1
+            mergeOutValues(next)
+        }
+    }
+
+    method analyzeMethod(cfg:CFGGenerator, m:MethodNode):MethodAnalysis {
+        enforceStatics := true
+        def debug := self.debug
+        if debug != null {
+            debug.open("method")
+            debug.textTag("name", m.name)
+            debug.open("parameters")
+            var parameters := m.parameters
+            for p in parameters
+                debug.textTag("parameter", p.type.name)
+            debug.close("parameters")
+        }
+        def ma := cfg.scanMethod(m)
+        -- mark all method parameters initialized
+        for p in m.parameters {
+            var value := new DataFlowValue(p.type, false, true, false)
+            ma.entrance.inValues[new ValueKey(LOCAL_CLASS, p)] := value
+        }
+        -- mark all fields initialized unless this is a constructor / $classInit
+        def instanceInitialized := m.methodType != MethodNodeType.CONSTRUCTOR
+        def classInitialized := m.name != MethodNode.CLASS_INIT_NAME
+        def owner := m.owner
+        for child in owner.children {
+            if child-?>(FieldNode) {
+                def f := child->(FieldNode)
+                def instance := !f.annotations.isClass()
+                if instance & !instanceInitialized | 
+                        !instance & !classInitialized
+                    continue
+                var value := new DataFlowValue(f.type, false, true, false)
+                ma.entrance.inValues[new ValueKey(owner.type(), f)] := value
+            }
+        }
+        -- mark all local variables unitialized
+        for v in m.localVariables {
+            def value := new DataFlowValue(v.type, false, false, true)
+            ma.entrance.inValues[new ValueKey(LOCAL_CLASS, v)] := value
+        }
+        enqueue(ma.entrance)
+        incrementalAnalysis(m)
+        if debug != null {
+            ma.entrance.writeXML(debug)
+            debug.close("method")
+        }
+        enforceStatics := false
+        return ma
+    }
+
+    method analyzeClass(cl:ClassNode) {
+        cl.markLive()
+        def debug := self.debug
+        if debug != null {
+            debug.open("class")
+            debug.textTag("name", cl.name)
+        }
+        for child in cl.children {
+            if child-?>(MethodNode) {
+                def m := child->(MethodNode)
+                m.markLive()
+                if m.length > 0 {
+                    var ma := analyzeMethod(new CFGGenerator(), m)
+                    checkAssignmentsAndCasts(ma.entrance)
+                }
+            }
+            else if child-?>(FieldNode) {
+                def init := child->(FieldNode).initialValue
+                if init != null
+                    markTreeLive(init)
+            }
+        }
+        if debug != null
+            debug.close("class")
+    }
+    
+    method performAnalysis() {
+        def debug := self.debug
+--        def dest := new File("/tmp/analysis.xml")
+--        self.debug := new XMLWriter(dest.openOutputStream())
+--        debug := self.debug
+--        assert debug != null
+--        Console.writeLine("writing dataflow to " + dest)
+--        debug.open("dataFlow")
+        def classes := SymbolTable.master.classes
+        for cl in classes {
+            if cl.state = ClassNodeState.DEFINED & !cl.isArray()
+                analyzeClass(cl)
+            if cl.name = class(Class).name | cl.name = class(Error).name | 
+                    cl.name = class(Array).name | 
+                    cl.name = class(ImmutableArray<Char>).name
+                cl.markLive()
+            else if cl.name = class(Panda).name | 
+                    cl.name = class(PreconditionError).name |
+                    cl.name = class(PostconditionError).name {
+                cl.markLive()
+                for child in cl.children
+                    child.markLive()
+            }
+        }
+        if debug != null
+            debug.close("dataFlow")
+    }
+}

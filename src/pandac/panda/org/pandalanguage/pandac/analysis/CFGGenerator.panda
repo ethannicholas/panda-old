@@ -1,0 +1,532 @@
+package org.pandalanguage.pandac.analysis
+
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.tree.AbstractLoop
+uses org.pandalanguage.pandac.tree.And
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
+uses org.pandalanguage.pandac.tree.Catch
+uses org.pandalanguage.pandac.tree.Continue
+uses org.pandalanguage.pandac.tree.Do
+uses org.pandalanguage.pandac.tree.FieldAssignment
+uses org.pandalanguage.pandac.tree.For
+uses org.pandalanguage.pandac.tree.ForEach
+uses org.pandalanguage.pandac.tree.Loop
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.Or
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.RealLiteral
+uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.Ternary
+uses org.pandalanguage.pandac.tree.Throw
+uses org.pandalanguage.pandac.tree.Try
+uses org.pandalanguage.pandac.tree.Unreachable
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.While
+
+@private
+class MethodExit : Node {
+    @override
+    function format(fmt:String):String {
+        return "MethodExit"
+    }
+}
+
+================================================================================
+Generates a control flow graph for the program, describing how flow passes from
+node to node of the abstract syntax tree. The CFG is used during data flow and
+safety analysis.
+================================================================================
+class CFGGenerator {
+    ============================================================================
+    The currently-selected nodes that flow is moving away from. These nodes will
+    all exit into the next node we `enter()` (and thus become that node's
+    entrances).
+    ============================================================================
+    var activeNodes := new Array<ControlNode>()
+    
+    ============================================================================
+    Maps `Node`s to `ControlNode`s.
+    ============================================================================
+    @protected
+    var nodeToControlNodeMap:Map := new HashMap()
+
+    ============================================================================
+    Maps `ControlNode`s corresponding to loops to `Array<ControlNode>`s 
+    containing all `break`s encountered within the loop.
+    ============================================================================
+    @protected
+    var loopToBreaksMap:Map := new HashMap()
+    
+    ============================================================================
+    An array of `ControlNode`s corresponding to all `return` statements
+    encountered while analyzing the method.
+    ============================================================================
+    @protected
+    var returns := new Array<ControlNode>()
+
+    @private    
+    method getControlNode(node:Node):ControlNode {
+        var result := nodeToControlNodeMap[node]
+        if result = null {
+            result := new ControlNode(node)
+            nodeToControlNodeMap[node] := result
+        }
+        return result->(ControlNode)
+    }
+    
+    function getContainingControlNode(var node:Node):ControlNode {
+        var result := nodeToControlNodeMap[node]
+        while result = null {
+            node := node.parent->(Node)
+            result := nodeToControlNodeMap[node]
+        }
+        return result->(ControlNode)
+    }
+
+    ============================================================================
+    Transfer flow from all activeNodes to the specified node, then mark the node
+    as the active node. `enter()` is called by `scan()`, and signifies that
+    control flow has reached the node in question.
+    ============================================================================
+    @protected
+    method enter(node:ControlNode) {
+        assert activeNodes.length > 0, "entering \{node} with no active nodes"
+        for treeNode in node.nodes
+            nodeToControlNodeMap[treeNode] := node
+        for activeNode in activeNodes
+            activeNode.addExit(node)
+        activeNodes := [node]
+    }
+    
+    @protected
+    method scanBlock(b:Block) {
+        for n in b.children {
+            scan(n)
+            if activeNodes.length = 0
+                break
+        }
+    }
+    
+    @protected
+    method scanIf(i:If) {
+        scan(i.test)
+        var node := getControlNode(i)
+        enter(node)
+        scan(i.ifBlock)
+        var savedActiveNodes := activeNodes
+        activeNodes := [node]
+        var elseBlock := i.elseBlock
+        if elseBlock != null
+            scan(elseBlock)
+        if savedActiveNodes != activeNodes {
+            for saved in savedActiveNodes
+                activeNodes.append(saved)
+        }
+    }
+    
+    @protected
+    method scanWhile(w:While) {
+        var entry := getControlNode(w.test)
+        scan(w.test)
+        enter(getControlNode(w))
+        var savedActiveNodes := activeNodes
+        scan(w.block)
+        for active in activeNodes
+            active.addExit(entry)
+        if savedActiveNodes != activeNodes {
+            for saved in savedActiveNodes
+                activeNodes.append(saved)
+        }
+        var breaks := loopToBreaksMap[w]->(Array<ControlNode>?)
+        if breaks != null {
+            for b in breaks
+                activeNodes.append(b)
+        }
+    }
+    
+    @protected
+    method scanForEach(f:ForEach) {
+        scan(f.list)
+        var entry := getControlNode(f)
+        enter(entry)
+        var savedActiveNodes := activeNodes
+        scan(f.block)
+        for active in activeNodes
+            active.addExit(entry)
+        var definiteEntry := false
+        -- need to restore definite entry determination
+        if !definiteEntry {
+            if savedActiveNodes != activeNodes {
+                for saved in savedActiveNodes
+                    activeNodes.append(saved)
+            }
+        }
+        var breaks := loopToBreaksMap[f]->(Array<ControlNode>?)
+        if breaks != null {
+            for b in breaks
+                activeNodes.append(b)
+        }
+    }
+
+    @protected
+    method scanLoop(l:Loop) {
+        var entry := getControlNode(l)
+        enter(entry)
+        scan(l.block)
+        for active in activeNodes
+            active.addExit(entry)
+        activeNodes := new Array<ControlNode>()
+        var breaks := loopToBreaksMap[l]->(Array<ControlNode>?)
+        if breaks != null {
+            for b in breaks
+                activeNodes.append(b)
+        }
+    }
+
+    @protected
+    method scanLoopWithContinueBlock(l:LoopWithContinueBlock) {
+        var entry := getControlNode(l)
+        enter(entry)
+        scan(l.block)
+        if activeNodes.length > 0
+            scan(l.continueBlock)
+        for active in activeNodes
+            active.addExit(entry)
+        activeNodes := new Array<ControlNode>()
+        var breaks := loopToBreaksMap[l]->(Array<ControlNode>?)
+        if breaks != null {
+            for b in breaks
+                activeNodes.append(b)
+        }
+    }
+
+    @protected
+    method scanDo(d:Do) {
+        var entry := getControlNode(d)
+        enter(entry)
+        scan(d.block)
+        if activeNodes.length > 0 {
+            scan(d.test)
+            for active in activeNodes
+                active.addExit(entry)
+        }
+        var breaks := loopToBreaksMap[d]->(Array<ControlNode>?)
+        if breaks != null {
+            for b in breaks
+                activeNodes.append(b)
+        }
+    }
+    
+    @protected
+    function findLoop(o:Node, label:String?):AbstractLoop? {
+        var ancestor := o.parent
+        while ancestor != null {
+            if ancestor-?>(AbstractLoop) {
+                var loopLabel := ancestor->(AbstractLoop).label
+                if label = null
+                    break
+                else if label = loopLabel
+                    break
+            }
+            ancestor := ancestor.parent
+        }
+        if ancestor-?>(AbstractLoop)
+            return ancestor->(AbstractLoop)
+        else
+            throw new CompilerException("no matching loop found", o.position)
+    }
+
+    @protected
+    method scanBreak(b:Break) {
+        var node := getControlNode(b)
+        enter(node)
+        var loopNode := findLoop(b, b.label)
+        assert loopNode != null
+        var breaks := loopToBreaksMap[loopNode]->(Array<ControlNode>?)
+        if breaks = null {
+            breaks := new Array<ControlNode>()
+            loopToBreaksMap[loopNode] := breaks
+        }
+        breaks.append(node)
+        activeNodes := new Array<ControlNode>()
+    }
+    
+    @protected
+    method scanContinue(c:Continue) {
+        var node := getControlNode(c)
+        enter(node)
+        var loopNode := findLoop(c, c.label)
+        assert loopNode != null
+        enter(getControlNode(loopNode))
+        activeNodes := new Array<ControlNode>()
+    }
+    
+    @protected
+    method scanReturn(r:Return) {
+        var v := r.value
+        if v != null
+            scan(v)
+        var node := getControlNode(r)
+        enter(node)
+        returns.append(node)
+        activeNodes := new Array<ControlNode>()
+    }
+    
+    @protected
+    method scanThrow(t:Throw) {
+        scan(t.error)
+        var node := getControlNode(t)
+        enter(node)
+        -- FIXME: need to detect case where the throw is always caught inside
+        -- this method
+        returns.append(node)
+        activeNodes := new Array<ControlNode>()
+    }
+    
+    @protected
+    method scanUnreachable(u:Unreachable) {
+        var node := getControlNode(u)
+        enter(node)
+        returns.append(node)
+        activeNodes := new Array<ControlNode>()
+    }
+    
+    @protected
+    method scanOr(o:Or) {
+        -- we always enter the left
+        scan(o.left)
+        -- we might not enter the right, so keep track of the current node
+        var savedActiveNodes := activeNodes
+        -- enter the right from the left
+        scan(o.right)
+        -- enter the Or itself from the right
+        enter(getControlNode(o))
+        -- add the left back into the active nodes, so the next thing we scan
+        -- will come from either the left or the Or
+        if savedActiveNodes != activeNodes {
+            for saved in savedActiveNodes
+                activeNodes.append(saved)
+        }
+    }
+    
+    @protected
+    method scanAnd(a:And) {
+        -- we always enter the left
+        scan(a.left)
+        -- we might not enter the right, so keep track of the current node
+        var savedActiveNodes := activeNodes
+        -- enter the right from the left
+        scan(a.right)
+        -- enter the And itself from the right
+        enter(getControlNode(a))
+        -- add the left back into the active nodes, so the next thing we scan
+        -- will come from either the left or the And
+        if savedActiveNodes != activeNodes {
+            for saved in savedActiveNodes
+                activeNodes.append(saved)
+        }
+    }
+
+    @protected
+    method scanTernary(t:Ternary) {
+        -- we always enter the test
+        scan(t.test)
+        enter(getControlNode(t))
+        -- we might enter either the left or the right, so save the current node
+        var originalActiveNodes := activeNodes
+        -- enter left from the test
+        scan(t.left)
+        -- restore the test node
+        var afterLeftNodes := activeNodes
+        activeNodes := originalActiveNodes
+        -- enter the right from the test
+        scan(t.right)
+        -- add the left into the active, so the next thing we scan will come
+        -- from either the left or the right
+        if afterLeftNodes != activeNodes {
+            for after in afterLeftNodes
+                activeNodes.append(after)
+        }
+    }
+
+    -- this method is not being used currently!
+    @protected
+    method scanMethodCall(m:MethodCall) {
+        -- scan all of the parameters and the method call itself
+        for param in m.children
+            scan(param)
+        var methodNode := getControlNode(m)
+        enter(methodNode)
+        var savedActiveNodes := activeNodes
+        
+        -- The method call could return normally, or throw an exception. We only
+        -- care about exceptions which are caught in this method, since if we
+        -- leave the method we no longer need to worry about it. For the time
+        -- being at least, assume any method can throw any exception.
+        var node:Node? := m
+        while node != null {
+            if node-?>(Catch)
+                break
+            if node-?>(Try) {
+                var t := node->(Try)
+                for n in t.children {
+                    if n-?>(Catch) {
+                        activeNodes := [methodNode]
+                        scan(n)
+                    }
+                }
+            }
+            node := node.parent
+        }
+        activeNodes := savedActiveNodes
+    }
+    
+    -- try scanning is overly simplistic right now -- we're assuming that any
+    -- kind of exception can be thrown from anywhere in the try block 
+    -- (including before its first line)
+    @protected
+    method scanTry(t:Try) {
+        var savedActiveNodes := activeNodes[..]
+        var tryExits:Array<ControlNode> := []
+        for i, child in t.children {
+            if i > 0 {
+                activeNodes := savedActiveNodes
+                scan(child)
+                tryExits.appendAll(activeNodes)
+            }
+        }
+        activeNodes := savedActiveNodes
+        scan(t.block)
+        activeNodes.appendAll(tryExits)
+    }
+    
+    @protected
+    method scanCatch(c:Catch) {
+        enter(getControlNode(c))
+        for n in c.children {
+            scan(n)
+            if activeNodes.length = 0
+                break
+        }
+    }
+    
+    ============================================================================
+    Analyzes the specified node. `scan()` will result in `enter()` being called
+    on the node (in other words, control flow will reach that node), but may
+    process other nodes first (for example, if we scan a method call, we must
+    first scan the method call's parameters, causing them to be entered, and
+    only then enter the method call itself).
+    ============================================================================
+    @protected
+    method scan(n:Node) {
+        switch n.class {
+            case class(If):              scanIf(n->(If))
+            case class(ForEach):         scanForEach(n->(ForEach))
+            case class(While):           scanWhile(n->(While))
+            case class(Do):              scanDo(n->(Do))
+            case class(Loop):            scanLoop(n->(Loop))
+            case class(LoopWithContinueBlock):
+                    scanLoopWithContinueBlock(n->(LoopWithContinueBlock))
+            case class(Block):           scanBlock(n->(Block))
+            case class(Break):           scanBreak(n->(Break))
+            case class(Continue):        scanContinue(n->(Continue))
+            case class(Return):          scanReturn(n->(Return))
+            case class(Throw):           scanThrow(n->(Throw))
+            case class(Unreachable):     scanUnreachable(n->(Unreachable))
+            case class(And):             scanAnd(n->(And))
+            case class(Or):              scanOr(n->(Or))
+            case class(Ternary):         scanTernary(n->(Ternary))
+            case class(Try):             scanTry(n->(Try))
+            case class(Catch):           scanCatch(n->(Catch))
+            case class(ValueStatement):  scan(n->(ValueStatement).value)
+            default: {
+                for child in n.children
+                    scan(child)
+                enter(getControlNode(n))
+            }
+        }
+    }
+
+    ============================================================================
+    Simplifies the tree, merging unbranching nodes together into basic blocks.
+    ============================================================================
+    method simplifyTree(n:ControlNode) {
+        simplifyTree(n, new Array<ControlNode>())
+    }
+    
+    -- FIXME make scanned a Set
+    @private
+    method simplifyTree(n:ControlNode, scanned:Array<ControlNode>) {
+        scanned.append(n)
+        while n.exits.length = 1 {
+            -- node potentially being merged into n
+            var merge := n.exits[0]
+            if merge.entrances.length > 1 | 
+                    merge.nodes[0]-?>(MethodExit)
+                break
+            -- merge 'merge' into 'n'
+            for m in merge.nodes
+                n.nodes.append(m)
+            -- modify the exit's entrances to point to the main node
+            for exit in merge.exits {
+                for i, entrance in exit.entrances {
+                    if entrance = merge
+                        exit.entrances[i] := n
+                }
+            }
+            n.exits[..] := merge.exits
+        }
+        outer: for exit in n.exits {
+            for s in scanned {
+                if s = exit
+                    continue outer
+            }
+            simplifyTree(exit, scanned)
+        }
+    }
+
+    @protected
+    method error(msg:String, node:Node) {
+        error(msg, node.position)
+    }
+
+    @protected
+    method error(msg:String, position:Position) {
+        Console.writeLine(position + ": " + msg)
+        System.exit(1)
+    }
+
+    method rescan(analysis:MethodAnalysis, node:Node) {
+        returns := new Array<ControlNode>()
+        scan(node)
+        for ret in returns {
+            if !(ret in activeNodes)
+                activeNodes.append(ret)
+        }
+        if activeNodes.length > 0
+            enter(analysis.exit)
+    }
+
+    method scanMethod(m:MethodNode):MethodAnalysis {
+        nodeToControlNodeMap := new HashMap()
+        loopToBreaksMap := new HashMap()
+        returns := new Array<ControlNode>()
+        var entry := getControlNode(m)
+        activeNodes := new Array<ControlNode>(entry)
+        scan(m.block)
+        getControlNode(m.block).entrances[..] := [entry]
+        var exit := new ControlNode(new MethodExit())
+        for ret in returns
+            activeNodes.append(ret)
+        if activeNodes.length > 0
+            enter(exit)
+        simplifyTree(entry)
+        return new MethodAnalysis(entry, exit)
+    }
+}

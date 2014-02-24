@@ -1,0 +1,176 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.types.BitType
+uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.RealType
+uses org.pandalanguage.pandac.types.RealLiteralType
+uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+
+@abstract
+class BinaryOperation : Value {
+    constructor() {
+        super.constructor(Type.UNRESOLVED)
+    }
+    
+    constructor(type:Type) {
+        super.constructor(type)
+    }
+
+    constructor(position:Position) {
+        super.constructor(position, Type.UNRESOLVED)
+    }
+   
+    constructor(position:Position, type:Type) {
+        super.constructor(position, type)
+    }
+    
+    @override
+    @self
+    method add(n:Node) {
+        super.add(n)
+        if length = 2 & type-?>(UnresolvedType)
+            determineType()
+    }
+
+    @protected
+    method determineType() {
+    }
+    @post(type-!>(UnresolvedType))
+
+    function operandType():Type {
+        return left.type
+    }
+   
+    function left():Value {
+        return self[0]->(Value)
+    }
+
+    function right():Value {
+        return self[1]->(Value)
+    }
+
+    -- true if we care about the sign of our operands
+    function signMatters():Bit {
+        return true
+    }
+    
+    method getOperandType(leftValue:Value, rightValue:Value):Type? {
+        -- unwrap, turn STRING_OR_CHAR into just Char
+        var left := leftValue.type.unwrapGenerics()
+        if left.isWrapper
+            left := left.unwrapWrapper
+        if left = StringOrCharType.STRING_OR_CHAR
+            left := CharType.CHAR
+        var right := rightValue.type.unwrapGenerics()
+        if right.isWrapper
+            right := right.unwrapWrapper
+        if right = StringOrCharType.STRING_OR_CHAR
+            right := CharType.CHAR
+
+        -- deal with autosizing of real literals
+        if left = RealLiteralType.REAL_LITERAL & right.isReal
+            return right
+        if right = RealLiteralType.REAL_LITERAL & left.isReal
+            return left
+            
+        -- if both operands are ints, use Int32, UInt32, Int64, or UInt64
+        if left.isInteger & right.isInteger {
+            -- IntegerLiterals could be resolved as either signed or unsigned,
+            -- depending on context
+            if leftValue-?>(IntegerLiteral) {
+                if right->(IntType).signed {
+                    var newLeft := leftValue->(IntegerLiteral).getType(true)
+                    if newLeft != null 
+                        left := newLeft
+                }
+                else {
+                    var newLeft := leftValue->(IntegerLiteral).getType(false)
+                    if newLeft != null 
+                        left := newLeft
+                }
+            }
+            else if rightValue-?>(IntegerLiteral) {
+                if left->(IntType).signed {
+                    var newRight := rightValue->(IntegerLiteral).getType(true)
+                    if newRight != null 
+                        right := newRight
+                }
+                else {
+                    var newRight := rightValue->(IntegerLiteral).getType(false)
+                    if newRight != null
+                        right := newRight
+                }
+            }
+            if left.size < 4 & right.size < 4
+                return IntType.INT32
+            if left = right
+                return left
+            if left.size = 8 & right.size = 8 {
+                if signMatters
+                    return null -- can't operate on Int64 & UInt64
+                else
+                    return IntType.INT64
+            }
+            if left.size = 8 {
+                assert right.size < 8
+                return left
+            }
+            if right.size = 8 {
+                assert left.size < 8
+                return right
+            }
+            if left.size = 4 & right.size < 4 {
+                if !left->(IntType).signed {
+                    if right->(IntType).signed
+                        return IntType.INT64
+                    else
+                        return IntType.UINT32
+                }
+                else
+                    return IntType.INT32
+            }
+            if right.size = 4 & left.size < 4 {
+                if !right->(IntType).signed {
+                    if left->(IntType).signed
+                        return IntType.INT64
+                    else
+                        return IntType.UINT32
+                }
+                else
+                    return IntType.INT32
+            }
+            assert left.size = 4 & right.size = 4
+            assert left->(IntType).signed != right->(IntType).signed
+            if signMatters
+                return IntType.INT64
+            else
+                return IntType.INT32
+        }
+        
+        -- if both operands are numbers, use a 32 or 64 bit real
+        if left.isNumber & right.isNumber {
+            if left.size <= 4 & right.size <= 4
+                return RealType.REAL32
+            else
+                return RealType.REAL64
+        }
+        
+        -- if both operands are chars, return char
+        if left = CharType.CHAR & right = CharType.CHAR
+            return CharType.CHAR
+            
+        -- else no idea what to do
+        return null
+    }
+
+    @abstract
+    function operator():String 
+    
+    @override
+    function format(fmt:String):String {
+        return "(" + left + " " + operator + " " + right + ")"
+    }
+}

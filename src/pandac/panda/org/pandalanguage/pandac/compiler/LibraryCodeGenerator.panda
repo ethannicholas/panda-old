@@ -1,0 +1,49 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.tree.Annotation
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.ExpressionAnnotation
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.types.Type
+
+class LibraryCodeGenerator : CodeGenerator {
+    @override
+    method generateCode(target:File) {
+        -- compile ll file to asm using llc
+        var parent := target.parent()
+        if parent = null {
+            throw new CompilerException("could not determine parent " + 
+                    "directory of '" + target + "'")
+        }
+        var ll := parent.resolve(target.simpleName + ".ll")
+        new LLVMCodeGenerator().generateCode(ll)
+        var asm := parent.resolve(ll.simpleName + ".s")
+        var llcArgs := new Array<String>()
+        for i in 0 ... StaticSettings.LLC_LIBRARY_ARGS.length - 1
+            llcArgs.append(StaticSettings.LLC_LIBRARY_ARGS[i])
+        llcArgs.append("-o")
+        llcArgs.append(asm.path)
+        llcArgs.append(ll.path)
+        System.exec(PandaCompiler.getLLVMHome().resolve("llc"), llcArgs...)
+        if !CompilerSettings.preserveTempArtifacts
+            ll.delete()
+
+        -- compile asm file
+        var cppArgs := new Array<String>("-c", "-o", target.path)
+        for i in 0 ... StaticSettings.GCC_LIBRARY_ARGS.length - 1
+            cppArgs.append(StaticSettings.GCC_LIBRARY_ARGS[i])
+        cppArgs.append(asm.path)
+        System.exec(PandaCompiler.getCPPCompiler(), cppArgs...)
+        if !CompilerSettings.preserveTempArtifacts
+            asm.delete()
+
+        -- almost everything is C, but we do have a bit of C++ stuff, so we use
+        -- a C++ compiler to get default linkage with the C++ libraries
+        new PLinkCodeGenerator().generateCode(
+                parent.resolve(target.simpleName + ".plink"))
+    }
+}

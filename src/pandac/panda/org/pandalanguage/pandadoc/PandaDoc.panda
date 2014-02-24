@@ -1,0 +1,292 @@
+package org.pandalanguage.pandac.pandadoc
+
+uses org.pandalanguage.pandac.analysis.SafetyChecker
+uses org.pandalanguage.pandac.analysis.XMLWRiter
+uses org.pandalanguage.pandac.compiler.CodeGenerator
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.ExpressionAnnotation
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.types.VoidType
+
+class DocComment {
+    var summary:String
+    var longDescription:String
+    var params:Map := new HashMap()
+    var returnDoc:String?
+    
+    constructor(rawText:String) {
+        def text := rawText->>(MutableString)
+        -- extract tags
+        var start:Int? := 0
+        loop {
+            start := nextTag(text->>(String), start)
+            if start = null
+                break
+            var end := nextTag(text->>(String), start + 1)
+            if end = null
+                end := text.length
+            processTag(text[start .. end])
+            text.remove(start, end)
+        }
+        def dot := text.indexOf(".")
+        if dot != null {
+            summary := text[0 .. dot + 1].trim()
+            longDescription := text->>(String).trim()
+        }
+        else {
+            summary := text->>(String).trim()
+            longDescription := summary
+        }
+    }
+    
+    method processTag(var tag:String) {
+        if tag.startsWith("@param ") {
+            tag := tag["@param ".length..]
+            def space := tag.indexOf(" ")
+            assert space != null
+            def name := tag[0 .. space]
+            def desc := tag[space + 1..]
+            params[name] := desc
+        }
+        else if tag.startsWith("@returns ")
+            returnDoc := tag["@returns ".length..]
+    }
+    
+    function substringMatches(text:String, start:Int, 
+                search:String):Bit {
+        return(text.length > start + search.length & 
+                text[start .. start + search.length] = search)
+    }
+    
+    function nextTag(text:String, var start:Int):Int? {
+        var next:Int? := start
+        while next < text.length {
+            next := text.indexOf("@", start)
+            if next = null
+                break
+            if substringMatches(text, next, "@param ") |
+                    substringMatches(text, next, "@returns ") |
+                    substringMatches(text, next, "@copy ") {
+                return next
+            }
+            start := next + 1
+        }
+        return null
+    }
+}
+
+class PandaDoc : CodeGenerator {
+    var xml := new MarkdownXMLWriter(new MemoryOutputStream())
+
+    @private
+    method getComment(m:MethodNode):String? {
+        if m.doccomment != null
+            return m.doccomment
+        if m.annotations.isOverride {
+            def overridden := m.findOverriddenMethod()
+            assert overridden != null, "could not find overridden method for " +
+                    "\{m.owner}.\{m}:\{m.position}"
+            return getComment(overridden)
+        }
+        return null
+    }
+    
+    method writeMethod(m:MethodNode) {
+-*        def mdc := getComment(m)
+        if mdc != null & "@hidden" in mdc
+            return
+        var methodType:String
+        switch m.methodType {
+            case MethodNodeType.METHOD: methodType := "method"
+            case MethodNodeType.FUNCTION: methodType := "function"
+            case MethodNodeType.CONSTRUCTOR: methodType := "constructor"
+            default: throw new CompilerException("unsupported method type: " +
+                    m.methodType)
+        }
+        xml.open(methodType)
+        xml.open("annotations")
+        def pre := SafetyChecker.getPreconditionsForMethodAndAncestors(m)
+        if pre != null {
+            xml.open("pre")
+            xml.text(pre)
+            xml.close("pre")
+        }
+        def post := SafetyChecker.getPostconditionsForMethodAndAncestors(m)
+        if post.length > 0 {
+            xml.open("post")
+            xml.text(post)
+            xml.close("post")
+        }
+        for ann in m.annotations.all {
+            if ann != AnnotationType.PRE & ann != AnnotationType.POST &
+                    ann != AnnotationType.INVARIANT {
+                def name := Annotations.annotationNames[ann]
+                if name != null
+                    xml.textTag("annotation", name)
+            }
+        }
+        xml.close("annotations")
+        if m.name = "$class"
+            xml.textTag("name", "class")
+        else
+            xml.textTag("name", m.name)
+        var doccomment:DocComment?
+        if mdc != null {
+            doccomment := new DocComment(mdc)
+            xml.open("doc")
+            xml.markdownTag("summary", doccomment.summary)
+            xml.markdownTag("description", doccomment.longDescription)
+            xml.close("doc")
+        }
+        else
+            doccomment := null
+        if m.parameters.length > 0 {
+            xml.open("params")
+            for param in m.parameters {
+                if param.name = Parameter.SELF_NAME
+                    continue
+                xml.open("param")
+                xml.textTag("name", param.name)
+                xml.textTag("type", param.type.displayName)
+                if doccomment != null {
+                    def desc := doccomment.params[param.name]
+                    if desc != null
+                        xml.markdownTag("description", desc->(String))
+                }
+                xml.close("param")
+            }
+            xml.close("params")
+        }
+        if m.returnType != VoidType.VOID {
+            xml.open("return")
+            xml.textTag("type", m.returnType.displayName)
+            if doccomment != null {
+                def returnDoc := doccomment.returnDoc
+                if returnDoc != null
+                    xml.markdownTag("description", returnDoc)
+            }
+            xml.close("return")
+        }
+        xml.close(methodType)*-
+    }
+    
+    method writeField(f:FieldNode) {
+        def fdc := f.doccomment
+        if fdc != null & "@hidden" in fdc
+            return
+        xml.open("field")
+        xml.textTag("name", f.name)
+        xml.textTag("type", f.type.displayName)
+        if fdc != null {
+            def doccomment := new DocComment(fdc)
+            xml.open("doc")
+            xml.markdownTag("summary", doccomment.summary)
+            xml.markdownTag("description", doccomment.longDescription)
+            xml.close("doc")
+        }
+        xml.close("field")
+    }
+    
+    method processClass(cl:ClassNode) {
+        xml.open("class")
+        xml.textTag("name", cl.type().displayName)
+        var ancestor := cl.superclass
+        if ancestor != null {
+            def ancestors := new Array<ClassNode>()
+            while ancestor != null {
+                ancestors.append(ancestor)
+                ancestor := ancestor.superclass
+            }
+            xml.open("ancestors")
+            for i in ancestors.length - 1 ... 0
+                xml.textTag("class", ancestors[i].type().displayName)
+            xml.close("ancestors")
+        }
+        def interfaces := cl.allInterfaces()
+        if interfaces.length > 0 {
+            xml.open("interfaces")
+            for intf in interfaces
+                xml.textTag("interface", intf.type().displayName)
+            xml.close("interfaces")
+        }
+        def cldc := cl.doccomment
+        if cldc != null {
+            def doccomment := new DocComment(cldc)
+            xml.open("doc")
+            xml.markdownTag("summary", doccomment.summary)
+            xml.markdownTag("description", doccomment.longDescription)
+            xml.close("doc")
+        } 
+        for child in cl.children {
+            if child-?>(MethodNode) {
+                def m := child->(MethodNode)
+                if !m.annotations.isPrivate & (!m.annotations.isSynthetic |
+                        m.methodType = MethodNodeType.CONSTRUCTOR)
+                    writeMethod(m)
+            }
+            else if child-?>(FieldNode) {
+                def f := child->(FieldNode)
+                if !f.annotations.isPrivate & !f.annotations.isSynthetic
+                    writeField(f)
+            }
+        }
+        xml.close("class")
+    }
+
+    @override
+    method generateCode(outputDir:File) {
+        if !outputDir.isDirectory()
+            Console.writeLine(outputDir + " is not a directory")
+
+        def packages := new HashMap()
+        for cl in SymbolTable.master.classes {
+            def comment := cl.doccomment
+            if comment != null & "@hidden" in comment
+                continue
+            if cl.state = ClassNodeState.DEFINED & !cl.isArray() & 
+                    !cl.annotations.isPrivate() {
+                var packageList := packages[cl.packageName]->(Array<ClassNode>?)
+                if packageList = null {
+                    packageList := new Array<ClassNode>()
+                    packages[cl.packageName] := packageList
+                }
+                packageList.append(cl)
+                def name := cl.type().displayName
+                def target := outputDir.resolve(name.replace(".", "/") + 
+                        ".xml")
+                target.parent()->(File).createDirectories()
+                xml := new MarkdownXMLWriter(target.openOutputStream())
+                processClass(cl)
+                xml.close()
+            }
+        }
+        def index := new XMLWriter(
+                outputDir.resolve("index.xml").openOutputStream())
+        index.open("packages")
+        for (packageName, packageList) in packages.entries {
+            index.open("package")
+            if packageName = null
+                packageName := ""
+            index.textTag("name", packageName->(String))
+            index.open("classes")
+            for cl in packageList->(Array<ClassNode>) {
+                index.open("class")
+                def name := cl.type().displayName
+                index.textTag("name", name)
+                index.textTag("path", name.replace(".", "/") + ".html")
+                index.close("class")
+            }
+            index.close("classes")
+            index.close("package")
+        }
+        index.close("packages")
+        index.close()
+    }
+}

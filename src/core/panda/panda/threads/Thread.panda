@@ -1,0 +1,179 @@
+package panda.threads
+
+================================================================================
+Represents a thread of execution within a program. Each program begins with a
+single thread, and may create more. By default, any living threads prevent a 
+program from exiting, even if its `main()` method ends. The `preventsExit` flag
+may be toggled to change this behavior.
+
+As Panda has neither global nor class-level variables, threads do not (usually)
+have any access to each other's data. Eliminating memory sharing means that 
+there is no need for mutexes, semaphores, or other common thread synchronization 
+constructs; mutable objects are only accessible from a single thread and there
+is therefore no contention. 
+
+Threads communicate with each other using `MessageQueue` objects, which normally
+only permit `Immutable` objects to be sent. Mutable objects may be sent, but at
+the cost of terminating the calling thread.
+
+In situations where it really is necessary to have multiple threads access
+potentially-shared mutable objects, the @link(MessageQueue.postUnsafe(Object?))
+method exists. This allows you to pass mutable objects between threads without
+terminating the calling thread. If the object (including any other mutable 
+objects it directly or indirectly points to) is truly 'handed off' and no longer 
+accessed by the sending thread, no danger exists. If the sending thread 
+continues to access the sent object, @link(Lock) must be used to synchronize
+access to the shared object.
+================================================================================
+class Thread {
+    @private
+    var id:Int
+
+    ============================================================================
+    A per-thread MessageQueue which may be used for any purpose, but is
+    especially useful as a `replyTo` queue when posting messages to a
+    `MessageQueue`.
+    ============================================================================
+    def queue := new MessageQueue()
+
+    ============================================================================
+    `true` if this thread will prevent the program from exiting. The program 
+    exits when there are zero `preventsExit` threads remaining.
+    ============================================================================
+    @readonly
+    var preventsExit := true
+    
+    @private
+    var threadLocals:$NativePointer
+    
+    ============================================================================
+    A collection of immutable objects which may be accessed from anywhere in the
+    current thread, and which may be inherited by newly-created child threads. 
+    The default thread context is empty.
+    ============================================================================
+    @thread
+    @readonly
+    var context:HashMap := new HashMap()
+
+    @private
+    var threadEntry:()=&>*()
+
+    constructor() {
+        constructor(method() {
+        })
+    }
+
+    @private
+    constructor(threadEntry:()=&>*()) {
+        self.threadEntry := threadEntry
+    }
+
+    ============================================================================
+    The thread entry method that is called when the thread starts up. This 
+    method is called automatically by `start()`; you should not call it 
+    manually.
+    ============================================================================
+    @protected
+    method run() {
+        threadEntry()
+    }
+    
+    ============================================================================
+    Sets whether this program should prevent the program from exiting. The
+    program exits when there are zero `preventsExit` threads remaining.
+    
+    @param preventsExit whether this thread should prevent the program from
+            exiting
+    ============================================================================
+    @self
+    method preventsExit:=(preventsExit:Bit) {
+        -- need to update in native code since the field is marked static
+        setThreadPreventsExit(preventsExit)
+    }
+    
+    ============================================================================
+    Starts the thread, calling its `run()` method. The new thread's context will 
+    contain all `Immutable` objects from the current thread's context.
+    ============================================================================
+    @static
+    method start() {
+        var newContext := new HashMap()
+        for (key, value) in context.entries {
+            if key-?>(Immutable?) & value-?>(Immutable?)
+                newContext[key] := value
+        }
+        startThread(newContext)
+    }
+
+    ============================================================================
+    Starts the thread with a new context, calling its `run()` method. The new
+    thread's context (available from the `Thread.context` field) will be a union 
+    of the current thread's context and the specified `context` map.
+    
+    @param context the new thread's context
+    ============================================================================
+    @static
+    -- FIXME take a Map instead
+    method start(newContext:HashMap) {
+        var merged := new HashMap()
+        for (key, value) in context.entries
+            merged[key] := value
+        for (key, value) in newContext.entries
+            merged[key] := value
+        startThread(merged)
+    }
+    
+    ============================================================================
+    Returns the `Thread` that is currently executing.
+    
+    @returns the current `Thread`
+    ============================================================================
+    @class
+    @external
+    function currentThread():Thread
+
+    ============================================================================
+    Creates and starts a new thread which executes the specified method.
+    ============================================================================
+    @class
+    method start(run:()=&>*()):Thread {
+        var result := new Thread(run)
+        result.start()
+        return result
+    }
+
+    ============================================================================
+    Returns the number of threads that generally leads to best performance on
+    the current system. This will generally be (but is not necessarily) the
+    number of available processor cores.
+
+    IMPLEMENTATION NOTE: this is not currently implemented and is just hardcoded
+    to return 4.
+    ============================================================================
+    @class
+    function preferredThreadCount():Int {
+        return 4
+    }
+    
+    ============================================================================
+    Pauses execution of the current thread for a length of time.
+    
+    @param millis the number of milliseconds to sleep
+    ============================================================================
+    @class 
+    @external
+    method sleep(millis:Int)
+        
+    @private
+    @external
+    method startThread(context:HashMap)
+
+    @private
+    @external
+    method setThreadPreventsExit(preventsExit:Bit)
+    
+    @private
+    @class
+    @external
+    method threadExit()
+}

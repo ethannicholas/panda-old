@@ -1,0 +1,602 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.analysis.DataFlowAnalyzer
+uses org.pandalanguage.pandac.analysis.SafetyChecker
+uses org.pandalanguage.pandac.pandadoc.PandaDoc
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+
+class CompilerMessage : Immutable {
+    var message:String
+    var position:Position
+    var warning:Bit
+
+    constructor(message:String, position:Position, warning:Bit) {
+        self.message := message
+        self.position := position
+        self.warning := warning
+    }
+}
+
+class PandaCompiler {
+    constant PANDA_HOME := determinePandaHome()
+
+    constant ERROR_QUEUE_KEY := "PandaCompiler.errorQueue"
+
+    constant SOURCE_QUEUE_KEY := "PandaCompiler.sourceQueue"
+
+    constant SETTINGS_KEY := "PandaCompiler.settings"
+
+    constant TYPES_RESOLVED_KEY := "PandaCompiler.typesResolved"
+
+    @private
+    constant SYMBOLS_LOADED_KEY := "PandaCompiler.symbolsLoaded"
+
+    @readonly
+    var astGenerator := new ASTGenerator()
+
+    @readonly
+    var errors:Int
+
+    @readonly
+    var warnings:Int
+    
+    @private
+    var count:Int
+
+    var lastCheckpointLabel:String?
+    var lastCheckpointTime:Int64
+
+    @class
+    function determinePandaHome():File {
+        var home := System.environment["PANDA_HOME"]
+        if home != null
+            return new File(home)
+        else
+            throw new CompilerException("PANDA_HOME is not set")
+    }
+
+    @class
+    method getLLVMHome():File {
+        def libexec := new File("/opt/local/libexec")
+        if !libexec.exists() {
+            throw new CompilerException("path '" + libexec + 
+                    "' does not exist. Use MacPorts to install Panda " +
+                    "dependencies.")
+        }
+        def llvms := libexec.list("llvm-*.*")
+        var maxMajor := 0
+        var maxMinor := 0
+        for llvm in llvms {
+            try {
+                def versions := llvm.name.parse(#/llvm-(\d+)\.(\d+)/#)
+                def major := versions[0]->>(Int)
+                def minor := versions[1]->>(Int)
+                if major > maxMajor | (major = maxMajor &
+                        minor > maxMinor) {
+                    maxMajor := major
+                    maxMinor := minor
+                }
+            }
+            catch e:ParseException {
+            }
+        }
+        if maxMajor = 0 {
+            throw new CompilerException("no LLVM installation found " +
+                    "under \{libexec}. Use MacPorts to install Panda " +
+                    "dependencies.")
+        }
+        return new File("/opt/local/libexec/llvm-\{maxMajor}.\{maxMinor}/bin")
+    }
+
+    @class
+    method verifyExists(file:File):File {
+        if !file.exists() {
+            throw new CompilerException("required file '\{file}' was not " +
+                    "found. Please ensure that Panda's dependencies are " +
+                    "installed.")
+        }
+        return file
+    }
+
+    @class
+    method getCCompiler():File {
+        switch System.operatingSystem.type {
+            case OperatingSystemType.MACOSX:
+                return verifyExists(getLLVMHome().resolve("clang"))
+            case OperatingSystemType.LINUX, OperatingSystemType.OTHER_UNIX:
+                return verifyExists(new File("/usr/bin/gcc"))
+            default:
+                throw new CompilerException("Unsupported operating " +
+                        "system type: " + System.operatingSystem.type)
+        }
+    }
+
+    @class
+    method getCPPCompiler():File {
+        switch System.operatingSystem.type {
+            case OperatingSystemType.MACOSX:
+                return verifyExists(getLLVMHome().resolve("clang++"))
+            case OperatingSystemType.LINUX, OperatingSystemType.OTHER_UNIX:
+                return verifyExists(new File("/usr/bin/g++"))
+            default:
+                throw new InternalCompilerException("Unsupported operating " +
+                        "system type: " + System.operatingSystem.type)
+        }
+    }
+
+    method processMessage(message:CompilerMessage) {
+        var prefix:String
+        if message.warning {
+            warnings += 1
+            prefix := "warning: "
+        }
+        else {
+            errors += 1
+            prefix := "error: "
+        }
+        Console.writeLine(prefix + message.position + ": " +
+                message.message)
+    }
+
+    method processMessages() {
+        def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
+        while queue.pendingMessages() > 0
+            processMessage(queue.getMessage()->(CompilerMessage))
+    }
+
+    @class
+    method reportError(message:String, position:Position) {
+        def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
+        queue.post(new CompilerMessage(message, position, false))
+    }
+    
+    @class
+    method reportError(e:CompilerException) {
+        var position := e.position
+        if position = null
+            position := Position.INTERNAL
+        if e-?>(InternalCompilerException)
+            Console.writeLine(e)
+        reportError(e.message, position)
+    }
+
+    @class
+    method reportWarning(msg:String, position:Position) {
+        def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
+        queue.post(new CompilerMessage(msg, position, true))
+    }
+
+    @class
+    function symbolsLoaded():Bit {
+        return Thread.context[SYMBOLS_LOADED_KEY] = true
+    }
+    
+    method getCount():Int {
+        count += 1
+        return count
+    }
+
+    method checkpoint(label:String) {
+        if true
+            return
+        var now := Panda.currentTime()
+        var lastCheckpointLabel := lastCheckpointLabel
+        if lastCheckpointLabel != null {
+            Console.writeLine(lastCheckpointLabel + " - " + 
+                    (now - lastCheckpointTime) + "ms")
+        }
+        self.lastCheckpointLabel := label
+        lastCheckpointTime := now
+    }
+    
+    @protected
+    method loadSymbols(f:File) {
+        var parser := new PandaParser()
+        var parseNode := parser.parseCompilationUnit(f)
+        astGenerator.linkageOnly := true
+        var ast := astGenerator.convertCompilationUnit(parseNode, 
+                f.name)
+    }
+    
+    @protected
+    method loadSymbols(files:Array<File>) {
+        if CompilerSettings.loadCoreLib
+            loadSymbols(PandaCompiler.PANDA_HOME.resolve(
+                    "shared/core/lib/PandaCoreClasses.plink"))
+        for file in files
+            loadSymbols(file)
+    }
+
+    @private
+    method finalizeClasses(symbolTable:SymbolTable) {
+        -- have to finalize the mutable arrays first, since the immutable ones
+        -- depend upon them
+        for cl in symbolTable.classes {
+            finalizeClasses(cl.symbolTable)
+            var type := cl.type()
+            if (type.isArray & !type.isImmutable) | type.isTuple
+                type.performFinalClassInitialization()
+        }
+        for cl in symbolTable.classes {
+            var type := cl.type()
+            if type.isArray {
+                if type.isImmutable
+                    type.performFinalClassInitialization()
+            }
+            else if type-?>(GenericType)
+                type.performFinalClassInitialization()
+        }
+    }
+
+    @protected
+    method resolveType(s:SymbolTable, t:Type):Type {
+        if t-!>(UnresolvedType) | t = Type.UNRESOLVED
+            return t
+        var resolved := s.getType(t->(UnresolvedType).position, t.name)
+        if resolved-?>(UnresolvedType) {
+            reportError(new CompilerException("class '" + resolved.name + 
+                    "' not found", t->(UnresolvedType).position))
+        }
+        return resolved
+    }
+
+    @protected
+    method resolveTypes() {
+        var allClasses := SymbolTable.master.classes
+        var done := false
+        do {
+            for cl in allClasses {
+                if cl.getProperty(TYPES_RESOLVED_KEY) = true
+                    continue
+                var symbolTable := cl.symbolTable
+                var supertype := cl.supertype
+                if supertype != null {
+                    var t := resolveType(symbolTable, supertype)
+                    if t.isPrimitive
+                        t := t->(PrimitiveType).wrapperVersion()
+                    cl.supertype := t->(ClassType)
+                    if t.classNode.isInterface {
+                        reportError(new CompilerException(
+                                "interface '" + t.displayName + 
+                                "' cannot be subclassed by a class", 
+                                cl.position))
+                    }
+                    if t.classNode.annotations.isStatic {
+                        reportError(new CompilerException("static class " +
+                                "'\{t.displayName}' cannot be subclassed", 
+                                cl.position))
+                    }
+                }
+                for i, intf in cl.interfaces {
+                    var t := resolveType(symbolTable, intf)
+                    if t-?>(ClassType) & t->(ClassType).classNode.isInterface {
+                        cl.interfaces[i] := t->(ClassType)
+                        var intfClass := t.classNode
+                        cl.symbolTable.interfaces.append(
+                                intfClass.symbolTable)
+                    }
+                    else {
+                        reportError(new CompilerException("'" + t.displayName + 
+                                "' is not an interface", cl.position))
+                    }
+                }
+                for child in cl.children {
+                    if child-?>(FieldNode) {
+                        var f := child->(FieldNode)
+                        f.type := resolveType(symbolTable, f.type)
+                    }
+                    else if child-?>(MethodNode) {
+                        var m := child->(MethodNode)
+                        m.returnType := resolveType(symbolTable, m.returnType)
+                        var parameters := m.parameters
+                        for i, p in parameters
+                            parameters[i].type := resolveType(symbolTable, 
+                                    p.type)
+                        var genericTypes := m.genericParameterTypes
+                        for i, g in genericTypes
+                            genericTypes[i] := resolveType(symbolTable, g)
+                    }
+                }
+                cl.setProperty(TYPES_RESOLVED_KEY, true)
+            }
+            Thread.context[SYMBOLS_LOADED_KEY] := true
+            finalizeClasses(SymbolTable.master)
+            var newClasses := SymbolTable.master.classes
+            done := allClasses.length = newClasses.length
+            allClasses := newClasses
+        }
+        while !done
+    }
+
+    @protected
+    method compile(f:File) {
+        try {
+            var parser := new PandaParser()
+            var parseNode := parser.parseCompilationUnit(f)
+            astGenerator.convertCompilationUnit(parseNode, f.name)
+        }
+        catch e:CompilerException {
+            reportError(e)
+        }
+    }
+    
+    @private
+    method writeErrors() {
+        Console.write(errors + " error")
+        if errors != 1
+            Console.write("s")
+    }
+    
+    @private
+    method writeWarnings() {
+        Console.write(warnings + " warning")
+        if warnings != 1
+            Console.write("s")
+    }
+
+    -- ensure Array / ImmutableArray are created in pairs where applicable
+    @private
+    method fixArrays() {
+        var classes := SymbolTable.master.classes
+        for c in classes {
+            if c.isArray() {
+                var elementType := c.type().elementType
+                if c.type().isImmutable {
+                    assert c.name.startsWith(class(ImmutableArray).name)
+                    var m := class(Array).name + 
+                            c.name[class(ImmutableArray).name.length..]
+                    SymbolTable.master.getType(c.position, m)
+                }
+                else if elementType.isImmutable {
+                    assert c.name.startsWith(class(Array).name)
+                    var im := class(ImmutableArray).name + 
+                            c.name[class(Array).name.length..]
+                    SymbolTable.master.getType(c.position, im)
+                }
+            }
+        }
+    }
+
+    @private
+    -- FIXME use a set
+    method detectClassCircularity(root:ClassNode, var current:ClassNode?, 
+            visited:Array<ClassNode>) {
+        -- we can legitimately run into the same class twice, when an interface
+        -- is inherited via two different paths, so we only fail when we run 
+        -- into the root class again, not just *any* class we have visited
+        if root = current {
+            throw new CompilerException(root + " is its own superclass",
+                    root.position)
+        }
+        if current = null
+            current := root
+        for test in visited {
+            if test = current
+                return
+        }
+        visited.append(current)
+        var superclass := current.superclass
+        if superclass != null
+            detectClassCircularity(root, superclass, visited)
+        for intf in current.interfaces
+            detectClassCircularity(root, intf.classNode, visited)
+    }
+
+    @private
+    method detectClassCircularity() {
+        for cl in SymbolTable.master.classes {
+            var visited := new Array<ClassNode>()
+            detectClassCircularity(cl, null, visited)
+        }
+    }
+
+    @protected
+    method compile() {
+        try {
+            Thread.context[ERROR_QUEUE_KEY] := new MessageQueue()
+            checkpoint("loading symbols")
+            def symbolFiles := new Array<File>()
+            def sources := CompilerSettings.sources
+            if sources.length = 0
+                throw new CompilerException("no input files specified")
+            for source in sources
+                symbolFiles.append(source)
+        
+            loadSymbols(symbolFiles)
+            processMessages()
+            if errors > 0
+                return
+            for module in CompilerSettings.modules {
+                -- the exists() check is a quick way of dealing with the case
+                -- where we're in the middle of building the module itself, and
+                -- the auto-import tries to import the module plink as a result
+                if module.plink.exists()
+                    loadSymbols(module.plink)
+            }
+
+            checkpoint("resolving types")
+            resolveTypes()
+            processMessages()
+            if errors > 0
+                return
+
+            checkpoint("detect class circularity")
+            detectClassCircularity()
+
+            checkpoint("generating AST")
+            astGenerator.linkageOnly := false
+            astGenerator.phase1Complete()
+            for source in sources {
+                if !source.path.endsWith(".plink")
+                    compile(source)
+            }
+            
+            processMessages()
+            if errors > 0
+                return
+            checkpoint("fixArrays")
+            fixArrays()
+            processMessages()
+            if errors > 0
+                return
+            checkpoint("dataflow")
+            new DataFlowAnalyzer().performAnalysis()
+            processMessages()
+            if errors > 0
+                return
+            checkpoint("optimizing")
+            new Optimizer().optimize(astGenerator)
+            processMessages()
+            if errors > 0
+                return
+        
+            var output := CompilerSettings.output
+            if output = null {
+                if sources.length = 1 {
+                    var parent := sources[0].parent()
+                    if parent = null
+                        throw new CompilerException("cannot determine parent" +
+                                "directory of " + sources[0])
+                    output := parent.resolve(sources[0].simpleName)
+                }
+                else {
+                    throw new CompilerException("multiple input files " +
+                            "specified, use -o to specify output path")
+                }
+            }
+ 
+            checkpoint("codegen")
+            var cg:CodeGenerator
+            switch CompilerSettings.codeGenerator {
+                case "exec":  cg := new ExecutableCodeGenerator()
+                case "lib":   cg := new LibraryCodeGenerator()
+                case "plink": cg := new PLinkCodeGenerator()
+                case "llvm":  cg := new LLVMCodeGenerator()
+                case "doc":   cg := new PandaDoc()
+                case "h":     cg := new HeaderCodeGenerator()
+                case "java":  cg := new JavaCodeGenerator()
+                case "javah": cg := new JavaHeaderCodeGenerator()
+                case "jar":   cg := new JARCodeGenerator()
+                case "js":    cg := new JavaScriptCodeGenerator()
+                default: throw new CompilerException("unsupported output " +
+                        "format '" + CompilerSettings.codeGenerator + "'")
+            }
+
+            cg.generateCode(output)
+        }
+        catch e:CompilerException {
+            reportError(e)
+        }
+        catch e:Exception {
+            Console.writeLine(e)
+        }
+        processMessages()
+    }
+
+    method processArguments(arg:Array<String>) {
+        -- just a quick hack until I write a general argument-parsing library
+        def librarySearchPaths:Array<File> := [new File("/opt/local/lib")]
+        def libraries:Array<String> := ["panda", "gc", "icui18n", "icuuc", 
+                "icudata"]
+        def sources:Array<File> := []
+        def objectFiles:Array<File> := []
+
+        var i := 0
+        while i < arg.length {
+            if arg[i] = "-o" {
+                i += 1
+                CompilerSettings.setOutput(new File(arg[i]))
+            }
+            else if arg[i] = "-L" {
+                i += 1
+                librarySearchPaths.append(new File(arg[i]))
+            }
+            else if arg[i] = "-l" {
+                i += 1
+                libraries.append(arg[i])
+            }
+            else if arg[i] = "-S0" {
+                CompilerSettings.setAssertions(false)
+                CompilerSettings.setPreconditions(false)
+                CompilerSettings.setPostconditions(false)
+                CompilerSettings.setInvariants(false)
+                CompilerSettings.setOverflowChecking(false)
+                CompilerSettings.setBoundsChecking(false)
+                CompilerSettings.setCheckCasts(false)
+            }
+            else if arg[i] = "-f" {
+                i += 1
+                CompilerSettings.setCodeGenerator(arg[i])
+            }
+            else if arg[i] = "-XpreserveTempArtifacts"
+                CompilerSettings.setPreserveTempArtifacts(true)
+            else if arg[i] = "-Xnewbuild"
+                CompilerSettings.setNewBuild(true)
+            else if arg[i] = "-XnoCoreLib"
+                CompilerSettings.setLoadCoreLib(false)
+            else {
+                if arg[i].endsWith(".panda") | arg[i].endsWith(".plink")
+                    sources.append(new File(arg[i]))
+                else if arg[i].endsWith(".o")
+                    objectFiles.append(new File(arg[i]))
+                else {
+                    throw new CompilerException("unrecognized parameter: '" + 
+                            arg[i] + "'")
+                }
+            }
+            i += 1
+        }
+
+        librarySearchPaths.append(
+                PANDA_HOME.resolve("native/core/lib"))
+
+        CompilerSettings.setLibraries(libraries->>(ImmutableArray<String>))
+        CompilerSettings.setLibrarySearchPaths(librarySearchPaths)
+        CompilerSettings.setSources(sources)
+        CompilerSettings.setObjectFiles(objectFiles->>(ImmutableArray<File>))
+    }
+
+    @class
+    method main(arg:Array<String>) {
+        try {
+            if arg.length < 1 {
+                Console.writeLine("usage: pandac <input.panda>")
+                System.exit(1)
+            }
+            CompilerSettings.setDefaults()
+            var pandac := new PandaCompiler()
+            SymbolTable.initMaster()
+            pandac.processArguments(arg)
+            pandac.compile()
+            if pandac.errors > 0 {
+                pandac.writeErrors()
+                if pandac.warnings > 0
+                    Console.write(", ")
+                else
+                    Console.writeLine()
+            }
+            if pandac.warnings > 0 {
+                pandac.writeWarnings()
+                Console.writeLine()
+            }
+            pandac.checkpoint("finished")
+            if pandac.errors > 0
+                System.exit(2)
+            System.exit(0)
+        }
+        catch e:Error {
+            Console.writeLine(e)
+            System.exit(3)
+        }
+    }
+}
