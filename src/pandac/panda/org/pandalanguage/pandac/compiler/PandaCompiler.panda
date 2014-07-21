@@ -67,35 +67,45 @@ class PandaCompiler {
 
     @class
     method getLLVMHome():File {
-        def libexec := new File("/opt/local/libexec")
-        if !libexec.exists() {
-            throw new CompilerException("path '" + libexec + 
-                    "' does not exist. Use MacPorts to install Panda " +
-                    "dependencies.")
-        }
-        def llvms := libexec.list("llvm-*.*")
-        var maxMajor := 0
-        var maxMinor := 0
-        for llvm in llvms {
-            try {
-                def versions := llvm.name.parse(#/llvm-(\d+)\.(\d+)/#)
-                def major := versions[0]->>(Int)
-                def minor := versions[1]->>(Int)
-                if major > maxMajor | (major = maxMajor &
-                        minor > maxMinor) {
-                    maxMajor := major
-                    maxMinor := minor
+        switch System.operatingSystem.type {
+            case OperatingSystemType.MACOSX: {
+                def libexec := new File("/opt/local/libexec")
+                if !libexec.exists() {
+                    throw new CompilerException("path '" + libexec + 
+                            "' does not exist. Use MacPorts to install " +
+                            "Panda dependencies.")
                 }
+                def llvms := libexec.list("llvm-*.*")
+                var maxMajor := 0
+                var maxMinor := 0
+                for llvm in llvms {
+                    try {
+                        def versions := llvm.name.parse(#/llvm-(\d+)\.(\d+)/#)
+                        def major := versions[0]->>(Int)
+                        def minor := versions[1]->>(Int)
+                        if major > maxMajor | (major = maxMajor &
+                                minor > maxMinor) {
+                            maxMajor := major
+                            maxMinor := minor
+                        }
+                    }
+                    catch e:ParseException {
+                    }
+                }
+                if maxMajor = 0 {
+                    throw new CompilerException("no LLVM installation found " +
+                            "under \{libexec}. Use MacPorts to install Panda " +
+                            "dependencies.")
+                }
+                return verifyExists(new File("/opt/local/libexec/llvm-" +
+                        "\{maxMajor}.\{maxMinor}/bin"))
             }
-            catch e:ParseException {
-            }
+            case OperatingSystemType.LINUX, OperatingSystemType.OTHER_UNIX:
+                return verifyExists(new File("/usr/bin"))
+            default:
+                throw new CompilerException("Unsupported operating " +
+                        "system type: " + System.operatingSystem.type)
         }
-        if maxMajor = 0 {
-            throw new CompilerException("no LLVM installation found " +
-                    "under \{libexec}. Use MacPorts to install Panda " +
-                    "dependencies.")
-        }
-        return new File("/opt/local/libexec/llvm-\{maxMajor}.\{maxMinor}/bin")
     }
 
     @class

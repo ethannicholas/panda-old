@@ -146,7 +146,8 @@ void pandaCreatePath(panda$gl$Renderer* renderer,
                 panda$gl$shapes$Shape$path_INDEX);
     panda$gl$Transform$transform_TYPE* transform;
     panda$gl$shapes$PathSegment$Array* path = getPath(shape);
-    for (int i = 0; i < path->$length; i++) {
+    int i;
+    for (i = 0; i < path->$length; i++) {
         panda$gl$shapes$PathSegment* segment = path->contents[i];
         double x = segment->position->x;
         double y = segment->position->y;
@@ -217,8 +218,10 @@ void panda$gl$Renderer$present(panda$gl$Renderer* renderer) {
 // -------- Images --------
 
 void pandaPremultiply(UInt8* pixels, int pitch, int width, int height) {
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+    int x;
+    int y;
+    for (y = 0; y < height; y++) {
+        for (x = 0; x < width; x++) {
             float alpha = pixels[x * 4 + 3] / 255.0;
             pixels[x * 4] *= alpha;
             pixels[x * 4 + 1] *= alpha;
