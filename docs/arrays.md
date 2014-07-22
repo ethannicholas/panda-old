@@ -175,10 +175,20 @@ This will display:
     6.8
     4.5
 
+Array.contains
+--------------
+
+The `Array.contains()` function performs a linear search and returns whether its
+argument is found in the array. For example:
+
+    (1 ... 10).contains(5)
+
+will evaluate to `true`.
+
 Array.join
 ----------
 
-The `Array.join()` method forms a string out of the array's elements. Each
+The `Array.join()` function forms a string out of the array's elements. Each
 element is converted to a string via its `->>():String` method, and the 
 individual strings are joined together separated by a delimiter. For example,
 
@@ -189,7 +199,7 @@ yields the string `"1:2:3"`.
 Array.fold
 ----------
 
-The `Array.fold()` method combines elements of the array by applying a binary
+The `Array.fold()` function combines elements of the array by applying a binary
 function. For instance, we can find the sum of a list of numbers by applying
 the addition function:
 
