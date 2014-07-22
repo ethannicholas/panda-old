@@ -257,7 +257,7 @@ exceptions originating from the inner try block.
 assert
 ------
 
-    assert <condition>[, <error>]
+    assert <condition>[: <error>]
 
 An `assert` statement tells the compiler that `<condition>` should always be
 `true` at this point. With safety checks on, the `<condition>` is double-checked
