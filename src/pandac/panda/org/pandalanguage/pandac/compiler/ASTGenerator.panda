@@ -1312,7 +1312,7 @@ class ASTGenerator {
         else if f.annotations.isReadOnly & currentClass != f.owner
             valid := false
         else if f.annotations.isStatic { 
-            var cm := currentMethod
+            def cm := currentMethod
             if currentClass != f.owner | cm = null | 
                     (cm.methodType != MethodNodeType.CONSTRUCTOR & 
                     cm.name != MethodNode.CLASS_INIT_NAME) {
@@ -3878,13 +3878,7 @@ class ASTGenerator {
             def cm := currentMethod
             assert cm != null
             cm.localVariables.append(variable)
-            if value = null {
-                if isStatic {
-                    PandaCompiler.reportError("expected 'def' to have a value",
-                            v.position)
-                }
-            }
-            else {
+            if value != null {
                 open(new ValueStatement(position))
                 def va := new VariableAssignment(position, variable)
                 va.isInitialValue := true
@@ -5036,10 +5030,6 @@ class ASTGenerator {
                 else
                     pendingFieldValues[field] := f[f.length - 1]
             }
-            else if f[0]->(TokenNode).token.type = TokenType.DEF {
-                PandaCompiler.reportError("expected 'def' to have a value",
-                        f.position)
-            }
             if field.annotations.isThread &
                     cl.state = ClassNodeState.DEFINED {
                 var indexName := field.name + INDEX_SUFFIX 
@@ -5595,9 +5585,11 @@ class ASTGenerator {
             classNode.supertype := SymbolTable.master.getType(e.position,
                     class(Enumeration).name)->(ClassType)
             var name := new FieldNode("name", ClassType.STRING())
+            name.annotations.isStatic := true
             classNode.symbolTable.putVariable(name)
             classNode.add(name)
             var value := new FieldNode("value", IntType.INT32)
+            value.annotations.isStatic := true
             classNode.symbolTable.putVariable(value)
             classNode.add(value)
             nameMap := new FieldNode("NAME_MAP", 
@@ -6116,9 +6108,16 @@ class ASTGenerator {
                         if immutable & !f.annotations.isClass & 
                                 !f.annotations.isThread &
                                 !f.type.isImmutable {
-                            error("immutable class '\{cl.name}' has " +
+                            PandaCompiler.reportError(
+                                    "immutable class '\{cl.name}' has " +
                                     "mutable field '\{f.name}' " +
                                     "(\{f.type.displayName})", f.position)
+                        }
+                        if immutable & !f.annotations.isStatic {
+                            PandaCompiler.reportError(
+                                    "immutable class '\{cl.name}' may not " +
+                                    "contain variables; did you mean to use " +
+                                    "'def' instead?", f.position)
                         }
 
                         if f.annotations.isThread & 

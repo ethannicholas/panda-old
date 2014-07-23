@@ -90,18 +90,6 @@ single parameter. Just as with binary operators, unary operators may be
 implemented as instance methods (in which case `self` is the implicit parameter)
 or as class methods taking an explicit parameter.
 
-In
---
-
-The `in` operator works almost exactly like the other binary operators, but with
-its operands reversed. That is, the expression `foo in bar` will call either 
-`bar.in(foo)`, `Bar.in(bar, foo)`, or `Foo.in(bar, foo)`. The parameters are
-reversed due to the fact that you generally want to implement the operator on
-the collection object, which appears as the right operand. Passing the 
-parameters in the "normal" order (as with the other operators) would make it
-impossible for the collection interfaces to override this operator, as it would
-have to be implemented via class functions rather than instance functions.
-
 Convert
 -------
 

@@ -52,22 +52,6 @@ Note that the range operators count upwards by default, so `10 ... 0` yields an
 empty list because the start is greater than the end. Use a negative step value
 to count backwards, as in `10 ... 0 by -1`.
 
-<a name="in"></a>
-In
---
-
-* `state in ["ACTIVE", "ENABLED"]`
-* `x in 1 ... 100`
-
-The `in` operator checks to see whether the element on the left is a member of 
-the collection on the right. This is particularly useful in conjunction with the
-range operator, as in `x in 1 ... 100`.
-
-**IMPLEMENTATION NOTE:** The obvious optimization of turning `x in 1 ... 100`
-into `(x >= 1 && x <= 100)` is not in yet; right this second it will actually
-generate a list of numbers and then scan through it looking for the value, but
-of course that is on my list of things to fix.
-
 <a name="shift"></a>
 Shift
 -----
