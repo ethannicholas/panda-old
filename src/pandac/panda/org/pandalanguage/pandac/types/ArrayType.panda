@@ -202,66 +202,44 @@ class ArrayType : GenericType {
             dedupLine += 1
         }
         else {
+            -- setLength
+            -- for internal use only. equivalent to length:=, but allows the 
+            -- array to get longer even when its element type is non-nullable
+            new ASTGenerator().compileMethod(arrayClass, 
+                    "method setLength(length:panda.core.Int32) {\n" +
+                    "    setLength(self, \{elementType.size}, true, length)\n" +
+                    "}", new Annotations([AnnotationType.SYNTHETIC,
+                        AnnotationType.SELF, AnnotationType.PRIVATE]), 
+                    new Position(displayName + ":setLength()", dedupLine, 0))
+            dedupLine += 1
+
+
             -- length:=
-            var selfParam := new Parameter("self", self)
-            var lengthParam := new Parameter("length", INDEX_TYPE)
-            var lengthParameters := new Array<Parameter>(selfParam, lengthParam)
-            var setLength := new MethodNode("length:=", MethodNodeType.METHOD,
-                    lengthParameters)
-            var block := new Block(arrayClass.symbolTable)
-            -- FIXME method should have its own symbol table
-            block.symbolTable.putVariable(selfParam)
-            block.symbolTable.putVariable(lengthParam)
-            setLength.add(block)
-            arrayClass.add(setLength)
-            var superclass := supertype.classNode
-            var pandaSetArrayLength := superclass[0]->(MethodNode)
-            var call := new MethodCall(pandaSetArrayLength, false,
-                    new Array<Value>(new Cast(new VariableReference(selfParam),
-                            arrayClass.symbolTable.getType(position,
-                                    ClassNode.OBJECT_NAME), 
-                            CastType.IMPLICIT),
-                        new IntegerLiteral(elementType.size->(UInt), 
-                            Type.INDEX_TYPE),
-                        new BitLiteral(true),
-                        new VariableReference(lengthParam)))
-            block.add(new ValueStatement(call))
-            setLength.annotations.isStatic := true
-            arrayClass.symbolTable.putMethod(setLength)
+            def lengthPosition := new Position(displayName + ":length:=()", 
+                    dedupLine, 0)
+            dedupLine += 1
+            def lengthAnnotations := new Annotations([AnnotationType.SYNTHETIC,
+                    AnnotationType.SELF])
+            if !elementType.isPrimitive & !elementType.isNullable {
+                lengthAnnotations.pre.append(new PandaParser().parseExpression(
+                        "length <= self.length", lengthPosition))
+            }
+            new ASTGenerator().compileMethod(arrayClass, 
+                    "method length:=(length:Int) {\n" +
+                    "    setLength(length)\n" +
+                    "}", lengthAnnotations, lengthPosition)
+            def setLength := arrayClass[arrayClass.length - 1]->(MethodNode)
 
             -- append
-            selfParam := new Parameter("self", self)
-            var elementParam := new Parameter("element", elementType)
-            var appendParameters := new Array<Parameter>(selfParam, 
-                    elementParam)
-            var append := new MethodNode("append", MethodNodeType.METHOD,
-                    appendParameters)
-            block := new Block(arrayClass.symbolTable)
-            block.symbolTable.putVariable(selfParam)
-            block.symbolTable.putVariable(elementParam)
-            append.add(block)
-            arrayClass.add(append)
-            var lengthVar := new LocalVariable("length", IntType.INT32)
-            append.localVariables.append(lengthVar)
-            def length  := arrayClass[0]->(FieldNode)
-            assert length.name = "$length"
-            var getLength := new FieldReference(
-                    new VariableReference(selfParam), length)
-            block.add(new ValueStatement(new VariableAssignment(lengthVar, 
-                    getLength)))
-            var newLength := new Add()
-            newLength.add(new VariableReference(lengthVar))
-            newLength.add(new IntegerLiteral(1, IntType.INT32))
-            call := new MethodCall(setLength, true,
-                    new Array<Value>(new VariableReference(selfParam),
-                        newLength))
-            block.add(new ValueStatement(call))
-            block.add(new IndexedAssignment(new VariableReference(selfParam),
-                    new VariableReference(lengthVar), 
-                    new VariableReference(elementParam)))
-            append.annotations.isStatic := true
-            append.annotations.isSelf := true
-            arrayClass.symbolTable.putMethod(append)
+            new ASTGenerator().compileMethod(arrayClass, 
+                    "method append(e:\{elementType.name}) {\n" +
+                    "    def l := $length\n" +
+                    "    setLength(l + 1)\n" +
+                    "    self[l] := e\n" +
+                    "}", new Annotations([AnnotationType.SYNTHETIC,
+                        AnnotationType.SELF]), 
+                    new Position(displayName + ":append()", dedupLine, 0))
+            dedupLine += 1
 
             -- appendAll
             new ASTGenerator().compileMethod(arrayClass, 
@@ -402,11 +380,11 @@ class ArrayType : GenericType {
                             "var delta := end - start - s.length\n" +
                             "for i in copyDest .. copyDest + length - end\n" +
                                 "self[i] := self[i + delta]\n" +
-                            "self.length += newLength - oldLength\n" +
+                            "setLength(length + newLength - oldLength)\n" +
                         "}\n" +
                         "else {\n" +
                             "var originalArrayLength := length\n" +
-                            "self.length += newLength - oldLength\n" +
+                            "setLength(length + newLength - oldLength)\n" +
                             "var copyDest := start + newLength\n" +
                             "var delta := end - start - s.length\n" +
                             "for i in copyDest + originalArrayLength - end - 1 .. copyDest - 1" +
@@ -455,11 +433,11 @@ class ArrayType : GenericType {
                             "var delta := end - start - s.length\n" +
                             "for i in copyDest .. copyDest + length - end\n" +
                                 "self[i] := self[i + delta]\n" +
-                            "self.length += newLength - oldLength\n" +
+                            "setLength(length + newLength - oldLength)\n" +
                         "}\n" +
                         "else {\n" +
                             "var originalArrayLength := length\n" +
-                            "self.length += newLength - oldLength\n" +
+                            "setLength(length + newLength - oldLength)\n" +
                             "var copyDest := start + newLength - 1\n" +
                             "var delta := end - start + 1 - s.length\n" +
                             "for i in copyDest + originalArrayLength - end - 1 .. copyDest - 1" +

@@ -5599,8 +5599,8 @@ class ASTGenerator {
             nameMap.annotations.isStatic := true
 
             classNode.symbolTable.putVariable(nameMap)
-            classNode.add(nameMap)
-            value.parent := classNode
+            -- note we haven't added nameMap yet -- we'll do that after all of
+            -- the constantas have been added, so they are initialized first
         }
         var keyInitializer := new MutableString()
         var valueInitializer := new MutableString()
@@ -5669,9 +5669,8 @@ class ASTGenerator {
             valueInitializer.append(key)
             count += 1
         }
-        
-        fromInt.append("default: { assert false return " + defaultReturn + 
-                " } } }")
+        fromInt.append("default: { throw new PreconditionError(i + " +
+                "' is not a valid \{className} value') } } }")
         var position5 := new Position(position1.compilationUnit,
                 position1.line, position1.column + 4)
         ast.compileMethod(classNode, fromInt->>(String), 
@@ -5680,7 +5679,11 @@ class ASTGenerator {
                 position1.line, position1.column + 5)
         ast.compileMethod(classNode, "function ->>(name:String):" + 
                 className + " {\n" +
-                "    return NAME_MAP[name]->(" + className + ")\n" +
+                "    def result := NAME_MAP[name]->(" + className + "?)\n" +
+                "    if result = null\n" +
+                "        throw new PreconditionError(name + \n" +
+                "               ' is not a valid \{className} value')\n" +
+                "    return result" +
                 "}", 
                 new Annotations([AnnotationType.CLASS]), position6, linkageOnly)
         if linkageOnly {
@@ -5691,6 +5694,9 @@ class ASTGenerator {
                     valueInitializer + "))->>(ImmutableHashMap)", 
                     e.position)
         }
+
+        if nameMap != null
+            classNode.add(nameMap)
 
         if linkageOnly
             classNode.state := ClassNodeState.EXTERNALLY_DEFINED
