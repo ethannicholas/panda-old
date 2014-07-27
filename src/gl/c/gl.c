@@ -120,6 +120,16 @@ void panda$gl$Texture$close(panda$gl$Texture* texture) {
 
 // -------- Drawing --------
 
+void panda$gl$Renderer$_save(panda$gl$Renderer* renderer) {
+    cairo_t* context = ((NativeRenderer*) renderer->native)->context;
+    cairo_save(context);
+}
+
+void panda$gl$Renderer$_restore(panda$gl$Renderer* renderer) {
+    cairo_t* context = ((NativeRenderer*) renderer->native)->context;
+    cairo_restore(context);
+}
+
 void panda$gl$Renderer$setPaint(panda$gl$Renderer* renderer,
         panda$gl$Paint* paint) {
     cairo_t* context = ((NativeRenderer*) renderer->native)->context;
@@ -466,11 +476,21 @@ void panda$gl$Window$startRenderLoop(panda$gl$Window* self, void** m) {
             (panda$gl$Renderer$present_TYPE*) 
                 *(&self->renderer->cl->vtable + 
                     panda$gl$Renderer$present_INDEX);    
+    panda$gl$Renderer$save_TYPE* save =
+            (panda$gl$Renderer$save_TYPE*) 
+                *(&self->renderer->cl->vtable + 
+                    panda$gl$Renderer$save_INDEX);    
+    panda$gl$Renderer$restore_TYPE* restore =
+            (panda$gl$Renderer$restore_TYPE*) 
+                *(&self->renderer->cl->vtable + 
+                    panda$gl$Renderer$restore_INDEX);    
     Real64 target = 1000.0 / 60.0;
     Real64 totalTicks = SDL_GetTicks() - target;
     Real64 frameTicks = target;
     for (;;) {
+        save(self->renderer);
         ((void(*)(Real64)) ((panda$core$Method*) m)->rawPtr)(frameTicks);
+        restore(self->renderer);
         present(self->renderer);
         Real64 newTicks = SDL_GetTicks();
         frameTicks = newTicks - totalTicks;

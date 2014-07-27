@@ -40,12 +40,15 @@ class Renderer_ExternalImpl implements panda.gl.Renderer_External {
     }
 
     @Override
-    public void clip(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
-        throw new UnsupportedOperationException();
+    public void _save(panda.gl.Renderer renderer) {
     }
 
     @Override
-    public void resetClip(panda.gl.Renderer renderer) {
+    public void _restore(panda.gl.Renderer renderer) {
+    }
+
+    @Override
+    public void clip(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
         throw new UnsupportedOperationException();
     }
 
