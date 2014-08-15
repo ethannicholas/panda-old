@@ -151,7 +151,9 @@ class Window_ExternalImpl implements panda.gl.Window_External {
             panda.core.MutableMethod m) {
         try {
             for (;;) {
-                ((panda.methods.$nullary) m.$rawPtr).method();
+                if (true)
+                    throw new UnsupportedOperationException();
+//                ((panda.methods.$nullary) m.$rawPtr).method();
                 Thread.sleep(1000 / 60);
             }
         }

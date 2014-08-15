@@ -346,7 +346,7 @@ class LLVMCodeGenerator : CodeGenerator {
     @class
     method getLLVMType(var t:Type):String {
         t := t.unwrapGenerics()
-        if t.isMethod {
+        if t-?>(MethodType) {
             if t.isImmutable
                 return getLLVMType(ClassType.METHOD())
             else
@@ -457,11 +457,9 @@ class LLVMCodeGenerator : CodeGenerator {
     }
 
     @private
-    method getVirtualMethodReference(mc:MethodCall):String {
-        var m := mc.methodNode
-        var methodType := getLLVMMethodType(m)
+    method getVirtualMethodReference(target:Value, index:Int, 
+            type:MethodType):String {
         -- load class constant entry
-        var target := mc.parameters[0]
         var cl := target.type.classNode
         var getep := "getelementptr inbounds " + 
                 getTypedReference(target) + 
@@ -472,22 +470,27 @@ class LLVMCodeGenerator : CodeGenerator {
         body.writeLine(ep + " = " + getep)
         var load := getTempVariable()
         var classType := getLLVMType(ClassType.CLASS())
-        writeBody(load + " = load " + classType + "* " + ep, "get pointer to " + 
+        writeBody("\{load} = load \{classType}* \{ep}", "get pointer to " + 
                 cl)
         ep := getTempVariable()
-        var methodIndex := getMethodIndex(getClassConstant(cl), m)
-        writeBody(ep + " = getelementptr inbounds " + 
-                classType + " " + load + ", i32 0, i32 " + VTABLE_INDEX + 
-                ", i32 " + methodIndex, "get pointer to pointer to " + cl + 
-                "." + m.name + ":" + m.returnType.name)
+        writeBody("\{ep} = getelementptr inbounds \{classType} \{load}, " +
+                "i32 0, i32 \{VTABLE_INDEX}, i32 \{index}", 
+                "get pointer to pointer to \{cl}.vtable[\{index}]")
         var cast := getTempVariable()
-        writeBody(cast + " = bitcast i8** " + ep +
-                " to " + methodType + "*", "convert pointer to method " +
-                "pointer to correct type")
+        writeBody("\{cast} = bitcast i8** \{ep} to \{getLLVMMethodType(type)}*", 
+                "convert pointer to method pointer to correct type")
         var methodRef := getTempVariable()
-        writeBody(methodRef + " = load " + methodType + "* " + cast, 
-                "get " + cl + "." + m.name)
+        writeBody("\{methodRef} = load \{getLLVMMethodType(type)}* \{cast}", 
+                "get \{cl}.vtable[\{index}]")
         return methodRef
+    }
+
+    @private
+    method getVirtualMethodReference(mc:MethodCall):String {
+        def m := mc.methodNode
+        def cc := getClassConstant(m.owner)
+        return getVirtualMethodReference(mc.parameters[0], 
+                getMethodIndex(cc, m), m.type())
     }
 
     @private
@@ -1022,7 +1025,7 @@ class LLVMCodeGenerator : CodeGenerator {
         else {
             var cl := object.type.classNode
             var fields := cl.unifiedFields
-            for i in 0 ... fields.length - 1 {
+            for i in 0 .. fields.length {
                 if fields[i] = field {
                     return createCommandReference("getelementptr inbounds " + 
                         getTypedReference(object) + 
@@ -1030,7 +1033,8 @@ class LLVMCodeGenerator : CodeGenerator {
                         field.name)
                 }
             }
-            error("failed to find field " + field + " in " + object, 
+            error("failed to find field \{field} (\{field.owner}) in \{object} " +
+                    "(\{object.type.name}), \{currentMethod->(MethodNode)}", 
                     object.position)
             return "error"
         } 
@@ -1350,6 +1354,44 @@ class LLVMCodeGenerator : CodeGenerator {
 
     @protected
     method createDynamicCallReference(d:DynamicCall):String? {
+        def methodValue := getTypedReference(d.methodValue)
+        def object := getClassConstant(ClassType.METHOD().classNode)
+        var offset := object.methods.length
+        -- FIXME uncomment this when shimming works
+        if !d.type.isPrimitive
+            offset += 1 -- shimmed
+        def typeName := new MutableString(d.methodValue.type->(MethodType).name)
+        assert typeName[0] = "("
+        if typeName[1] = ")"
+            typeName[1 .. 1] := d.methodValue.type.name
+        else
+            typeName[1 .. 1] := d.methodValue.type.name + ","
+        def realType := SymbolTable.master.getType(Position.INTERNAL,
+                typeName->>(String))->(MethodType)
+        def methodPtr := getVirtualMethodReference(d.methodValue, offset,
+                realType)
+        def c := "fastcc "->>(MutableString)
+        c.append(getLLVMMethodType(realType->(MethodType)))
+        c.append(" ")
+        c.append(methodPtr)
+        c.append("(")
+        c.append(getTypedReference(d.methodValue))
+        for i, p in d.parameters {
+            c.append(", ")
+            c.append(getTypedReference(p))
+        }
+        c.append(")")
+        def result:String?
+        if d.type = VoidType.VOID
+            result := null
+        else
+            result := getTempVariable()
+        call(c->>(String), result, d->>(String))
+        return result
+    }
+
+-*    @protected
+    method createDynamicCallReference(d:DynamicCall):String? {
         var methodValue := getTypedReference(d.methodValue)
         var offset:Int
         if d.type.isPrimitive
@@ -1384,7 +1426,7 @@ class LLVMCodeGenerator : CodeGenerator {
             result := getTempVariable()
         call(c->>(String), result, d->>(String))
         return result
-    }
+    }*-
 
     -- return value is nullable so void expressions (method calls) can return
     -- null

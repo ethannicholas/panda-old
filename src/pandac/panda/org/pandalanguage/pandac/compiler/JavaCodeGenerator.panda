@@ -282,11 +282,7 @@ class JavaCodeGenerator : CodeGenerator {
         }
         if buffer.length = 0
             buffer.append("$nullary")
-        var result := buffer->>(String).replace(".", "$")
-        if m.isFunction
-            result := "panda.functions." + result
-        else
-            result := "panda.methods." + result
+        var result := "panda.methods." + buffer->>(String).replace(".", "$")
         var found := false
         for existing in methodTypes {
             if existing = m {
@@ -351,8 +347,8 @@ class JavaCodeGenerator : CodeGenerator {
     
     @pre(b.left.type = IntType.UINT64)
     method generateUInt64BinaryCode(b:BinaryOperation, op:String) {
-        -- not the absolute most efficient way to implement these, but I've got
-        -- bigger fish to fry right now
+        -- not the most efficient way to implement these, but I've got bigger 
+        -- fish to fry right now
         switch b.class {
             case class(IntDivide): {
                 out.write("panda.core.PandaCore.UInt64(")
@@ -396,8 +392,8 @@ class JavaCodeGenerator : CodeGenerator {
         }
         if b.type = IntType.UINT32
             out.write("(int) (")
-        else if b.type.isInteger & b.type.size < 4
-            out.write("(\{getJavaType(b.type)}/*\{b.type.name}*/) ")
+        else if b.type.isInteger & b.type.size < 4 | b.type = CharType.CHAR
+            out.write("(\{getJavaType(b.type)}) ")
         out.write("(")
         if operandType = IntType.UINT32 {
             out.write("(((long) ")
@@ -583,7 +579,7 @@ class JavaCodeGenerator : CodeGenerator {
         if d.type != VoidType.VOID {
             out.write("((")
             if d.type.isPrimitive
-                out.write(getJavaType(d.type->(PrimitiveType).wrapperVersion()))
+                out.write(getJavaReferenceType(d.type))
             else
                 out.write(getJavaType(d.type))
             out.write(") ")
@@ -592,18 +588,15 @@ class JavaCodeGenerator : CodeGenerator {
         out.write(getJavaMethodType(d.methodValue.type.unwrapNullable->(MethodType)))
         out.write(") ")
         generateValueCode(d.methodValue)
-        out.write(".$rawPtr).method(")
+        out.write(").raw(")
         for i, p in d.parameters {
             if i > 0
                 out.write(", ")
             generateValueCode(p)
         }
         out.write(")")
-        if d.type != VoidType.VOID {
+        if d.type != VoidType.VOID
             out.write(")")
-            if d.type.isPrimitive()
-                out.write(".$value")
-        }
     }
 
     method generateReusedValueDefinitionCode(rvd:ReusedValueDefinition) {
@@ -991,17 +984,30 @@ class JavaCodeGenerator : CodeGenerator {
     
     method generateBlockCode(b:Block) {
         out.writeLine("{")
+        if b.parent-?>(MethodNode) {
+            -- HACK: we need to look at the CFG to determine whether the block
+            -- can be exited, in order to know whether we need to add a 
+            -- "return null;" at the end of it. Just a quick hack to avoid
+            -- unreachable code errors until I get the CFG analysis in place.
+            def m := b.parent->(MethodNode)
+            if isMethodClass(m.owner) & m.returnType = VoidType.VOID
+                out.writeLine("if (true) { // FIXME hack!")
+        }
         out.level += 1
         if b.parent-?>(MethodNode) {
             var m := b.parent->(MethodNode)
-            for i in 0 ... m.localVariables.length - 1 {
-                var v := m.localVariables[i]
+            for v in m.localVariables {
                 out.writeLine(getJavaType(v.type) + " " + 
                         getName(v) + ";")
             }
         }
-        for i in 0 ... b.length - 1
-            generateStatementCode(b[i]->(Statement))
+        for s in b.children
+            generateStatementCode(s->(Statement))
+        if b.parent-?>(MethodNode) {
+            def m := b.parent->(MethodNode)
+            if isMethodClass(m.owner) & m.returnType = VoidType.VOID
+                out.writeLine("} return null;")
+        }
         out.level -= 1
         out.writeLine("}")
     }
@@ -1084,13 +1090,20 @@ class JavaCodeGenerator : CodeGenerator {
             out.write("abstract ")
         else if m.owner.isInterface
             out.write("default ")
-        var returnType := m.returnType
-        out.write(getJavaType(returnType) + " " + getName(m) + 
-                "(")
+        def returnType:String
+        if isMethodClass(m.owner) {
+            if m.returnType = VoidType.VOID
+                returnType := getJavaType(ClassType.OBJECT())
+            else
+                returnType := getJavaReferenceType(m.returnType)
+        }
+        else
+            returnType := getJavaType(m.returnType)
+        out.write("\{returnType} \{getName(m)} (")
         var start := 0
         if !isClass(m)
             start := 1
-        for i in start ... m.parameters.length - 1 {
+        for i in start .. m.parameters.length {
             if i > start
                 out.write(", ")
             var p := m.parameters[i]
@@ -1191,6 +1204,12 @@ class JavaCodeGenerator : CodeGenerator {
         }
     }
     
+    function isMethodClass(cl:ClassNode):Bit {
+        def superclass := cl.superclass
+        return superclass != null & (superclass.name = class(Method).name | 
+                    superclass.name = class(MutableMethod).name)
+    }
+
     method generateClassCode(cl:ClassNode) {
         if cl.state != ClassNodeState.DEFINED
             return
@@ -1243,21 +1262,45 @@ class JavaCodeGenerator : CodeGenerator {
             }
             if cl.name = class(Object).name
                 out.write(" implements java.lang.Cloneable")
-            for i, intf in cl.interfaces {
-                if i = 0
-                    out.write(" implements ")
-                else
-                    out.write(", ")
-                out.write(getName(intf.classNode))
+            else if isMethodClass(cl) {
+                def m := cl.methods.filter(m => m.name = "raw")[0]
+                def typeName := new MutableString("(")
+                for i, param in m.parameters {
+                    if i = 0
+                        continue
+                    if i > 1
+                        typeName.append(",")
+                    typeName.append(param.type.name)
+                }
+                typeName.append(")=")
+                if m.methodType = MethodNodeType.METHOD
+                    typeName.append("&")
+                typeName.append(">(")
+                if m.returnType != VoidType.VOID
+                    typeName.append(m.returnType.name)
+                typeName.append(")")
+                def methodType := SymbolTable.master.getType(cl.position,
+                        typeName->>(String))
+                out.write(" implements " + 
+                        getJavaMethodType(methodType->(MethodType)))
+            }
+            else {
+                for i, intf in cl.interfaces {
+                    if i = 0
+                        out.write(" implements ")
+                    else
+                        out.write(", ")
+                    out.write(getName(intf.classNode))
+                }
             }
         }
         out.writeLine(" {")
         out.level += 1
 
         -- add $external if needed
-        for i in 0 ... cl.length - 1 {
-            if cl[i]-?>(MethodNode) & 
-                    cl[i]->(MethodNode).annotations.isExternal {
+        for child in cl.children {
+            if child-?>(MethodNode) & 
+                    child->(MethodNode).annotations.isExternal {
                 var className := getName(cl) + "_External"
                 out.writeLine("    private static final " + className + 
                         " $external = new " + className + "Impl();")
@@ -1378,8 +1421,7 @@ class JavaCodeGenerator : CodeGenerator {
         var oldOut := out
         var buffer := new MemoryOutputStream()
         out := new IndentedOutputStream(buffer)
-        for i in 0 ... cl.length - 1 {
-            var n := cl[i]
+        for n in cl.children {
             if n-?>(MethodStub)
                 continue
             if n-?>(MethodNode)
@@ -1440,7 +1482,7 @@ class JavaCodeGenerator : CodeGenerator {
         assert lastIndex != null
         out.writeLine("package " + name[0 .. lastIndex] + ";")
         out.writeLine("public interface " + name[lastIndex + 1..] + " {")
-        out.write("    java.lang.Object method(")
+        out.write("    java.lang.Object raw(")
         for i, t in mt.methodParameters {
             if i > 0
                 out.write(", ")

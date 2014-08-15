@@ -1,4 +1,10 @@
 #!/bin/bash
+
+# "phase 1" of the build is performed using the bootstrap compiler, and 
+# "phase 2" is performed using first the generated Java compiler and then the 
+# generated native compiler. Being able to run these two phases separately can
+# make incompatible changes easier.
+
 export BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 cd $BASEDIR
 source scripts/setup-script.sh
@@ -77,36 +83,6 @@ mkdir -p $NATIVE_TARGET/plex/src
 java -jar $JAVA_TARGET/plex/bin/plex.jar src/pandac/plex/Panda.plex $NATIVE_TARGET/plex/src/Lexer.panda
 
 mkdir -p $JAVA_TARGET/pandac/bin
-$PANDAC -o $JAVA_TARGET/pandac/bin/pandac.jar -f jar `find src/pandac/panda -name "*.panda"` \
-    src/plex/panda/org/pandalanguage/plex/runtime/*.panda $NATIVE_TARGET/plex/src/Lexer.panda \
-    $STATIC_SETTINGS
-export PANDAC="java -ea -Xmx1g -jar $JAVA_TARGET/pandac/bin/pandac.jar -L $NATIVE_TARGET/core/lib $@"
-export PANDA_HOME="$TARGET"
-
-echo "Compiling core (native)..."
-
-mkdir -p $NATIVE_TARGET/core/c
-$PANDAC -XnoCoreLib -f h -o $NATIVE_TARGET/core/c/panda.h $CORE_FILES
-
-cd src/core/c
-./build.sh
-cd "$BASEDIR"
-
-$PANDAC -XnoCoreLib -f lib -o $NATIVE_TARGET/core/lib/PandaCoreClasses.o $CORE_FILES
-
-mkdir -p $NATIVE_TARGET/core/lib
-
-if [ $PLATFORM = "Darwin" ]; then
-    libtool -undefined suppress -flat_namespace -dynamic $NATIVE_TARGET/core/c/libpanda.a \
-        $NATIVE_TARGET/core/lib/PandaCoreClasses.o -o $NATIVE_TARGET/core/lib/libpanda.dylib
-else
-    gcc -shared -o $NATIVE_TARGET/core/lib/libpanda.so $NATIVE_TARGET/core/c/*.o \
-        $NATIVE_TARGET/core/lib/PandaCoreClasses.o
-fi
-
-echo "Compiling pandac (native)..."
-
-mkdir -p $NATIVE_TARGET/pandac/bin
-$PANDAC -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
+$PANDAC -XpreserveTempArtifacts -o $JAVA_TARGET/pandac/bin/pandac.jar -f jar `find src/pandac/panda -name "*.panda"` \
     src/plex/panda/org/pandalanguage/plex/runtime/*.panda $NATIVE_TARGET/plex/src/Lexer.panda \
     $STATIC_SETTINGS

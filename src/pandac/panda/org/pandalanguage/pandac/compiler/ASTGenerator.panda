@@ -75,6 +75,7 @@ uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.RealLiteral
 uses org.pandalanguage.pandac.tree.Remainder
+uses org.pandalanguage.pandac.tree.ReusedValue
 uses org.pandalanguage.pandac.tree.Return
 uses org.pandalanguage.pandac.tree.ReusedValueDefinition
 uses org.pandalanguage.pandac.tree.ShiftLeft
@@ -1213,7 +1214,7 @@ class ASTGenerator {
         }
         if methodNode != null {
             var isSelf := context = null | (context-?>(VariableReference) &
-                context->(VariableReference).variable.name = "self")
+                context->(VariableReference).variable.name = Parameter.SELF_NAME)
                 
             if isSelf & methodNode.methodType = MethodNodeType.CONSTRUCTOR &
                     cm != null & cm.methodType != MethodNodeType.CONSTRUCTOR
@@ -1248,6 +1249,12 @@ class ASTGenerator {
                 msg.append(p.type.displayName)
             }
             msg.append(")")
+            if context != null {
+                if context-?>(Super)
+                    msg.append(" in \{currentMethod->(MethodNode).owner.supertype->(Type).displayName}")
+                else
+                    msg.append(" in \{context.type.displayName}")
+            }
             for p in params {
                 if p-?>(UnresolvedLambda) {
                     def lambda := p->(UnresolvedLambda)
@@ -1285,15 +1292,19 @@ class ASTGenerator {
         if a.isPrivate {
             var cl := currentClass
             assert cl != null
-            var targetClass := f.owner
-            var c1 := cl.parent
-            var c2 := targetClass.parent
+            while cl.containingClass != null
+                cl := cl.containingClass->(ClassNode)
+            def targetClass := f.owner
+            def c1 := cl.parent
+            def c2 := targetClass.parent
             return c1 = c2
         }
         else if a.isProtected {
             var cm := currentMethod
             assert cm != null
             var caller := cm.parent->(ClassNode?)
+            while caller != null & caller.containingClass != null
+                caller := caller.containingClass
             var callee := f.parent->(ClassNode)
             while caller != null {
                 if caller = callee
@@ -1617,7 +1628,7 @@ class ASTGenerator {
                     currentNode.position)
         }
         assert cm.parameters[0].name = Parameter.SELF_NAME
-        return new VariableReference(cm.parameters[0])
+        return new VariableReference(cm.position, cm.parameters[0])
     }
 
 
@@ -1761,36 +1772,24 @@ class ASTGenerator {
     }
 
     ============================================================================
-    For methods which return primitive values, returns (creating if necessary) a
-    corresponding shim method that calls the original method and returns the 
-    result casted to Object. This is used to work around difficulties mixing 
-    primitives and Objects by giving callers the ability to choose either.
+    For methods which return primitive values, creates a corresponding shim 
+    method that calls the original method and returns the result casted to 
+    Object. This is used to work around difficulties mixing primitives and 
+    Objects by giving callers the ability to choose either.
     ============================================================================
-    method getShim(m:MethodNode):MethodNode {
-        def name := SHIM_PREFIX + m.name
-        if m.returnType = VoidType.VOID | !m.returnType.isPrimitive |
-                m.returnType = NativePointerType.NATIVE_POINTER | m.length = 0
-            return m
-        def dummyParams := new Array<Value>()
-        for p in m.parameters
-            dummyParams.append(new Dummy(p.type))
-        def existing := m.owner.symbolTable.getMethod(m.position, name, 
-                dummyParams, true)
-        if existing != null
-            return existing
-
+    @pre(m.returnType != VoidType.VOID)
+    method createShim(m:MethodNode):MethodNode {
+        def name := "shimmed"
         def position := new Position(m.position.compilationUnit, 
                 m.position.line, 
                 m.position.column + 1)
         def parameters := new Array<Parameter>()
         for i, p in m.parameters {
-            def newParam := new Parameter(position, "param\{i}", p.type)
+            def newParam := new Parameter(position, p.name, p.type)
             parameters.append(newParam)
         }          
-        def result := new MethodNode(position, SHIM_PREFIX + m.name, 
-                m.methodType, parameters)
+        def result := new MethodNode(position, name, m.methodType, parameters)
         result.annotations.isSynthetic := true
-        result.annotations.isClass := true
         result.returnType := ClassType.OBJECT()
         m.owner.add(result)
         m.owner.symbolTable.putMethod(result)
@@ -1803,19 +1802,362 @@ class ASTGenerator {
         for p in parameters
             callParams.append(new VariableReference(p))
         block.add(new Return(implicitCast(position,
-                call(position, m, false, callParams), ClassType.OBJECT())))
+                call(position, m, true, callParams), ClassType.OBJECT())))
         return result
     }
+
+    @private
+    function hasVariableNamed(list:Array<Variable>, name:String):Bit {
+        for v in list {
+            if v.name = name
+                return true
+        }
+        return false
+    }
+
+    ============================================================================
+    Recursively scans nodes in a closure, finding field references and "fixing"
+    them to ensure they are pointing to the right objects, as well as marking 
+    them $used so we can remove all unused captured fields. The fact that they
+    end up pointing to the wrong objects in the first place is due to the hacky
+    way closures are currently implemented; obviously it would be better to have
+    a real understanding of inner classes during compilation, but this was a lot
+    quicker.
+    ============================================================================
+    @private
+    method scanFieldReferences(node:Node) {
+        if node-?>(FieldReference) | node-?>(FieldAssignment) {
+            def field:FieldNode
+            var object:Node
+            if node-?>(FieldReference) {
+                field := node->(FieldReference).field
+                object := node->(FieldReference).object
+            }
+            else {
+                field := node->(FieldAssignment).fieldNode
+                object := node->(FieldAssignment).object
+            }
+            def cl := currentClass
+            assert cl != null
+            while object-?>(Cast) | object-?>(ReusedValue) {
+                if object-?>(Cast)
+                    object := object->(Cast).value
+                else
+                    object := object->(ReusedValue).value
+            }
+            if object-?>(VariableReference) & 
+                    object->(VariableReference).variable.name = Parameter.SELF_NAME &
+                    field.owner = cl.containingClass {
+                -- reference to the containing class. Eventually we'll have full 
+                -- support for inner classes and not require this extra cleanup 
+                -- here
+                def s := cl.symbolTable.getVariable("$" + Parameter.SELF_NAME)
+                assert s != null
+                def containingSelf := new FieldReference(node.position, 
+                        getSelf(), s->(FieldNode))
+                object.replace(containingSelf)
+            }
+            else {
+                if field.annotations.isClass {
+                    object.replace(new ClassLiteral(node.position, 
+                            field.owner.type()))
+                }
+                field.setProperty("$used", true)
+            }
+        }
+        for child in node.children
+            scanFieldReferences(child)
+    }
+
+    ============================================================================
+    Creates the mutable version of the closure on top of the stack, returning an
+    instance of it.
+    ============================================================================
+    @private
+    method createMutableClosure():ClassNode {
+        def closure := currentClass
+        assert closure != null
+        def mutable := new ClassNode(closure.position, "$mutableClosure" + 
+                nextCount(), SymbolTable.master)
+        mutable.supertype := ClassType.MUTABLE_METHOD()
+        mutable.state := ClassNodeState.DEFINED
+        nodeStack.push(mutable)
+        SymbolTable.master.putClass(mutable)
+
+        def immutableVersion := new FieldNode("immutableVersion", 
+                closure.type())
+        mutable.add(immutableVersion)
+        mutable.symbolTable.putVariable(immutableVersion)
+
+        def code := new MutableString("constructor(immutableVersion:\{closure.type().name}) {")
+        code.append("self.immutableVersion := immutableVersion")
+        code.append("}")
+        var dedup := 1
+        new ASTGenerator().compileMethod(mutable, code->>(String), 
+                new Position(mutable.position.compilationUnit, 
+                    mutable.position.line + dedup, 
+                    0))
+        dedup += 1
+
+        for m in closure.methods {
+            def copy := new MutableString()
+            if m.methodType = MethodNodeType.FUNCTION
+                copy.append("function ")
+            else if m.methodType = MethodNodeType.METHOD
+                copy.append("method ")
+            else
+                continue
+            copy.append("\{m.name}(")
+            for i, param in m.parameters {
+                if i = 0
+                    continue
+                if i > 1
+                    copy.append(", ")
+                copy.append("\{param.name}:\{param.type.name}")
+            }
+            copy.append(")")
+            if m.returnType != VoidType.VOID
+                copy.append(":" + m.returnType.name)
+            copy.append(" {\n")
+            if m.returnType != VoidType.VOID
+                copy.append("return ")
+            copy.append("immutableVersion.\{m.name}(")
+            for i, param in m.parameters {
+                if i = 0
+                    continue
+                if i > 1
+                    copy.append(", ")
+                copy.append("\{param.name}")
+            }
+            copy.append(")\n}")
+            new ASTGenerator().compileMethod(mutable, copy->>(String),
+                    new Position(mutable.position.compilationUnit, 
+                        mutable.position.line + dedup, 
+                        0))
+            dedup += 1
+        }
+        close(class(ClassNode))
+        return mutable
+    }
+    @post(nodeStack.length = @pre(nodeStack.length))
+
+    ============================================================================
+    Finishes processing a closure. Removes unused captures, creates a 
+    shim and a constructor, and returns an instance of the closure.
+    ============================================================================
+    @private
+    method finishClosure(position:Position, captures:Array<Variable>, 
+            outerSelf:Value?):Value {
+        def cm := currentMethod
+        assert cm != null
+        def cl := cm.owner
+        scanFieldReferences(cm.block)
+        def fields := new Array<FieldNode>()
+        for i in cl.children.length - 1 ... 0 by -1 {
+            def child := cl.children[i]
+            if child-?>(FieldNode) {
+                if child.getProperty("$used") = true {
+                    fields.append(child->(FieldNode))
+                    child.clearProperty("$used")
+                }
+                else
+                    child.removeFromParent()
+            }
+        }
+
+        def raw := cl.methods[cl.methods.length - 1]
+        assert raw.name = "raw"
+        if raw.returnType != VoidType.VOID
+            createShim(raw)
+
+        def code := new MutableString("constructor(")
+        for i, field in fields {
+            if i > 0
+                code.append(", ")
+            if field.name = Parameter.SELF_NAME
+                code.append("$")
+            code.append("\{field.name}:\{field.type.name}")
+        }
+        code.append(") {\n")
+        def immutable := cl.fields.filter(f => !f.type.isImmutable).length = 0
+        if immutable {
+            cl.supertype := getType(position, class(Method).name)->(ClassType)
+            def mutableVersion := createMutableClosure()
+            code.append("super.constructor(new \{mutableVersion.name}(self))\n")
+        }
+        else
+            cl.supertype := getType(position, class(MutableMethod).name)->(ClassType)
+        for field in fields {
+            var name := field.name
+            if name = Parameter.SELF_NAME
+                name := "$" + name
+            code.append("self.\{name} := \{name}\n")
+        }
+        code.append("}")
+        new ASTGenerator().compileMethod(cl, code->>(String), 
+                new Position(cl.position.compilationUnit, cl.position.line + 2, 
+                0))
+
+        cl.symbolTable.putMethod(cm)
+        def c := cl[cl.length - 1]->(MethodNode)
+        assert c->(MethodNode).methodType = MethodNodeType.CONSTRUCTOR
+        def params := new Array<Value>()
+        for i, p in c.parameters {
+            if i = 0
+                continue
+            if p.name = "$" + Parameter.SELF_NAME {
+                assert outerSelf != null
+                params.append(outerSelf)
+            }
+            else {
+                var found := false
+                for capture in captures {
+                    if capture.name = p.name {
+                        if capture-?>(FieldNode) {
+                            assert outerSelf != null
+                            params.append(new FieldReference(position, 
+                                    outerSelf, capture->(FieldNode)))
+                        }
+                        else
+                            params.append(new VariableReference(position,
+                                    capture))
+                        found := true
+                    }
+                }
+                assert found
+            }
+        }
+        close(class(MethodNode))
+        close(class(ClassNode))
+        cm.markLive()
+        def type := new MutableString("(")
+        for i, param in cm.parameters {
+            if i = 0
+                continue
+            if i > 1
+                type.append(",")
+            type.append(param.type.name)
+        }
+        type.append(")=")
+        if cm.methodType = MethodNodeType.METHOD
+            type.append("&")
+        type.append(">")
+        if immutable
+            type.append("*")
+        type.append("(")
+        if cm.returnType != VoidType.VOID
+            type.append(cm.returnType.name)
+        type.append(")")
+        def result := new Construct(position, c, params)
+        return new Cast(result, getType(position, type->>(String)), 
+                CastType.IMPLICIT)
+    }
+
+    ============================================================================
+    Sets up the stack to prepare for parsing a closure block. Creates a class,
+    method, etc.
+    ============================================================================
+    @private
+    method prepareForClosureBlock(position:Position, methodType:MethodNodeType,
+            parameterPrototypes:ParseNode, returnType:Type?):Array<Variable> {
+        def containing := currentClass
+        assert containing != null : "no containing class"
+
+        -- grab captured variables for closure
+        def captures := new Array<Variable>()
+        def parent := currentMethod
+        assert parent != null : "no parent method"
+        for v in parent.localVariables {
+            if v.annotations.isStatic & !hasVariableNamed(captures, v.name) {
+                -- we could have multiple variables with the same name in scope,
+                -- so grab from the symbol table to make sure we get the correct
+                -- one
+                def variable := currentBlock.symbolTable.getVariable(v.name)
+                if variable != null
+                    captures.append(variable)
+                -- else it isn't in scope at this point
+            }
+        }
+        for v in parent.parameters {
+            if v.annotations.isStatic & !hasVariableNamed(captures, v.name) {
+                -- we wouldn't have gotten here if there were any other 
+                -- variables with this name in scope, so we can skip the symbol
+                -- table lookup we perform above
+                captures.append(v)
+            }
+        }
+        for f in containing.fields {
+            if !f.annotations.isClass
+                captures.append(f)
+        }
+
+        def cl := new ClassNode(position, "$closure" + nextCount(),
+                containing.symbolTable)
+        cl.state := ClassNodeState.DEFINED
+        cl.containingClass := containing
+        nodeStack.push(cl)
+        SymbolTable.master.putClass(cl)
+        for capture in captures {
+            if capture-?>(FieldNode) {
+                cl.symbolTable.putVariable(capture)
+                continue
+            }
+            var name := capture.name
+            if name = Parameter.SELF_NAME
+                name := "$" + name
+            def field := new FieldNode(name, capture.type)
+            field.annotations.isStatic := true
+            cl.add(field)
+            cl.symbolTable.putVariable(field)
+        }
+        for m in containing.methods
+            cl.symbolTable.putMethod(m)
+
+        def cm := new MethodNode(position, "raw", methodType)
+        cl.add(cm)
+        cl.symbolTable.putMethod(cm)
+        nodeStack.push(cm)
+        def selfParam := new Parameter(position, Parameter.SELF_NAME, 
+                cl.type())
+        selfParam.annotations.isStatic := true
+        cm.parameters.append(selfParam)
+        cm.genericParameterTypes.append(cl.type())
+        convertParameterPrototypeList(parameterPrototypes)
+        if returnType != null {
+            cm.genericReturnType := returnType
+            cm.returnType := cm.genericReturnType.unwrapGenerics()
+        }
+        else {
+            if methodType = MethodNodeType.FUNCTION
+                error("functions must have a return type", position)
+            cm.returnType := VoidType.VOID
+        }
+        return captures
+    }
+
+    @pre(!linkageOnly)
+    method convertMethodValue(position:Position, methodType:MethodNodeType, 
+            parameterPrototypes:ParseNode, returnType:Type?, 
+            block:ParseNode):Value {
+        def parent := currentMethod
+        assert parent != null
+        def outerSelf:Value?
+        if !parent.annotations.isClass
+            outerSelf := getSelf()
+        else
+            outerSelf := null
+        def captures := prepareForClosureBlock(position, methodType, 
+                parameterPrototypes, returnType)
+        convertBlock(block)
+        def result := finishClosure(position, captures, outerSelf)
+        return result
+    }
+    @post(nodeStack.length = @pre(nodeStack.length))
 
     @pre(m.type = ParseNodeType.METHOD_VALUE)
     @pre(!linkageOnly)
     method convertMethodValue(m:ParseNode):Value {
-        var cl := currentClass
-        assert cl != null
-        var name := "$anonymous" + nextCount()
-        var annotations := new Annotations(m.position, [AnnotationType.CLASS,
-                AnnotationType.SYNTHETIC])
-        var methodType:MethodNodeType
+        def methodType:MethodNodeType
         switch m[0]->(TokenNode).token.type {
             case TokenType.METHOD: 
                     methodType := MethodNodeType.METHOD
@@ -1823,65 +2165,35 @@ class ASTGenerator {
                     methodType := MethodNodeType.FUNCTION
             default: throw new CompilerException("invalid methodValue " +
                     "methodType")
-        }
-        var cm := new MethodNode(m.position, name, methodType)
-        cl.add(cm)
-        nodeStack.push(cm)
-        cm.annotations := annotations
-        convertParameterPrototypeList(m[1])
-        var blockIndex := 2
-        if m[2].type = ParseNodeType.TYPE_DECLARATION {
-            cm.genericReturnType := convertType(m[2][1])
-            cm.returnType := cm.genericReturnType.unwrapGenerics()
-            blockIndex += 1
-        }
-        else {
-            if methodType = MethodNodeType.FUNCTION
-                error("functions must have a return type", m)
-            cm.returnType := VoidType.VOID
-        }
-        convertBlock(m[blockIndex])
-        assert cm.parent = cl
-        cl.symbolTable.putMethod(cm)
-        close(class(MethodNode))
-        cm.markLive()
-        return new MethodValue(m.position, cm, getShim(cm))
+        }        
+        def returnType:Type?
+        if m[2].type = ParseNodeType.TYPE_DECLARATION
+            returnType := convertType(m[2][1])
+        else
+            returnType := null
+        return convertMethodValue(m.position, methodType, m[1], returnType, 
+                m[m.length - 1])
     }
     @post(nodeStack.length = @pre(nodeStack.length))
 
+    ============================================================================
+    Given an unresolved lambda and concrete parameter / return types, 
+    instantiates the lambda with those types and returns a value representing
+    it.
+    ============================================================================
     @pre(lambda.parameterNames.length = types.length)
     method resolveLambda(lambda:UnresolvedLambda, 
-            types:Array<Type>, returnType:Type):MethodValue {
-        def cl := currentClass
-        assert cl != null
-        def name := "$anonymous" + nextCount()
-        def annotations := new Annotations(lambda.position, 
-                [AnnotationType.CLASS])
-        def cm := new MethodNode(lambda.expression.position, name, 
-                MethodNodeType.FUNCTION)
-        cl.add(cm)
-        nodeStack.push(cm)
-        cm.annotations := annotations
-        for i, p in lambda.parameterNames {
-            def parameter := new Parameter(p.position, p->>(String), types[i])
-            cm.parameters.append(parameter)
-            cm.genericParameterTypes.append(types[i])
+            types:Array<Type>, returnType:Type):Value {
+        def code := new MutableString("function(")
+        for i, name in lambda.parameterNames {
+            if i > 0
+                code.append(", ")
+            code.append("\{name}:\{types[i].name}")
         }
-        def symbolTable := new SymbolTable(cm, cl.symbolTable)
-        for param in cm.parameters
-            symbolTable.putVariable(param)
-        def block := new Block(lambda.expression.position, symbolTable)
-        open(block)
-        def exp := implicitCast(lambda.expression.position, 
-                convertExpression(lambda.expression), returnType)
-        block.add(new Return(exp.position, exp))
-        cm.returnType := returnType
-        close(class(Block))
-        assert cm.parent = cl
-        close(class(MethodNode))
-        cl.symbolTable.putMethod(cm)
-        cm.markLive()
-        return new MethodValue(exp.position, cm, getShim(cm))
+        code.append("):\{returnType.name} { return \{lambda.expression} }")
+        def node := new PandaParser().parseMethodValue(code->>(String), 
+                lambda.position)
+        return convertMethodValue(node)
     }
 
     @pre(l.type = ParseNodeType.LAMBDA)
@@ -3027,18 +3339,17 @@ class ASTGenerator {
     variadic or have convert parameters).
     ============================================================================
     @private
-    @pre(type.isMethod)
-    method prepareMethodParameters(position:Position, type:Type, 
-            params:Array<Value>) {
-        var parameterTypes := type.unwrapNullable->(MethodType).methodParameters
+    @pre(v.type.isMethod)
+    method prepareMethodParameters(v:Value, params:Array<Value>) {
+        var parameterTypes := v.type.unwrapNullable->(MethodType).methodParameters
         if parameterTypes.length != params.length {
-            var msg :=  "\{type.displayName} requires \{parameterTypes.length}"
+            var msg :=  "\{v.type.displayName} requires \{parameterTypes.length}"
             if parameterTypes.length = 1
                 msg += " parameter"
             else
                 msg += " parameters"
             msg += ", but found " + params.length
-            throw new CompilerException(msg, position)
+            throw new CompilerException(msg, v.position)
         }
         for i, param in params
             params[i] := implicitCast(param.position, param, parameterTypes[i])
@@ -3102,6 +3413,56 @@ class ASTGenerator {
         assert types[types.length - 1]->(TokenNode).token.type = 
                 TokenType.RPAREN
         return result
+    }
+
+    ============================================================================
+    Returns a value which refers to the given method.
+    ============================================================================
+    method methodReference(position:Position, m:MethodNode):Value {
+        -- Unfortunately we can't just use a straight pointer to the method,
+        -- because (for the sake of closures) method references take an 
+        -- additional parameter for the closure itself and the raw method won't
+        -- be expecting that. So for right now we just create a simple closure
+        -- which calls the method.
+        def parameters := new MutableString("(")
+        for i, param in m.parameters {
+            if i > 0
+                parameters.append(", ")
+            parameters.append("$\{param.name}:\{param.type.name}")
+        }
+        parameters.append(")")
+        def isClass := m.annotations.isClass | 
+                m.annotations.isWrapperMethod
+
+        def parent := currentMethod
+        assert parent != null
+        def outerSelf:Value?
+        if !parent.annotations.isClass
+            outerSelf := getSelf()
+        else
+            outerSelf := null
+        prepareForClosureBlock(position, m.methodType, 
+                new PandaParser().parseParameterPrototypeList(
+                    parameters->>(String), position),
+                m.returnType)
+        def cm := currentMethod
+        assert cm != null
+        def symbols := new SymbolTable(cm, cm.owner.symbolTable)
+        def params := new Array<Value>()
+        for i, param in cm.parameters {
+            symbols.putVariable(param)
+            if i != 0
+                params.append(new VariableReference(param))
+        }
+        def block := new Block(position, symbols)
+        open(block)
+        def invocation := call(position, m, true, params)
+        if m.returnType != VoidType.VOID
+            currentNode.add(new Return(invocation))
+        else
+            currentNode.add(new ValueStatement(invocation))
+        close(class(Block))
+        return finishClosure(position, [], outerSelf)
     }
 
     ============================================================================
@@ -3193,6 +3554,9 @@ class ASTGenerator {
                         if !slice {
                             assert left != null
                             if context.type.isArray {
+                                if context.type.isNullable
+                                    context := implicitCast(c.position, context,
+                                            context.type.unwrapNullable)
                                 context := new IndexValue(c.position, context, 
                                         implicitCast(c.position, left, 
                                             Type.INDEX_TYPE))
@@ -3320,8 +3684,7 @@ class ASTGenerator {
                                             "abstract", context.position)
                                 }
                                 found := true
-                                context := new MethodValue(context.position,
-                                        m, getShim(m))
+                                context := methodReference(context.position, m)
                             }
                         }
                         if !found {
@@ -3419,7 +3782,7 @@ class ASTGenerator {
                     if v.type.isMethod {
                         -- parentheses after a value of method type, need to
                         -- call the method
-                        prepareMethodParameters(v.position, v.type, params)
+                        prepareMethodParameters(v, params)
                         context := new DynamicCall(v.position, v, params)
                     }
                     else {
@@ -4748,6 +5111,7 @@ class ASTGenerator {
                     type := type->(WrapperType).primitiveVersion
                 var s := new Parameter(m.position, Parameter.SELF_NAME, 
                         type)
+                s.annotations.isStatic := true
                 cm.parameters.append(s)
                 cm.genericParameterTypes.append(type)
             }
@@ -4782,7 +5146,6 @@ class ASTGenerator {
             }
             assert cm != null: "method \{m} not found in \{cl}"
             checkMethodSignature(cm)
-            getShim(cm)
             for child in m.children {
                 if child.type = ParseNodeType.BLOCK {
                     convertBlock(child)
@@ -6113,7 +6476,8 @@ class ASTGenerator {
 
                         if immutable & !f.annotations.isClass & 
                                 !f.annotations.isThread &
-                                !f.type.isImmutable {
+                                !f.type.isImmutable &
+                                cl.name != class(Method).name {
                             PandaCompiler.reportError(
                                     "immutable class '\{cl.name}' has " +
                                     "mutable field '\{f.name}' " +

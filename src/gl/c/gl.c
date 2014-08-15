@@ -489,7 +489,8 @@ void panda$gl$Window$startRenderLoop(panda$gl$Window* self, void** m) {
     Real64 frameTicks = target;
     for (;;) {
         save(self->renderer);
-        ((void(*)(Real64)) ((panda$core$Method*) m)->rawPtr)(frameTicks);
+        ((void(*)(void*,Real64)) *(&((panda$core$Method*) m)->cl->vtable + 
+                panda$core$Method$$CNVpanda$core$MutableMethod_INDEX + 1))(m, frameTicks);
         restore(self->renderer);
         present(self->renderer);
         Real64 newTicks = SDL_GetTicks();
