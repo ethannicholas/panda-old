@@ -54,8 +54,8 @@ Scope
 -----
 
 Variables are visible only within the block or class in which they are declared.
-Panda does not have global variables; the highest variable scope in Panda is the 
-class. It is not legal to redefine a local variable from a scope in which it is
+Panda does not have global variables; the highest scope in Panda is the class. 
+It is not legal to redefine a local variable from a scope in which it is 
 visible.
 
 Assigning

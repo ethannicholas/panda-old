@@ -5,10 +5,10 @@ An *array* is a list of values. Arrays have [type](type.html)
 `panda.collections.Array<elementType>`, where `elementType` is the name of any
 Panda type. Example array types are:
 
-    * `Array<Int>` - array of `Int`s
-    * `Array<Int?>` - array of [nullable](nonNullability.html) `Int`s. 
-    * `Array<Int?>?` - nullable array of nullable `Int`s.
-    * `Array<Array<String>>` - array of arrays of `String`s
+* `Array<Int>` - array of `Int`s
+* `Array<Int?>` - array of [nullable](nonNullability.html) `Int`s. 
+* `Array<Int?>?` - nullable array of nullable `Int`s.
+* `Array<Array<String>>` - array of arrays of `String`s
 
 Creating Arrays
 ---------------

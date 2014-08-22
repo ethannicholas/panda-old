@@ -38,11 +38,20 @@ class PandaParser {
     var expectReturnValue:Bit
     
     ============================================================================
-    True if we are currently in a 'case' (causes us to treat ':' as ending the
-    case value rather than beginning a typeDeclaration for a lambda).
+    True if we are currently in a 'case' or 'assert' (causes us to treat ':' as 
+    ending the case / assert rather than beginning a typeDeclaration for a 
+    lambda).
+
+    Note that this is 100% ok in the case of 'case', but means that asserts may
+    run into parse errors when including single-parameter explicitly-typed 
+    lambdas. Including such a lambda in an assert is hopefully a 
+    vanishingly-rare case, and fortunately there's an easy workaround: just put 
+    parentheses around the parameter. I'd like to actually fix the parsing at
+    some point, but I will probably wait until somebody actually runs into this
+    in the wild.
     ============================================================================
     @private
-    var inCase:Bit
+    var suppressLambdas:Bit
     
     ============================================================================
     Loop labels we have encountered while parsing the current method.
@@ -1056,7 +1065,7 @@ class PandaParser {
                  TokenType.SELF,
                  TokenType.SUPER: { }
             case TokenType.IDENTIFIER: { 
-                if !inCase {
+                if !suppressLambdas {
                     -- check for a lambda
                     var p := peek().type
                     if p = TokenType.COLON | p = TokenType.YIELDS {
@@ -1568,7 +1577,9 @@ class PandaParser {
     method assertStatement() {
         open(ParseNodeType.ASSERT_STATEMENT)
         expect(TokenType.ASSERT, "'assert'")
+        suppressLambdas := true
         expression()
+        suppressLambdas := false
         if checkNext(TokenType.COLON) != null
             expression()
         close(ParseNodeType.ASSERT_STATEMENT)
@@ -1769,11 +1780,11 @@ class PandaParser {
     method switchCase() {
         open(ParseNodeType.SWITCH_CASE)
         expect(TokenType.CASE, "'case'")
-        inCase := true
+        suppressLambdas := true
         expression()
         while checkNext(TokenType.COMMA) != null
             expression()
-        inCase := false
+        suppressLambdas := false
         expect(TokenType.COLON, "':' after case value")
         statementOrBlock()
         close(ParseNodeType.SWITCH_CASE)
@@ -2111,9 +2122,9 @@ class PandaParser {
         var root := self.root
         assert root != null
         currentNode := root
-        inCase := true
+        suppressLambdas := true
         expression()
-        inCase := false
+        suppressLambdas := false
         assert root.length = 1
         def remaining := new MutableString()
         while pushbackBuffer.length > 0 {
@@ -2164,4 +2175,16 @@ class PandaParser {
         return root[0]
     }
 
+    @self
+    method parseTypes(s:String, start:Position):ParseNode {
+        lexer := new PandaLexer(s, start)
+        root := new ParseNode(ParseNodeType.ROOT)
+        var root := self.root
+        assert root != null
+        currentNode := root
+        types()
+        assert root.length = 1
+        checkEnd("types")
+        return root[0]
+    }
 }

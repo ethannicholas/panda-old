@@ -1,8 +1,11 @@
 package org.pandalanguage.pandac.pandadoc
 
-uses org.pandalanguage.pandac.analysis.SafetyChecker
-uses org.pandalanguage.pandac.analysis.XMLWRiter
 uses org.pandalanguage.pandac.compiler.CodeGenerator
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.parser.ParseNodeType
+uses org.pandalanguage.pandac.parser.TokenNode
+uses org.pandalanguage.pandac.parser.TokenType
+uses org.pandalanguage.pandac.transformers.SafetyChecker
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.ClassNode
@@ -11,17 +14,25 @@ uses org.pandalanguage.pandac.tree.ExpressionAnnotation
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
 
 class DocComment {
-    var summary:String
-    var longDescription:String
-    var params:Map := new HashMap()
+    def owner:Node
+    def summary:String
+    def longDescription:String
+    def params:Map := new HashMap()
+    def see := new Array<String>()
     var returnDoc:String?
     
-    constructor(rawText:String) {
+    constructor(owner:Node, rawText:String, engine:PandaDoc) {
+        self.owner := owner
         def text := rawText->>(MutableString)
         -- extract tags
         var start:Int? := 0
@@ -32,7 +43,7 @@ class DocComment {
             var end := nextTag(text->>(String), start + 1)
             if end = null
                 end := text.length
-            processTag(text[start .. end])
+            processTag(text[start .. end], engine)
             text.remove(start, end)
         }
         def dot := text.indexOf(".")
@@ -46,7 +57,24 @@ class DocComment {
         }
     }
     
-    method processTag(var tag:String) {
+    function nextTag(text:String, var start:Int):Int? {
+        var next:Int? := start
+        while next < text.length {
+            next := text.indexOf("@", start)
+            if next = null
+                break
+            if substringMatches(text, next, "@param ") |
+                    substringMatches(text, next, "@returns ") |
+                    substringMatches(text, next, "@see ") |
+                    substringMatches(text, next, "@copy ") {
+                return next
+            }
+            start := next + 1
+        }
+        return null
+    }
+
+    method processTag(var tag:String, engine:PandaDoc) {
         if tag.startsWith("@param ") {
             tag := tag["@param ".length..]
             def space := tag.indexOf(" ")
@@ -57,6 +85,10 @@ class DocComment {
         }
         else if tag.startsWith("@returns ")
             returnDoc := tag["@returns ".length..]
+        else if tag.startsWith("@see ") {
+            var link := tag["@see ".length..].trim
+            see.append(link)
+        }
     }
     
     function substringMatches(text:String, start:Int, 
@@ -64,31 +96,200 @@ class DocComment {
         return(text.length > start + search.length & 
                 text[start .. start + search.length] = search)
     }
-    
-    function nextTag(text:String, var start:Int):Int? {
-        var next:Int? := start
-        while next < text.length {
-            next := text.indexOf("@", start)
-            if next = null
-                break
-            if substringMatches(text, next, "@param ") |
-                    substringMatches(text, next, "@returns ") |
-                    substringMatches(text, next, "@copy ") {
-                return next
-            }
-            start := next + 1
-        }
-        return null
-    }
 }
 
 class PandaDoc : CodeGenerator {
-    var xml := new MarkdownXMLWriter(new MemoryOutputStream())
+    var xml := new MarkdownXMLWriter(new MemoryOutputStream()) -- dummy value
+
+    var currentPosition:Position := Position.INTERNAL
+
+    var currentClass:ClassNode?
 
     @private
-    method getComment(m:MethodNode):String? {
-        if m.doccomment != null
-            return m.doccomment
+    @unsafeFunction -- SymbolTable.getType() is a method, but it's ok here
+    function resolveType(name:String):Type {
+        def symbolTable := currentClass->(ClassNode).symbolTable
+        def result := symbolTable.getType(currentPosition, name)
+        if result-?>(UnresolvedType) {
+            throw new CompilerException("could not resolve link '\{name}'",
+                    currentPosition)
+        }
+        return result
+    }
+
+    @private
+    @unsafeFunction
+    function parseTypes(types:String):Array<Type> {
+        def result := new Array<Type>()
+        def nodes := new PandaParser().parseTypes(types, currentPosition)
+        assert nodes[0]->(TokenNode).token.type = TokenType.LPAREN
+        def cl := currentClass
+        assert cl != null
+        for i in 1 .. nodes.length - 1 by 2 {
+            assert nodes[i].type = ParseNodeType.TYPE
+            def type := cl.symbolTable.getType(currentPosition,
+                    nodes[i]->>(String))
+            if type-?>(UnresolvedType) {
+                throw new CompilerException(
+                        "could not resolve type '\{type.name}'", 
+                        currentPosition)
+            }
+            result.append(type)
+        }
+        assert nodes[nodes.length - 1]->(TokenNode).token.type = 
+                TokenType.RPAREN
+        return result
+    }
+
+    @private
+    function resolveField(context:ClassNode, name:String):FieldNode? {
+        for f in context.fields {
+            if f.name = name
+                return f
+        }
+        if context.superclass != null
+            return resolveField(context.superclass->(ClassNode), name)
+        return null
+    }
+
+    @private
+    function resolveMethod(context:ClassNode, name:String):MethodNode? {
+        var match:MethodNode? := null
+        def paren := name.indexOf("(")
+        if paren != null {
+            def methodName := name[0 .. paren]
+            def colon := name.indexOf(":", paren)
+            def typesString:String
+            def returnType:Type?
+            if colon != null {
+                typesString := name[paren .. colon]
+                returnType := resolveType(name[colon + 1..])
+            }
+            else {
+                typesString := name[paren..]
+                returnType := null
+            }
+            def types := parseTypes(typesString)
+            outer: for m in context.methods {
+                if m.name != methodName
+                    continue
+                def start:Int
+                if m.annotations.isClass
+                    start := 0
+                else
+                    start := 1
+                if types.length != m.parameters.length - start
+                    continue
+                for i, p in m.parameters {
+                    if i < start
+                        continue
+                    if p.type != types[i - start]
+                        continue outer
+                }
+                if returnType != null & m.returnType != returnType
+                    continue
+                match := m
+                break
+            }
+        }
+        else {
+            for m in context.methods {
+                if m.name = name {
+                    if match != null {
+                        throw new CompilerException("reference to " +
+                                "\{context.name}.\{name} is ambiguous, " +
+                                "specify parameters to disambiguate", 
+                                currentPosition)
+                    }
+                    match := m
+                }
+            }
+        }
+        if match != null
+            return match
+        if context.superclass != null
+            return resolveMethod(context.superclass->(ClassNode), name)
+        return null
+    }
+
+    @private
+    @unsafeFunction
+    function linkTo(cl:ClassNode):String {
+        def name := cl.type().displayName
+        return (name.split(".").length - 1) * "../" + name.replace(".", "/") +
+                ".html"
+    }
+
+    @private
+    @unsafeFunction
+    function linkTo(type:Type):String {
+        if type.isMethod
+            return linkTo(ClassType.METHOD())
+        else
+            return linkTo(type.classNode)
+    }
+
+    @private
+    function resolveLink(text:String):String {
+        def member := text.indexOf("::")
+        def classNode:ClassNode
+        def memberName:String
+        if member != null {
+            classNode := resolveType(text[0 .. member].trim()).classNode
+            memberName := text[member + 2..].trim()
+        }
+        else {
+            if !text.contains("(") {
+                try {
+                    return linkTo(resolveType(text))
+                }
+                catch e:Exception {
+                }
+            }
+            classNode := currentClass->(ClassNode)
+            memberName := text
+        }
+        if !memberName.contains("(") {
+            def fieldNode := resolveField(classNode, memberName)
+            if fieldNode != null
+                return linkTo(fieldNode.owner) + "#" + fieldNode.name
+        }
+        def methodNode := resolveMethod(classNode, memberName)
+        if methodNode = null {
+            throw new CompilerException("no match found for '\{memberName}' " +
+                    "in '\{classNode.name}'", currentPosition)
+        }
+        def result := new MutableString()
+        result.append(linkTo(methodNode.owner))
+        result.append("#")
+        result.append(methodNode.name)
+        result.append("(")
+        def start:Int
+        if methodNode.annotations.isClass
+            start := 0
+        else
+            start := 1
+        for i, p in methodNode.parameters {
+            if i < start
+                continue
+            if i > start
+                result.append(",")
+            result.append(p.type.displayName)
+        }
+        result.append(")")
+        if methodNode.returnType != VoidType.VOID {
+            result.append(":")
+            result.append(methodNode.returnType.displayName)
+        }
+        return result->>(String)
+    }
+
+    @private
+    method getComment(m:MethodNode):(String, MethodNode)? {
+        if m.doccomment != null {
+            currentPosition := m.position
+            return (m.doccomment->(String), m)
+        }
         if m.annotations.isOverride {
             def overridden := m.findOverriddenMethod()
             assert overridden != null: "could not find overridden method for " +
@@ -97,10 +298,32 @@ class PandaDoc : CodeGenerator {
         }
         return null
     }
+
+    @private
+    method remapParameters(d:DocComment, m:MethodNode) {
+        if d.owner = m
+            return
+        assert d.owner->(MethodNode).parameters.length = m.parameters.length
+        def remapped := new HashMap()
+        def unused := new HashMap(d.params)
+        for i, p in d.owner->(MethodNode).parameters {
+            remapped[m.parameters[i].name] := d.params[p.name]
+            unused.remove(p.name)
+        }
+        for (name, value) in unused.entries {
+            assert name != null
+            PandaCompiler.reportError("@param annotation for " +
+                    "'\{name}', but no parameter by that name", 
+                    d.owner.position)
+        }
+        d.params.clear()
+        d.params.addAll(remapped)
+    }
     
     method writeMethod(m:MethodNode) {
--*        def mdc := getComment(m)
-        if mdc != null & "@hidden" in mdc
+        currentPosition := m.position
+        def mdc := getComment(m)
+        if mdc != null & mdc[0].contains("@hidden")
             return
         var methodType:String
         switch m.methodType {
@@ -108,7 +331,7 @@ class PandaDoc : CodeGenerator {
             case MethodNodeType.FUNCTION: methodType := "function"
             case MethodNodeType.CONSTRUCTOR: methodType := "constructor"
             default: throw new CompilerException("unsupported method type: " +
-                    m.methodType)
+                    m.methodType, m.position)
         }
         xml.open(methodType)
         xml.open("annotations")
@@ -139,14 +362,18 @@ class PandaDoc : CodeGenerator {
             xml.textTag("name", m.name)
         var doccomment:DocComment?
         if mdc != null {
-            doccomment := new DocComment(mdc)
+            doccomment := new DocComment(mdc[1], mdc[0], self)
+            remapParameters(doccomment, m)
             xml.open("doc")
             xml.markdownTag("summary", doccomment.summary)
             xml.markdownTag("description", doccomment.longDescription)
             xml.close("doc")
         }
-        else
+        else {
             doccomment := null
+            PandaCompiler.reportWarning("no documentation for " + m, 
+                    currentPosition)
+        }
         if m.parameters.length > 0 {
             xml.open("params")
             for param in m.parameters {
@@ -154,38 +381,92 @@ class PandaDoc : CodeGenerator {
                     continue
                 xml.open("param")
                 xml.textTag("name", param.name)
-                xml.textTag("type", param.type.displayName)
+                xml.open("type")
+                xml.textTag("name", param.type.displayName)
+                xml.textTag("simpleName", param.type.simpleName)
+                xml.close("type")
                 if doccomment != null {
                     def desc := doccomment.params[param.name]
                     if desc != null
                         xml.markdownTag("description", desc->(String))
+                    else {
+                        PandaCompiler.reportWarning("method is missing " +
+                                "@param annotation for '\{param.name}'", 
+                                currentPosition)
+                    }
                 }
                 xml.close("param")
             }
             xml.close("params")
+            if doccomment != null {
+                outer: for (name, value) in doccomment.params.entries {
+                    assert name != null
+                    for p in m.parameters {
+                        if p.name = name 
+                            continue outer
+                    }
+                    PandaCompiler.reportError("@param annotation for " +
+                            "'\{name}', but no parameter by that name", 
+                            currentPosition)
+                }
+            }
         }
         if m.returnType != VoidType.VOID {
             xml.open("return")
-            xml.textTag("type", m.returnType.displayName)
+            xml.open("type")
+            xml.textTag("name", m.returnType.displayName)
+            xml.textTag("simpleName", m.returnType.simpleName)
+            xml.close("type")
             if doccomment != null {
                 def returnDoc := doccomment.returnDoc
                 if returnDoc != null
                     xml.markdownTag("description", returnDoc)
+                else {
+                    PandaCompiler.reportWarning("method is missing @returns " +
+                        "annotation", currentPosition)
+                }
             }
             xml.close("return")
         }
-        xml.close(methodType)*-
+        else if doccomment != null & doccomment.returnDoc != null {
+            PandaCompiler.reportError("method returns nothing but is " +
+                    "annotated with @returns", currentPosition)
+        }
+        if doccomment != null & doccomment.see.length > 0 {
+            xml.open("seeAlsos")
+            for link in doccomment.see {
+                def finalLink:String
+                if !link.startsWith("[") | !link.endsWith("]")
+                    finalLink := "[\{link}]"
+                else
+                    finalLink := link
+                xml.markdownTag("seeAlso", finalLink)
+            }
+            xml.close("seeAlsos")
+        }
+        xml.close(methodType)
     }
     
     method writeField(f:FieldNode) {
+        currentPosition := f.position
         def fdc := f.doccomment
         if fdc != null & fdc.contains("@hidden")
             return
         xml.open("field")
+        xml.open("annotations")
+        for ann in f.annotations.all {
+            def name := Annotations.annotationNames[ann]
+            if name != null
+                xml.textTag("annotation", name)
+        }
+        xml.close("annotations")
         xml.textTag("name", f.name)
-        xml.textTag("type", f.type.displayName)
+        xml.open("type")
+        xml.textTag("name", f.type.displayName)
+        xml.textTag("simpleName", f.type.simpleName)
+        xml.close("type")
         if fdc != null {
-            def doccomment := new DocComment(fdc)
+            def doccomment := new DocComment(f, fdc, self)
             xml.open("doc")
             xml.markdownTag("summary", doccomment.summary)
             xml.markdownTag("description", doccomment.longDescription)
@@ -195,8 +476,11 @@ class PandaDoc : CodeGenerator {
     }
     
     method processClass(cl:ClassNode) {
+        currentPosition := cl.position
+        currentClass := cl
         xml.open("class")
         xml.textTag("name", cl.type().displayName)
+        xml.textTag("simpleName", cl.type().simpleName)
         var ancestor := cl.superclass
         if ancestor != null {
             def ancestors := new Array<ClassNode>()
@@ -218,7 +502,7 @@ class PandaDoc : CodeGenerator {
         }
         def cldc := cl.doccomment
         if cldc != null {
-            def doccomment := new DocComment(cldc)
+            def doccomment := new DocComment(cl, cldc, self)
             xml.open("doc")
             xml.markdownTag("summary", doccomment.summary)
             xml.markdownTag("description", doccomment.longDescription)
@@ -246,12 +530,17 @@ class PandaDoc : CodeGenerator {
             Console.writeLine(outputDir + " is not a directory")
 
         def packages := new HashMap()
-        for cl in SymbolTable.master.classes {
+        -- FIXME oh god I can't wait for generics to be in
+        def classes := new Array<Object>(SymbolTable.master.classes, 0, 
+                SymbolTable.master.classes.length)
+        Panda.sort(classes, (x, y) => x->(ClassNode).name > y->(ClassNode).name)
+        for clObject in classes {
+            def cl := clObject->(ClassNode)
             def comment := cl.doccomment
             if comment != null & comment.contains("@hidden")
                 continue
             if cl.state = ClassNodeState.DEFINED & !cl.isArray() & 
-                    !cl.annotations.isPrivate() {
+                    !cl.annotations.isPrivate() & !cl.annotations.isSynthetic {
                 var packageList := packages[cl.packageName]->(Array<ClassNode>?)
                 if packageList = null {
                     packageList := new Array<ClassNode>()
@@ -262,7 +551,8 @@ class PandaDoc : CodeGenerator {
                 def target := outputDir.resolve(name.replace(".", "/") + 
                         ".xml")
                 target.parent()->(File).createDirectories()
-                xml := new MarkdownXMLWriter(target.openOutputStream())
+                xml := new MarkdownXMLWriter(target.openOutputStream(),
+                        s => resolveLink(s))
                 processClass(cl)
                 xml.close()
             }
@@ -270,10 +560,12 @@ class PandaDoc : CodeGenerator {
         def index := new XMLWriter(
                 outputDir.resolve("index.xml").openOutputStream())
         index.open("packages")
-        for (packageName, packageList) in packages.entries {
+        def packageNames:Array<Object> := new Array<Object>(packages.keys, 0,
+                packages.keys.length)
+        Panda.sort(packageNames, (x, y) => x->(String) > y->(String))
+        for packageName in packageNames {
+            def packageList := packages[packageName]
             index.open("package")
-            if packageName = null
-                packageName := ""
             index.textTag("name", packageName->(String))
             index.open("classes")
             for cl in packageList->(Array<ClassNode>) {

@@ -5,7 +5,7 @@ Panda supports first-class immutable types. All immutable types descend from the
 class [`panda.core.Immutable`](api/panda/core/Immutable.html); by subclassing 
 `Immutable`, you impose some restrictions on your class:
 
-* All fields are automatically [`@static`](annotations.html#static)
+* All fields must be [defines](defines.html) rather than variables
 * All fields must themselves be immutable types
 
 These restrictions combine to ensure that it is not possible to modify data in

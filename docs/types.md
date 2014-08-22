@@ -123,6 +123,9 @@ The first parameter type (`Foo`) is the implicit `self` parameter, because
 `writeAll` is an instance method in the class `Foo`, and the second parameter is
 a `ListView` containing all of the variadic parameters.
 
+**IMPLEMENTATION NOTE:** ListView isn't implemented yet, as it's blocked on
+generics. Right this second variadics are actually an Array.
+
 Because inline methods and lambdas can capture values, and those values can 
 potentially be mutable, methods can end up being either mutable or immutable. 
 The types described above are mutable, permitting both immutable and mutable 
@@ -133,9 +136,6 @@ values only, add an asterisk (`*`) after the arrow:
     ()=&>(Int) -- mutable method
     ()=>*(Int) -- immutable function
     ()=&>*(Int) -- immutable method
-
-IMPLEMENTATION NOTE: Methods can't actually capture values yet; closures aren't
-implemented at the moment, but it won't be long.
 
 Tuple Types
 -----------

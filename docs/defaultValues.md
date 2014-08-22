@@ -14,4 +14,5 @@ have a default value; you may not read such fields before they are assigned.
 
 [Arrays](arrays.html) created with a specified size will be filled with the
 default value for their type. Arrays for types without default values do not
-possess a constructor which allows you to specify a size.
+possess a constructor which allows you to specify a size and may not have their
+length increased by assignment to the `length` property.

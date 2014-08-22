@@ -203,7 +203,7 @@ them in later.
 
 *Operator overloading? Ewwwww!*
 
-That's... not a question. But I'll do my best to answer it anyway. Operator
+That's... not a question. But I'll do my best to answer it anyway! Operator
 overloading generally has a bad reputation, caused in no small part by the
 excesses of C++. While I freely admit that operator overloading is prone to
 abuse, it's worth noting that the alternative is not all sunshine and roses,
@@ -245,7 +245,7 @@ I'll address these in turn.
    operators (indexed, slice, and field assignment), Panda's operators must be
    functions and therefore may not have side effects. Furthermore, the 
    assignment operators must be defined as [`@self`](annotations.html#self), so
-   they are not allowed to alter anything but themselves.
+   they are not allowed to alter anything but the object being assigned to.
 3. True, but you can also define a function named `multiply()` which actually
    divides. We allow programmers to define names for their functions, trusting
    them to not do stupid things like naming them counter to what they actually
@@ -258,7 +258,7 @@ I'll address these in turn.
    example (the Panda core libraries are very conservative in how they use 
    operators), second by preventing side effects on operators that aren't 
    supposed to have them (the stream insertion / extraction example from C++ 
-   isn't even possible in Panda), and third by giving each operator a standard 
+   isn't even *possible* in Panda), and third by giving each operator a standard 
    name which is used in all automatically-generated documentation, to hopefully 
    remind people that they have done something awful by repurposing an existing 
    operator to do something other than its name would indicate.
@@ -301,7 +301,7 @@ promulgate a mistake just because it happens to be popular. As far as I'm
 concerned, C and Java do it the wrong way around.
 
 There was, of course, another option: there's no reason these operators need to
-be different at all. In Panda, unlike in C, the presence of an actual boolean
+be different at all!` In Panda, unlike in C, the presence of an actual boolean
 type means that we could use the same symbol for both logical and bitwise
 operators. But logical OR and AND, in particular, have very different semantics
 than bitwise OR and AND (boolean short-circuiting), and the two sets of 

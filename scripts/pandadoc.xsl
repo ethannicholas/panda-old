@@ -70,6 +70,32 @@
         </xsl:call-template>
     </xsl:template>
 
+    <xsl:template name="packageName">
+        <xsl:param name="name"/>
+        <xsl:if test="contains($name, '.')">
+            <xsl:value-of select="substring-before($name, '.')"/>
+            <xsl:if test="contains(substring-after($name, '.'), '.')">
+                <xsl:text>.</xsl:text>
+                <xsl:call-template name="packageName">
+                    <xsl:with-param name="name" 
+                            select="substring-after($name, '.')"/>
+                </xsl:call-template>
+            </xsl:if>
+        </xsl:if>
+    </xsl:template>
+
+    <xsl:template name="baseName">
+        <xsl:param name="name"/>
+        <xsl:choose>
+            <xsl:when test="contains($name, '&lt;')">
+                <xsl:value-of select="substring-before($name, '&lt;')"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="$name"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
     <xsl:template match="classes">
         <html>
             <head>
@@ -110,39 +136,59 @@
             </head>
             <body>
                 <div class="main">
-                    <xsl:apply-templates select="name"/>
+                    <xsl:apply-templates select="." mode="header"/>
                     <xsl:apply-templates select="ancestors"/>
                     <xsl:apply-templates select="doc/description"/>
                     
+                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                        <h2>Constant Summary</h2>
+                        <dl class="summary">
+                            <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) > 0]" mode="summary"/>
+                        </dl>
+                    </xsl:if>
+                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                        <h2>Class Method Summary</h2>
+                        <dl class="summary">
+                            <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) > 0]" mode="summary"/>
+                        </dl>
+                    </xsl:if>
                     <xsl:if test="count(constructor) > 0">
                         <h2>Constructor Summary</h2>
                         <dl class="summary">
                             <xsl:apply-templates select="constructor" mode="summary"/>
                         </dl>
                     </xsl:if>
-                    <xsl:if test="count(field) > 0">
+                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) = 0]) > 0">
                         <h2>Field Summary</h2>
                         <dl class="summary">
-                            <xsl:apply-templates select="field" mode="summary"/>
+                            <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
                         </dl>
                     </xsl:if>
-                    <xsl:if test="count(method|function) > 0">
-                        <h2>Method Summary</h2>
+                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) = 0]) > 0">
+                        <h2>Instance Method Summary</h2>
                         <dl class="summary">
-                            <xsl:apply-templates select="method|function" mode="summary"/>
+                            <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
                         </dl>
+                    </xsl:if>
+                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                        <h2>Constants</h2>
+                        <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) > 0]"/>
                     </xsl:if>
                     <xsl:if test="count(constructor) > 0">
                         <h2>Constructors</h2>
                         <xsl:apply-templates select="constructor"/>
                     </xsl:if>
-                    <xsl:if test="count(field) > 0">
+                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) = 0]) > 0">
                         <h2>Fields</h2>
-                        <xsl:apply-templates select="field"/>
+                        <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) = 0]"/>
                     </xsl:if>
-                    <xsl:if test="count(method|function) > 0">
-                        <h2>Methods</h2>
-                        <xsl:apply-templates select="method|function"/>
+                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                        <h2>Class Methods</h2>
+                        <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) > 0]"/>
+                    </xsl:if>
+                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) = 0]) > 0">
+                        <h2>Instance Methods</h2>
+                        <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) = 0]"/>
                     </xsl:if>
                 </div>
             </body>
@@ -153,14 +199,30 @@
         <title>Class <xsl:apply-templates/></title>
     </xsl:template>
     
-    <xsl:template match="class/name">
-        <h1>Class <xsl:apply-templates/></h1>
+    <xsl:template match="class" mode="header">
+        <xsl:variable name="package">
+            <xsl:call-template name="packageName">
+                <xsl:with-param name="name" select="name"/>
+            </xsl:call-template>
+        </xsl:variable>
+        <xsl:if test="$package != ''">
+            <strong>
+                <xsl:text>Package </xsl:text>
+                <xsl:value-of select="$package"/>
+            </strong>
+        </xsl:if>
+        <h1>
+            <xsl:text>Class </xsl:text>
+            <xsl:value-of select="simpleName"/>
+        </h1>
     </xsl:template>
     
     <xsl:template match="field" mode="summary">
         <dt>
             <a href="#{name}">
                 <b><xsl:apply-templates select="name"/></b>
+                <xsl:text>:</xsl:text>
+                <xsl:apply-templates select="type" mode="simple"/>
             </a>
         </dt>
         <dd>
@@ -170,16 +232,27 @@
 
     <xsl:template match="field">
         <div class="field">
-            <h3>
-                <a name="{name}"/>
-                <xsl:apply-templates select="name"/>
-            </h3>
-            var <b><xsl:apply-templates select="name"/></b>
-            <xsl:text>:</xsl:text>
-            <xsl:apply-templates select="type"/>
-            <blockquote>
+            <div class="fieldHeader">
+                <xsl:apply-templates select="annotations"/>
+                <a name="{name}" />
+                <xsl:choose>
+                    <xsl:when test="annotations/annotation[text()='@class']">
+                        <xsl:text>constant </xsl:text>
+                    </xsl:when>
+                    <xsl:when test="annotations/annotation[text()='@static']">
+                        <xsl:text>def </xsl:text>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <xsl:text>var </xsl:text>
+                    </xsl:otherwise>
+                </xsl:choose>
+                <b><xsl:apply-templates select="name"/></b>
+                <xsl:text>:</xsl:text>
+                <xsl:apply-templates select="type"/>
+            </div>
+            <div class="fieldBody">
                 <xsl:apply-templates select="doc/description"/>
-            </blockquote>
+            </div>
         </div>
     </xsl:template>
 
@@ -189,7 +262,7 @@
     
     <xsl:template name="hint">
         <xsl:param name="operator"/>
-        -- <xsl:value-of select="$operator"/> --
+        -- <xsl:value-of select="$operator"/> --<br/>
     </xsl:template>
     
     <xsl:template match="name" mode="hint">
@@ -300,7 +373,7 @@
                         <xsl:text>conversion from </xsl:text>
                         <xsl:choose>
                             <xsl:when test="count(../params/param) = 1">
-                                <xsl:value-of select="../params/param/type"/>
+                                <xsl:value-of select="../params/param/type/simpleName"/>
                             </xsl:when>
                             <xsl:otherwise>
                                 <xsl:value-of select="../../name"/>
@@ -330,9 +403,9 @@
                             <xsl:text>#</xsl:text>
                             <xsl:apply-templates select="name"/>
                             <xsl:text>(</xsl:text>
-                            <xsl:apply-templates select="params/param"/>
+                            <xsl:apply-templates select="params/param" mode="link"/>
                             <xsl:text>)</xsl:text>
-                            <xsl:apply-templates select="return"/>
+                            <xsl:apply-templates select="return" mode="link"/>
                         </xsl:attribute>
                         <xsl:apply-templates select="name"/>
                     </a>
@@ -353,16 +426,16 @@
             <xsl:attribute name="name">
                 <xsl:apply-templates select="name"/>
                 <xsl:text>(</xsl:text>
-                <xsl:apply-templates select="params/param"/>
+                <xsl:apply-templates select="params/param" mode="link"/>
                 <xsl:text>)</xsl:text>
-                <xsl:apply-templates select="return"/>
+                <xsl:apply-templates select="return" mode="link"/>
             </xsl:attribute>
         </a>
         <div class="method">
             <div class="methodHeader">
                 <code>
-                    <xsl:apply-templates select="annotations"/>
                     <xsl:apply-templates select="name" mode="hint"/>
+                    <xsl:apply-templates select="annotations"/>
                     <table cellspacing="0" cellpadding="0" border="0">
                         <tr>
                             <td valign="top" nowrap="nowrap">
@@ -385,7 +458,7 @@
                                 <xsl:text>(</xsl:text>
                                 <xsl:if test="count(params/param) > 0">
                                     <xsl:apply-templates select="params/param" mode="table"/>
-                                    <xsl:if test="return/type != 'void'">
+                                    <xsl:if test="return/type/name != 'void'">
                                         <br/>
                                     </xsl:if>
                                 </xsl:if>
@@ -403,6 +476,7 @@
                     <xsl:apply-templates select="annotations" mode="pre"/>
                     <xsl:apply-templates select="return/description"/>
                     <xsl:apply-templates select="annotations" mode="post"/>
+                    <xsl:apply-templates select="seeAlsos"/>
                 </div>
             </div>
         </div>
@@ -414,7 +488,14 @@
         </xsl:if>
         <xsl:apply-templates select="name"/>
         <xsl:text>:</xsl:text>
-        <xsl:apply-templates select="type"/>
+        <xsl:apply-templates select="type" mode="simple"/>
+    </xsl:template>
+    
+    <xsl:template match="param" mode="link">
+        <xsl:if test="position() > 1">
+            <xsl:text>,</xsl:text>
+        </xsl:if>
+        <xsl:apply-templates select="type" mode="link"/>
     </xsl:template>
     
     <xsl:template match="param" mode="table">
@@ -451,7 +532,7 @@
     </xsl:template>
 
     <xsl:template match="annotation">
-        <xsl:if test="text() != '@external'">
+        <xsl:if test="text() != '@external' and text() != '@math(overflow)'">
             <xsl:apply-templates/>
             <br/>
         </xsl:if>
@@ -482,7 +563,14 @@
     <xsl:template match="return">
         <xsl:if test="type != 'void'">
             <xsl:text>:</xsl:text>
-            <xsl:apply-templates select="type"/>
+            <xsl:apply-templates select="type" mode="simple"/>
+        </xsl:if>
+    </xsl:template>
+    
+    <xsl:template match="return" mode="link">
+        <xsl:if test="type != 'void'">
+            <xsl:text>:</xsl:text>
+            <xsl:apply-templates select="type" mode="link"/>
         </xsl:if>
     </xsl:template>
     
@@ -505,10 +593,14 @@
             <xsl:with-param name="count" select="$baseDepth"/>
         </xsl:call-template>
         <xsl:variable name="typeName">
-            <xsl:call-template name="replaceString">
-                <xsl:with-param name="haystack" select="text()"/>
-                <xsl:with-param name="needle" select="'?'"/>
-                <xsl:with-param name="replacement" select="''"/>
+            <xsl:call-template name="baseName">
+                <xsl:with-param name="name">
+                    <xsl:call-template name="replaceString">
+                        <xsl:with-param name="haystack" select="name"/>
+                        <xsl:with-param name="needle" select="'?'"/>
+                        <xsl:with-param name="replacement" select="''"/>
+                    </xsl:call-template>
+                </xsl:with-param>
             </xsl:call-template>
         </xsl:variable>
         <xsl:call-template name="replaceString">
@@ -523,9 +615,36 @@
         <xsl:variable name="href">
             <xsl:apply-templates select="." mode="href"/>
         </xsl:variable>
-        <a href="{$href}"><xsl:apply-templates/></a>
+        <a href="{$href}">
+            <xsl:apply-templates select="simpleName"/>
+        </a>
     </xsl:template>
     
+    <xsl:template match="type" mode="link">
+        <xsl:apply-templates select="name"/>
+    </xsl:template>
+
+    <xsl:template match="type" mode="simple">
+        <xsl:variable name="href">
+            <xsl:apply-templates select="." mode="href"/>
+        </xsl:variable>
+        <a href="{$href}">
+            <xsl:apply-templates select="simpleName"/>
+        </a>
+    </xsl:template>
+
+    <xsl:template match="seeAlsos">
+        <dl>
+            <dt><b>See also:</b></dt>
+            <dd><xsl:apply-templates/></dd>
+        </dl>
+    </xsl:template>
+    
+    <xsl:template match="seeAlso">
+        <xsl:apply-templates/>
+        <br/>
+    </xsl:template>
+
     <xsl:template match="node()|@*">
         <xsl:copy>
             <xsl:apply-templates select="node()|@*"/>

@@ -3,7 +3,7 @@ package panda.threads
 ================================================================================
 Represents a thread of execution within a program. Each program begins with a
 single thread, and may create more. By default, any living threads prevent a 
-program from exiting, even if its `main()` method ends. The `preventsExit` flag
+program from exiting, even if its `main()` method ends. The [preventsExit] flag
 may be toggled to change this behavior.
 
 As Panda has neither global nor class-level variables, threads do not (usually)
@@ -12,27 +12,25 @@ there is no need for mutexes, semaphores, or other common thread synchronization
 constructs; mutable objects are only accessible from a single thread and there
 is therefore no contention. 
 
-Threads communicate with each other using `MessageQueue` objects, which normally
-only permit `Immutable` objects to be sent. Mutable objects may be sent, but at
+Threads communicate with each other using [MessageQueue] objects, which normally
+only permit [Immutable] objects to be sent. Mutable objects may be sent, but at
 the cost of terminating the calling thread.
 
 In situations where it really is necessary to have multiple threads access
-potentially-shared mutable objects, the @link(MessageQueue.postUnsafe(Object?))
+potentially-shared mutable objects, the [postUnsafe](MessageQueue::postUnsafe)
 method exists. This allows you to pass mutable objects between threads without
 terminating the calling thread. If the object (including any other mutable 
 objects it directly or indirectly points to) is truly 'handed off' and no longer 
 accessed by the sending thread, no danger exists. If the sending thread 
-continues to access the sent object, @link(Lock) must be used to synchronize
-access to the shared object.
+continues to access the sent object, [Lock] must be used to synchronize access 
+to the shared object.
 ================================================================================
-class Thread {
+class Thread : Immutable {
     @private
-    var id:Int
+    def id:Int
 
     ============================================================================
-    A per-thread MessageQueue which may be used for any purpose, but is
-    especially useful as a `replyTo` queue when posting messages to a
-    `MessageQueue`.
+    A per-thread MessageQueue which may be used for any purpose.
     ============================================================================
     def queue := new MessageQueue()
 
@@ -40,11 +38,10 @@ class Thread {
     `true` if this thread will prevent the program from exiting. The program 
     exits when there are zero `preventsExit` threads remaining.
     ============================================================================
-    @readonly
-    var preventsExit := true
+    def preventsExit := true
     
     @private
-    var threadLocals:$NativePointer
+    def threadLocals:$NativePointer
     
     ============================================================================
     A collection of immutable objects which may be accessed from anywhere in the
@@ -52,12 +49,17 @@ class Thread {
     The default thread context is empty.
     ============================================================================
     @thread
-    @readonly
-    var context:HashMap := new HashMap()
+    def context:HashMap := new HashMap()
 
     @private
-    var threadEntry:()=&>*()
+    def threadEntry:()=&>*()
 
+    ============================================================================
+    Creates a new thread which will execute its [run()] method when [start()] is
+    called. As the default `run()` method does not do anything, this is only
+    useful for subclasses of `Thread` which override the `run()` method.
+    ============================================================================
+    @protected
     constructor() {
         constructor(method() {
         })
@@ -70,8 +72,12 @@ class Thread {
 
     ============================================================================
     The thread entry method that is called when the thread starts up. This 
-    method is called automatically by `start()`; you should not call it 
+    method is called automatically by [start()]; you should not call it 
     manually.
+
+    The default implementation does nothing.
+
+    @see start()
     ============================================================================
     @protected
     method run() {
@@ -92,8 +98,10 @@ class Thread {
     }
     
     ============================================================================
-    Starts the thread, calling its `run()` method. The new thread's context will 
-    contain all `Immutable` objects from the current thread's context.
+    Starts the thread, calling its [run()] method. The new thread's context will 
+    contain all [Immutable] objects from the current thread's context.
+
+    @see run()
     ============================================================================
     @static
     method start() {
@@ -106,11 +114,11 @@ class Thread {
     }
 
     ============================================================================
-    Starts the thread with a new context, calling its `run()` method. The new
-    thread's context (available from the `Thread.context` field) will be a union 
-    of the current thread's context and the specified `context` map.
+    Starts the thread with a new context, calling its [run()] method. The new
+    thread's context (available from the [context] field) will be a union of the
+    current thread's context and the specified `newContext` map.
     
-    @param context the new thread's context
+    @param newContext the new thread's context
     ============================================================================
     @static
     -- FIXME take a Map instead
@@ -133,7 +141,18 @@ class Thread {
     function currentThread():Thread
 
     ============================================================================
-    Creates and starts a new thread which executes the specified method.
+    Creates and starts a new thread which executes the specified method. For
+    example, to create a new thread which continually displays a message to the 
+    console:
+
+        Thread.start(method() {
+            loop {
+                Console.writeLine("Hi, I'm a thread!")
+            }
+        })
+
+    @param run the run method to execute
+    @returns the newly created thread
     ============================================================================
     @class
     method start(run:()=&>*()):Thread {
@@ -147,8 +166,10 @@ class Thread {
     the current system. This will generally be (but is not necessarily) the
     number of available processor cores.
 
-    IMPLEMENTATION NOTE: this is not currently implemented and is just hardcoded
-    to return 4.
+    **IMPLEMENTATION NOTE:** this is not currently implemented and is just 
+    hardcoded to return 4.
+
+    @returns the preferred number of executing threads
     ============================================================================
     @class
     function preferredThreadCount():Int {

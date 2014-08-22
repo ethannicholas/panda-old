@@ -50,16 +50,16 @@ reference to the addition operator defined in the `Int` class:
 
 This displays `29`. The built-in operators defined on the numeric classes are
 particularly useful in combination with `ListView` functions such as `map`, 
-`fold`, and `zip`:
+`fold`, and `combine`:
 
     Console.writeLine((2 ... 10).fold(Int::*))
 
 This combines the numbers 2 through 10 using the `Int::*` function; in other
 words, it computes the factorial of 10. To add two arrays of numbers together,
-we can `zip` using the `Int::+` operator:
+we can `combine` using the `Int::+` operator:
 
     def list1 := [37, 12, -5]
     def list2 := [8, 9, 14]
-    Console.writeLine(list1.zip(list2, Int::+))
+    Console.writeLine(list1.combine(list2, Int::+))
 
 This displays `[45, 21, 9]`.

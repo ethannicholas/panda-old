@@ -73,8 +73,8 @@ then be freely modified:
         }
     }
 
-Variable method parameters are ordinary local variables, and reassigning the
-variable does not affect anything outside of the method itself.
+Variable method parameters are treated as ordinary local variables, and 
+reassigning the variable does not affect anything outside of the method itself.
 
 <a name="convertParameters"></a>
 Convert Parameters

@@ -49,8 +49,7 @@ You'd like to get the next widget and process it. So you write:
 
 `processWidget(getNextWidget())`
 
-Result: `cannot use possibly-null value (getNextWidget()) as non-nullable type 
-Widget`
+Result: `cannot use possibly-null value as non-nullable type Widget`
 
 This doesn't compile! `getNextWidget()` might have returned a `null`, and
 `processWidget()` doesn't allow `null`. We can solve this by proving to the 
@@ -99,12 +98,10 @@ handle this is to `assert` that the value is non-`null`:
 It probably is not surprising that this code compiles fine when assertions are 
 enabled. We clearly can't reach the `processWidget(widget)` statement with a 
 `null` widget. It may be a bit more surprising that this code still compiles 
-when assertions are disabled. This is because assertions should only be turned 
-off for production code, and disabling assertions reflects your confidence that 
-no assertion failures will actually occur. You are, in effect, asking the 
-compiler to trust you that these checks aren't necessary and will all succeed. 
-Given the assumption that this assertion will succeed, the 
-`processWidget(widget)` compiles without error.
+when assertions are disabled. As any code that would fail an assertion or 
+otherwise generate a safety error is allowed to invoke undefined behavior when
+safety checks are disabled, the compiler can simply assume that all assertions
+pass when safety checks are off.
 
 In addition to proving that the value is non-`null`, or asserting that the value
 is non-`null`, you may simply [cast](operators.html#cast) the nullable type to 

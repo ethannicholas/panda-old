@@ -57,19 +57,16 @@ Shift
 -----
 
 * `<<` (shift left): `5 << 2` is `20`
-* `>>` (arithmetic shift right): `-20 >> 2` is `-5`
-* `>>>` (logical shift right): `-20 >>> 2` is `0b00111111111111111111111111111011`
+* `>>` (shift right): `-20 >> 2` is `-5`
 
 The *shift left* operator shifts the bits in a [number](basicTypes.html#numbers) 
 to the left, inserting zero bits on the right. Left shifting by `n` bits is 
 equivalent to multiplying by `2^n` with no overflow checking.
 
-The right shift operators shift the bits in a number to the right, differing in
-how the sign bit is handled. The *arithmetic shift right* operator extends the
-sign bit, so that a negative number remains negative after being shifted. The 
-*logical shift right* operator shifts in zeroes, so negative numbers will become 
-positive after being shifted one or more bits. Both arithmetic and logical shift 
-right will behave identically for positive numbers.
+The *shift right* operator shifts the bits in a number to the right. For 
+unsigned types zero bits are inserted on the left, and for signed types copies
+of the sign bit are inserted on the left. Right shifting by `n` bits is 
+equivalent to dividing by `2^n`.
 
 <a name="comparison"></a>
 Comparison
@@ -102,16 +99,27 @@ The `new MutableString() == new MutableString()` returns `false` because two
 distinct `MutableString` objects are being created. They are `equal`, because
 they contain the same (zero-length) sequence of characters, but they are not
 `identical`, because they are two distinct objects. Identity is a seldom-used
-operation; you will very likely almost always want to compare objects for 
-equality rather than for identity.
+operation; you will almost always want to compare objects for equality rather 
+than for identity.
 
 The identity / not identity operators are not allowed to operate on 
-[value](value.html) objects. The identity of vale objects is not guaranteed; the 
-compiler may choose to fold equal instances into a single instance, and 
+[value](value.html) objects. The identity of value objects is not guaranteed; 
+the compiler may choose to fold equal instances into a single instance, and 
 depending on the identity of value objects is therefore always dangerous. 
 Furthermore, the compiler is permitted to compile value objects in such a way
 that they do not even *have* an identity, rendering an expression like `5 == 5` 
-meaningless.
+meaningless. 
+
+If you "trick" the compiler into comparing the identity of two `Value` objects, 
+for instance:
+
+    def a:Object := 5
+    def b:Object := 5
+    Console.writeLine(a == b)
+
+the result is undefined. It may be either `true` or `false`, may change with
+compiler settings or environment, and may change from version to version of
+Panda.
 
 The *instance of* and *not instance of* operators check to see whether an object
 (or `null`) is a member of a given type. The value `"hello"` is indeed an 
@@ -138,8 +146,8 @@ logical operators require [`Bit`](basicTypes.html#Bit) operands and produce a
 The *logical and* and *logical or* operators are `short-circuiting`: that is, 
 they do not evaluate the right-hand operand unless they need to. If the 
 left-hand operand of a logical and is `false`, then the result of the logical 
-and is `false` no matter what the right-hand operand evaluates to, and the so 
-the right-hand operand is not evaluated. Likewise, if the left-hand operand of a 
+and is `false` no matter what the right-hand operand evaluates to, and so the 
+right-hand operand is not evaluated. Likewise, if the left-hand operand of a 
 logical or is `true`, then the result of the logical or is `true` no matter what 
 the right-hand operand evaluates to, and so the right-hand operand is not 
 evaluated.
@@ -248,16 +256,18 @@ array.
 Slice
 -----
 
-* '[..]' (slice): `a[4..13]`, `a[0.. by 3]`
-* `[..]:=` (slice assignment): `a[4 .. 13] := [1, 2, 3]`, `a[.. by 2] := values`
+* '[..]' (exclusive slice): `a[4 .. 13]`, `a[0.. by 3]`
+* `[..]:=` (exclusive slice assignment): `a[4 .. 13] := [1, 2, 3]`, `a[.. by 2] := values`
+* '[..]' (exclusive slice): `a[4 ... 13]`, `a[0 ... 5 by 3]`
+* `[..]:=` (exclusive slice assignment): `a[4 ... 13] := [1, 2, 3]`, `a[... by 2] := values`
 
 The *slice* operator returns a subrange of a list. Slice takes two indices, both
 of which are optional, and returns the subrange from the first index (inclusive)
-to the second index (exclusive). By default, every value between the start index 
-(inclusive) and end index (exclusive) is included in the resulting list. An 
-optional *step* value may be introduced with the `by` keyword, which causes 
-elements to be skipped over; for instance `by 2` takes every other element and 
-`by 3` takes every third element.
+to the second index (inclusive for '`...`', exclusive for '`..`'). By default, 
+every value between the start index (inclusive) and end index (inclusive / 
+exclusive) is included in the resulting list. An optional *step* value may be 
+introduced with the `by` keyword, which causes elements to be skipped over; for
+instance `by 2` takes every other element and `by 3` takes every third element.
 
 If the first index is omitted, it is treated as `0` (if the step is positive) or 
 the list's length minus 1 (if the step is negative). If the second index is 
@@ -287,8 +297,8 @@ yields the array `[0, 1, 6, 7]`. If you specify a step value (`by <expression>`)
 on a slice assignment, the number of elements selected by the slice must be the
 same as the number of elements you are assigning to the slice. For instance,
 
-    var a := [0 .. 10 by 1]->>(Array<Int>)
-    a[.. by 2] := [20 .. 25]
+    var a := (0 .. 10)->>(Array<Int>)
+    a[.. by 2] := 20 .. 25
     Console.writeLine(a)
 
 yields
@@ -299,11 +309,11 @@ The slice and slice assignment operators are defined on
 [`List`](api/panda.collections.List.html) (and therefore also 
 [`Array`](arrays.html)) by default. `String` also provides an implementation of
 slice for extracting substrings, and `MutableString` provides both slice and 
-sliced assignment. 
+slice assignment. 
 
 The various `Int` types provide class-level slice operators which allow you to 
-create ranges of numbers or characters. For instance, `Int[0..200]` returns a 
-list of the integers `0` to `199`, and `Int[0..]` returns a list from `0` to 
+create ranges of numbers or characters. For instance, `Int[0 .. 200]` returns a 
+list of the integers `0` to `199`, and `Int[0 ..]` returns a list from `0` to 
 `Int.MAX`.
 
 You may provide implementations on your own classes via 

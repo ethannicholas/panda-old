@@ -1,12 +1,15 @@
 Overview
 ========
 
-Panda is a high-level, object oriented programming language with support for:
+Panda is a high-level, general-purpose object oriented programming language with
+support for:
 
 * First-class immutable objects and value types
 * First-class functions
+* Type inference
 * Non-nullable references
 * Contracts (preconditions, postconditions, and invariants)
+* Tuples
 * "Sane" operator overloading
 * Output to native code, JVM, or JavaScript
 

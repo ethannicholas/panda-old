@@ -2,7 +2,7 @@ Status and Roadmap
 ==================
 
 Panda is currently in *pre-beta*. It is working well enough to have implemented
-a 40,000 line compiler and a number of sample applications, and for me to use
+a 50,000 line compiler and a number of sample applications, and for me to use
 day-to-day as my primary programming language, but it is still incomplete and a
 lot of hard work remains before it is a bulletproof, complete, production-ready
 language.
@@ -36,6 +36,54 @@ able to trust Panda's backwards compatibilty as much as any other language.
 
 Definite Upcoming Changes
 =========================
+
+Performance
+-----------
+
+Performance is an important long-term goal for Panda, but early on it is more
+important to worry about getting the language completely working than it is to
+worry about squeezing every last ounce of speed out of it. Currently, Panda is 
+probably going to be at least three or four times slower than Java for 
+general-purpose code even when safety checks are disabled; certain
+microbenchmarks are likely at leat two orders of magnitude slower.
+
+While that's obviously not great, consider that Java has a twenty-year head 
+start and started off *far* slower than Panda is now. Panda is going to get 
+considerably faster after it is feature-complete and focus turns towards
+optimization.
+
+It's worth noting that Panda's current approach to optimization is "don't". Code
+generation is about as stupid as it can possibly get, and I'm using the fact 
+that the languages I'm outputting to (LLVM IR and Java) have their own 
+optimizing compilers as a crutch. 
+
+Therefore, we end up with pretty tolerable (though not awesome) code despite 
+zero work on optimization. Obviously this will change, but it's not completely 
+clear to me where the best optimization payoffs are, since duplicating 
+optimization work which is also going to be performed by LLVM or javac will suck
+up a lot of time while providing little or no payoff (possibly even negative
+payoff, as our optimized code might prevent even better optimizations that LLVM
+would have been doing on the naive unoptimized code). Also worth noting that 
+while we're not actually optimizing yet, a lot of the basic groundwork is there:
+we are building a CFG, performing (very basic) dataflow analysis, and so forth 
+(though given the currently-limited applications of this data, there are 
+probably some serious bugs in the existing code).
+
+Compiler Performance
+--------------------
+
+Right this second, the compiler is much slower than it should be. There are some
+general performance trouble spots which are certainly affecting this, but the
+major issue is blocked on generics: Array types are all instantiated separately,
+and each of them has a bunch of methods getting compiled for it. Since simply
+parsing the core libraries involves creation of a bunch of array types, this 
+adds up to hundreds of unnecessary method compilations and thousands of lines of
+code just to compile "Hello, World!".
+
+Obviously, this isn't going to remain this way! Once generics are in and I can
+reign in the craziness by reusing existing array implementations internally, the
+time to compile "Hello, World!" should immediately drop back down to a fraction
+of a second.
 
 APIs
 ----
@@ -81,38 +129,6 @@ must be instantiated differently for different combinations of types, though
 since all non-primitive Objects will be treated the same, the number of 
 different implementations which actually get instantiated should be small
 compared to the madness that happens with C++ templates.
-
-Performance
------------
-
-Performance is an important long-term goal for Panda, but early on it is more
-important to worry about getting the language completely working than it is to
-worry about squeezing every last ounce of speed out of it. Currently, Panda is 
-probably going to be at least three or four times slower than Java for 
-general-purpose code even when safety checks are disabled; certain
-microbenchmarks are likely at leat two orders of magnitude slower.
-
-While that's obviously not great, consider that Java has a twenty-year head 
-start and started off *far* slower than Panda is now. Panda is going to get 
-considerably faster after it is feature-complete and focus turns towards
-optimization.
-
-It's worth noting that Panda's current approach to optimization is "don't". Code
-generation is about as stupid as it can possibly get, and I'm using the fact 
-that the languages I'm outputting to (LLVM IR and Java) have their own 
-optimizing compilers as a crutch. 
-
-Therefore, we end up with pretty tolerable (though not awesome) code despite 
-zero work on optimization. Obviously this will change, but it's not completely 
-clear to me where the best optimization payoffs are, since duplicating 
-optimization work which is also going to be performed by LLVM or javac will suck
-up a lot of time while providing little or no payoff (possibly even negative
-payoff, as our optimized code might prevent even better optimizations that LLVM
-would have been doing on the naive unoptimized code). Also worth noting that 
-while we're not actually optimizing yet, a lot of the basic groundwork is there:
-we are building a CFG, performing (very basic) dataflow analysis, and so forth 
-(though given the currently-limited applications of this data, there are 
-probably some serious bugs in the existing code).
 
 Threading
 ---------
@@ -219,30 +235,6 @@ the range of numbers smaller than `Int64` (using, say, a `short` to represent
 `Int8?`) to give us the extra bit we need; this would at least fix the problem
 for integers 32 bits and smaller, which is the 99% use case.
 
-Unwrapped Numbers
------------------
-
-Numbers are currently "wrapped" whenever they are treated as an object. For
-instance, in
-    
-    var x := 5
-    var y := 6
-    var z := x + y
-
-then the addition (assuming optimization is disabled so that it is actually
-performed) happens as a simple CPU `add` instruction; no objects are created and
-no heap memory is allocated.
-
-But as soon as you treat the number like an object, as in:
-
-    var x := 2.sqrt
-
-an actual `Number` instance is created and then the `sqrt` method is called on
-it. This is a temporary situation caused by Panda's early, highly unoptimized
-state; there's absolutely no reason we need to allocate memory in order to 
-perform this operation. At some point in the future these operations will be 
-lowered to straight function calls on the raw CPU numbers.
-
 Value Improvements
 ------------------
 
@@ -273,7 +265,7 @@ Finally, I'm not even 100% convinced that garbage collection is the right
 overall approach. An early version of Panda used automatic reference counting as
 its garbage collection algorithm; I've variously been tempted to go back to 
 that or something else more predictable. Unfortunately, everything has its
-downsides.
+downsides...
 
 Better Debugging
 ----------------
@@ -308,13 +300,6 @@ The JavaScript output engine is already almost completely functional. With just
 a bit more work, you'll be able to write a game in Panda and run it in a web
 browser.
 
-Closures
---------
-
-Panda inline methods and functions (including lambdas) currently only have 
-access to their own parameters. They will be gaining access to visible local
-variables and fields soon.
-
 Resources
 ---------
 
@@ -329,6 +314,30 @@ Obviously Panda is eventually going to feature a full-fledged collection API,
 with `List`, `Set`, `Map`, and all the rest. This feature is blocked on 
 A) generics, and B) making sure I'm completely happy with the design before I go
 crazy and write something I don't like.
+
+Better Regular Expression Syntax
+--------------------------------
+
+Panda sets aside the hash (`#`) character as a special kind of "quote" for what
+are internally known as `plugin` values. The only such plugin currently is
+regular expressions: if the "quoted" value starts ands ends with a slash (`/`),
+the value is treated as a regular expression.
+
+Plugins create a nice way to "gently" introduce experimental new syntax such as
+regular expressions, but I'd like to make regular expressions first-class 
+citizens in Panda source code. This means that you will be able to write:
+
+    def pattern := /\d+/
+
+instead of the current:
+    
+    def pattern := #/\d+/#
+
+The only real difficulty here is that regular expressions have their own 
+grammar, with their own tokens, which basically requires me to be able to 
+"switch modes" during lexical analysis in order to process a different grammar. 
+The good news is that it shouldn't be all that hard to do, and then we've got 
+the general ability to embed other languages within Panda without too much fuss.
 
 Potential Features Which Might Happen Eventually
 ================================================
@@ -376,7 +385,7 @@ first class functions and therefore does not have nearly the need for anonymous
 inner classes. Even if it gains support for named inner classes, Panda will 
 probably not offer anonymous inner classes at all: with tuples, first-class 
 functions, lambdas, MessageQueues, and other powerful language features, there 
-simply isn't as much need for them as there was in Java.
+just isn't nearly as much need for them as there was in Java.
 
 Multiple-Dimension Indexing
 ---------------------------
@@ -482,12 +491,3 @@ Here are my major concerns:
    better cleanup system as discussed above, the use cases for finally drop
    dramatically... I'm tempted to just leave it out and see how much people
    complain.
-
-PandaGL
--------
-
-The current graphics library was written pretty much just to make some simple
-games and show my family the progress I had made on my programming language. 
-While I don't feel like the current design is necessarily awful or anything, it
-hasn't had the same level of care and thought put into it that the core APIs 
-have and is likely to change.

@@ -25,24 +25,13 @@ operate on OperatorExample, OperatorExample`, because Panda does not know how to
 add two `OperatorExample`s together.
 
 We can tell Panda how to add these objects together by providing an 
-implementation of the `+` operator. There are two ways to do this, either as an
-instance method with one parameter:
+implementation of the `+` operator:
 
     function +(right:OperatorExample):OperatorExample {
         return new OperatorExample(value + right.value)
     }
 
-or a class method with two parameters:
-
-    @class
-    function +(left:OperatorExample, right:OperatorExample):OperatorExample {
-        return new OperatorExample(left.value + right.value)
-    }
-
-These two [functions](functions.html) are equivalent. The instance method 
-operates on [self](self.html) and its single parameter, while the 
-[class method](annotations.html#class) receives two parameters. If you define 
-either of these two functions and recompile the example, it will now run and 
+If you define this function and recompile the example, it will now run and 
 produce output similar to:
 
     OperatorExample<37027776>
@@ -66,7 +55,7 @@ the complete example becomes:
         
         @override
         function ->>():String {
-            return "Overloaded: " + value
+            return "Overloaded: \{value}"
         }
 
         @class
@@ -85,10 +74,8 @@ two parameters, or as a one-parameter instance method with `self` implicitly
 representing the left operand. When the left and right operands are different 
 classes, both classes will be checked for appropriate functions.
 
-Unary operators (such as logical not (`!`) or convert (`->>`)) require only a 
-single parameter. Just as with binary operators, unary operators may be 
-implemented as instance methods (in which case `self` is the implicit parameter)
-or as class methods taking an explicit parameter.
+Methods implementing unary operators (such as logical not (`!`) or 
+convert (`->>`)) take zero parameters, as they operate on `self`.
 
 Convert
 -------

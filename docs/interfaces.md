@@ -14,7 +14,7 @@ abstract-by-default methods:
 Classes list all the interfaces they implement in a comma-separated, 
 parenthesized list after their supertype declaration:
 
-    class Foo:FooSuper (Example) {
+    class Foo : FooSuper (Example) {
         @override
         method exampleMethod(s:String):Bit {
             ...

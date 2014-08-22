@@ -14,4 +14,4 @@ formatting options described at `OutputStream.write()` are available:
     def total := 42.60
     Console.writeLine("Total: \{total,$>10:.2}")
 
-Result: `Total:
+Result: `Total: $$$$$42.60`

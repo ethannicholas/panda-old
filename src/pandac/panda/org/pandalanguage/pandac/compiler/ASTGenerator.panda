@@ -705,7 +705,7 @@ class ASTGenerator {
         def unwrapped := t.unwrapNullable
         var tupleType:TupleType
         if unwrapped.isTuple {
-            tupleType := unwrapped->(TupleType)
+            tupleType := unwrapped.unwrapNullable->(TupleType)
             for i, v in values {
                 v.removeFromParent()
                 if ct = CastType.IMPLICIT
@@ -717,7 +717,7 @@ class ASTGenerator {
             }
         }
         else {
-            tupleType := u.variableType()->(TupleType)
+            tupleType := u.variableType().unwrapNullable->(TupleType)
             for v in values
                 v.removeFromParent()
         }
@@ -731,7 +731,7 @@ class ASTGenerator {
 
     @private
     @pre(ct = CastType.IMPLICIT | ct = CastType.EXPLICIT)
-    @pre(t-?>(MethodType))
+    @pre(t.isMethod)
     method castUnresolvedLambda(l:UnresolvedLambda, t:Type, ct:CastType):Value {
         def methodType := t.unwrapNullable->(MethodType)
         def parameters := methodType.methodParameters
@@ -743,6 +743,10 @@ class ASTGenerator {
 
     method implicitCast(position:Position, v:Value, t:Type):Value {
         return implicitCast(position, v, t, CastType.IMPLICIT)
+    }
+    
+    method implicitCast(v:Value, t:Type):Value {
+        return implicitCast(v.position, v, t, CastType.IMPLICIT)
     }
     
     ============================================================================
@@ -1821,11 +1825,11 @@ class ASTGenerator {
     them $used so we can remove all unused captured fields. The fact that they
     end up pointing to the wrong objects in the first place is due to the hacky
     way closures are currently implemented; obviously it would be better to have
-    a real understanding of inner classes during compilation, but this was a lot
-    quicker.
+    a real understanding of inner classes during compilation so we resolve
+    everything properly, but this was a lot quicker to implement...
     ============================================================================
     @private
-    method scanFieldReferences(node:Node) {
+    method fixClosureReferences(node:Node) {
         if node-?>(FieldReference) | node-?>(FieldAssignment) {
             def field:FieldNode
             var object:Node
@@ -1865,8 +1869,47 @@ class ASTGenerator {
                 field.setProperty("$used", true)
             }
         }
+        else if node-?>(MethodCall) {
+            def mc := node->(MethodCall)
+            def m := mc.methodNode
+            if !m.annotations.isClass {
+                var object := mc.parameters[0]
+                while object-?>(Cast) | object-?>(ReusedValue) {
+                    if object-?>(Cast)
+                        object := object->(Cast).value
+                    else
+                        object := object->(ReusedValue).value
+                }
+                if object-?>(VariableReference) &
+                        object->(VariableReference).variable.name = Parameter.SELF_NAME {
+                    def cl := currentClass
+                    assert cl != null
+                    def s := cl.symbolTable.getVariable("$" + Parameter.SELF_NAME)
+                    assert s != null
+                    object.replace(implicitCast(new FieldReference(
+                                node.position, getSelf(), s->(FieldNode)), 
+                            m.parameters[0].type))
+                }
+            }
+        }
         for child in node.children
-            scanFieldReferences(child)
+            fixClosureReferences(child)
+    }
+
+    @private
+    function safeString(position:Position):String {
+        def result := new MutableString()
+        for i in 0 .. position.compilationUnit.length {
+            if "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".contains(position.compilationUnit[i])
+                result.append(position.compilationUnit[i])
+            else
+                result.append("_")
+        }
+        result.append("_")
+        result.append(position.line)
+        result.append("_")
+        result.append(position.column)
+        return result->>(String)
     }
 
     ============================================================================
@@ -1878,7 +1921,8 @@ class ASTGenerator {
         def closure := currentClass
         assert closure != null
         def mutable := new ClassNode(closure.position, "$mutableClosure" + 
-                nextCount(), SymbolTable.master)
+                safeString(closure.position) + nextCount(), SymbolTable.master)
+        mutable.annotations.isSynthetic := true
         mutable.supertype := ClassType.MUTABLE_METHOD()
         mutable.state := ClassNodeState.DEFINED
         nodeStack.push(mutable)
@@ -1951,7 +1995,7 @@ class ASTGenerator {
         def cm := currentMethod
         assert cm != null
         def cl := cm.owner
-        scanFieldReferences(cm.block)
+        fixClosureReferences(cm.block)
         def fields := new Array<FieldNode>()
         for i in cl.children.length - 1 ... 0 by -1 {
             def child := cl.children[i]
@@ -2091,8 +2135,9 @@ class ASTGenerator {
                 captures.append(f)
         }
 
-        def cl := new ClassNode(position, "$closure" + nextCount(),
-                containing.symbolTable)
+        def cl := new ClassNode(position, "$closure" + safeString(position) +
+                nextCount(), containing.symbolTable)
+        cl.annotations.isSynthetic := true
         cl.state := ClassNodeState.DEFINED
         cl.containingClass := containing
         nodeStack.push(cl)
@@ -2950,7 +2995,8 @@ class ASTGenerator {
                     new Array<Value>(right))
             if call != null {
                 if currentClass != fv.field.parent & 
-                        !fv.field.annotations.isReadOnly {
+                        !fv.field.annotations.isReadOnly &
+                        !fv.field.annotations.isStatic {
                     throw new CompilerException("reference to '\{name}' is " +
                             "ambiguous, both field \{name} (of type " +
                             "\{fv.field.type.displayName}) and method " +
@@ -3932,7 +3978,7 @@ class ASTGenerator {
                 throw new CompilerException("'\{array.type.displayName}' " +
                         "is not a tuple", array.position)
             }
-            def count := array.type.elementType->(TupleType).types.length
+            def count := array.type.elementType.unwrapNullable->(TupleType).types.length
             if count != vars.length {
                 throw new CompilerException("number of for-loop variables (" + 
                         "\{vars.length}) and tuple elements (\{count}) do " +
@@ -3983,7 +4029,7 @@ class ASTGenerator {
                     continue
                 var type := t[2]
                 if type = null
-                    type := array.type.elementType->(TupleType).types[index]
+                    type := array.type.elementType.unwrapNullable->(TupleType).types[index]
                 def elementVar := new LocalVariable(t[0], name, type)
                 locals.append(elementVar)
                 symbols.putVariable(elementVar)
@@ -4201,14 +4247,14 @@ class ASTGenerator {
             if value != null {
                 def valueType := value.variableType()
                 if !valueType.isTuple | 
-                        valueType->(TupleType).types.length != varNames.length {
+                        valueType.unwrapNullable->(TupleType).types.length != varNames.length {
                     throw new CompilerException("expected a tuple with length " + 
                             varNames.length + " for multi-value assignment",
                             value.position)
                 }
                 for j, type in varTypes {
                     if type = null
-                        varTypes[j] := valueType->(TupleType).types[j].variableType()
+                        varTypes[j] := valueType.unwrapNullable->(TupleType).types[j].variableType()
                 }
                 def cn := currentNode
                 if value-!>(UnresolvedTuple) {
@@ -5069,7 +5115,7 @@ class ASTGenerator {
     method convertMethodDeclaration(doccomment:String?, annotations:Annotations, 
             m:ParseNode) {
         var cl := currentClass
-        assert cl != null
+        assert cl != null : "currentClass is null"
         var name:String
         var paramIndex:Int
         if m[1].type = ParseNodeType.METHOD_NAME {
@@ -5133,7 +5179,7 @@ class ASTGenerator {
             }
             cm.doccomment := doccomment
             cl.symbolTable.putMethod(cm)
-            assert cm.parent = cl
+            assert cm.parent = cl --: "wrong cm.parent"
         }
         else {
             var cm:MethodNode? := null
@@ -5149,7 +5195,7 @@ class ASTGenerator {
             for child in m.children {
                 if child.type = ParseNodeType.BLOCK {
                     convertBlock(child)
-                    assert cm.length = 1
+                    assert cm.length = 1 : "expected 1 child, found \{cm.length}"
                 }
                 else if child.type = ParseNodeType.POSTCONDITION {
                     var override := cm.annotations.isOverride
@@ -6000,6 +6046,13 @@ class ASTGenerator {
                     classNode.name + ").value = value\n" +
                 "}", new Annotations([AnnotationType.OVERRIDE]), position4, 
                 linkageOnly)
+        var position5 := new Position(position1.compilationUnit,
+                position1.line, position1.column + 4)
+        ast.compileMethod(classNode, 
+                "function hash():Int {\n" +
+                "    return value\n" +
+                "}", new Annotations([AnnotationType.OVERRIDE]), position5, 
+                linkageOnly)
         var count := 0
 
         var fromInt := ("function ->>(i:Int):" + className + 
@@ -6034,12 +6087,12 @@ class ASTGenerator {
         }
         fromInt.append("default: { throw new PreconditionError(i + " +
                 "' is not a valid \{className} value') } } }")
-        var position5 := new Position(position1.compilationUnit,
-                position1.line, position1.column + 4)
-        ast.compileMethod(classNode, fromInt->>(String), 
-                new Annotations([AnnotationType.CLASS]), position5, linkageOnly)
         var position6 := new Position(position1.compilationUnit,
                 position1.line, position1.column + 5)
+        ast.compileMethod(classNode, fromInt->>(String), 
+                new Annotations([AnnotationType.CLASS]), position6, linkageOnly)
+        var position7 := new Position(position1.compilationUnit,
+                position1.line, position1.column + 6)
         ast.compileMethod(classNode, "function ->>(name:String):" + 
                 className + " {\n" +
                 "    def result := NAME_MAP[name]->(" + className + "?)\n" +
@@ -6048,7 +6101,7 @@ class ASTGenerator {
                 "               ' is not a valid \{className} value')\n" +
                 "    return result" +
                 "}", 
-                new Annotations([AnnotationType.CLASS]), position6, linkageOnly)
+                new Annotations([AnnotationType.CLASS]), position7, linkageOnly)
         if linkageOnly {
             assert nameMap != null
             pendingFieldValues[nameMap] := new PandaParser().parseExpression(

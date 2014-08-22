@@ -6,7 +6,7 @@ In addition to defining [methods](methods.html) as members of a
 [expressions](expressions.html):
 
     table.setFormatter(function(node:Node):String {
-        return node.id + " (" + node.children.count + ")"
+        return "\{node.id} (\{node.children.count})"
     })
 
 Inline methods are defined very similarly to normal class member functions. They
@@ -15,13 +15,9 @@ or annotations. Methods are a first-class [type](types.html) in Panda, meaning
 that you may store methods in variables, return them from methods, create arrays 
 of methods, and otherwise treat them as you would any other Panda value.
 
-Methods defined inside of another method may access any visible local variables,
-but those variables must be *effectively static*. In other words, it must not be
-possible for those variables to change after the point at which they become
-visible to the inline method.
-
-**IMPLEMENTATION NOTE**: Methods can't actually capture values yet; closures
-aren't implemented. Coming soon!
+Methods defined inside of another method may access any visible 
+[defines](defines.html), non-variable method parameters, or fields of the 
+enclosing class.
 
 See [method types](types.html#methodTypes) for how to describe the 
 [type](type.html) of a method.

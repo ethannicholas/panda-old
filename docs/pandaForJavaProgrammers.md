@@ -84,6 +84,7 @@ division (`//`) operator to get an integral result.
 
 Panda uses `&`, '|', `~', and `!` for logical and, or, xor, and not 
 respectively, and `&&`, `||`, `~~`, and `!!` for bitwise and, or, xor, and not.
+Note that `&` / `&&` and `|` / `||` are backwards from Java's!
 
 There is no `>>>` (logical right shift) operator in Panda, as Panda supports
 unsigned numbers. A right shift (`>>`) will perform an arithmetic shift on
@@ -191,7 +192,7 @@ The first value is assigned the (zero-based) index into the list, while the
 second value is assigned the current list element.
 
 Panda's `switch` statement is similar to Java's, but each `case` is a single
-statement or a block. There is no fall-through, and therefore need to no `break` 
+statement or a block. There is no fall-through, and therefore no need to `break` 
 out of a `case`. Each case may list multiple values:
 
     // Java
@@ -247,7 +248,7 @@ Classes
 
     // Java
     public class Example extends Parent {
-        void doSomething() {
+        public void doSomething() {
             System.out.println("I do things!");
         }
     }

@@ -10,13 +10,13 @@ Assignment
 
     <l-value> <assignmentOperator> <value>
 
-An *l-value* is a value which can be assigned to. L-values include variables and
-array cells. The `assignmentOperator` specifies the kind of assignment to be
-performed, either straight assignment (`:=`) or one of the compound assignment
-operators (`+=`, `-=`, `*=`,`/=`, `//=`, `%=`, `^=`, `<<=`, `>>=`, `>>>=`, `&=`,
-`|=`, `~=`, `&&=`, `||=`, or `~~=`). Straight assignment makes `<l-value>` equal
-to `<r-value>`, whereas the compound assignment operators make `<l-value>` equal
-to `<l-value> <operator> <r-value>`.
+An *l-value* is a value which can be assigned to. L-values include variables,
+fields, and array elements. The `assignmentOperator` specifies the kind of 
+assignment to be performed, either simple assignment (`:=`) or one of the 
+compound assignment operators (`+=`, `-=`, `*=`,`/=`, `//=`, `%=`, `^=`, `<<=`,
+`>>=`, `>>>=`, `&=`, `|=`, `~=`, `&&=`, `||=`, or `~~=`). Simple assignment 
+makes `<l-value>` equal to `<r-value>`, whereas the compound assignment 
+operators make `<l-value>` equal to `<l-value> <operator> <r-value>`.
 
 See [Operators](operators.html) for full details on compound assignment.
 
@@ -82,7 +82,7 @@ If you need to know which index the loop is currently examining, provide the
 name of an index variable:
 
     for i, greeting in ["Hello", "Bonjour", "Konnichi wa"]
-        Console.writeLine("getting " + i + " is: " + greeting)
+        Console.writeLine("greeting \{i} is: \{greeting}")
 
 Both the `<index>` and `<value>` may have optional type specifiers, as in
 `for i:Int, v:Int in ...`.
@@ -109,7 +109,7 @@ As before, you may specify an index variable name and/or variable types:
     }
 
 **IMPLEMENTATION NOTE**: Currently the only "collection" type is `Array`. Array
-will eventually implement the not-yet-existing `List` interface, and other
+will eventually implement the not-yet-existing `ListView` interface, and other
 collections will be supported in the `for ... in` loop. We will also eventually
 detect addition / removal of entries while looping and raise a `SafetyError`.
 
@@ -177,8 +177,8 @@ continue from the statement immediately after the end of the loop. By default,
 
 `break` with a label can be used to break out of multiple nested loops:
 
-    outer: for x := 0 to width - 1
-        for y := 0 to height - 1 {
+    outer: for x in 0 .. width
+        for y in 0 .. height {
             processCell(x , y)
             if !isValid()
                 break outer
@@ -195,8 +195,8 @@ loop, as if the end of the loop body has just been reached. Just as with
 `break`, it normally operates on the innermost containing loop but can be used
 with an optional label to continue loops other than the innermost one:
 
-    outer: for x := 0 to width - 1
-        for y := 0 to height - 1 {
+    outer: for x in 0 .. width
+        for y in 0 .. height {
             processCell(x , y)
             if skipRestOfColumn()
                 continue outer
@@ -283,6 +283,9 @@ signify "it should not be possible for this line of code to be reached", but in
 Panda `assert false` will not compile. You need to use `unreachable`, described
 below, to express this.
 
+**IMPLEMENTATION NOTE:** "assert false" isn't actually a compiler error yet, but
+it will be soon.
+
 <a name="unreachable"></a>
 unreachable
 -----------
@@ -366,8 +369,4 @@ Example:
 **IMPLEMENTATION NOTE:** `switch` is currently lowered to a sequence of `if`
 statements, negating the performance advantage one would expect from using
 `switch`. Obviously this is just a temporary situation while Panda is in 
-development. `switch` will work on a wider variety of types than its C and Java 
-counterparts do -- non-numeric switches will build a map of the values the first 
-time they are executed, and then use a map lookup to jump to the right location.
-
-Case values must be compile-time constants, but this is not being enforced yet.
+development.

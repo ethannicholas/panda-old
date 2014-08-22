@@ -6,8 +6,8 @@ with the syntax
 
     constant <name>[:<type>] := <value>
 
-By convention, the names of constants are written entirely in uppercase, 
-substituting underscores for spaces. For instance,
+By convention, the names of constants are written entirely in uppercase, using
+underscores to separate words. For instance,
     
     constant DAYS_IN_WEEK := 7
 
@@ -29,4 +29,4 @@ immutable.
 
 Constants in general are similar to [defines](defines.html); the difference is
 that constants may be class-scoped and must be immutable, whereas defines may at
-most be instanceå scoped and may be either mutable or immutable.
+most be instance scoped and may be either mutable or immutable.

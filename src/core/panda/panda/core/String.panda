@@ -90,7 +90,6 @@ class String : Value {
     `"long"`, and `"string"`.
     
     @param delimiter the token delimiter
-    @param maxResults the maximum number of results to return
     @returns the split tokens
     ============================================================================
     function split(delimiter:String):Array<String> {
@@ -132,7 +131,6 @@ class String : Value {
     `"a"`, `"long"`, and `"string"`.
     
     @param delimiter the token delimiter
-    @param maxResults the maximum number of results to return
     @returns the split tokens
     ============================================================================
     function split(delimiter:RegularExpression):Array<String> {
@@ -224,8 +222,8 @@ class String : Value {
     }
 
     ============================================================================
-    As @link(replace(RegularExpression, String)), but allows the interpretation 
-    of `$1`-style group references to be controlled. With `allowGroupReferences`
+    As [replace(RegularExpression, String)], but allows the interpretation of 
+    `$1`-style group references to be controlled. With `allowGroupReferences`
     set to `false`, the replacement string is treated literally, with no special 
     handling for `$1`-style sequences.
 
@@ -259,6 +257,11 @@ class String : Value {
     the text:
 
         4 2 1 4!
+
+    @param search the regular expression to match the string with
+    @param replacement a function generating the replacement text
+    @returns a new string with all occurrences of the regular expression 
+            replaced
     ============================================================================
     function replace(search:RegularExpression, 
             replacement:(String)=>(Object)):String {
@@ -267,6 +270,34 @@ class String : Value {
         while matcher.find() {
             matcher.appendReplacement(result, 
                     replacement(matcher.group(0))->>(String), false)
+        }
+        matcher.appendTail(result)
+        return result->>(String)
+    }
+
+    ============================================================================
+    As [replace(RegularExpression, (String)=>(Object))], but the replacement
+    function receives the capture groups from the regular expression rather than
+    the raw matched text. The groups array includes the special whole-match 
+    group at index `0`, with the first set of parentheses in the regular 
+    expression corresponding to array index `1`.
+
+    @param search the regular expression to match the string with
+    @param replacement a function generating the replacement text
+    @returns a new string with all occurrences of the regular expression 
+            replaced
+    ============================================================================
+    -- FIXME change Array<String> to ListView<String> when ListView is ready
+    function replace(search:RegularExpression, 
+            replacement:(Array<String>)=>(Object)):String {
+        var result := new MutableString()
+        var matcher := search.matcher(self)
+        while matcher.find() {
+            def groups := new Array<String>()
+            for i in 0 .. matcher.groupCount
+                groups.append(matcher.group(i))
+            matcher.appendReplacement(result, replacement(groups)->>(String), 
+                    false)
         }
         matcher.appendTail(result)
         return result->>(String)
@@ -327,6 +358,12 @@ class String : Value {
         return true
     }
 
+    ============================================================================
+    Returns `true` if this string begins with the character `c`.
+    
+    @param c the character to compare against
+    @returns `true` if this string begins with the character `c`
+    ============================================================================
     function startsWith(c:Char):Bit {
         return length > 0 & self[0] = c
     }
@@ -348,6 +385,12 @@ class String : Value {
         return true
     }
     
+    ============================================================================
+    Returns `true` if this string ends with the character `c`.
+    
+    @param c the character to compare against
+    @returns `true` if this string ends with the character `c`
+    ============================================================================
     function endsWith(c:Char):Bit {
         return length > 0 & self[self.length - 1] = c
     }
@@ -377,7 +420,6 @@ class String : Value {
     string, or `null` if not found.
     
     @param s the string to search for
-    @param start the index to begin searching from
     @returns the index of the match, or `null` if not found
     ============================================================================
     function indexOf(s:String):Int? {
@@ -627,6 +669,56 @@ class String : Value {
     }
 
     ============================================================================
+    Returns `true` if this string is lexicographically greater than the string 
+    `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string is greater
+    ============================================================================
+    function >(s:String):Bit {
+        for i in 0 .. length.min(s.length) {
+            if self[i] > s[i]
+                return true
+            if self[i] < s[i]
+                return false
+        }
+        return length > s.length
+    }
+
+    ============================================================================
+    Returns `true` if this string is lexicographically greater than or equal to
+    the string `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string is greater than or equal
+    ============================================================================
+    function >=(s:String):Bit {
+        return self = s | self > s
+    }
+
+    ============================================================================
+    Returns `true` if this string is lexicographically less than the string 
+    `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string is less
+    ============================================================================
+    function <(s:String):Bit {
+        return !(self >= s)
+    }
+
+    ============================================================================
+    Returns `true` if this string is lexicographically less than or equal to the 
+    string `s`.
+    
+    @param s the string to compare against
+    @returns `true` if this string is less than or equal
+    ============================================================================
+    function <=(s:String):Bit {
+        return !(self > s)
+    }
+
+    ============================================================================
     Concatenates two strings.
     
     @example "Hello, " + "World!" = "Hello, World!"
@@ -686,6 +778,11 @@ class String : Value {
         return s * count
     }
 
+    ============================================================================
+    Returns the string itself.
+    
+    @returns this string
+    ============================================================================
     @override
     function ->>():String {
         return self
@@ -732,7 +829,6 @@ class String : Value {
     **IMPLEMENTATION NOTE:** Unicode support isn't actually in yet, therefore
     this conversion is broken.
     
-    @param s the string to convert
     @returns the UTF-8 encoded bytes
     ============================================================================
     function ->>():Array<Int8> {
@@ -747,7 +843,6 @@ class String : Value {
     ============================================================================
     Converts this string to an array of characters.
     
-    @param s the string to convert
     @returns the characters of the string
     ============================================================================
     function ->>():Array<Char> {
@@ -1166,6 +1261,12 @@ class String : Value {
             return result
     }
 
+    ============================================================================
+    Converts this string to a number. The string must be in the format of a 
+    Panda `Real32` literal. Throws a `ParseError` if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
     function ->>():Real32 {
         var result := self->>(Real32?)
         if result = null
@@ -1187,6 +1288,12 @@ class String : Value {
             return result
     }
     
+    ============================================================================
+    Converts this string to a number. The string must be in the format of a 
+    Panda `Real64` literal. Throws a `ParseError` if the conversion fails.
+    
+    @returns this string converted to a number, or `null`
+    ============================================================================
     function ->>():Real64 {
         var result := self->>(Real64?)
         if result = null
@@ -1196,7 +1303,7 @@ class String : Value {
 
     ============================================================================
     Formats a string for display purposes, exactly as if by
-    @link(OutputStream.write(String, Object...)).
+    [OutputStream::write(String, Array<Object>)].
 
     @param s the format string
     @param params the format string parameters

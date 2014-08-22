@@ -4,13 +4,64 @@ package org.pandalanguage.pandac.pandadoc
 Processes the PandaDoc dialect of Markdown. Note that while this is obviously
 Markdown-inspired, it is not and is not intended to be actually 
 Markdown-compatible. Lots of Markdown features are missing and lots of things
-are handled differently.
+are handled a bit differently.
 ================================================================================
+-- this was originally based on markdownj (https://github.com/myabc/markdownj),
+-- which is in turn based on the original markdown.pl.
+@private
+class Protector {
+    -- for the record, I hate the way Markdown uses long pseudorandom strings to
+    -- "escape" things rather than using actual escape sequences, but I have
+    -- about six million more important things on my plate and don't have the 
+    -- energy to fight it right now.
+    @private
+    def encodeMap := new HashMap()
+
+    def decodeMap := new HashMap()
+
+    method encode(s:String):String {
+        var result := encodeMap[s]->(String?)
+        if result = null {
+            result := randomToken()
+            encodeMap[s] := result
+            decodeMap[result] := s
+        }
+        return result
+    }
+
+    function decode(s:String):String {
+        return decodeMap[s]->(String)
+    }
+
+    method randomToken():String {
+        constant LENGTH := 20
+        constant SAFE_CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-/,."
+        def result := new MutableString()
+        for i in 1 ... LENGTH
+            result.append(SAFE_CHARS[Random.int(SAFE_CHARS.length)])
+        return result->>(String)
+    }
+}
+
+
 class Markdown {
     constant TAB_WIDTH := 4
 
     @private
+    def linkResolver:(String)=>(String)?
+
+    @private
+    def protector := new Protector()
+
+    @private
     var listLevel := 0
+
+    constructor() {
+    }
+
+    constructor(linkResolver:(String)=>(String)?) {
+        self.linkResolver := linkResolver
+    }
 
     method process(markdown:String):String {
         var result := markdown->>(MutableString)
@@ -38,9 +89,7 @@ class Markdown {
         --hashHTMLBlocks(text);
         --stripLinkDefinitions(text)
         handleBlocks(result)
---        unEscapeSpecialChars(result)
-
-        return result->>(String)
+        return decode(result->>(String))
     }
 
  -*   private TextEditor encodeBackslashEscapes(TextEditor text) {
@@ -63,31 +112,6 @@ class Markdown {
             text.replaceAllLiteral(regex, CHAR_PROTECTOR.encode(String.valueOf(ch)));
         }
         return text;
-    }*-
-
-    -*private void stripLinkDefinitions(TextEditor text) {
-        Pattern p = Pattern.compile("^[ ]{0,3}\\[(.+)\\]:" + // ID = $1
-                "[ \\t]*\\n?[ \\t]*" + // Space
-                "<?(\\S+?)>?" + // URL = $2
-                "[ \\t]*\\n?[ \\t]*" + // Space
-                "(?:[\"(](.+?)[\")][ \\t]*)?" + // Optional title = $3
-                "(?:\\n+|\\Z)",
-                Pattern.MULTILINE);
-
-        text.replaceAll(p, new Replacement() {
-            public String replacement(Matcher m) {
-                String id = m.group(1).toLowerCase();
-                String url = encodeAmpsAndAngles(new TextEditor(m.group(2))).toString();
-                String title = m.group(3);
-
-                if (title == null) {
-                    title = "";
-                }
-                title = replaceAll(title, "\"", "&quot;");
-                linkDefinitions.put(id, new LinkDefinition(url, title));
-                return "";
-            }
-        });
     }*-
 
     @private
@@ -244,8 +268,8 @@ class Markdown {
         var lines := text->>(String).split("\n")
         text.clear()
         var inPre := false
-        var pattern := #/\s{4,}\S.*/#
-        for i in 0 ... lines.length - 1 {
+        def pattern := #/\s{4,}\S.*/#
+        for i in 0 .. lines.length {
             var line := lines[i]
             if !inPre & line.matches(pattern) {
                 inPre := true
@@ -253,10 +277,10 @@ class Markdown {
             }
             else if inPre & !line.matches(pattern) {
                 inPre := false
-                text.append("</pre>")
+                text.append("</pre><br />")
             }
             if inPre
-                line := line[4..]
+                line := protector.encode(line[4..])
             text.append(line)
             text.append("\n")
         }
@@ -460,7 +484,14 @@ class Markdown {
     }*-
 
     method handleCodeSpans(text:MutableString) {
-        text.replace(#/(`+)(.+?)(?<!`)\1(?!`)/#, "<code>$2</code>")
+        def codeSpan := #/(`+)(.+?)(?<!`)\1(?!`)/#
+        def matcher := codeSpan.matcher(text->>(String))
+        text.clear()
+        while matcher.find() {
+            matcher.appendReplacement(text, 
+                    "<code>\{protector.encode(matcher.group(2))}</code>")
+        }
+        matcher.appendTail(text)
     }
 
     method handleSpans(text:MutableString) {
@@ -469,8 +500,7 @@ class Markdown {
 --        text = encodeBackslashEscapes(text);
 
 --        doImages(text);
---        doAnchors(text);
---        doAutoLinks(text);
+        doAnchors(text)
 
 --        text = escapeSpecialCharsWithinTagAttributes(text);
 
@@ -553,132 +583,77 @@ class Markdown {
             }
         });
     }
-
-    private TextEditor doAnchors(TextEditor markup) {
-        // Internal references: [link text] [id]
-        Pattern internalLink = Pattern.compile("(" +
-                "\\[(.*?)\\]" + // Link text = $2
-                "[ ]?(?:\\n[ ]*)?" +
-                "\\[(.*?)\\]" + // ID = $3
-                ")");
-        markup.replaceAll(internalLink, new Replacement() {
-            public String replacement(Matcher m) {
-                String replacementText;
-                String wholeMatch = m.group(1);
-                String linkText = m.group(2);
-                String id = m.group(3).toLowerCase();
-                if ("".equals(id)) { // for shortcut links like [this][]
-                    id = linkText.toLowerCase();
-                }
-
-                LinkDefinition defn = linkDefinitions.get(id);
-                if (defn != null) {
-                    String url = defn.getUrl();
-                    // protect emphasis (* and _) within urls
-                    url = url.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
-                    url = url.replaceAll("_", CHAR_PROTECTOR.encode("_"));
-                    String title = defn.getTitle();
-                    String titleTag = "";
-                    if (title != null && !title.equals("")) {
-                        // protect emphasis (* and _) within urls
-                        title = title.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
-                        title = title.replaceAll("_", CHAR_PROTECTOR.encode("_"));
-                        titleTag = " title=\"" + title + "\"";
-                    }
-                    replacementText = "<a href=\"" + url + "\"" + titleTag + ">" + linkText + "</a>";
-                } else {
-                    replacementText = wholeMatch;
-                }
-                return replacementText;
-            }
-        });
-
-        // Inline-style links: [link text](url "optional title")
-        Pattern inlineLink = Pattern.compile("(" + // Whole match = $1
-                "\\[(.*?)\\]" + // Link text = $2
-                "\\(" +
-                "[ \\t]*" +
-                "<?(.*?)>?" + // href = $3
-                "[ \\t]*" +
-                "(" +
-                "(['\"])" + // Quote character = $5
-                "(.*?)" + // Title = $6
-                "\\5" +
-                ")?" +
-                "\\)" +
-                ")", Pattern.DOTALL);
-        markup.replaceAll(inlineLink, new Replacement() {
-            public String replacement(Matcher m) {
-                String linkText = m.group(2);
-                String url = m.group(3);
-                String title = m.group(6);
-                // protect emphasis (* and _) within urls
-                url = url.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
-                url = url.replaceAll("_", CHAR_PROTECTOR.encode("_"));
-                StringBuilder result = new StringBuilder();
-                result.append("<a href=\"").append(url).append("\"");
-                if (title != null) {
-                    // protect emphasis (* and _) within urls
-                    title = title.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
-                    title = title.replaceAll("_", CHAR_PROTECTOR.encode("_"));
-                    title = replaceAll(title, "\"", "&quot;");
-                    result.append(" title=\"");
-                    result.append(title);
-                    result.append("\"");
-                }
-                result.append(">").append(linkText);
-                result.append("</a>");
-                return result.toString();
-            }
-        });
-
-        // Last, handle reference-style shortcuts: [link text]
-        // These must come last in case you've also got [link test][1]
-        // or [link test](/foo)
-        Pattern referenceShortcut = Pattern.compile("(" + // wrap whole match in $1
-                                                        "\\[" +
-                                                        "([^\\[\\]]+)" + // link text = $2; can't contain '[' or ']'
-                                                        "\\]" +
-                                                    ")", Pattern.DOTALL);
-        markup.replaceAll(referenceShortcut, new Replacement() {
-            public String replacement(Matcher m) {
-                String replacementText;
-                String wholeMatch = m.group(1);
-                String linkText = m.group(2);
-                String id = m.group(2).toLowerCase(); // link id should be lowercase
-                id = id.replaceAll("[ ]?\\n", " "); // change embedded newlines into spaces
-
-                LinkDefinition defn = linkDefinitions.get(id.toLowerCase());
-                if (defn != null) {
-                    String url = defn.getUrl();
-                    // protect emphasis (* and _) within urls
-                    url = url.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
-                    url = url.replaceAll("_", CHAR_PROTECTOR.encode("_"));
-                    String title = defn.getTitle();
-                    String titleTag = "";
-                    if (title != null && !title.equals("")) {
-                        // protect emphasis (* and _) within urls
-                        title = title.replaceAll("\\*", CHAR_PROTECTOR.encode("*"));
-                        title = title.replaceAll("_", CHAR_PROTECTOR.encode("_"));
-                        titleTag = " title=\"" + title + "\"";
-                    }
-                    replacementText = "<a href=\"" + url + "\"" + titleTag + ">" + linkText + "</a>";
-                } else {
-                    replacementText = wholeMatch;
-                }
-                return replacementText;
-         }
-        });
-
-        return markup;
-    }
 *-
+    
+    -- not bothering to handle all characters yet, just the ones we actually
+    -- use in links
+    function escape(string:String):String {
+        return string.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                
+    }
+
+    function unescape(string:String):String {
+        return string.replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&amp;", "&")
+    }
+
+    method doAnchors(text:MutableString) {
+        -- Internal references: [link text] [id]
+        def internalLink := #/\[(.*?)\][ ]?(?:\n[ ]*)?\[(.*?)\]/#
+        text.replace(internalLink, function(groups:Array<String>):String {
+            return "UNIMPLEMENTED"
+        })
+        def linkText := #/\[([^\[\]]+)\]/#
+        def rawText := text->>(String)
+        def matcher := linkText.matcher(rawText)
+        text.clear()
+        var lastEnd := 0
+        while matcher.find() {
+            text.append(rawText[lastEnd .. matcher.start])
+            var link:String
+            if matcher.end < rawText.length & rawText[matcher.end] = "(" {
+                var i := matcher.end + 1
+                var count := 1
+                while count > 0 {
+                    if i >= rawText.length {
+                        throw new ParseException(
+                                "missing right parenthesis (')') in link")
+                    }
+                    switch rawText[i] {
+                        case "(": count += 1
+                        case ")": count -= 1
+                    }
+                    i += 1
+                }
+                link := rawText[matcher.end + 1 .. i - 1]
+                lastEnd := i
+            }
+            else {
+                link := matcher.group(1)
+                lastEnd := matcher.end
+            }
+            if linkResolver != null
+                link := escape(linkResolver(unescape(link)))
+            text.append('<a href="\{link}">\{matcher.group(1)}</a>')
+        }
+        text.append(rawText[lastEnd..])
+    }
 
     @private
     method doItalicsAndBold(markup:MutableString) {
         markup.replace(#/(\*\*|__)(?=\S)(.+?[*_]*)(?<=\S)\1/#, 
                 "<strong>$2</strong>")
         markup.replace(#/(\*|_)(?=\S)(.+?)(?<=\S)\1/#, "<em>$2</em>")
+    }
+
+    @private
+    function decode(var s:String):String {
+        for (key, value) in protector.decodeMap.entries
+            s := s.replace(key->(String), value->(String))
+        return s
     }
 
 -*

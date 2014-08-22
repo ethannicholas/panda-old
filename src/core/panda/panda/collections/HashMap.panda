@@ -5,14 +5,13 @@ A single key/value pair from a `HashMap`.
 
 @hidden
 ================================================================================
-class MutableMapEntry (MapEntry) {
+class MutableMapEntry {
     ============================================================================
     The entry's key.
     ============================================================================
     @private
     var _key:Object?
 
-    @override
     function key():Object? {
         return _key
     }
@@ -23,7 +22,6 @@ class MutableMapEntry (MapEntry) {
     @private
     var _value:Object?
     
-    @override
     function value():Object? {
         return _value
     }
@@ -55,6 +53,9 @@ class HashMap (Map) {
     @private
     constant LOAD_FACTOR := 0.75
 
+    ============================================================================
+    The number of entries in the `HashMap`.
+    ============================================================================
     @readonly
     property length:Int32
 
@@ -76,6 +77,9 @@ class HashMap (Map) {
     Creates a new `HashMap` with an initial set of keys and values. The first
     entry in the `keys` array will be paired with the first entry in the 
     `values` array, and so on.
+
+    @param keys the map keys
+    @param values the map values
     ============================================================================
     @pre(keys.length = values.length)
     constructor(keys:Array<Object?>, values:Array<Object?>) {
@@ -87,6 +91,8 @@ class HashMap (Map) {
     ============================================================================
     Creates a new `HashMap`, copying its keys and values from an existing
     `Map`.
+
+    @param map the map to copy from
     ============================================================================
     constructor(map:MapView) {
         constructor()
@@ -158,8 +164,10 @@ class HashMap (Map) {
     method remove(key:Object?):Bit {
         var index := indexFor(key)
         var e := contents[index]
+        -- not found
         if e = null
             return false
+        -- found in the first slot, need to update the contents array
         if e.key = key {
             contents[index] := e.next
             _length -= 1
@@ -167,20 +175,23 @@ class HashMap (Map) {
         }
         loop {
             var next := e.next
-            if next = null
+            if next = null {
+                -- not found
+                return false
+            }
+            if next.key = key {
+                -- it's the next slot in the list
                 break
-            if next.key = key
-                break
+            }
             e := next
         }
-        if e != null {
-            var next := e.next
-            assert next != null
-            e.next := next.next
-            _length -= 1
-            return true
-        }
-        return false
+        -- we are looking at the entry before it, update its next pointer to
+        -- skip over it
+        var next := e.next
+        assert next != null
+        e.next := next.next
+        _length -= 1
+        return true
     }
 
     @override
@@ -235,8 +246,8 @@ class HashMap (Map) {
     
     @override
     @self
-    method addAll(m:MapView) {
-        for (key, value) in m.entries
+    method addAll(map:MapView) {
+        for (key, value) in map.entries
             self[key] := value
     }
 
@@ -266,6 +277,7 @@ class HashMap (Map) {
     map.
 
     @param o the object to compare against
+    @returns `true` if the two values are equal
     ============================================================================
     @override
     function =(o:Object):Bit {
@@ -286,6 +298,9 @@ class HashMap (Map) {
     same string as `->>(String)`. If the format string is `"panda"`, each
     key and value in the map will be formatted using the format string 
     `"panda"` (which may cause errors if they do not support this option).
+
+    @param fmt the format string
+    @returns a string representation of this object
     ============================================================================
     @override
     @preOr(fmt = "" | fmt = "panda")
@@ -320,14 +335,13 @@ A single key/value pair from an `ImmutableHashMap`.
 
 @hidden
 ================================================================================
-class ImmutableMapEntry : Immutable (MapEntry) {
+class ImmutableMapEntry : Immutable {
     ============================================================================
     The entry's key.
     ============================================================================
     @private
     def _key:Immutable?
 
-    @override
     function key():Immutable? {
         return _key
     }
@@ -338,7 +352,6 @@ class ImmutableMapEntry : Immutable (MapEntry) {
     @private
     def _value:Immutable?
     
-    @override
     function value():Immutable? {
         return _value
     }
@@ -371,6 +384,14 @@ class ImmutableHashMap : Immutable (MapView) {
         _length := h.length
     }
     
+    ============================================================================
+    Creates a new `ImmutableHashMap` with a set of keys and values. The first
+    entry in the `keys` array will be paired with the first entry in the 
+    `values` array, and so on.
+
+    @param keys the map keys
+    @param values the map values
+    ============================================================================
     constructor(keys:Array<Immutable?>, 
             values:Array<Immutable?>) {
         -- FIXME remove copies once we have proper generics
