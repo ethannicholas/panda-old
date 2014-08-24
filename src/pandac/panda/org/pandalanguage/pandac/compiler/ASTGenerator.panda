@@ -5112,8 +5112,8 @@ class ASTGenerator {
     Processes a METHOD_DECLARATION parse node.
     ============================================================================
     @pre(m.type = ParseNodeType.METHOD_DECLARATION)
-    method convertMethodDeclaration(doccomment:String?, annotations:Annotations, 
-            m:ParseNode) {
+    method convertMethodDeclaration(var doccomment:String?, 
+            annotations:Annotations, m:ParseNode) {
         var cl := currentClass
         assert cl != null : "currentClass is null"
         var name:String
@@ -5177,9 +5177,17 @@ class ASTGenerator {
                     error("functions must have a return type", m)
                 cm.returnType := VoidType.VOID
             }
+            if doccomment = null & name.endsWith(":=") & !name.contains("[") {
+                def propertyName := name[..name.length - 2]
+                def parameterName := cm.parameters[
+                        cm.parameters.length - 1].name
+                doccomment := "Sets the value of the " + propertyName + 
+                        " property. @param \{parameterName} new value for " + 
+                        "the property"
+            }
             cm.doccomment := doccomment
             cl.symbolTable.putMethod(cm)
-            assert cm.parent = cl --: "wrong cm.parent"
+            assert cm.parent = cl : "wrong cm.parent"
         }
         else {
             var cm:MethodNode? := null
@@ -5700,7 +5708,8 @@ class ASTGenerator {
         if !hasConstructor & !cl.isInterface {
             new ASTGenerator().compileMethod(cl, 
                     "constructor() { }", cl.position)
-            cl[cl.length - 1]->(MethodNode).doccomment := "Creates a new \{cl.simpleName}."
+            cl[cl.length - 1]->(MethodNode).doccomment := 
+                    "Creates a new \{cl.simpleName}."
         }
         if !linkageOnly {
             var isAbstract := cl.annotations.isAbstract | 
@@ -5989,27 +5998,29 @@ class ASTGenerator {
             classNode.symbolTable := new SymbolTable(classNode,
                     currentCompilationUnit.symbolTable)
         }
+        classNode.doccomment := doccomment
         var nameMap:FieldNode? := null
         if linkageOnly {
             classNode.supertype := SymbolTable.master.getType(e.position,
                     class(Enumeration).name)->(ClassType)
             var name := new FieldNode("name", ClassType.STRING())
             name.annotations.isStatic := true
+            name.doccomment := "The name of the enumeration constant."
             classNode.symbolTable.putVariable(name)
             classNode.add(name)
             var value := new FieldNode("value", IntType.INT32)
             value.annotations.isStatic := true
+            value.doccomment := "The numeric value of the enumeration constant."
             classNode.symbolTable.putVariable(value)
             classNode.add(value)
-            nameMap := new FieldNode("NAME_MAP", 
-                    ClassType.IMMUTABLE_HASHMAP())
+            nameMap := new FieldNode("NAME_MAP", ClassType.IMMUTABLE_HASHMAP())
             nameMap.annotations.isClass := true
             nameMap.annotations.isPrivate := true
             nameMap.annotations.isStatic := true
 
             classNode.symbolTable.putVariable(nameMap)
             -- note we haven't added nameMap yet -- we'll do that after all of
-            -- the constantas have been added, so they are initialized first
+            -- the constants have been added, so they are initialized first
         }
         var keyInitializer := new MutableString()
         var valueInitializer := new MutableString()
@@ -6031,6 +6042,11 @@ class ASTGenerator {
                 "function ->>():Int32 {\n" +
                 "    return value\n" +
                 "}", position2, linkageOnly)
+        if linkageOnly {
+            classNode[classNode.length - 1]->(MethodNode).doccomment := 
+                    "Returns the numeric value of this enumeration entry." +
+                    "@returns the numeric value of this enumeration entry"
+        }
         var position3 := new Position(position1.compilationUnit,
                 position1.line, position1.column + 2)
         ast.compileMethod(classNode, 
@@ -6058,10 +6074,18 @@ class ASTGenerator {
         var fromInt := ("function ->>(i:Int):" + className + 
                 " {\nswitch i {")->>(MutableString)
         var defaultReturn := "error"
+        var fieldComment:String? := null
         for i in 3 ... e.length - 2 {
+            if e[i]->(TokenNode).token.type = TokenType.DOCCOMMENT {
+                fieldComment := e[i]->>(String)
+                continue
+            }
             if e[i]->(TokenNode).token.type != TokenType.IDENTIFIER
                 continue
-            var field := new FieldNode(e[i]->>(String), classNode.type())
+            var field := new FieldNode(e[i].position, e[i]->>(String), 
+                    classNode.type())
+            field.doccomment := fieldComment
+            fieldComment := null
             field.annotations.isClass := true
             field.annotations.isStatic := true
             var key := e[i]->>(String)
@@ -6091,6 +6115,12 @@ class ASTGenerator {
                 position1.line, position1.column + 5)
         ast.compileMethod(classNode, fromInt->>(String), 
                 new Annotations([AnnotationType.CLASS]), position6, linkageOnly)
+        if linkageOnly {
+            classNode[classNode.length - 1]->(MethodNode).doccomment := 
+                    "Converts a number to the corresponding enumeration entry.\n" +
+                    "@param i the number to convert\n" +
+                    "@returns the corresponding enumeration entry"
+        }
         var position7 := new Position(position1.compilationUnit,
                 position1.line, position1.column + 6)
         ast.compileMethod(classNode, "function ->>(name:String):" + 
@@ -6103,6 +6133,11 @@ class ASTGenerator {
                 "}", 
                 new Annotations([AnnotationType.CLASS]), position7, linkageOnly)
         if linkageOnly {
+            classNode[classNode.length - 1]->(MethodNode).doccomment := 
+                    "Converts a string to the corresponding enumeration entry.\n" +
+                    "@param name the string to convert\n" + 
+                    "@returns the corresponding enumeration entry"
+
             assert nameMap != null
             pendingFieldValues[nameMap] := new PandaParser().parseExpression(
                     "new panda.collections.HashMap(new Array<Object?>(" + 
