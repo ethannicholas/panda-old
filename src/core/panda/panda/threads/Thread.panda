@@ -14,7 +14,8 @@ is therefore no contention.
 
 Threads communicate with each other using [MessageQueue] objects, which normally
 only permit [Immutable] objects to be sent. Mutable objects may be sent, but at
-the cost of terminating the calling thread.
+the cost of terminating the calling thread. This ensures that only one thread
+can access a given mutable object at a time.
 
 In situations where it really is necessary to have multiple threads access
 potentially-shared mutable objects, the [postUnsafe](MessageQueue::postUnsafe)
@@ -25,9 +26,10 @@ accessed by the sending thread, no danger exists. If the sending thread
 continues to access the sent object, [Lock] must be used to synchronize access 
 to the shared object.
 ================================================================================
+@final
 class Thread : Immutable {
     @private
-    def id:Int
+    def nativeThread:$NativePointer
 
     ============================================================================
     A per-thread MessageQueue which may be used for any purpose.
@@ -38,8 +40,8 @@ class Thread : Immutable {
     `true` if this thread will prevent the program from exiting. The program 
     exits when there are zero `preventsExit` threads remaining.
     ============================================================================
-    def preventsExit := true
-    
+    def preventsExit:Bit
+
     @private
     def threadLocals:$NativePointer
     
@@ -54,20 +56,18 @@ class Thread : Immutable {
     @private
     def threadEntry:()=&>*()
 
-    ============================================================================
-    Creates a new thread which will execute its [run()] method when [start()] is
-    called. As the default `run()` method does not do anything, this is only
-    useful for subclasses of `Thread` which override the `run()` method.
-    ============================================================================
-    @protected
+    @private
     constructor() {
-        constructor(method() {
-        })
+        -- dummy constructor for Java to easily create the main thread
+        threadEntry := method() {
+            Console.writeLine("You shouldn't see this...")
+        }
     }
 
     @private
-    constructor(threadEntry:()=&>*()) {
+    constructor(threadEntry:()=&>*(), preventsExit:Bit) {
         self.threadEntry := threadEntry
+        self.preventsExit := preventsExit
     }
 
     ============================================================================
@@ -79,24 +79,11 @@ class Thread : Immutable {
 
     @see start()
     ============================================================================
-    @protected
+    @private
     method run() {
         threadEntry()
     }
-    
-    ============================================================================
-    Sets whether this program should prevent the program from exiting. The
-    program exits when there are zero `preventsExit` threads remaining.
-    
-    @param preventsExit whether this thread should prevent the program from
-            exiting
-    ============================================================================
-    @self
-    method preventsExit:=(preventsExit:Bit) {
-        -- need to update in native code since the field is marked static
-        setThreadPreventsExit(preventsExit)
-    }
-    
+
     ============================================================================
     Starts the thread, calling its [run()] method. The new thread's context will 
     contain all [Immutable] objects from the current thread's context.
@@ -104,6 +91,7 @@ class Thread : Immutable {
     @see run()
     ============================================================================
     @static
+    @private
     method start() {
         var newContext := new HashMap()
         for (key, value) in context.entries {
@@ -121,8 +109,9 @@ class Thread : Immutable {
     @param newContext the new thread's context
     ============================================================================
     @static
+    @private
     -- FIXME take a Map instead
-    method start(newContext:HashMap) {
+    method start(newContext:MapView) {
         var merged := new HashMap()
         for (key, value) in context.entries
             merged[key] := value
@@ -156,7 +145,28 @@ class Thread : Immutable {
     ============================================================================
     @class
     method start(run:()=&>*()):Thread {
-        var result := new Thread(run)
+        var result := new Thread(run, true)
+        result.start()
+        return result
+    }
+
+    @class
+    method start(run:()=&>*(), context:MapView):Thread {
+        var result := new Thread(run, true)
+        result.start(context)
+        return result
+    }
+
+    @class
+    method start(run:()=&>*(), context:MapView, preventsExit:Bit):Thread {
+        var result := new Thread(run, preventsExit)
+        result.start(context)
+        return result
+    }
+
+    @class
+    method start(run:()=&>*(), preventsExit:Bit):Thread {
+        var result := new Thread(run, preventsExit)
         result.start()
         return result
     }
@@ -189,10 +199,6 @@ class Thread : Immutable {
     @external
     method startThread(context:HashMap)
 
-    @private
-    @external
-    method setThreadPreventsExit(preventsExit:Bit)
-    
     @private
     @class
     @external

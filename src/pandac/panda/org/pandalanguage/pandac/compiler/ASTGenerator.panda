@@ -1109,24 +1109,24 @@ class ASTGenerator {
         }
         var type:Type
         var symbolTable:SymbolTable
-        var static:Bit
+        var classMethod:Bit
         var supercall:Bit
         if context-?>(UnresolvedClassLiteral)
             context := context->(UnresolvedClassLiteral)->>(ClassLiteral)
         if context-?>(ClassLiteral) {
-            static := true
+            classMethod := true
             supercall := false
             type := context->(ClassLiteral).value
             symbolTable := type.classNode.symbolTable
         }
         else if context-?>(ClassObjectLiteral) {
-            static := false
+            classMethod := false
             supercall := false
             type := ClassType.CLASS()
             symbolTable := type.classNode.symbolTable
         }
         else {
-            static := false
+            classMethod := false
             var oldParams := params
             params := new Array<Value>()
             if context-?>(Super) {
@@ -1153,10 +1153,10 @@ class ASTGenerator {
             symbolTable := cl.symbolTable
         }
         var methodNode := symbolTable.getMethod(position, methodName, params, 
-                static)
+                classMethod)
         if methodNode = null {
-            if static {
-                -- check for a constructor, which is called like a static method
+            if classMethod {
+                -- check for a constructor, which is called like a class method
                 -- but implemented as an instance method
                 if type.isArray & methodName = "new" {
                     -- FIXME: hardcoded yuck
@@ -1182,6 +1182,10 @@ class ASTGenerator {
                                     !type.elementType.isPrimitive) &
                             params[1].canImplicitCastTo(Type.INDEX_TYPE) &
                             params[2].canImplicitCastTo(Type.INDEX_TYPE) {
+                        if params[0].type.elementType.isNullable & 
+                                !type.elementType.isNullable
+                            PandaCompiler.reportError("cannot create array " +
+                                    "with possibly-null values", position)
                         return new NewArrayWithRange(position, type, 
                                 params[0], 
                                 implicitCast(params[1].position, params[1], 

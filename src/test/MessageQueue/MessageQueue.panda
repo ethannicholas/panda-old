@@ -3,7 +3,7 @@
 -- its result, and then posts the results to a Destination which aggregates and
 -- sorts the data.
 
-class Producer : Thread {
+class Producer : Immutable {
     constant MAX := 1000
     def queue:MessageQueue
     
@@ -11,14 +11,15 @@ class Producer : Thread {
         self.queue := queue
     }
     
-    @override
-    method run() {
-        for i in 1 .. MAX + 1
-            queue.post(i)
+    method start() {
+        Thread.start(method() {
+            for i in 1 ... MAX
+                queue.post(i)
+        })
     }
 }
 
-class Consumer : Thread {
+class Consumer : Immutable {
     @private
     def sourceQueue:MessageQueue
     
@@ -30,17 +31,18 @@ class Consumer : Thread {
         self.destQueue := destQueue
     }
 
-    @override
-    method run() {
-        loop {
-            var msg := sourceQueue.getMessage()->(Int)
-            sleep(1000)
-            destQueue.post(msg^2)
-        }
+    method start() {
+        Thread.start(method() {
+            loop {
+                var msg := sourceQueue.getMessage()->(Int)
+                Thread.sleep(1000)
+                destQueue.post(msg ^ 2)
+            }
+        })
     }
 }
 
-class Destination : Thread {
+class Destination : Immutable {
     @private
     def destQueue:MessageQueue
     
@@ -77,17 +79,18 @@ class Destination : Thread {
             a[i + pre.length + 1] := post[i]
     }
     
-    @override
-    method run() {
-        def results := new Array<Int>()
-        while results.length < Producer.MAX {
-            def msg := destQueue.getMessage()
-            results.append(msg->(Int))
-        }
-        sort(results)
-        for i in 0 .. results.length
-            Console.writeLine(results[i])
-        System.exit()
+    method start() {
+        Thread.start(method() {
+            def results := new Array<Int>()
+            while results.length < Producer.MAX {
+                def msg := destQueue.getMessage()
+                results.append(msg->(Int))
+            }
+            sort(results)
+            for i in 0 .. results.length
+                Console.writeLine(results[i])
+            System.exit()
+        })
     }
 }
 
@@ -100,7 +103,7 @@ class Test {
         def destQueue := new MessageQueue()
         def p := new Producer(sourceQueue)
         def d := new Destination(destQueue)
-        for i in 0 .. THREADS
+        for i in 1 ... THREADS
             new Consumer(sourceQueue, destQueue).start()
         p.start()
         d.start()

@@ -18,11 +18,6 @@ void* malloc_atomic(size_t size) {
 
 #define MIN(X,Y) ((X) < (Y) ? (X) : (Y))
 #define MAX(X,Y) ((X) > (Y) ? (X) : (Y))
-#define MAX_THREADS 512
-// Arbitrary out-of-band value used to mark uninitialized threadlocals.
-// This value is too big to be anything but an Int64/Real64, and is not a legal
-// pointer because it is unaligned
-#define UNINITIALIZED ((void*) 10000000001)
 
 #define UNUSED(x) (void)x
 
@@ -37,11 +32,9 @@ static String* executablePath = NULL;
 static pthread_mutex_t threadLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t classLock;
 
-static int threadCount = 0;
-// FIXME PERFORMANCE: using arrays here was just a quick-and-dirty hack, this
-// slows thread creation more than it should. Maybe a linked list?
-static pthread_t pthreads[MAX_THREADS];
-static Thread* threads[MAX_THREADS];
+static int preventsExitThreads = 0;
+static pthread_cond_t preventsExitThreadsVar = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t preventsExitThreadsMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int threadLocalCount = 0;
 
@@ -83,8 +76,6 @@ void* pandaAlloc(Int32 size, Bit containsPointers) {
 void pandaInit() {
     if (!inited) {
         GC_INIT();
-        memset(threads, 0, sizeof(threads));
-        memset(pthreads, 0, sizeof(pthreads));
         pthread_key_create(&currentThreadKey, NULL);
         pthread_mutexattr_t a;
         pthread_mutexattr_init(&a);
@@ -97,12 +88,14 @@ void pandaInit() {
 
 void pandaMain(String$Array* arg);
 
-// the Panda.start() method
-void pandaStart();
-
-void panda$core$MainThread$run(panda$core$MainThread* thread) {
+void pandaStart() {
+    panda$threads$Thread* main = pandaNew(panda$threads$Thread);
+    panda$threads$Thread$new(main);
+    panda$collections$HashMap* threadLocals = pandaNew(panda$collections$HashMap);
+    panda$collections$HashMap$new(threadLocals);
+    main->threadLocals = threadLocals;
+    pthread_setspecific(currentThreadKey, main);
     // run the actual program
-    UNUSED(thread);
     pandaMain(arg);
 }
 
@@ -122,22 +115,13 @@ int main(int argc, char** argv) {
     pandaStart();
 
     // ensure all threads have exited
+    pthread_mutex_lock(&preventsExitThreadsMutex);
     for (;;) {
-        int foundThread = -1;
-        pthread_mutex_lock(&threadLock);
-        int i;
-        for (i = 0; i < MAX_THREADS; i++) {
-            if (threads[i] && threads[i]->preventsExit) {
-                foundThread = i;
-                break;
-            }
-        }
-        pthread_mutex_unlock(&threadLock);
-        if (foundThread >= 0)
-            pthread_join(pthreads[foundThread], NULL);
-        else
+        if (preventsExitThreads == 0)
             break;
+        pthread_cond_wait(&preventsExitThreadsVar, &preventsExitThreadsMutex);
     }
+    pthread_mutex_unlock(&threadLock);
     
     return 0;
 }
@@ -756,9 +740,13 @@ void _pandaThreadEntry(Thread* thread) {
             panda$threads$Thread$run_INDEX);
     pthread_setspecific(currentThreadKey, thread);
     run(thread);
-    pthread_mutex_lock(&threadLock);
-    threads[thread->id] = NULL;
-    pthread_mutex_unlock(&threadLock);
+    if (thread->preventsExit) {
+        pthread_mutex_lock(&preventsExitThreadsMutex);
+        preventsExitThreads--;
+        if (preventsExitThreads == 0)
+            pthread_cond_signal(&preventsExitThreadsVar);
+        pthread_mutex_unlock(&preventsExitThreadsMutex);
+    }
 }
 
 int panda$core$Panda$allocThreadLocal() {
@@ -878,21 +866,24 @@ panda$core$Object* panda$threads$MessageQueue$getMessage_Int32(MessageQueue* que
 }
 
 void panda$threads$MessageQueue$threadExit() {
-    Thread* thread = panda$threads$Thread$currentThread();
-    pthread_mutex_lock(&threadLock);
-    threads[thread->id] = NULL;
-    pthread_mutex_unlock(&threadLock);
+    Thread* currentThread = panda$threads$Thread$currentThread();
+    if (currentThread->preventsExit) {
+        pthread_mutex_lock(&preventsExitThreadsMutex);
+        preventsExitThreads--;
+        if (preventsExitThreads == 0)
+            pthread_cond_signal(&preventsExitThreadsVar);
+        pthread_mutex_unlock(&preventsExitThreadsMutex);
+    }
     pthread_exit(NULL);
-}
-
-void panda$threads$Thread$setThreadPreventsExit(
-        Thread* thread, Bit preventsExit) {
-    thread->preventsExit = preventsExit;
 }
 
 void panda$threads$Thread$startThread(
         Thread* thread, panda$collections$HashMap* context) {
-    pthread_mutex_lock(&threadLock);
+    if (thread->preventsExit) {
+        pthread_mutex_lock(&preventsExitThreadsMutex);
+        preventsExitThreads++;
+        pthread_mutex_unlock(&preventsExitThreadsMutex);
+    }
     panda$collections$HashMap* threadLocals = pandaNew(panda$collections$HashMap);
     panda$collections$HashMap$new(threadLocals);
     thread->threadLocals = threadLocals;
@@ -910,24 +901,8 @@ void panda$threads$Thread$startThread(
     trueWrapper->value = true;
     hashPut(threadLocals, (panda$core$Object*) negativeKey, 
             (panda$core$Object*) trueWrapper);
-    if (thread->cl == &panda$core$MainThread_class) {
-        threads[0] = thread;
-        pthread_mutex_unlock(&threadLock);
-        _pandaThreadEntry(thread);
-        return;
-    }
-    int i;
-    for (i = 0; i < MAX_THREADS; i++) {
-        if (!threads[i]) {
-            threads[i] = thread;
-            thread->id = i;
-            pthread_create(&pthreads[threadCount++], NULL, 
-                    (threadRun) _pandaThreadEntry, thread);
-            pthread_mutex_unlock(&threadLock);
-            return;
-        }
-    }
-    pandaFatalError("exceeded MAX_THREADS");
+    pthread_create((pthread_t*) &thread->nativeThread, NULL, 
+            (threadRun) _pandaThreadEntry, thread);
 }
 
 void panda$threads$Lock$init(Lock* lock) {

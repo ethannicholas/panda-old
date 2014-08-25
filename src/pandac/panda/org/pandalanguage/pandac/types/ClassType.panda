@@ -12,8 +12,6 @@ but a name which hasn't actually been encountered yet, will be handled as an
 `UnresolvedTypeException` is thrown.
 ================================================================================
 class ClassType : Type {
-    constant INTERFACE_CAST_COST := 4
-
     @class
     method CLASS():ClassType {
         return SymbolTable.master.getType(Position.INTERNAL, 
@@ -131,6 +129,12 @@ class ClassType : Type {
         target := target.unwrapWrapper
         if canImplicitCastTo(target)
             return true
+        if !target.isPrimitive & target.classNode.isInterface & 
+                !classNode.annotations.isStatic {
+            -- as long as this class isn't static, we could be dealing with a
+            -- subclass that potentially implements any interface
+            return true
+        }
         return target.canImplicitCastTo(self)
     }
 
@@ -164,8 +168,6 @@ class ClassType : Type {
             targetClass := target->(PrimitiveType).wrapperVersion().classNode
         else
             targetClass := target->(ClassType).classNode
-        if targetClass.isInterface
-            return INTERFACE_CAST_COST
         var parent:ClassType? := classNode.supertype
         var best := NO_MATCH
         if parent != null {

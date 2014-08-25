@@ -14,7 +14,7 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
         java.lang.Thread current = java.lang.Thread.currentThread();
         panda.threads.Thread result = nativeToPanda.get(current);
         if (result == null) {
-            result = new panda.core.MainThread();
+            result = panda.threads.Thread.createnew$constructor();
             nativeToPanda.put(current, result);
             pandaToNative.put(result, current);
         }
@@ -44,16 +44,6 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
         };
         t.setDaemon(!self.$preventsExit);
         t.start();
-    }
-
-    @Override
-    public void setThreadPreventsExit(panda.threads.Thread self, boolean preventsExit) {
-        java.lang.Thread thread = pandaToNative.get(self);
-        if (thread != null) {
-            java.lang.System.err.println("warning: JVM cannot change " +
-                        "Thread.preventsExit after the thread has started");
-            java.lang.Thread.dumpStack();
-        }
     }
 
     @Override
