@@ -83,6 +83,6 @@ mkdir -p $NATIVE_TARGET/plex/src
 java -jar $JAVA_TARGET/plex/bin/plex.jar src/pandac/plex/Panda.plex $NATIVE_TARGET/plex/src/Lexer.panda
 
 mkdir -p $JAVA_TARGET/pandac/bin
-$PANDAC -XpreserveTempArtifacts -o $JAVA_TARGET/pandac/bin/pandac.jar -f jar `find src/pandac/panda -name "*.panda"` \
+$PANDAC -o $JAVA_TARGET/pandac/bin/pandac.jar -f jar `find src/pandac/panda -name "*.panda"` \
     src/plex/panda/org/pandalanguage/plex/runtime/*.panda $NATIVE_TARGET/plex/src/Lexer.panda \
     $STATIC_SETTINGS
