@@ -1,0 +1,202 @@
+package org.pandalanguage.pandac.pandadoc
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.CodeGenerator
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.parser.PandaLexer
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.parser.ParseNodeType
+uses org.pandalanguage.pandac.parser.Token
+uses org.pandalanguage.pandac.parser.TokenNode
+uses org.pandalanguage.pandac.parser.TokenType
+uses org.pandalanguage.pandac.transformers.SafetyChecker
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.CompilationUnit
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.ExpressionAnnotation
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.NewArrayWithLength
+uses org.pandalanguage.pandac.tree.NewArrayWithRange
+uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+uses org.pandalanguage.pandac.types.VoidType
+
+class HTMLWriter (CodeGenerator) {
+    @override
+    function defaultExtension():String? {
+        return null
+    }
+
+    function identifierType(token:Token, node:(Node, String?)?):String? {
+        if node = null
+            return null
+        if node[0]-?>(ClassLiteral) |
+                node[0]-?>(Construct) |
+                node[0]-?>(NewArrayWithLength) |
+                node[0]-?>(NewArrayWithValues) |
+                node[0]-?>(NewArrayWithRange)
+            return "type"
+        else if node[0]-?>(Parameter) {
+            if node[1] = "type"
+                return "type"
+            else
+                return "parameterName"
+        }
+        else if node[0]-?>(MethodNode) {
+            if node[1] = "type"
+                return "type"
+            else
+                return "methodName"
+        }
+        else if node[0]-?>(FieldNode) {
+            if node[1] = "type"
+                return "type"
+            else
+                return "fieldName"
+        }
+        return null
+    }
+
+    method processToken(token:Token, node:(Node, String?)?, out:OutputStream) {
+        var className:String?
+        switch token.type {
+            case TokenType.WHITESPACE: {
+                out.write(token.text)
+                return
+            }
+            case TokenType.IF, TokenType.ELSE, TokenType.FOR, TokenType.IN,
+                    TokenType.DO, TokenType.WHILE, TokenType.LOOP, 
+                    TokenType.BREAK, TokenType.CONTINUE, TokenType.SWITCH, 
+                    TokenType.CASE, TokenType.TRY, TokenType.CATCH,
+                    TokenType.RETURN:
+                className := "control"
+            case TokenType.VAR, TokenType.DEF, TokenType.CONSTANT:
+                className := "var"
+            case TokenType.METHOD, TokenType.FUNCTION, TokenType.CONSTRUCTOR:
+                className := "method"
+            case TokenType.CLASS, TokenType.INTERFACE, TokenType.ENUM:
+                className := "class"
+            case TokenType.ASSERT, TokenType.UNREACHABLE:
+                className := "assert"
+            case TokenType.TRUE, TokenType.FALSE:
+                className := "literal bit"
+            case TokenType.STRING, TokenType.NUMBER:
+                className := "literal"
+            case TokenType.IDENTIFIER: {
+                className := "identifier"
+                def idType := identifierType(token, node)
+                if idType != null
+                    className += " " + idType
+            }
+            case TokenType.SELF:
+                className := "identifier"
+            case TokenType.LINECOMMENT, TokenType.BLOCKCOMMENT,
+                    TokenType.DOCCOMMENT:
+                className := "comment"
+            case TokenType.LT, TokenType.GT, TokenType.QUESTION: {
+                def idType := identifierType(token, node)
+                if idType != null
+                    className := "identifier " + idType
+                else
+                    className := "operator"
+            }
+            case TokenType.NOT, TokenType.BITWISENOT, TokenType.ADD, 
+                    TokenType.SUB, TokenType.MUL, TokenType.DIV, 
+                    TokenType.INTDIV, TokenType.REM, TokenType.POW, 
+                    TokenType.EQ, TokenType.NEQ, TokenType.IDENTITY, 
+                    TokenType.NIDENTITY, TokenType.LTEQ, TokenType.GTEQ, 
+                    TokenType.AND, TokenType.BITWISEAND, TokenType.OR, 
+                    TokenType.BITWISEOR, TokenType.XOR, TokenType.BITWISEXOR, 
+                    TokenType.SHIFTLEFT, TokenType.ASSIGNMENT, TokenType.ADDEQ,
+                    TokenType.SUBEQ, TokenType.MULEQ, TokenType.DIVEQ, 
+                    TokenType.REMEQ, TokenType.INTDIVEQ, TokenType.OREQ, 
+                    TokenType.BITWISEOREQ,TokenType.ANDEQ, 
+                    TokenType.BITWISEANDEQ, TokenType.XOREQ,
+                    TokenType.BITWISEXOREQ, TokenType.SHIFTLEFTEQ, 
+                    TokenType.SHIFTRIGHTEQ, TokenType.POWEQ, TokenType.CAST,
+                    TokenType.CONVERT, TokenType.INSTANCEOF, 
+                    TokenType.NINSTANCEOF, TokenType.YIELDS, TokenType.MEMBER,
+                    TokenType.DOTDOT, TokenType.ELLIPSIS:
+                className := "operator"
+            case TokenType.PUBLIC, TokenType.PRIVATE, TokenType.PROTECTED, 
+                    TokenType.ABSTRACT, TokenType.ATCLASS, TokenType.THREAD, 
+                    TokenType.EXTERNAL, TokenType.STATIC, TokenType.READONLY,
+                    TokenType.MATH, TokenType.OVERRIDE, TokenType.LIMITED,
+                    TokenType.ATSELF, TokenType.SAFERETURN, 
+                    TokenType.UNSAFEFUNCTION, TokenType.PRE_OR, TokenType.POST,
+                    TokenType.POST_AND, TokenType.ATRETURN, TokenType.INVARIANT,
+                    TokenType.INSTANCE, TokenType.WRAPPER_METHOD:
+                className := "annotation"
+            default: 
+                className := null
+        }
+        if className != null
+            className += " " + token.type
+        else
+            className := token.type->>(String)
+        out.write('<span class="\{className}">')
+        out.write(token.text)
+        out.write("</span>")
+    }
+
+    method writeFile(lexer:PandaLexer, ast:ASTGenerator, out:OutputStream) {
+        out.writeLine("<html>")
+        out.writeLine("<head>")
+        out.writeLine('<link rel="stylesheet" type="text/css" href="pandacode.css" />')
+        out.writeLine("</head>")
+        out.writeLine("<body>")
+        out.write("<pre>")
+        var token := lexer.next()
+        while token.type != TokenType.EOF {
+            def node := ast.positionToNodeMap[token.position]->((Node, String?)?)
+            processToken(token, node, out)
+            token := lexer.next()
+        }
+        out.write("</pre>")
+        out.write("</body>")
+        out.write("</html>")
+        out.close()
+    }
+
+    method writeCompilationUnit(cu:CompilationUnit, outputDir:File) {
+        var dest := cu.name
+        if !dest.endsWith(".panda")
+            return
+        dest := dest[..dest.length - ".panda".length] + ".html"
+        def out := outputDir.resolve(dest).openOutputStream()
+        def source := cu.source
+        assert source != null
+        def lexer := new PandaLexer(source.openInputStream(), 
+                new Position(cu.name, 1, 1))
+        writeFile(lexer, PandaCompiler.astGenerator, out)
+    }
+
+    @override
+    method generateCode(outputDir:File) {
+        if !outputDir.isDirectory()
+            Console.writeLine(outputDir + " is not a directory")
+
+        def compilationUnits := new Array<CompilationUnit>()
+        for cl in SymbolTable.master.classes {
+            if cl.parent-?>(CompilationUnit) {
+                def compilationUnit := cl.parent->(CompilationUnit)
+                if !compilationUnits.contains(compilationUnit)
+                    compilationUnits.append(compilationUnit)
+            }
+        }
+        for compilationUnit in compilationUnits
+            writeCompilationUnit(compilationUnit, outputDir)
+   }
+}

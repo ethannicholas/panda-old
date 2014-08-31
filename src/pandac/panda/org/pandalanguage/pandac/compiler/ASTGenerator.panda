@@ -246,7 +246,7 @@ class ASTGenerator {
     -- FIXME can't leave this a thread variable, will be broken in a 
     -- multithreaded situation
     var autoIndex := 0
-    
+
     ============================================================================
     `true` if we are only converting linkage information (class, method, and
     field declarations), as opposed to the entire parse tree.
@@ -322,6 +322,8 @@ class ASTGenerator {
     var namePrefix := hash->>(String)
 
     var nameCount := 0
+
+    var positionToNodeMap:Map? := new HashMap()
 
     ============================================================================
     @returns the current node being processed (the top of the node stack).
@@ -413,6 +415,29 @@ class ASTGenerator {
     method nextCount():String {
         nameCount += 1
         return namePrefix + nameCount
+    }
+
+    @private
+    method captureNode(node:Node) {
+        captureNode(node, node.position)
+    }
+
+    @private
+    method captureNode(node:Node, position:Position) {
+        captureNode(node, position, null)
+    }
+
+    @private
+    method captureNode(node:Node, position:Position, type:String?) {
+        if positionToNodeMap != null
+            positionToNodeMap[position] := (node, type)
+    }
+
+    @private
+    method captureTree(node:Node, parseNode:ParseNode, type:String?) {
+        for child in parseNode.children
+            captureTree(node, child, type)
+        captureNode(node, parseNode.position, type)
     }
         
     ============================================================================
@@ -512,7 +537,7 @@ class ASTGenerator {
                         srcType.unwrapRealLiteral.wrapperVersion()
             }
             -- create the wrapper
-            var wrapped := call(position, new ClassLiteral(position, 
+            def wrapped := call(position, new ClassLiteral(position, 
                     wrapperType), "new", new Array<Value>(v))
             -- cast the wrapper to the final dest type (this may upcast and/or
             -- add nullability, but is often a no-op)
@@ -530,18 +555,19 @@ class ASTGenerator {
                 v.removeFromParent()
             }
             else {
-                var cl := srcType.classNode
-                var field := cl.unifiedFields[1]
+                def cl := srcType.classNode
+                def field := cl.unifiedFields[1]
                 assert field.name = "value"
                 if srcType.isNullable
                     v := implicitCast(position, v, srcType.unwrapNullable, ct)
                 v := new FieldReference(position, v, field)
+                captureNode(field)
             }
             return implicitCast(position, v, t, ct)
         }
         else if srcType.isWrapper & unwrapped.isPrimitive &
                 srcType.unwrapWrapper != unwrapped {
-            var intermediate := implicitCast(position, v, unwrapped, ct)
+            def intermediate := implicitCast(position, v, unwrapped, ct)
             return implicitCast(position, intermediate, t, ct)
         }
         else if v-?>(IntegerLiteral) & t.isInteger
@@ -551,9 +577,9 @@ class ASTGenerator {
         else if v-?>(RealLiteral) & t.isReal
             return new RealLiteral(v.position, v->(RealLiteral).value, t)
         else if v-?>(BinaryOperation) & srcType = RealLiteralType.REAL_LITERAL {
-            var b := v->(BinaryOperation)
-            var left := b.left
-            var right := b.right
+            def b := v->(BinaryOperation)
+            def left := b.left
+            def right := b.right
             left.removeFromParent()
             right.removeFromParent()
             b.add(implicitCast(left.position, left, t, ct))
@@ -562,7 +588,7 @@ class ASTGenerator {
             return v
         }
         else if v-?>(UnaryMinus) & srcType.isInteger & t.isInteger {
-            var value := v->(UnaryMinus).value
+            def value := v->(UnaryMinus).value
             value.removeFromParent()
             return new UnaryMinus(v.position, implicitCast(position, value, t, 
                     ct), t)
@@ -1237,6 +1263,7 @@ class ASTGenerator {
                 var virtual := methodNode.isDeclaredVirtual() & !supercall
                 var result := call(position, methodNode, virtual, supercall,
                         params)
+                captureNode(result)
                 return result
             }
         }
@@ -1667,7 +1694,9 @@ class ASTGenerator {
         }
         if context.parent != null
             context.removeFromParent()
-        return new FieldReference(position, context, f)
+        def result := new FieldReference(position, context, f)
+        captureNode(result)
+        return result
     }
     
     method parseBareIdentifier(id:ParseNode):Value {
@@ -1693,6 +1722,7 @@ class ASTGenerator {
                     assert cc != null
                     context := new ClassLiteral(id.position, 
                             getType(id.position, cc.name))
+                    captureNode(context)
                 }
                 else
                     context := getSelf()
@@ -1701,8 +1731,11 @@ class ASTGenerator {
                             variable->(FieldNode), true)
                 }
             }
-            else
-                return new VariableReference(id.position, variable)
+            else {
+                def result := new VariableReference(id.position, variable)
+                captureNode(result)
+                return result
+            }
         }
         assert !linkageOnly
         var cl := currentBlock.symbolTable.getClass(name)
@@ -1736,10 +1769,14 @@ class ASTGenerator {
     @pre(c.type = ParseNodeType.CONSTRUCT)
     method convertConstruct(c:ParseNode):Value {
         assert c[0]->(TokenNode).token.type = TokenType.NEW
-        var type := convertType(c[1])
-        var params := convertParameters(c[2])
-        return call(c.position, new ClassLiteral(type), "new", 
+        def type := convertType(c[1])
+        def params := convertParameters(c[2])
+        def classLiteral := new ClassLiteral(c[1].position, type)
+        captureNode(classLiteral)
+        def result := call(c.position, classLiteral, "new", 
                 params)
+        captureNode(result, c[1].position)
+        return result
     }
 
     @pre(a.type = ParseNodeType.ARRAY_LITERAL)
@@ -2771,8 +2808,10 @@ class ASTGenerator {
             catch e:CompilerException {
             }
             try {
-                return new ClassLiteral(raw.position, 
+                def literal := new ClassLiteral(raw.position, 
                         getType(raw.position, raw->>(String)))
+                captureNode(literal)
+                return literal
             }
             catch e:CompilerException {
             }
@@ -3531,12 +3570,13 @@ class ASTGenerator {
                         try {
                             context := resolve(context)
                             context := resolveUnresolvedConstructs(context)
-                            context := getField(c[i].position, context, name)
+                            context := getField(c[i + 1].position, context, 
+                                    name)
                         }
                         catch e:CompilerException {
                             if context-!>(Unresolved)
                                 throw e
-                            context := new Unresolved(context.position, 
+                            context := new Unresolved(c[i + 1].position, 
                                     context->(Unresolved).context, 
                                     context + "." + name)
                         }
@@ -3820,7 +3860,8 @@ class ASTGenerator {
                 var params := convertParameters(c[i])
                 i += 1
                 if context-?>(Unresolved) {
-                    context := call(c.position, context->(Unresolved).context, 
+                    context := call(context.position, 
+                            context->(Unresolved).context, 
                             context->(Unresolved).name, params)
                 }
                 else if context-?>(Super) {
@@ -3886,8 +3927,8 @@ class ASTGenerator {
 
     @private
     @pre(t.type = ParseNodeType.FOR_TUPLE)
-    method convertForTuple(t:ParseNode):Array<(Position, String?, Type?)> {
-        def result := new Array<(Position, String?, Type?)>()
+    method convertForTuple(t:ParseNode):Array<(Position, String?, Type?, ParseNode?)> {
+        def result := new Array<(Position, String?, Type?, ParseNode?)>()
         var i := 0
         assert t[0]->(TokenNode).token.type = TokenType.LPAREN
         i += 1
@@ -3901,16 +3942,20 @@ class ASTGenerator {
                 name := null
             }
             i += 1
-            var type:Type?
+            def type:Type?
+            def typeNode:ParseNode?
             if t[i].type = ParseNodeType.TYPE_DECLARATION {
-                type := convertType(t[i][1])
+                typeNode := t[i][1]
+                type := convertType(typeNode)
                 i += 1
             }
-            else
+            else {
+                typeNode := null
                 type := null
+            }
             if t[i]->(TokenNode).token.type = TokenType.COMMA
                 i += 1
-            result.append((position, name, type))
+            result.append((position, name, type, typeNode))
         }
         return result
     }
@@ -3927,15 +3972,20 @@ class ASTGenerator {
     @private
     @pre(l.type = ParseNodeType.ANY_LOOP)
     method convertForEachLoop(l:ParseNode, var i:Int, 
-            var vars:Array<(Position, String?, Type?)>, label:String?) {
+            var vars:Array<(Position, String?, Type?, ParseNode?)>, 
+            label:String?) {
+        var indexPosition:Position? := null
         var indexName:String? := null
         var indexType:Type? := null
+        var indexTypeNode:ParseNode? := null
         if l[i]->(TokenNode).token.type = TokenType.COMMA {
             -- we have both an index and a value
             i += 1
             assert vars.length = 1
+            indexPosition := vars[0][0]
             indexName := vars[0][1]
             indexType := vars[0][2]
+            indexTypeNode := vars[0][3]
             if indexType = null
                 indexType := Type.INDEX_TYPE
             if l[i].type = ParseNodeType.FOR_TUPLE {
@@ -3945,15 +3995,19 @@ class ASTGenerator {
             else {
                 def position := l[i].position
                 def name := l[i]->>(String)
-                var type:Type?
+                def type:Type?
+                def typeNode:ParseNode?
                 i += 1
                 if l[i].type = ParseNodeType.TYPE_DECLARATION {
-                    type := convertType(l[i][1])
+                    typeNode := l[i][1]
+                    type := convertType(typeNode)
                     i += 1
                 }
-                else
+                else {
                     type := null
-                vars := [(position, name, type)]
+                    typeNode := null
+                }
+                vars := [(position, name, type, typeNode)]
             }
         }
         assert l[i]->(TokenNode).token.type = TokenType.IN
@@ -3982,7 +4036,8 @@ class ASTGenerator {
                 throw new CompilerException("'\{array.type.displayName}' " +
                         "is not a tuple", array.position)
             }
-            def count := array.type.elementType.unwrapNullable->(TupleType).types.length
+            def count := array.type.elementType.unwrapNullable->(TupleType)
+                    .types.length
             if count != vars.length {
                 throw new CompilerException("number of for-loop variables (" + 
                         "\{vars.length}) and tuple elements (\{count}) do " +
@@ -3990,17 +4045,21 @@ class ASTGenerator {
             }
         }
         var valueName:String?
+        var valuePosition := vars[0][0]
         var valueType:Type?
+        var valueTypeNode:ParseNode?
         if vars.length = 1 {
             valueName := vars[0][1]
             if valueName = null
                 throw new CompilerException("'_' is only permitted in " +
                             "multiple assignments from a tuple", vars[0][0])
             valueType := vars[0][2]
+            valueTypeNode := vars[0][3]
         }
         else {
             valueName := "$tuple" + nextCount()
             valueType := array.type.elementType
+            valueTypeNode := null
         }
         if valueType = null
             valueType := array.type.unwrapNullable->(ArrayType).elementType
@@ -4009,16 +4068,24 @@ class ASTGenerator {
         def locals := cm.localVariables
         var indexVar:Variable?
         if indexName != null {
+            assert indexPosition != null
             assert indexType != null
-            indexVar := new LocalVariable(l.position, indexName, indexType)
+            indexVar := new LocalVariable(indexPosition, indexName, indexType)
+            captureNode(indexVar)
+            if indexTypeNode != null
+                captureTree(indexVar, indexTypeNode, "type")
             locals.append(indexVar)
         }
         else
             indexVar := null
-        def valueVar := new LocalVariable(l.position, valueName, valueType)
+        def valueVar := new LocalVariable(valuePosition, valueName, valueType)
+        captureNode(valueVar)
+        if valueTypeNode != null
+            captureTree(valueVar, valueTypeNode, "type")
         valueVar.annotations.isStatic := true
         locals.append(valueVar)
-        open(new ForEach(l.position, label, indexVar, valueVar, array))
+        def forEach := new ForEach(l.position, label, indexVar, valueVar, array)
+        open(forEach)
         var symbols := new SymbolTable(currentNode,
                 currentBlock.symbolTable)
         if indexVar != null
@@ -4060,22 +4127,24 @@ class ASTGenerator {
     @private
     method convertForLoop(l:ParseNode, var i:Int, label:String?) {
         i += 1
-        var vars:Array<(Position, String?, Type?)>
+        var vars:Array<(Position, String?, Type?, ParseNode?)>
         if l[i].type = ParseNodeType.FOR_TUPLE {
             vars := convertForTuple(l[i])
             i += 1
         }
         else {
             assert l[i]->(TokenNode).token.type = TokenType.IDENTIFIER
-            def position := l[i].position
             def name := l[i]->>(String)
+            def namePosition := l[i].position
             var type:Type? := null
+            var typeNode:ParseNode? := null
             i += 1
             if l[i].type = ParseNodeType.TYPE_DECLARATION {
-                type := convertType(l[i][1])
+                typeNode := l[i][1]
+                type := convertType(typeNode)
                 i += 1
             }
-            vars := [(position, name, type)]
+            vars := [(namePosition, name, type, typeNode)]
         }
         convertForEachLoop(l, i, vars, label)
     }
@@ -4132,11 +4201,11 @@ class ASTGenerator {
     ============================================================================
     @pre(i.type = ParseNodeType.IF)
     method convertIf(i:ParseNode) {
-        assert i[0].type = ParseNodeType.TOKEN
         assert i[0]->(TokenNode).token.type = TokenType.IF
         var test := implicitCast(i[1].position, convertExpression(i[1]), 
                 BitType.BIT)
-        open(new If(i.position, test))
+        def ifNode := new If(i.position, test)
+        open(ifNode)
         assert i[2].type = ParseNodeType.STATEMENT_OR_BLOCK
         convertStatementOrBlock(i[2])
         if i.length > 3 {
@@ -4216,6 +4285,7 @@ class ASTGenerator {
         }
         def varPositions := new Array<Position>()
         def varNames := new Array<String?>()
+        def varTypeNodes := new Array<ParseNode?>()
         def varTypes := new Array<Type?>()
         var i := 1
         loop {
@@ -4231,8 +4301,11 @@ class ASTGenerator {
             var type:Type? := null
             if i < v.length & v[i].type = ParseNodeType.TYPE_DECLARATION {
                 type := convertType(v[i][1])
+                varTypeNodes.append(v[i][1])
                 i += 1
             }
+            else
+                varTypeNodes.append(null)
             varNames.append(name)
             varTypes.append(type)
             if i >= v.length | v[i].type != ParseNodeType.TOKEN | 
@@ -4286,6 +4359,10 @@ class ASTGenerator {
                             "value nor an explicit type", position)
             }
             def variable := new LocalVariable(position, name, type)
+            captureNode(variable)
+            def typeNode := varTypeNodes[j]
+            if typeNode != null
+                captureTree(variable, typeNode, "type")
             variable.annotations.isStatic := isStatic
             currentBlock.symbolTable.putVariable(variable)
             def cm := currentMethod
@@ -4333,12 +4410,20 @@ class ASTGenerator {
             assert c[0]->(TokenNode).token.type = TokenType.CONSTANT
             assert c[1]->(TokenNode).token.type = TokenType.IDENTIFIER
             var name := c[1]->(TokenNode).token.text
-            var type:Type
-            if c[2].type = ParseNodeType.TYPE_DECLARATION
-                type := convertType(c[2][1])
-            else 
+            def type:Type
+            def typeNode:ParseNode?
+            if c[2].type = ParseNodeType.TYPE_DECLARATION {
+                typeNode := c[2][1]
+                type := convertType(typeNode)
+            }
+            else {
+                typeNode := null
                 type := Type.UNRESOLVED
+            }
             field := new FieldNode(c.position, name, type)
+            captureNode(field, c[1].position)
+            if typeNode != null
+                captureTree(field, typeNode, "type")
             field.annotations := annotations
             field.annotations.isClass := true
             field.annotations.isStatic := true
@@ -4652,7 +4737,7 @@ class ASTGenerator {
         else
             isStatic := true
         assert p[i]->(TokenNode).token.type = TokenType.IDENTIFIER
-        def name := p[i]->(TokenNode).token.text
+        def name := p[i]->(TokenNode).token
         i += 1
         var isConvert:Bit
         if p[i]->(TokenNode).token.type = TokenType.COLON
@@ -4662,7 +4747,8 @@ class ASTGenerator {
             isConvert := true
         }
         i += 1
-        var genericType := convertType(p[i])
+        def typeNode := p[i]
+        var genericType := convertType(typeNode)
         var type := genericType.unwrapGenerics()
         i += 1
         var isVarArg := false
@@ -4673,7 +4759,9 @@ class ASTGenerator {
                     ">")
             genericType := type
         }
-        var param := new Parameter(p.position, name, genericType)
+        var param := new Parameter(p.position, name.text, genericType)
+        captureNode(param, name.position)
+        captureTree(param, typeNode, "type")
         param.isVarArg := isVarArg
         param.isConvert := isConvert
         param.annotations.isStatic := isStatic
@@ -5152,6 +5240,8 @@ class ASTGenerator {
                         "unsupported methodType: " + m[0][0])
             }
             var cm := new MethodNode(m.position, name, methodType)
+            if methodType != MethodNodeType.CONSTRUCTOR
+                captureNode(cm, m[1].position)
             open(cm)
             cm.annotations := annotations
 
@@ -5172,8 +5262,10 @@ class ASTGenerator {
                     m[typeIndex].type = ParseNodeType.TYPE_DECLARATION {
                 if methodType = MethodNodeType.CONSTRUCTOR
                     error("constructors may not have a return type", m)
-                cm.genericReturnType := convertType(m[3][1])
+                def typeNode := m[3][1]
+                cm.genericReturnType := convertType(typeNode)
                 cm.returnType := cm.genericReturnType.unwrapGenerics()
+                captureTree(cm, typeNode, "type")
                 blockIndex += 1
             }
             else {
@@ -5352,14 +5444,21 @@ class ASTGenerator {
                     name := null
                 i += 1
                 if name != null {
-                    var type:Type
+                    def type:Type
+                    def typeNode:ParseNode?
                     if f.length > i & f[i].type = ParseNodeType.TYPE_DECLARATION {
-                        type := convertType(f[i][1])
+                        typeNode := f[i][1]
+                        type := convertType(typeNode)
                         i += 1
                     }
-                    else
+                    else {
                         type := Type.UNRESOLVED
+                        typeNode := null
+                    }
                     def field := new FieldNode(position, name, type)
+                    captureNode(field)
+                    if typeNode != null
+                        captureTree(field, typeNode, "type")
                     fields.append(field)
                     field.annotations := annotations
                     field.doccomment := doccomment
@@ -5918,6 +6017,7 @@ class ASTGenerator {
         var classNode := convertClassOrInterface(cl.position, doccomment, 
                 annotations, className, false, genericParametersNode,
                 supertypeNode, interfaces, cl[i])
+        captureNode(classNode, cl[1].position)
 
         if !linkageOnly {
             var superclass := classNode.superclass
@@ -6615,9 +6715,11 @@ class ASTGenerator {
     Processes a COMPILATION_UNIT parse node.
     ============================================================================
     @pre(root.type = ParseNodeType.COMPILATION_UNIT)
-    method convertCompilationUnit(root:ParseNode, name:String):CompilationUnit {
+    method convertCompilationUnit(root:ParseNode, name:String, 
+            source:File?):CompilationUnit {
         reset()
-        var compilationUnit := new CompilationUnit(name, SymbolTable.master)
+        var compilationUnit := new CompilationUnit(name, SymbolTable.master,
+                source)
         open(compilationUnit)
         for node in root.children {
             assert node.type = ParseNodeType.BODY_ENTRY

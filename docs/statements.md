@@ -5,6 +5,7 @@ Panda code is comprised of a sequence of *statements*. Statements are executed
 one at a time, in order, except where *control flow statements* specifically 
 repeat or skip statements. The following statement types are supported:
 
+<a name="assignment"></a>
 Assignment
 ----------
 
@@ -20,6 +21,7 @@ operators make `<l-value>` equal to `<l-value> <operator> <r-value>`.
 
 See [Operators](operators.html) for full details on compound assignment.
 
+<a name="methodCalls"></a>
 Method Calls
 ------------
 

@@ -103,11 +103,12 @@ uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
-class JavaCodeGenerator : CodeGenerator {
+class JavaCodeGenerator (CodeGenerator) {
     constant UNNAMED := "$unnamed"
     constant NAME := "JavaCodeGenerator.name"
     constant PANDACORE := "panda.core.PandaCore"
     constant STRING_CONSTANT_PREFIX := "$STRING_CONSTANT_"
+    constant MAX_LENGTH := 128
     
     var rootPath:File?
     var out := new IndentedOutputStream(Console.outputStream)
@@ -119,8 +120,18 @@ class JavaCodeGenerator : CodeGenerator {
     -- FIXME use a set
     var methodTypes := new Array<MethodType>()
 
+    @override
+    function defaultExtension():String? {
+        return null
+    }
+
     method getName(cl:ClassNode):String {
         return getJavaType(cl.type())
+    }
+
+    function hash(fullName:String, className:String):String {
+        -- FIXME: replace this with SHA-1 or something equivalent
+        return "panda.hashed." + className + fullName.hash->>(UInt32)->>(String)
     }
 
     method getDisplayName(cl:ClassNode):String {
@@ -188,6 +199,8 @@ class JavaCodeGenerator : CodeGenerator {
             case VoidType.VOID:   return "void"
         }
         var result := t.name
+        if t.name.length > MAX_LENGTH
+            return hash(t.name, "Class")
         -- we can't use unnamed packages in Java, because classes in named
         -- packages are not allowed to refer to classes in unnamed packages
         if !result.contains(".")
@@ -270,6 +283,8 @@ class JavaCodeGenerator : CodeGenerator {
         -- packages are not allowed to refer to classes in unnamed packages
         if !result.contains(".")
             result := UNNAMED + "." + result
+        if result.length > MAX_LENGTH
+            return hash(result, "Class")
         return escape(result)
     }
 
@@ -295,6 +310,8 @@ class JavaCodeGenerator : CodeGenerator {
         def lt := result.indexOf("<")
         if lt != null
             result := result[..lt] + result[lt..].replace(".", "$")
+        if result.length > MAX_LENGTH
+            return hash(result, "Method")
         return escape(result)
     }
 

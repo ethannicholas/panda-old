@@ -24,6 +24,7 @@ mkdir -p build/docs-tmp
 mkdir -p build/docs/api
 cp scripts/panda.css docs/*.panda build/docs
 cp scripts/pandadoc.css docs/*.panda build/docs/api
+cp scripts/pandacode.css docs/*.panda build/docs/api
 $PANDAC -f doc -o build/docs-tmp `find $CORE -name "*.panda"`
 
 cd $BASEDIR/build/docs-tmp

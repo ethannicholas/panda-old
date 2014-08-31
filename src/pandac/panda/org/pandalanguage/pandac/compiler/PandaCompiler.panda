@@ -3,6 +3,7 @@ package org.pandalanguage.pandac.compiler
 uses org.pandalanguage.pandac.analysis.DataFlowAnalyzer
 uses org.pandalanguage.pandac.analysis.SafetyChecker
 uses org.pandalanguage.pandac.pandadoc.PandaDoc
+uses org.pandalanguage.pandac.pandadoc.HTMLWriter
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -14,18 +15,6 @@ uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
-
-class CompilerMessage : Immutable {
-    def message:String
-    def position:Position
-    def warning:Bit
-
-    constructor(message:String, position:Position, warning:Bit) {
-        self.message := message
-        self.position := position
-        self.warning := warning
-    }
-}
 
 class PandaCompiler {
     constant PANDA_HOME := determinePandaHome()
@@ -41,8 +30,8 @@ class PandaCompiler {
     @private
     constant SYMBOLS_LOADED_KEY := "PandaCompiler.symbolsLoaded"
 
-    @readonly
-    var astGenerator := new ASTGenerator()
+    @thread
+    def astGenerator := new ASTGenerator()
 
     @readonly
     var errors:Int
@@ -145,9 +134,9 @@ class PandaCompiler {
         }
     }
 
-    method processMessage(message:CompilerMessage) {
+    method processMessage(message:String, position:Position?, warning:Bit) {
         var prefix:String
-        if message.warning {
+        if warning {
             warnings += 1
             prefix := "warning: "
         }
@@ -155,36 +144,38 @@ class PandaCompiler {
             errors += 1
             prefix := "error: "
         }
-        Console.writeLine(prefix + message.position + ": " +
-                message.message)
+        if position != null
+            prefix += position + ": "
+        Console.writeLine(prefix + message)
     }
 
     method processMessages() {
         def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
-        while queue.pendingMessages() > 0
-            processMessage(queue.getMessage()->(CompilerMessage))
+        while queue.pendingMessages() > 0 {
+            def message, position, warning := 
+                    queue.getMessage()->((String, Position?, Bit))
+            processMessage(message, position, warning)
+        }
     }
 
     @class
-    method reportError(message:String, position:Position) {
+    method reportError(message:String, position:Position?) {
         def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
-        queue.post(new CompilerMessage(message, position, false))
+        queue.post((message, position, false))
     }
     
     @class
     method reportError(e:CompilerException) {
         var position := e.position
-        if position = null
-            position := Position.INTERNAL
         if e-?>(InternalCompilerException)
             Console.writeLine(e)
         reportError(e.message, position)
     }
 
     @class
-    method reportWarning(msg:String, position:Position) {
+    method reportWarning(msg:String, position:Position?) {
         def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
-        queue.post(new CompilerMessage(msg, position, true))
+        queue.post((msg, position, true))
     }
 
     @class
@@ -216,7 +207,7 @@ class PandaCompiler {
         var parseNode := parser.parseCompilationUnit(f)
         astGenerator.linkageOnly := true
         var ast := astGenerator.convertCompilationUnit(parseNode, 
-                f.name)
+                f.name, f)
     }
     
     @protected
@@ -334,7 +325,7 @@ class PandaCompiler {
         try {
             var parser := new PandaParser()
             var parseNode := parser.parseCompilationUnit(f)
-            astGenerator.convertCompilationUnit(parseNode, f.name)
+            astGenerator.convertCompilationUnit(parseNode, f.name, f)
         }
         catch e:CompilerException {
             reportError(e)
@@ -471,21 +462,6 @@ class PandaCompiler {
             if errors > 0
                 return
         
-            var output := CompilerSettings.output
-            if output = null {
-                if sources.length = 1 {
-                    var parent := sources[0].parent()
-                    if parent = null
-                        throw new CompilerException("cannot determine parent" +
-                                "directory of " + sources[0])
-                    output := parent.resolve(sources[0].simpleName)
-                }
-                else {
-                    throw new CompilerException("multiple input files " +
-                            "specified, use -o to specify output path")
-                }
-            }
- 
             checkpoint("codegen")
             var cg:CodeGenerator
             switch CompilerSettings.codeGenerator {
@@ -494,6 +470,7 @@ class PandaCompiler {
                 case "plink": cg := new PLinkCodeGenerator()
                 case "llvm":  cg := new LLVMCodeGenerator()
                 case "doc":   cg := new PandaDoc()
+                case "html":  cg := new HTMLWriter()
                 case "h":     cg := new HeaderCodeGenerator()
                 case "java":  cg := new JavaCodeGenerator()
                 case "javah": cg := new JavaHeaderCodeGenerator()
@@ -503,6 +480,27 @@ class PandaCompiler {
                         "format '" + CompilerSettings.codeGenerator + "'")
             }
 
+            var output := CompilerSettings.output
+            if output = null {
+                if sources.length = 1 {
+                    def defaultExtension := cg.defaultExtension
+                    if defaultExtension = null {
+                        throw new CompilerException("must use -o to specify " +
+                                "output path with '-f \{CompilerSettings.codeGenerator}'")
+                    }
+                    var parent := sources[0].parent()
+                    if parent = null
+                        throw new CompilerException("cannot determine parent" +
+                                "directory of " + sources[0])
+                    output := parent.resolve(sources[0].simpleName +
+                            defaultExtension)
+                }
+                else {
+                    throw new CompilerException("multiple input files " +
+                            "specified, use -o to specify output path")
+                }
+            }
+ 
             cg.generateCode(output)
         }
         catch e:CompilerException {

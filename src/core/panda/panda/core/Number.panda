@@ -26,24 +26,29 @@ Note that:
 class Number : Primitive {
     @private
     constant FORMAT_PATTERN := 
-            #/(\+?)(,?)(?:(\d*)(?:(\.\d+)(\.\.\d+)?)?)?([bBoOdDhH]?)/#
+            #/(\+?)(,?)(?:(\d*)(?:\.(\d+)(?:\.\.\.(\d+))?)?)?([bBoOdDhH]?)/#
 
     ============================================================================
     @hidden
     ============================================================================
     @abstract
-    function convertToString(thousandsSeparator:Char?):String
+    function convertToString(thousandsSeparator:Char?, minWholeDigits:Int?, 
+            minFractionDigits:Int?, maxFractionDigits:Int?, base:Int, 
+            baseChars:String):String
 
     ============================================================================
     @hidden
     ============================================================================
     @protected
     @class 
-    function convertToString(var value:Int64, thousandsSeparator:Char?):String {
-        var max := 26
-        var result := new Array<Char>(max)
-        var index := max - 1
+    function convertToString(var value:Int64, thousandsSeparator:Char?,
+            var minWholeDigits:Int?, minFractionDigits:Int?, 
+            maxFractionDigits:Int?, base:Int, baseChars:String):String {
+        constant MAX := 65
+        def result := new Array<Char>(MAX)
+        var index := MAX - 1
         var digitCount := 0
+        var totalDigits := 0
         if value >= 0 {
             do {
                 if thousandsSeparator != null & digitCount = 3 {
@@ -51,12 +56,27 @@ class Number : Primitive {
                     index -= 1
                     digitCount := 0
                 }
-                result[index] := (value % 10 + 48)->>(Char)
-                value //= 10
+                result[index] := baseChars[(value % base)->>(Int)]
+                value //= base
                 index -= 1
                 digitCount += 1
+                totalDigits += 1
             } 
             while value > 0
+            if minWholeDigits != null {
+                minWholeDigits -= totalDigits
+                while minWholeDigits > 0 {
+                    if thousandsSeparator != null & digitCount = 3 {
+                        result[index] := thousandsSeparator
+                        index -= 1
+                        digitCount := 0
+                    }
+                    result[index] := "0"
+                    index -= 1
+                    minWholeDigits -= 1
+                    digitCount += 1
+                }
+            }
             index += 1
         }
         else {
@@ -66,14 +86,31 @@ class Number : Primitive {
                     index -= 1
                     digitCount := 0
                 }
-                result[index] := (48 - value % 10)->>(Char)
-                value //= 10
+                result[index] := baseChars[(-value % base)->>(Int)]
+                value //= base
                 index -= 1
                 digitCount += 1
+                totalDigits += 1
             } 
             while value < 0
+            if minWholeDigits != null {
+                minWholeDigits -= totalDigits
+                while minWholeDigits > 0 {
+                    if thousandsSeparator != null & digitCount = 3 {
+                        result[index] := thousandsSeparator
+                        index -= 1
+                        digitCount := 0
+                    }
+                    result[index] := "0"
+                    index -= 1
+                    minWholeDigits -= 1
+                    digitCount += 1
+                }
+            }
             result[index] := "-"
         }
+        if minFractionDigits != null
+            return new String(result[index..]) + "." + ("0" * minFractionDigits)
         return new String(result[index..])
     }
 
@@ -82,24 +119,45 @@ class Number : Primitive {
     ============================================================================
     @protected
     @class 
-    function convertToString(var value:UInt64, 
-            thousandsSeparator:Char?):String {
-        var max := 26
-        var result := new Array<Char>(max)
-        var index := max - 1
+    function convertToString(var value:UInt64, thousandsSeparator:Char?, 
+            var minWholeDigits:Int?, minFractionDigits:Int?, 
+            maxFractionDigits:Int?, base:Int, baseChars:String):String {
+        constant MAX := 65
+        def result := new Array<Char>(MAX)
+        var index := MAX - 1
         var digitCount := 0
+        var totalDigits := 0
         do {
             if thousandsSeparator != null & digitCount = 3 {
                 result[index] := thousandsSeparator
                 index -= 1
                 digitCount := 0
             }
-            result[index] := (value % 10 + 48)->>(Char)
-            value //= 10
+            result[index] := baseChars[(value % base->(UInt64))->>(Int)]
+            value //= base->(UInt64)
             index -= 1
             digitCount += 1
+            totalDigits += 1
         } 
         while value > 0
+        if minWholeDigits != null {
+            minWholeDigits -= totalDigits
+            while minWholeDigits > 0 {
+                if thousandsSeparator != null & digitCount = 3 {
+                    result[index] := thousandsSeparator
+                    index -= 1
+                    digitCount := 0
+                }
+                result[index] := "0"
+                index -= 1
+                minWholeDigits -= 1
+                digitCount += 1
+            }
+        }
+        if minFractionDigits != null {
+            return new String(result[index + 1..]) + "." + 
+                    ("0" * minFractionDigits)
+        }
         return new String(result[index + 1..])
     }
 
@@ -108,39 +166,89 @@ class Number : Primitive {
     ============================================================================
     @protected
     @class
-    -- FIXME PERFORMANCE: obviously this is less efficient than adding the
-    -- thousands separators during the conversion, but that's not an option in
-    -- the library I'm using and this was quicker than figuring out how to fix
-    -- the library
-    function convertToString(value:Real64, thousandsSeparator:Char?):String {
-        var raw := value->>(String)
-        if thousandsSeparator != null {
+    -- FIXME PERFORMANCE: obviously postprocessing the string is way less 
+    -- efficient than doing the conversion correctly to begin with, but we're
+    -- currently using three different native converters, at least one of which
+    -- does not appear to support the options we need, and this is way quicker
+    -- and easier to get working
+    function convertToString(value:Real64, thousandsSeparator:Char?,
+            minWholeDigits:Int?, minFractionDigits:Int?, maxFractionDigits:Int?, 
+            base:Int, baseChars:String):String {
+        if base != 10 {
+            return convertToString(value->>(Int64), thousandsSeparator,
+                    minWholeDigits, minFractionDigits, maxFractionDigits, base,
+                    baseChars)
+        }
+        var raw := value.abs->>(String)
+        if thousandsSeparator != null | minFractionDigits != null | 
+                maxFractionDigits != null {
             var dot := raw.indexOf(".")
-            if dot = null
-                dot := raw.length
+            var wholeDigits:Int
+            if dot != null
+                wholeDigits := dot
+            else
+                wholeDigits := raw.length
             var result := new MutableString()
-            var digit := dot % 3
-            if digit = 0
-                digit := 3
-            for i in 0 ... dot - 1 {
-                if digit = 0 {
-                    result.append(",")
-                    digit := 3
-                }
-                digit -= 1
-                result.append(raw[i])
+            if minWholeDigits != null & wholeDigits < minWholeDigits {
+                def zeroes := (minWholeDigits - wholeDigits)
+                raw := "0" * zeroes + raw
+                wholeDigits := minWholeDigits
+                if dot != null
+                    dot += zeroes
             }
-            result.append(raw[dot..])
+            if thousandsSeparator != null {
+                var digit := wholeDigits % 3
+                if digit = 0
+                    digit := 3
+                for i in 0 .. wholeDigits {
+                    if digit = 0 {
+                        result.append(",")
+                        digit := 3
+                    }
+                    digit -= 1
+                    result.append(raw[i])
+                }
+            }
+            else
+                result.append(raw[..dot])
+            def currentFractionDigits:Int
+            if dot = null
+                currentFractionDigits := 0
+            else
+                currentFractionDigits := raw.length - dot - 1
+            if maxFractionDigits != null &
+                    currentFractionDigits > maxFractionDigits {
+                assert dot != null
+                if maxFractionDigits > 0 {
+                    result.append(raw[dot ... dot + maxFractionDigits - 1])
+                    if raw[dot + maxFractionDigits + 1] >= "5"
+                        result.append("1234567890"[raw[dot + maxFractionDigits]->(Int) - 48])
+                    else
+                        result.append(raw[dot + maxFractionDigits])
+                }
+            }
+            else {
+                if minFractionDigits != null & minFractionDigits != 0 & 
+                        dot = null
+                    result.append(".")
+                result.append(raw[wholeDigits..])
+                if minFractionDigits != null & 
+                        currentFractionDigits < minFractionDigits
+                    result.append("0" * (minFractionDigits - 
+                            currentFractionDigits))
+            }
+            if value < 0
+                result.insert(0, "-")
             return result->>(String)
         }
         return raw
     }
-
+    
     ============================================================================
     Formats the number for display according to the provided format string. The
     format string is of the form:
 
-        [+][,][<minWholeDigits>][.<fractionDigits>[..<maxFractionDigits]][<base>]
+        [+][,][<minWholeDigits>][.<fractionDigits>[...<maxFractionDigits]][<base>]
 
     A leading `"+"` causes positive numbers to include a plus sign.
 
@@ -169,7 +277,7 @@ class Number : Primitive {
     hexadecimal numbers, a lowercase `"h"` will yield lowercase hexadecimal
     digits and an uppercase `"H"` will yield uppercase hexadecimal digits. The
     default base is decimal. It is an error to specify any base but decimal for
-    `Real` numbers.
+    `Real` numbers or when thousands separators are enabled.
 
     As all components are optional, the empty format string (`""`) is legal and
     yields the same result as `number->>(String)`.
@@ -182,15 +290,73 @@ class Number : Primitive {
     function format(var fmt:String):String {
         if fmt = "panda"
             fmt := ""
-        var params := fmt.parse(FORMAT_PATTERN)
+        def params := fmt.parse(FORMAT_PATTERN)
         if params = null
             throw new ParameterError("invalid format string: " + fmt)
-        var thousandsSeparator:Char?
+
+        def thousandsSeparator:Char?
         if params[1] = ","
             thousandsSeparator := ","
         else
             thousandsSeparator := null
-        var result := convertToString(thousandsSeparator)
+
+        def minWholeDigits:Int?
+        if params[2] != ""
+            minWholeDigits := params[2]->>(Int)
+        else
+            minWholeDigits := null
+
+        def minFractionDigits:Int?
+        if params[3] != ""
+            minFractionDigits := params[3]->>(Int)
+        else
+            minFractionDigits := null
+
+        def maxFractionDigits:Int?
+        if params[4] != ""
+            maxFractionDigits := params[4]->>(Int)
+        else
+            maxFractionDigits := minFractionDigits
+
+        def base:Int
+        def baseChars:String
+        switch params[5] {
+            case "", "d", "D": {
+                base := 10
+                baseChars := "0123456789"
+            }
+            case "b", "B": {
+                base := 2
+                baseChars := "01"
+            }
+            case "o", "O": {
+                base := 8
+                baseChars := "01234567"
+            }
+            case "h": {
+                base := 16
+                baseChars := "0123456789abcdef"
+            }
+            case "H": {
+                base := 16
+                baseChars := "0123456789ABCDEF"
+            }
+            default:
+                unreachable
+        }
+        if base != 10 {
+            if thousandsSeparator != null {
+                throw new ParameterError("thousands separator may " +
+                        "not be used with non-decimal bases")
+            }
+            if minFractionDigits != null & minFractionDigits != 0 {
+                throw new ParameterError("fraction digits may not be " +
+                        "used with non-decimal bases")
+            }
+        }
+
+        var result := convertToString(thousandsSeparator, minWholeDigits, 
+                minFractionDigits, maxFractionDigits, base, baseChars)
         if params[0] = "+" & !result.startsWith("-")
             result := "+" + result
         return result
