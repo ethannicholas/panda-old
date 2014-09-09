@@ -38,8 +38,17 @@ not better served by a less generic name should be named `i`, `j`, etc.
 Names should never include or reference their type, unless that is what is 
 significant about them. For instance, the following code is acceptable:
 
+@SOURCE(
+    function getAttribute(s:String):String {
+        return "foo"
+    }
+    function parseHeight(s:String):Int {
+        return 42
+    }
+    --BEGIN
     var heightString := getAttribute("height")
     var height := parseHeight(heightString)
+)
 
 In this case, we need to distinguish the raw, unprocessed string form of the 
 height from its processed numeric version, so calling this out as heightString 
@@ -70,11 +79,18 @@ Classes and methods are separated by a blank line.
 When breaking a line in the middle of an expression, the operator goes at the 
 end of the line:
 
+@SOURCE(
+    class Example {
+    var value:Example
+    --BEGIN
     @override
     function =(o:Object):Bit {
-        return o-?>(CharWrapper) & value = o->(CharWrapper).value |
+        return o-?>(Example) & value = o->(Example).value |
                 o-?>(String) & value->>(String) = o
     }
+    --END
+    }
+)
 
 Width
 -----
@@ -88,9 +104,13 @@ Braces attached to an `if`, `for`, `while`, or `do` statement appear on the same
 line as the statement itself, separated by a single space, and the closing brace
 is even with the opening statement, e.g.:
 
+@SOURCE(
+    def codeIsWellFormatted := true
+    --BEGIN
     if codeIsWellFormatted {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 Optional braces (those enclosing only a single statement) should be included 
 when that statement spans multiple lines, and omitted otherwise. "Spans multiple 
@@ -100,29 +120,47 @@ to its child statements, even though the `for` itself fits on a single line.
 If optional braces are omitted, the statement in question still goes on the next
 line, indented. That is, you should write:
 
+@SOURCE(
+    def x := 0
+    method doSomething() { }
+    --BEGIN
     if x > 0
         doSomething()
+)
 
 instead of
 
-    if x > 0 doSomething
+@SOURCE(
+    def x := 0
+    method doSomething() { }
+    --BEGIN
+    if x > 0 doSomething()
+)
 
 There should be no other code on the same line as a closing brace. This means 
 that if-then-elses should be written as:
 
+@SOURCE(
+    def test := true
+    --BEGIN
     if test {
-        ...
+        -*REPLACE:...*---dummy comment
     }
     else {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 and do-while loops as:
 
+@SOURCE(
+    def condition := false
+    --BEGIN
     do {
-        ...
+        -*REPLACE:...*---dummy comment
     }
     while condition
+)
 
 Literals
 --------
@@ -134,9 +172,11 @@ avoid having to escape embedded double quotes, for instance in the string `'"'`.
 "Magic" numbers and strings should generally be defined as constants, but don't
 get carried away. For instance, in
 
+@SOURCE(
     function isEven(x:Int):Bit {
         return x % 2 = 0
     }
+)
 
 the magic number `2` is perfectly acceptable because no one reading the code is
 going to be confused about what it means or where it came from.
@@ -199,8 +239,12 @@ Comments
 Code must thoroughly commented. Comments should describe things that are not 
 immediately obvious from looking at the code, e.g. in the below code
 
+@SOURCE(
+    def x:Int
+    --BEGIN
     -- set x to 0
     x := 0
+)
 
 the comment is useless, because it does not tell us anything that is not 
 immediately apparent from looking at the code. We would instead want to know 
@@ -212,14 +256,19 @@ Comments used to break code up into sections should have another pair of minus
 signs (--) at the end of the comment, with a single blank line between sections, 
 as follows:
 
+@SOURCE(
     -- Parse the document --
-    ...
+    -*REPLACE:...*---dummy comment
 
     -- Transform the parsed document --
-    ...
+    -*REPLACE:...*---dummy comment
 
     -- Output the transformed document --
-    ...
+    -*REPLACE:...*---dummy comment
+    --END
+    class dummy {
+    }
+)
 
 Documentation Comments
 ----------------------
@@ -239,6 +288,7 @@ is not obvious).
 
 Example:
 
+@SOURCE(
     ============================================================================
     Returns the greater (closest to positive infinity) of its two parameters. 
     Returns `NaN` If either `a` or `b` is `NaN`.
@@ -247,12 +297,13 @@ Example:
     @param b a number
     @return the greater of the two parameters
     ============================================================================
-    public static function max(a:Int32, b:Int32):Int32 {
-        if a > b then
-            return a;
+    function max(a:Int32, b:Int32):Int32 {
+        if a > b
+            return a
         else
-            return b;
+            return b
     }
+)
 
 Every public class or class member must have a complete documentation comment, 
 covering all of its parameters, return, possible exceptions, and so forth. 
@@ -292,6 +343,11 @@ Annotations appear in the same column as the entity they are describing, on
 preceding lines (except for `@post` / `@postAnd`, which appear on following
 lines). Use only one annotation per line, as in:
 
+@SOURCE(
+    class Widget {
+    var isReady := true
+    var isFurculated := true
+    --BEGIN
     ============================================================================
     Frobnozzles a widget until it is furculated.
     ============================================================================
@@ -299,9 +355,11 @@ lines). Use only one annotation per line, as in:
     @class
     @pre(w.isReady)
     method frobnozzle(w:Widget) {
-        ...
+        -*REPLACE:...*---dummy comment
     }
     @post(w.isFurculated)
+    }
+)
 
 Annotations should always be listed in a consistent order:
 
@@ -434,6 +492,10 @@ SafetyError
 `SafetyError` and its subclasses, as mentioned above, are a sign that your
 program is broken. Writing code equivalent to the following:
 
+@SOURCE(
+    def list:Array<Object> := []
+    method processEntry(o:Object) { }
+    --BEGIN
     try {
         var i := 0
         loop {
@@ -441,9 +503,10 @@ program is broken. Writing code equivalent to the following:
             i += 1
         }
     }
-    catch e:IndexOutOfBoundsException {
+    catch e:IndexOutOfBoundsError {
         -- reached the end of the array
     }
+)
 
 will get you soundly flogged. Not only are exceptions incredibly expensive
 compared to a simple loop, but `SafetyError` is explicitly not guaranteed: your 

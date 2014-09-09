@@ -1,22 +1,28 @@
 Classes
 =======
 
-Every Panda value is an object, and therefore an instance of a class. Classes 
-are defined using the syntax:
+A *class* in Panda represents a kind of *object*. An object is a value 
+containing [fields](fields.html) (data values) and [methods](methods.html) 
+(actions). Every Panda value other than [`null`](null.html) is an object, and 
+therefore an instance of a class. Classes are defined using the syntax:
 
-    class <name> [: <supertype>] {
-        <bodyEntries>
+@SOURCE(
+    class -*REPLACE:<name>*-name -*REPLACE:[*- : -*REPLACE:<superclass>]*-Object {
+        -*REPLACE:<bodyEntries>*-var -*REPLACE:*-x-*REPLACE:*-:-*REPLACE:*-Int
     }
+)
 
 A `<bodyEntry>` is a [method](methods.html), [field](fields.html), 
 [constant](constants.html), or [`@invariant`](annotations.html#invariant).
 
 For instance, a simple class containing two fields:
 
+@SOURCE(
     class Point {
         var x:Int
         var y:Int
     }
+)
 
 Because `Point` does not specify a supertype, it descends from 
 `panda.core.Object`. Its two fields, `x` and `y`, are public by default (that
@@ -25,17 +31,27 @@ is, any other class is free to read and modify them).
 You would create a new `Point` using [new](new.html) keyword, as in the 
 expression `new Point()`. To create and configure a `Point`:
 
-    var p := new Point()
+@SOURCE(
+    class Point {
+        var x:Int
+        var y:Int
+    }
+    --BEGIN
+    def p := new Point()
     p.x := 5
     p.y := 7
-    Console.writeLine("The point is: " + p.x + ", " + p.y)
+    Console.writeLine("The point is: \{p.x}, \{p.y}")
+)
 
-Result: `The point is: 5, 7`
+Result: 
+    
+    The point is: 5, 7
 
 It would be more convenient to be able to create and initialize a `Point` in a
 single step. We can define a special kind of method, a 
 [`constructor`](constructors.html), to simplify the initialization:
 
+@SOURCE(
     class Point {
         var x:Int
         var y:Int
@@ -46,38 +62,87 @@ single step. We can define a special kind of method, a
         }
     }
 
-    var p := new Point(5, 7)
+    def p := new Point(5, 7)
+)
 
 As shown above, the current object instance may be referred to by using the 
 `self` [keyword](keywords.html).
+
+Inheritance
+-----------
+
+Classes may *inherit* from another class to extend or modify the parent class'
+behavior. In the real world, we might say that the Human class extends the
+Primate class, which in turn extends the Mammal class, and so forth. At each 
+step, we add new traits which specialize the class further. We could express 
+this concept in Panda as follows:
+
+@SOURCE(
+    class Mammal : -*REPLACE:Vertebrate*-Object {
+        -*REPLACE:...*---dummy comment
+    }
+
+    class Primate : Mammal {
+        -*REPLACE:...*---dummy comment
+    }
+
+    class Human : Primate {
+        -*REPLACE:...*---dummy comment
+    }
+)
+
+Each child class (subclass) inherits all of the fields and methods from its
+parent class (superclass), and may be used anywhere the parent class is 
+expected (that is, all `Human` objects are also `Mammal` objects). Subclasses
+may add additional fields and methods, as well as override (replace) methods
+inherited from their parent classes.
+
+All classes ultimately inherit from 
+[`panda.core.Object`](api/panda/core/Object.html). If you do not specify a 
+superclass, the superclass defaults to `Object`.
 
 Class Literals
 --------------
 
 Each Panda class is represented at runtime by an instance of the 
-[Class](api/panda.core.Class.html) class. You may obtain a reference to this
+[Class](api/panda/core/Class.html) class. You may obtain a reference to this
 `Class` instance at runtime using the syntax `class(<name>)`, e.g.:
 
+@SOURCE(
     Console.writeLine(class(String).name)
+)
 
-Result: `panda.core.String`
+Result: 
+    
+    panda.core.String
 
-Interfaces
-----------
+Implementing Interfaces
+-----------------------
 
 In addition to inheriting from one superclass, classes may also inherit from any
 number of superinterfaces. The syntax for this is:
 
+@SOURCE(
+    interface Interface1 { }
+    interface Interface2 { }
+    interface Interface3 { }
+    --BEGIN
     class LotsOfInterfaces (Interface1, Interface2, Interface3) {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 If both a superclass and superinterfaces are being provided, the interface
 declaration comes after the superclass declaration:
 
+@SOURCE(
+    class Superclass { }
+    interface Superinterface { }
+    --BEGIN
     class SuperclassAndSuperinterfaces : Superclass (Superinterface) {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 Each interface provides (generally abstract) methods, but no fields. See the
 page on [interfaces](interfaces.html) for more information.

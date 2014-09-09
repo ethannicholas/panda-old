@@ -4,26 +4,34 @@ Threads
 A *thread* is an independent stream of execution. A complete program may consist
 of many threads, all running different code at the same time.
 
-Threads are created by subclassing the class 
-[`panda.threads.Thread`](api/panda.threads.Thread.html) and overriding the
-`run()` method. Create an instance of your `Thread` subclass and call 
-`thread.start()` in order to start up a new thread. The thread object will then 
-call its overridden `run()` method in a separate operating-system level thread.
+Threads are created by the [Thread.start()](api/panda/threads/Thread.html#start(()=&>*()):panda.threads.Thread) 
+method, passing in the method to run in the background. The method will run
+asynchronously in a separate system thread.
 
 Example:
 
-    class CountingThread {
-        @override
-        method run() {
-            for i := 0 to 1000000000
+@SOURCE(
+    class ThreadExample {
+        @class
+        method count() {
+            for i in 0 .. 1000000000
                 Console.writeLine(i)
         }
-    }
 
-    new CountingThread().start()
-    -- we have now started counting in the background, but we can keep doing
-    -- things in the foreground
-    doOtherThings()
+        @class
+        method doOtherThings() {
+            -*REPLACE:...*---dummy comment
+        }
+
+        @class
+        method main() {
+            Thread.start(ThreadExample::count)
+            -- we have now started counting in the background, but we can keep 
+            -- doing things in the foreground
+            doOtherThings()
+        }
+    }
+)
 
 Threads communicate with each other by passing messages using
 [`MessageQueue`s](api/panda.threads.MessageQueue.html). Normally, threads may

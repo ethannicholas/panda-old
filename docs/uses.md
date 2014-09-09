@@ -5,6 +5,7 @@ The *uses* directive allows you to refer to classes using simpler names.
 Normally, if you have classes in two different [packages](packages.html), they
 must use fully-qualified names to refer to each other:
 
+@SOURCE(
     package example.package1
     
     class Example1 {
@@ -16,9 +17,11 @@ must use fully-qualified names to refer to each other:
     class Example2 {
         var example1:example.package1.Example1
     }
+)
 
 By *using* these classes, we can refer to them using just their simple names:
 
+@SOURCE(
     package example.package1
     
     uses example.package2.Example2
@@ -34,6 +37,7 @@ By *using* these classes, we can refer to them using just their simple names:
     class Example2 {
         var example1:Example1
     }
+)
 
 Note that *using* a class does not actually bring in or load any additional 
 code. It merely allows you to refer to classes without requiring their 
@@ -42,7 +46,13 @@ fully-qualified names. There are two different kinds of `uses`:
 Using a Package
 ---------------
 
-    uses package.name.*
+@SOURCE(
+    package packageName
+    class Dummy { }
+    --BEGIN
+    uses packageName.*
+    Console.writeLine("dummy code")--SKIP
+)
 
 By *using* a package name followed by the token `".*"`, you *use* all classes
 in the package.
@@ -50,7 +60,12 @@ in the package.
 Using a Class
 -------------
 
-    uses fully.qualified.ClassName [as Alias]
+@SOURCE(
+    package fully.qualified
+    class ClassName { }
+    --BEGIN
+    uses fully.qualified.ClassName-*REPLACE: [*- as Alias-*REPLACE:]*- 
+)
 
 This variant *uses* a single class, with an optional alias. Aliasing a class is
 useful if two classes in different packages have the same simple name: you can

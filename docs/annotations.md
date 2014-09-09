@@ -6,12 +6,17 @@ Annotations are special tokens attached to [classes](classes.html),
 additional information about the entities they are attached to. Annotations
 come directly before the entity they describe, as in:
 
+@SOURCE(
     @protected
-    @override
-    @pre(!closed())
+    @pre(!closed)
     method sayHello() {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+    --END
+    function closed():Bit {
+        return true
+    }
+)
 
 The only exception to this is are `@post(...)` and `@postAnd(...)` annotations,
 which appear immediately *after* the method they describe, and 
@@ -26,18 +31,20 @@ The `@protected` annotation is legal only on fields. Protected fields may only
 be accessed by the class that contains them, or subclasses of that class. For
 instance, in:
 
+@SOURCE(
     class A {
         @protected
         var a:Int
     }
 
     class B : A {
-        ...
+        -*REPLACE:...*---dummy comment
     }
 
     class C {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 Code present in class `B` would be permitted to access field `a`, because the
 field is marked `@protected` and class `B` is a subclass of class `A`. The
@@ -58,14 +65,16 @@ annotation may only be accessed from within the same compilation unit.
 `@class` methods belong to the class as a whole, rather than any single instance 
 of the class. In the code:
 
+@SOURCE(
     class ClassExample {
         var x:Int
-    
+
         @class
         method classMethod() {
-            ...
+            -*REPLACE:...*---dummy comment
         }
     }
+)
 
 the method `classMethod()` belongs to the class. Within the class, the simple
 method name (`classMethod()` in the example above) can be used, but outside of 
@@ -96,8 +105,10 @@ incomplete, and rely on subclasses to fill in their missing functionality.
 have a method signature, with no method body, meaning that they are declared 
 like:
 
+@SOURCE(
     @abstract
     method abstractExample(s:String):Int
+)
     
 Abstract methods may only appear within abstract classes. If you subclass an
 abstract class, you must either override all of its abstract methods (with 
@@ -150,8 +161,12 @@ at will. The object pointed to by the field (assuming it is mutable) may be
 freely modified; only the field itself cannot be assigned to. In other words,
 given:
 
+@SOURCE(
+    class dummy { --SKIP---
     @readonly
     var values := [1, 6, 14]
+    } --SKIP---
+)
 
 The statement `object.values.append(76)` is legal, but the statement 
 `object.values := [182]` is not legal from outside of the class containing this
@@ -223,10 +238,13 @@ entered
 
 For instance, suppose we have this simple method:
 
+@SOURCE(
+    function list():Array<Object> { unreachable } --SKIP
     method add(value:Object) {
         list.append(value)
     }
     @post(list.length = @pre(list.length + 1))
+)
 
 The postcondition on this method ensures that the list is in fact one element
 longer when the method finishes. Of course, it probably isn't worth using a 
@@ -279,9 +297,9 @@ Similar to `@limited`, but indicates that the method only modifies its
 containing object (not any of its parameters).
 
 IMPLEMENTATION NOTE: currently, the compiler "takes your word for it" with 
-@limited: it trusts that you are adhering to the restrictions and does not 
+@self: it trusts that you are adhering to the restrictions and does not 
 detect violations of this policy. This will change in the future. Also, 
-constructors are currently *assumed* to be @self (the vast majority of them are
+constructors are currently *assumed* to be @self (the vast majority of them are,
 in practice) - in the future, they will be safety-checked and automatically 
 marked @self / @limited if appropriate (unlike normal methods, they cannot be
 inherited, so auto-marking is safe).

@@ -38,16 +38,34 @@ You will often find yourself in a situation where you have a nullable reference,
 and need to use it where a non-nullable reference is required. Suppose you have
 a function
 
-`function getNextWidget():Widget?`
+@SOURCE(
+    class Widget { }
+    --BEGIN
+    function getNextWidget():Widget?
+    --END
+    { return new Widget() }
+)
 
 Because there might not be a `Widget` ready for processing, this function can
 return `null`. You also have
 
-`method processWidget(w:Widget)`
+
+@SOURCE(
+    class Widget { }
+    --BEGIN
+    method processWidget(w:Widget)
+    --END
+    { }
+)
 
 You'd like to get the next widget and process it. So you write:
 
-`processWidget(getNextWidget())`
+@SOURCE(
+    function getNextWidget():Int { return 5 }
+    method processWidget(i:Int) { }
+    --BEGIN
+    processWidget(getNextWidget())
+)
 
 Result: `cannot use possibly-null value as non-nullable type Widget`
 
@@ -57,9 +75,14 @@ compiler that the value cannot actually be `null`: Panda allows us to use a
 nullable type as if it were non-nullable if it can *prove* via static analysis
 that the value cannot in fact be `null`. So we can instead write:
 
-    var widget := getNextWidget() -- widget has type 'Widget?'
+@SOURCE(
+    function getNextWidget():Int? { return 5 }
+    method processWidget(i:Int) { }
+    --BEGIN
+    def widget := getNextWidget() -- widget has type 'Widget?'
     if widget != null
         processWidget(widget)
+)
 
 This version compiles fine. Even though `widget` has type `Widget?`, and
 `processWidget()` requires type `Widget`, the compiler knows that if we made it
@@ -68,18 +91,22 @@ has been proven to be non-`null`, the compiler does not complain when you pass
 it to a method requiring a non-`null` value. Likewise, the following code 
 compiles fine:
 
-    var contrived:Widget?
+    -- FIXME the new compiler isn't actually doing constant folding yet, and
+    -- therefore can't work this one out anymore
+    class Widget { }
+    --BEGIN
+    var contrived:Widget
     if 5 * 6 > 8 + 9
-        contrived := Widget.new()
+        contrived := ne Widget()
     else
         contrived := null
-    do forever {
+    loop {
         if true
             break
         contrived := null
     }
     processWidget(contrived)
-    
+
 The static analyzer can see that we cannot reach the `processWidget(contrived)`
 call with a `null` value, and so it allows the call.
 
@@ -91,9 +118,14 @@ only called when a `Widget` is already known to be available, so the complaints
 about `getNextWidget()` possibly returning `null` are spurious. The best way to 
 handle this is to `assert` that the value is non-`null`:
 
-    var widget := getNextWidget()
+SOURCE(
+    function getNextWidget():Int? { return 5 }
+    method processWidget(i:Int) { }
+    --BEGIN
+    def widget := getNextWidget()
     assert widget != null
     processWidget(widget)
+)
 
 It probably is not surprising that this code compiles fine when assertions are 
 enabled. We clearly can't reach the `processWidget(widget)` statement with a 
@@ -107,7 +139,13 @@ In addition to proving that the value is non-`null`, or asserting that the value
 is non-`null`, you may simply [cast](operators.html#cast) the nullable type to 
 its non-nullable equivalent. The code:
 
-`processWidget(getNextWidget()->(Widget))`
+@SOURCE(
+    class Widget { }
+    function getNextWidget():Widget { return new Widget() }
+    method processWidget(w:Widget) { }
+    --BEGIN
+    processWidget(getNextWidget()->(Widget))
+)
 
 compiles without error, and will verify the cast at runtime (assuming safety
 checks are left enabled). This is more-or-less equivalent to the assertion

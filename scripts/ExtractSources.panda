@@ -1,0 +1,112 @@
+class ExtractSources {
+    constant REPLACE_PATTERN := #/<span[^>]*>-\*\x23{3}REPLACE:([^\x23]+)\x23{3}\*-</span>(<span[^>]*>)[^<]+</span>/#
+
+    var count:Int
+
+    function handleReplaces(s:String):String {
+        return s.replace(REPLACE_PATTERN, "$2$1</span>")
+    }
+
+    method postprocess(var s:String):String {
+        def begin := s.indexOf("--###BEGIN###")
+        if begin != null {
+            s := s[begin + "--###BEGIN###".length..].trim
+            if !s.startsWith("</span>")
+                throw new ParseException("expected </span> after --###BEGIN###")
+            s := s["</span>".length..]
+        }
+        def end := s.indexOf("--###END###")
+        if end != null {
+            s := s[..end].trim
+            if !s.endsWith(">")
+                throw new ParseException("expected > before --###END###")
+            def tagStart := s.indexOf("<", s.length - 1)
+            if tagStart != null
+                throw new ParseException("expected < before >")
+            s := s[..tagStart]
+        }
+        def result := new MutableString()
+        for line in new MemoryInputStream(s).lines() {
+            if line.contains("--###SKIP###")
+                continue
+            result.append(line)
+            result.append("\n")
+        }
+        s := result->>(String).trim
+        if !s.startsWith("<div")
+            s := '<div class="pandacode">' + s
+        if !s.endsWith("</div>")
+            s += "</div>"
+        return handleReplaces(s)
+    }
+
+    method extractSource(s:String):String {
+        def src := File.TEMP.resolve("snippet\{count}.panda")
+        count += 1
+        src.write(s)
+        return src.path
+    }
+
+    function cleanupSpacing(s:String):String {
+        var lines := s.split("\n")
+        while lines.length > 0 & lines[0].matches(#/\s*/#)
+            lines := lines[1..]
+        var indentation := 80
+        for rawLine in lines {
+            def line := rawLine.replace("\t", "    ")
+            if !line.matches(#/\s*/#) {
+                var i := 0
+                while line[i] = " "
+                    i += 1
+                indentation := indentation.min(i)
+            }
+        }
+        for i, line in lines
+            lines[i] := line[indentation..]
+        return lines.join("\n")
+    }
+
+    method replaceSources(f:File) {
+        Console.writeLine("preprocessing \{f}")
+        def contents := f.readAsString()
+        var index := 0
+        def result := new MutableString()
+        loop {
+            def next := contents.indexOf("@SOURCE(", index)
+            if next = null {
+                result.append(contents[index..])
+                break
+            }
+            result.append(contents[index .. next])
+            var count := 1
+            index := next + "@SOURCE(".length
+            def source := new MutableString()
+            loop {
+                def char := contents[index]
+                switch char {
+                    case "(": count += 1
+                    case ")": count -= 1
+                }
+                if count = 0
+                    break
+                index += 1
+                source.append(char)
+            }
+            index += 1
+            var finalCode := cleanupSpacing(source->>(String))
+            if finalCode.endsWith(".panda")
+                result.append("@SOURCE(\{finalCode})")
+            else
+                result.append("@SOURCE(\{extractSource(finalCode)})")
+        }
+        f.write(result->>(String))
+    }
+
+    @class
+    method main(args:Array<String>) {
+        def extract := new ExtractSources()
+        def files := new File(args[0]).list("*.md")
+        for file in files
+            extract.replaceSources(file)
+    }
+}

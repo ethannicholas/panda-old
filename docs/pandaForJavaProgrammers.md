@@ -22,8 +22,10 @@ You access fields and call methods in Panda just like in Java:
     // Java
     System.out.println("Hello, World!");
 
+@SOURCE(
     -- Panda
     Console.writeLine("Hello, World!")
+)
 
 As you can see above, Panda's line comments begin with two dashes (`--`), and 
 Panda doesn't have a statement terminator like Java's semicolons. Block comments
@@ -39,8 +41,10 @@ counterparts, but the syntax to create them is different.
     // Java
     String prompt = "Are you sure?";
 
+@SOURCE(
     -- Panda
     var prompt := "Are you sure?"
+)
 
 Note that the Panda version doesn't include a type. This doesn't mean Panda is
 a dynamically-typed language - it just means that it has *type inference*. In
@@ -50,7 +54,9 @@ assignment operator, see a `String` there, and work out that you probably want
 
 You can manually specify the type if you want:
 
+@SOURCE(
     var prompt:Object := "Are you sure?"
+)
 
 In addition to variables, Panda offers [constants](constants.html) and
 [defines](defines.html) which are roughly equivalent to Java's `final` variables 
@@ -115,10 +121,12 @@ expressions directly into string literals:
     int y = 16;
     System.out.println(x + " times " + y + " is " + (x * y));
 
-    // Panda
+@SOURCE(
+    -- Panda
     def x := 12
     def y := 16
     Console.writeLine("\{x} times \{y} is \{x * y}")
+)
 
 String interpolation also gives you complete control over the formatting of the
 expression; see the page on [string interpolation](stringInterpolation.html) for
@@ -133,17 +141,27 @@ Java equivalents, but Panda doesn't need parentheses around the conditions:
     if (health == 0)
         die();
 
+@SOURCE(
+    def health := 0
+    method die() { }
+    --BEGIN
     -- Panda
     if health = 0
         die()
+)
 
     // Java
     while (!done)
         process();
 
+@SOURCE(
+    def done := true
+    method process() { }
+    --BEGIN
     -- Panda
     while !done
         process()
+)
 
     // Java
     do {
@@ -151,11 +169,16 @@ Java equivalents, but Panda doesn't need parentheses around the conditions:
     }
     while (!connected);
 
+@SOURCE(
+    method tryConnect() { }
+    var connected := true
+    --BEGIN
     -- Panda
     do {
         tryConnect()
     }
     while !connected
+)
 
 Panda's `for` loop, on the other hand, is quite different:
 
@@ -165,28 +188,42 @@ Panda's `for` loop, on the other hand, is quite different:
     for (String s : lines)
         processLine(s);
 
+@SOURCE(
+    def lines := [1]
+    method processLine(i:Int) { }
+    --BEGIN
     -- Panda
     for i in 1 ... 10
         Console.writeLine(i)
     for s in lines
         processLine(s)
+)
 
 The start and end values of a range are only evaluated once, and Panda uses type
 inference to work out the type of the loop control variable just as you saw with
 the `var` keyword. And just as you saw with the `var` keyword, you can manually
 specify the types if you so choose:
 
+@SOURCE(
+    def lines := ["Foo"]
+    method processLine(i:String) { }
+    --BEGIN
     for i:Int in 1 ... 10
         Console.writeLine(i)
     for s:String in lines
         processLine(s)
+)
 
 Unlike Java, Panda's `for` loop also allows you to obtain the current index 
 while iterating through a list:
 
+@SOURCE(
+    def lines := [1]
+    --BEGIN
     for lineNumber, line in lines {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 The first value is assigned the (zero-based) index into the list, while the
 second value is assigned the current list element.
@@ -204,17 +241,29 @@ out of a `case`. Each case may list multiple values:
         case FAILED:       reportError(m);
     }
 
+@SOURCE(
+    constant CONNECTED := 0
+    constant ACTIVE := 1
+    constant DISCONNECTED := 2
+    constant FAILED := 3
+    method handleMessage(i:Int) { }
+    method reportError(i:Int) { }
+    def m := 1
+    def state := CONNECTED
     -- Panda
     switch state {
-        case CONNECTED, ACTIVE:    handleMessage(m);
-        case DISCONNECTED, FAILED: reportError(m);
+        case CONNECTED, ACTIVE:    handleMessage(m)
+        case DISCONNECTED, FAILED: reportError(m)
     }
+)
 
 Panda also offers a built-in indefinite loop construct:
 
+@SOURCE(
     loop {
         Console.writeLine("Hello!")
     }
+)
 
 `loop { ... }` in Panda is equivalent to `while (true) { ... }` in Java.
 
@@ -228,10 +277,13 @@ Panda [methods](methods.html) are introduced with the `method` keyword:
         ...
     }
 
+@SOURCE(
     -- Panda
     method remove(key:String):Bit {
-        ...
+        -*REPLACE:...*---dummy comment
+        return true--SKIP
     }
+)
 
 Panda classes, methods, and fields are public by default. You can use the
 `@private`, `@package`, and `@protected` [annotations](annotations.html) to 
@@ -253,12 +305,16 @@ Classes
         }
     }
 
+@SOURCE(
+    class Parent { }
+    --BEGIN
     -- Panda
     class Example : Parent {
         method doSomething() {
             Console.writeLine("I do things!")
         }
     }
+)
 
 As mentioned above, Panda classes, methods, and fields are public by default.
 
@@ -279,6 +335,9 @@ and the syntax for invoking other constructors is a bit different:
         }
     }
 
+@SOURCE(
+    class Parent { constructor(s:String) { } }
+    --BEGIN
     -- Panda
     class Example : Parent {
         constructor() {
@@ -289,6 +348,7 @@ and the syntax for invoking other constructors is a bit different:
             super.constructor(name)
         }
     }
+)
 
 Other than the minor syntax differences, Panda constructors behave more-or-less 
 identically to their Java counterparts.
@@ -310,6 +370,7 @@ method in both languages.)
         return max
     }
 
+@SOURCE(
     -- Panda
     method findMaxLength(strings:Array<String>):Int {
         var max := 0
@@ -317,38 +378,53 @@ method in both languages.)
             max := strings[i].length.max(max)
         return max
     }
+)
 
 There is also a simple syntax for creating arrays:
 
-    var a := ["String", "Array"]
+@SOURCE(
+    def a := ["String", "Array"]
+)
 
 This will automatically determine the right kind of array to create. In the
 previous example an `Array<String>` would have been created, but the compiler
 may choose a different type depending on context:
 
-    var a:ImmutableArray<Object> := ["String", "Array"]
+@SOURCE(
+    var a:ImmutableArray<Immutable> := ["String", "Array"]
+)
 
-In this case the exact same expression results in an `ImmutableArray<Object>`,
-because that is the type expected by the context.
+In this case the exact same expression results in an 
+`ImmutableArray<Immutable>`, because that is the type expected by the context.
 
 For lists of numbers, you can also use the *range* operator to create an array:
 
-    var evens := 0 ... max by 2
+@SOURCE(
+    def max := 0--SKIP
+    def evens := 0 ... max by 2
+)
 
 Panda's arrays are closer to `java.util.List` than they are to Java's arrays.
 They can change size:
 
-    var a := new Array<Int>()
+@SOURCE(
+    def a := new Array<Int>()
     a.append(1)
     a.append(2)
     a.append(3)
+)
 
 They provide useful functions like `join`:
 
+@SOURCE(
+    def a := [1]
+    --BEGIN
     Console.writeLine(a.join(":")) -- displays "1:2:3"
+)
 
 And `fold`:
 
+@SOURCE(
     constant MIN := 1
     constant MAX := 100
     def total := (MIN ... MAX).fold(Int::+)
@@ -357,18 +433,23 @@ And `fold`:
     def numbers := [6, 18, 48, -27, 493, 45]
     Console.writeLine("Biggest number: \{numbers.fold(Int::max(Int))}")
     Console.writeLine("Smallest number: \{numbers.fold(Int::min(Int))}")
+)
 
 And `filter`:
 
+@SOURCE(
     def strings := ["Aardvark", "Antelope", "Bison", "Cheetah", "Dingo"]
     def startsWithA := strings.filter(s => s.startsWith("A"))
+)
 
 They have the powerful [slice operator](operators.html#slice) which allows you
 to extract or replace subranges:
 
+@SOURCE(
     def a := 1 ... 3
     a[0 ... 0] := [100, 101, 102] -- replace the first element with three numbers
     Console.writeLine(a.join(":")) -- displays "100:101:102:2:3"
+)
 
 Tuples
 ------
@@ -381,19 +462,23 @@ tuple are accessed using array-index syntax, e.g. `tuple[0]`.
 
 Tuples may be dissected using multiple assignment:
 
+@SOURCE(
     def t := ("Hello", 5)
     def greeting, count := t
     Console.writeLine(greeting * count)
+)
 
 This displays `"HelloHelloHelloHelloHello".
 
 Tuples may be broken apart in `for` loops by specifying a parenthesized list of
 variable names:
 
+@SOURCE(
     def numbers := [("One", 1), ("Two", 2), ("Three", 3)]
     for (name, value) in numbers {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 This sort of loop simplifies various common operations:
 
@@ -404,17 +489,24 @@ This sort of loop simplifies various common operations:
         ...
     }
 
+@SOURCE(
+    def map := new HashMap()
+    --BEGIN
     -- Panda
     for (key, value) in map.entries {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 First-Class Regular Expressions
 -------------------------------
 
 Regular expressions may be embedded in Panda code using the syntax
 
-    #/<regex>/#
+@SOURCE(
+    def a := --SKIP
+    -*REPLACE:#/<regex>/#*-#/./#
+)
 
 For instance, `#/ab*/#` is a regular expression which matches an `a` followed by
 any number of `b`'s. The value `#/ab*/#` is an object of type 
@@ -423,7 +515,9 @@ any number of `b`'s. The value `#/ab*/#` is an object of type
 expressions is generally more straightforward than in Java. For instance, to
 extract the numbers from the string `"You are at 16, 24"` we could write:
 
-    var numbers := "You are at 16, 24".parse(#/\D*(\d+),\s*(\d+)/#)
+@SOURCE(
+    def numbers := "You are at 16, 24".parse(#/\D*(\d+),\s*(\d+)/#)
+)
 
 That regular expression may look intimidating, but it's quite simple if you 
 break it down:
@@ -433,7 +527,7 @@ break it down:
 2. `(\d+)` - match one or more digits, capturing them as a return value
 3. `,` - match a literal comma
 4. `\s*` - match any amount of whitespace, to skip the space after the comma
-5. `(\d+)` - match the second number
+5. `(\d+)` - match the second number, capturing it as a return value
 
 The `String.parse()` method returns the capture groups (parenthesized sequences)
 in an array and discards the rest of the string. Thus, this code results in the
@@ -449,8 +543,10 @@ string and adding 2 to them. `String.replace()` has a variant which takes a
 regular expression to search for, and a function which generates the 
 replacement text based on the match text. The code:
 
+@SOURCE(
     def testString := "Do 6 damage to each of 2 different enemies."
     Console.writeLine(testString.replace(#/\d+/#, number => number->>(Int) + 2))
+)
 
 will do the trick. The value `#/\d+/#` is the regular expression `\d+`, meaning
 "one or more digits". The value `number => number->>(Int) + 2` is a 
@@ -468,7 +564,9 @@ Non-Nullable References
 All references in Panda are [non-nullable](nonNullability.html) by default. A 
 variable of type `String`, for example, cannot hold the value `null`:
 
-    var name:String := null -- doesn't compile!
+@SOURCE(
+    var name:String-*REPLACE: *-?:= null -- doesn't compile!
+)
 
 To permit `null` as a legal value, you must add a trailing question mark (`?`) 
 to make the type nullable:
@@ -476,21 +574,31 @@ to make the type nullable:
     // Java
     String name = null;
 
+@SOURCE(
     -- Panda
     var name:String? := null
+)
 
 Panda will not allow you to use a possibly-null value anywhere where a
 non-nullable type is expected:
 
+@SOURCE(
+    function possiblyNullValue():String { return "foo" }
+    --BEGIN
     def name:String? := possiblyNullValue()
     Console.writeLine(name) -- doesn't compile!
+)
 
 But as long as you prove to the compiler that the value cannot in fact be 
 `null`, it works:
 
+@SOURCE(
+    function possiblyNullValue():String { return "foo" }
+    --BEGIN
     def name:String? := possiblyNullValue()
     if name != null
         Console.writeLine(name) -- now it works!
+)
 
 See the page on [non-nullability](nonNullability.html) for more information.
 

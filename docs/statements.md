@@ -41,12 +41,12 @@ do not have side effects.
 if
 --
 
-    if <condition> {
-        <statements>
-    }
-    [else {
-        <statements>
-    }]
+<p><div class="pandacode"><span class="control IF">if</span> &lt;condition&gt; {
+    &lt;statements&gt;
+}
+[<span class="control ELSE">else</span> {
+    &lt;statements&gt;
+}]</div></p>
 
 The `if` statement makes a decision based on the value of a `Bit` expression. If 
 the `Bit` is `true`, the statements under the `if` are executed. If the `Bit` is
@@ -54,37 +54,50 @@ the `Bit` is `true`, the statements under the `if` are executed. If the `Bit` is
 executed. The curly braces (`{ }`) are only required if there is more than one
 statement in a block. For instance,
 
+@SOURCE(
+    var x := getValue()
     if x > 5
         Console.writeLine("x is greater than 5")
     else {
         Console.writeLine("x was less than or equal 5")
         x := 5
     }
+    --END
+    function getValue():Int {
+        return 10
+    }
+)
 
 <a name="for"></a>
 for
 ---
 
-    [<label>:] for [<index>,] <value> in <collection> {
-        <statements>
-    }
+<p><div class="pandacode">[&lt;label&gt;:] <span class="control FOR">for</span> [&lt;index&gt;,] &lt;value&gt; <span class="control IN">in</span> &lt;collection&gt; {
+    &lt;statements&gt;
+}</div></p>
 
 The `for` loop iterates over a collection one entry at a time. As a simple 
 example, the loop:
 
+@SOURCE(
     for i in 1 ... 5
         Console.writeLine(i)
+)
 
 will display the numbers 1 through 5. Any sort of list may be iterated through:
 
+@SOURCE(
     for greeting in ["Hello", "Bonjour", "Konnichi wa"]
         Console.writeLine(greeting)
+)
 
 If you need to know which index the loop is currently examining, provide the 
 name of an index variable:
 
+@SOURCE(
     for i, greeting in ["Hello", "Bonjour", "Konnichi wa"]
         Console.writeLine("greeting \{i} is: \{greeting}")
+)
 
 Both the `<index>` and `<value>` may have optional type specifiers, as in
 `for i:Int, v:Int in ...`.
@@ -99,16 +112,33 @@ If the collection being iterated over contains [tuples](tuples.html), you can
 provide a parenthesized list of variable names to split the tuple into 
 separate variables:
 
+@SOURCE(
     def list := [("Five", 5), ("Twelve", 12), ("Forty-two", 42)]
     for (name, value) in list {
-        ...
+        numbers[name] := value
     }
+    --END
+    function numbers():Map {
+        return new HashMap()
+    }
+)
 
 As before, you may specify an index variable name and/or variable types:
 
+@SOURCE(
     for index:Int, (name:String, value:Int8) in list {
-        ...
+        Console.writeLine("processing #\{index}")
+        numbers[name] := value
     }
+    --END
+    function list():Array<(String, Int8)> {
+        return new Array<(String, Int8)>()
+    }
+
+    function numbers():Map {
+        return new HashMap()
+    }
+)
 
 **IMPLEMENTATION NOTE**: Currently the only "collection" type is `Array`. Array
 will eventually implement the not-yet-existing `ListView` interface, and other
@@ -119,9 +149,9 @@ detect addition / removal of entries while looping and raise a `SafetyError`.
 while
 -----
 
-    [<label>:] while <condition> {
-        <statements>
-    }
+<p><div class="pandacode">[&lt;label&gt;:] <span class="control WHILE">while</span> &lt;condition&gt; {
+    &lt;statements&gt;
+}</div></p>
 
 The `while` statement repeatedly executes a block of statements so long as its
 `Bit`-valued condition is `true`. As with other Panda control statements, the
@@ -134,10 +164,10 @@ refer to loops by name. It is otherwise ignored.
 do
 --
 
-    [<label>:] do {
-        <statements>
-    }
-    while <condition>
+<p><div class="pandacode">[&lt;label&gt;:] <span class="control DO">do</span> {
+    &lt;statements&gt;
+}
+<span class="control WHILE">while</span> &lt;condition&gt;</div></p>
 
 The `do` loop is very similar the `while` loop, but it checks its condition at
 the end of the loop rather than the beginning. The loop body will therefore 
@@ -150,9 +180,9 @@ refer to loops by name. It is otherwise ignored.
 loop
 ----
 
-    [<label>:] loop {
-        <statements>
-    }
+<p><div class="pandacode">[&lt;label&gt;:] <span class="control LOOP">loop</span> {
+    &lt;statements&gt;
+}</div></p>
 
 The `loop` statement runs its body over and over indefinitely. It is an infinite
 loop unless a `break`, `return`, or `throw` statement escapes from it.
@@ -164,51 +194,96 @@ refer to loops by name. It is otherwise ignored.
 break
 -----
 
-    break [<label>]
+<p><div class="pandacode"><span class="control BREAK">break</span> [&lt;label&gt;]</div></p>
 
 The `break` statement immediately terminates a loop, causing execution to 
 continue from the statement immediately after the end of the loop. By default, 
 `break` terminates the innermost loop it is contained within, as in:
 
+@SOURCE(
     loop {
         var value := getValue()
         if value = null
             break
         sendValue(value)
     }
+    --END
+    function getValue():String? {
+        return "unused"
+    }
+
+    method sendValue(s:String) {
+    }
+)
 
 `break` with a label can be used to break out of multiple nested loops:
 
-    outer: for x in 0 .. width
+@SOURCE(
+    outer: for x in 0 .. width {
         for y in 0 .. height {
-            processCell(x , y)
+            processCell(x, y)
             if !isValid()
                 break outer
         }
+    }
+    --END
+    method processCell(x:Int, y:Int) {
+    }
+
+    function isValid():Bit {
+        return true
+    }
+
+    function width():Int {
+        return 0
+    }
+
+    function height():Int {
+        return 0
+    }
+)
 
 <a name="continue"></a>
 continue
 --------
 
-    continue [<label>]
+<p><div class="pandacode"><span class="control CONTINUE">continue</span> [&lt;label&gt;]</div></p>
 
 The `continue` statement immediately skips ahead to the next iteration of a 
 loop, as if the end of the loop body has just been reached. Just as with 
 `break`, it normally operates on the innermost containing loop but can be used
 with an optional label to continue loops other than the innermost one:
 
-    outer: for x in 0 .. width
+@SOURCE(
+    outer: for x in 0 .. width {
         for y in 0 .. height {
-            processCell(x , y)
+            processCell(x, y)
             if skipRestOfColumn()
                 continue outer
         }
+    }
+    --END
+    method processCell(x:Int, y:Int) {
+    }
+
+    function skipRestOfColumn():Bit {
+        return true
+    }
+
+    function width():Int {
+        return 0
+    }
+
+    function height():Int {
+        return 0
+    }
+)
 
 <a name="return"></a>
 return
 ------
 
-    return [<value>]
+<p><div class="pandacode"><span class="control RETURN">return</span> [&lt;value&gt;]</div></p>
 
 The `return` statement immediately exits the containing method and causes it to 
 return the specified value. Return statements in methods which return values 
@@ -219,7 +294,7 @@ return values may never provide a value.
 throw
 -----
 
-    throw <error>
+<p><div class="pandacode"><span class="control THROW">throw</span> &lt;error&gt;</div></p>
 
 Raises an exception. The exception unwinds the call stack until it reaches a
 `try` with a `catch` block capable of handling the error. Control then transfers 
@@ -230,18 +305,19 @@ evaluating to a subclass of `Error`.
 try
 ---
 
-    try {
-        <statements>
-    }
-    [catch <name>:<type> {
-        <statements>
-    }
-    [catch <name>:<type> {
-        <statements>
-    }]]
-    [finally {
-        <statements>
-    }]
+<p><div class="pandacode"><span class="control TRY">try</span> {
+    &lt;statement&gt;
+}
+[<span class="control CATCH">catch</span> &lt;name&gt;:&lt;type&gt; {
+    &lt;statements&gt;
+}]
+[<span class="control CATCH">catch</span> &lt;name&gt;:&lt;type&gt; {
+    &lt;statements&gt;
+}]]
+[<span class="control FINALLY">finally</span> {
+    &lt;statements&gt;
+}]
+</div></p>
 
 Executes a block of statements with exception handling. If the code within the 
 `try` block throws an exception and one of the `catch` blocks can handle that
@@ -259,7 +335,7 @@ exceptions originating from the inner try block.
 assert
 ------
 
-    assert <condition>[: <error>]
+<div class="pandacode"><span class="assert ASSERT">assert</span> &lt;condition&gt;[: &lt;error&gt;]</div>
 
 An `assert` statement tells the compiler that `<condition>` should always be
 `true` at this point. With safety checks on, the `<condition>` is double-checked
@@ -292,31 +368,81 @@ it will be soon.
 unreachable
 -----------
 
-    unreachable
+<div class="pandacode"><span class="control UNREACHABLE">unreachable</span></div>
 
 The `unreachable` statement tells the compiler that this line of code will never
 actually be reached. For instance, in the code:
 
+@SOURCE(
     var widget:Widget
     if widgetReady()
         widget := nextWidget()
     else if canManufactureWidget()
         widget := makeWidget()
     processWidget(widget)
+    --END
+    class Widget {
+    }
+
+    function widgetReady():Bit {
+        return true
+    }
+
+    function nextWidget():Widget {
+        return new Widget()
+    }
+
+    function makeWidget():Widget {
+        return new Widget()
+    }
+
+    function canManufactureWidget():Bit {
+        return true
+    }
+
+    method processWidget(widget:Widget) {
+    }
+)
 
 we will receive a compilation error because `widget` is not definitely assigned.
 What if there is no ready widget and we cannot manufacture a new one? But 
 suppose we know for sure that one of those conditions will always be true. We 
 can then modify the code to read:
 
+@SOURCE(
     var widget:Widget
     if widgetReady()
         widget := nextWidget()
     else if canManufactureWidget()
         widget := makeWidget()
-    else
+    else {
+        -- can't happen!
         unreachable
+    }
     processWidget(widget)
+    --END
+    class Widget {
+    }
+
+    function widgetReady():Bit {
+        return true
+    }
+
+    function nextWidget():Widget {
+        return new Widget()
+    }
+
+    function makeWidget():Widget {
+        return new Widget()
+    }
+
+    function canManufactureWidget():Bit {
+        return true
+    }
+
+    method processWidget(widget:Widget) {
+    }
+)
 
 and the code will then compile. We are asserting to the compiler that there is 
 always either a widget ready or we will be able to manufacture one, and that the 
@@ -333,15 +459,16 @@ reached, and reaching `unreachable` therefore causes undefined behavior.
 switch
 ------
 
-    switch <expression> {
-        [case <value1>[, <value2>...]: {
-            <statements>
-        }]
-        ...
-        [default: {
-            <statements>
-        }]
-    }
+<p><div class="pandacode"><span class="control SWITCH">switch</span> &lt;expression&gt; {
+    [<span class="control CASE">case</span> &lt;value1&gt;[, &lt;value2&gt;...]: {
+        &lt;statements&gt;
+    }]
+    ...
+    [<span class="control DEFAULT">default</span>: {
+        &lt;statements&gt;
+    }]
+}
+</div></p>
 
 The `switch` statement runs one of a number of blocks based on the value of its
 `<expression>`. `switch` is a generalization of `if`: `if` runs one of two 
@@ -360,11 +487,27 @@ legal) within a `case`.
 
 Example:
 
+@SOURCE(
     switch token {
         case Token.PLUS, Token.MINUS: additiveExpression()
         case Token.TIMES, Token.DIVIDE: multiplicativeExpression()
-        default: throw new ParseError()
+        default: throw new ParseException()
     }
+    --END
+    enum Token {
+        PLUS, MINUS, TIMES, DIVIDE
+    }
+
+    function token():Token {
+        return Token.PLUS
+    }
+
+    method additiveExpression() {
+    }
+
+    method multiplicativeExpression() {
+    }
+)
 
 `case` values must be compile-time constants.
 

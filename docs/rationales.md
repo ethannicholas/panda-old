@@ -123,7 +123,7 @@ tiny bit of uncleanliness.
 
 So, we need to know whether a method returns a value. While we could potentially
 have gone hard core and only allow functions to return values (as in 
-[call-query separation](http://en.wikipedia.org/wiki/Command–query_separation)),
+[command-query separation](http://en.wikipedia.org/wiki/Command-query_separation)),
 have significant whitespace, or have some other signal for whether a method 
 returns a value, I felt that the cleanest and most practical solution was simply
 to require specification of return types.

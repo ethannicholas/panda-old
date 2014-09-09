@@ -4,15 +4,22 @@ Constructors
 A *constructor* is a special kind of [method](methods.html) which is used during 
 [object creation](new.html). The syntax for constructors is:
 
-    constructor(<parameters>) {
-        <statements>
+@SOURCE(
+    class Foo {
+    --BEGIN
+    constructor(-*REPLACE:<parameters>*-x-*REPLACE:*-:-*REPLACE:*-Int) {
+        -*REPLACE:<statements>*-unreachable
     }
+    --END
+    }
+)
 
 Constructor parameters are defined just like method parameters, but unlike
 normal methods, constructors do not have a name or return type. Constructors are
 implicitly invoked when creating new objects. For instance, if we define a
 `Point` class as follows:
 
+@SOURCE(
     class Point {
         var x:Int
         var y:Int
@@ -22,10 +29,23 @@ implicitly invoked when creating new objects. For instance, if we define a
             self.y := y
         }
     }
+)
 
 we can create a new `Point` as follows:
 
-    new Point(5, 7)
+@SOURCE(
+    class Point {
+        var x:Int
+        var y:Int
+
+        constructor(x:Int, y:Int) {
+            self.x := x
+            self.y := y
+        }
+    }
+    --BEGIN
+    def point := new Point(5, 7)
+)
 
 This will create a new `Point` object and invoke its constructor with parameters
 `5` and `7`.
@@ -36,16 +56,28 @@ Default Constructors
 If a class does not have any constructors defined, the compiler automatically
 provides it with a *default constructor*. The default constructor looks like:
 
+@SOURCE(
+    class Foo {
+    --BEGIN
     constructor() {
     }
+    --END
+    }
+)
 
 In other words, it is public, takes no parameters and does nothing. Defining any
 other constructors will suppress the default constructor. You may wish to create
 non-instantiable objects by defining:
 
+@SOURCE(
+    class Foo {
+    --BEGIN
     @private
     constructor() {
     }
+    --END
+    }
+)
 
 Assuming this is the only constructor, no one other than the class itself can 
 create an instance of it because its only constructor is private.
@@ -57,6 +89,17 @@ Panda requires superclass constructors to be run before any code in a subclass'
 constructor does. You may explicitly invoke a superclass constructor as the
 first line of code in a constructor, using the syntax `super.constructor(...)`:
 
+@SOURCE(
+    class Point {
+        var x:Int
+        var y:Int
+
+        constructor(x:Int, y:Int) {
+            self.x := x
+            self.y := y
+        }
+    }
+    --BEGIN
     class Point3D : Point {
         var z:Int
 
@@ -65,6 +108,7 @@ first line of code in a constructor, using the syntax `super.constructor(...)`:
             self.z := z
         }
     }
+)
 
 If you do not explicitly invoke another constructor, Panda inserts an *implicit* 
 call to the no-argument superclass constructor, exactly as if your constructor 
@@ -80,6 +124,7 @@ within a constructor. Just as with invoking superclass constructors, calls to
 other constructors must be the very first line of code in a constructor. For
 example:
 
+@SOURCE(
     class Point {
         var x:Int
         var y:Int
@@ -93,6 +138,7 @@ example:
             self.y := y
         }
     }
+)
 
 `Point` now has a no-argument constructor which invokes the `(Int, Int)`
 constructor and passes it `(0, 0)`. As described above, the `(Int, Int)` 

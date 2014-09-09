@@ -29,9 +29,11 @@ A type may be implicitly cast to another type in the following cases:
   
 For instance, given the method:
 
+@SOURCE(
     method add(o:Object) {
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 is is legal to call `add("Hello!")`, despite the fact that `"Hello!"` is a 
 `String` and `add()` expects an `Object`: since `String` is a subclass of

@@ -1,0 +1,86 @@
+package org.pandalanguage.pandac.pandadoc
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.CodeGenerator
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.parser.PandaLexer
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.parser.ParseNodeType
+uses org.pandalanguage.pandac.parser.Token
+uses org.pandalanguage.pandac.parser.TokenNode
+uses org.pandalanguage.pandac.parser.TokenType
+uses org.pandalanguage.pandac.transformers.SafetyChecker
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.CompilationUnit
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.ExpressionAnnotation
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.NewArrayWithLength
+uses org.pandalanguage.pandac.tree.NewArrayWithRange
+uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+uses org.pandalanguage.pandac.types.VoidType
+
+class HTMLGenerator (CodeGenerator) {
+    @override
+    function defaultExtension():String? {
+        return null
+    }
+
+    method writeFile(lexer:PandaLexer, ast:ASTGenerator, out:OutputStream) {
+        out.writeLine("<html>")
+        out.writeLine("<head>")
+        out.writeLine('<link rel="stylesheet" type="text/css" href="pandadoc.css" />')
+        out.writeLine('<script src="pandacode.js"></script>')
+        out.writeLine("</head>")
+        out.writeLine("<body>")
+        new HTMLFragmentGenerator().writeFile(lexer, ast, out)
+        out.write("</div>")
+        out.write("</body>")
+        out.write("</html>")
+        out.close()
+    }
+
+    method writeCompilationUnit(cu:CompilationUnit, outputDir:File) {
+        var dest := cu.name
+        if !dest.endsWith(".panda")
+            return
+        dest := dest[..dest.length - ".panda".length] + ".html"
+        def out := outputDir.resolve(dest).openOutputStream()
+        def source := cu.source
+        assert source != null
+        def lexer := new PandaLexer(source.openInputStream(), 
+                new Position(cu.name, 1, 1))
+        writeFile(lexer, PandaCompiler.astGenerator, out)
+    }
+
+    @override
+    method generateCode(outputDir:File) {
+        if !outputDir.isDirectory()
+            throw new CompilerException(outputDir + " is not a directory")
+
+        def compilationUnits := new Array<CompilationUnit>()
+        for cl in SymbolTable.master.classes {
+            if cl.parent-?>(CompilationUnit) {
+                def compilationUnit := cl.parent->(CompilationUnit)
+                if !compilationUnits.contains(compilationUnit)
+                    compilationUnits.append(compilationUnit)
+            }
+        }
+        for compilationUnit in compilationUnits
+            writeCompilationUnit(compilationUnit, outputDir)
+   }
+}

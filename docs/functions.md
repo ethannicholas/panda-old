@@ -9,9 +9,11 @@ A `function` is a method which has two special restrictions:
 Functions are declared exactly like other methods, but with the `function` 
 keyword replacing the `method` keyword:
 
+@SOURCE(
     function square(x:Real):Real {
         return x * x
     }
+)
 
 Note that functions are still considered methods, just with these two additional 
 restrictions. The "may not depend upon unpredictable state" restriction is the
@@ -29,6 +31,12 @@ about this restriction.
 visible outside of the function itself". Functions may freely modify state that 
 only they can see; for instance, the following function is legal:
 
+@SOURCE(
+    class Example {
+    var firstName:String? := "Example"
+    var lastName := "Example"
+    var middleName:String? := "Example"
+    --BEGIN
     function getName():String {
         var result := new MutableString()
         result.append(lastName)
@@ -42,6 +50,9 @@ only they can see; for instance, the following function is legal:
         }
         return result->>(String)
     }
+    --END
+    }
+)
 
 This function creates a mutable object and manipulates it -- clearly it is
 modifying state! However, the `MutableString` is not visible outside of the
@@ -107,28 +118,39 @@ Because they are not supposed to have side effects, the optimizer is permitted
 to remove calls to functions when the return values of the calls are unused. In
 other words, given:
 
+@SOURCE(
+    function someFunction():Bit { return true }
+    --BEGIN
     method foo() {
         var unused := someFunction()
     }
+)
 
 The variable `unused` is a *dead variable*; it is written to, but never read 
 from, and so its value is irrelevant. Since `someFunction()` cannot have side
-effects, the call to `someFunction()` does not effect anything and can be safely
+effects, the call to `someFunction()` does not affect anything and can be safely
 removed. This means that the optimizer is permitted to rewrite the method as:
 
+@SOURCE(
     method foo() {
     }
+)
 
 Normally, this optimization will not affect anything: `someFunction()` wasn't
-doing anything useful anyway, so removing it should not affect the program's
-semantics. Likewise, the optimizer is permitted to "fold" two redundant function
-calls together. Assuming that `someFunction()` returns a `Value` type:
+doing anything useful anyway and has no side effects, so removing it should not 
+affect the program's semantics. Likewise, the optimizer is permitted to "fold" 
+two redundant function calls together. Assuming that `someFunction()` returns a
+`Value` type:
 
+@SOURCE(
+    function someFunction():Int { return 1 }
+    --BEGIN
     method foo() {
         def a := someFunction()
         def b := someFunction()
         Console.writeLine(a + b)
     }
+)
 
 Since `someFunction()` cannot have modified anything, and there is no 
 intervening code between the two calls which could have modified data upon which
@@ -137,16 +159,20 @@ Since we are assuming that `someFunction()` returns a `Value`, we also do not
 care whether we receive two identical copies or two references to the same copy. 
 Thus, the optimizer is permitted to rewrite this method as:
 
+@SOURCE(
+    function someFunction():Int { return 1 }
+    --BEGIN
     method foo() {
         def a := someFunction()
         Console.writeLine(a + a)
     }
+)
 
 However, there are two things you should be aware of when it comes to these
 optimizations.
 
     1. Functions which contain infinite loops could be skipped over.
-    2. Functions which throw exceptions may not throw them.
+    2. Functions which throw exceptions could be skipped over.
 
 Because functions calls can sometimes be eliminated, it follows that the 
 infinite loops or exceptions they contain could also be eliminated. For the vast

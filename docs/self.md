@@ -6,6 +6,7 @@ instance against which an instance method is running.
 
 Example:
 
+@SOURCE(
     class Example {
         var name := "class Example"
 
@@ -23,6 +24,7 @@ Example:
             new Example().sayHello()
         }
     }
+)
 
 Result: `Hello from class Example!`
 

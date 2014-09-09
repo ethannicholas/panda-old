@@ -1151,8 +1151,9 @@ Int32 panda$core$Matcher$end_$NativePointer(void* ur) {
     return result;
 }
 
-void panda$core$RegularExpression$close(void* ur) {
-    uregex_close((URegularExpression*) ur);
+void panda$core$RegularExpression$close(RegularExpression* r) {
+    uregex_close((URegularExpression*) r->nativeHandle);
+    r->nativeHandle = NULL;
 }
 
 

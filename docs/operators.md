@@ -113,9 +113,11 @@ meaningless.
 If you "trick" the compiler into comparing the identity of two `Value` objects, 
 for instance:
 
+@SOURCE(
     def a:Object := 5
     def b:Object := 5
     Console.writeLine(a == b)
+)
 
 the result is undefined. It may be either `true` or `false`, may change with
 compiler settings or environment, and may change from version to version of
@@ -174,8 +176,12 @@ Cast
 The cast operator tells the compiler to treat an object as being a different
 [type](types.html). For instance, in
 
-    var x:Object := "Hello"
+@SOURCE(
+    method processString(x:Object) { }
+    --BEGIN
+    def x:Object := "Hello"
     processString(x)
+)
 
 assuming `processString` is declared to take a single parameter of type 
 `String`, this code will produce the message `no match found for method 
@@ -186,7 +192,12 @@ variable `x` has type `Object`, and so one cannot call the method
 Since the value `x` holds is actually a `String`, we can inform the compiler of
 this via the *cast* operator:
 
+@SOURCE(
+    method processString(x:String) { }
+    def x:Object := "Hello"
+    --BEGIN
     processString(x->(String))
+)
 
 This statement *casts* `x` to the type `String` (note that the parentheses 
 around the type name are required). Casting doesn't actually change the value; 
@@ -208,7 +219,9 @@ gives you whatever bits are left over.
 
 The Panda equivalent:
 
-    Console.writeLine(3716->(Int8))
+@SOURCE(
+    Console.writeLine(-*REPLACE:3716*-5->(Int8))
+)
 
 results in an error because `3716` will not fit into an `Int8`. To perform a
 truncating numeric conversion in Panda, you need to use the *convert* operator.
@@ -291,19 +304,29 @@ equivalent to `a.copy`.
 Slice assignment replaces the sliced elements of the list with new data, such 
 that
 
+@SOURCE(
+    def a := new Array<Int>()
+    --BEGIN
     a[2..] := [6, 7]
+)
 
 yields the array `[0, 1, 6, 7]`. If you specify a step value (`by <expression>`)
 on a slice assignment, the number of elements selected by the slice must be the
 same as the number of elements you are assigning to the slice. For instance,
 
-    var a := (0 .. 10)->>(Array<Int>)
+@SOURCE(
+    def a := (0 .. 10)->>(Array<Int>)
     a[.. by 2] := 20 .. 25
     Console.writeLine(a)
+)
 
 yields
   
+@SOURCE(
+    def a :=
+    --BEGIN
     [20, 1, 21, 3, 22, 5, 23, 7, 24, 9]
+)
 
 The slice and slice assignment operators are defined on 
 [`List`](api/panda.collections.List.html) (and therefore also 

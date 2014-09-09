@@ -105,12 +105,20 @@
                         <xsl:call-template name="basePath">
                             <xsl:with-param name="className" select="name"/> 
                         </xsl:call-template>
+                        <xsl:text>panda-master.css</xsl:text>
+                    </xsl:attribute>
+                </link>
+                <link rel="stylesheet" type="text/css">
+                    <xsl:attribute name="href">
+                        <xsl:call-template name="basePath">
+                            <xsl:with-param name="className" select="name"/> 
+                        </xsl:call-template>
                         <xsl:text>pandadoc.css</xsl:text>
                     </xsl:attribute>
                 </link>
             </head>
             <body>
-                <div class="main">
+                <div id="main">
                     <xsl:apply-templates/>
                 </div>
             </body>
@@ -119,6 +127,102 @@
 
     <xsl:template match="classes/class">
         <a href="{path}"><xsl:value-of select="name"/></a><br/>
+    </xsl:template>
+
+    <xsl:template name="toc">
+      <xsl:param name="base"/>
+      <div id="toc">
+        <ul>
+          <li><a href="{$base}index.html">Overview</a></li>
+          <li><a href="{$base}gettingStarted.html">Getting Started</a></li>
+          <li><a href="{$base}pandac.html"><code>pandac</code></a></li>
+          <li>
+            <a href="{$base}compilationUnits.html">Compilation Units</a>
+            <ul>
+              <li><a href="{$base}bareCode.html">Bare Code</a></li>
+              <li><a href="{$base}comments.html">Comments</a></li>
+            </ul>
+          </li>
+          <li><a href="{$base}classes.html">Classes</a></li>
+          <li><a href="{$base}interfaces.html">Interfaces</a></li>
+          <li>
+            <a href="{$base}packages.html">Packages</a>
+            <ul>
+              <li><a href="{$base}uses.html">Uses</a></li>
+            </ul>
+          </li>
+          <li>
+            <a href="{$base}methods.html">Methods</a>
+            <ul>
+              <li><a href="{$base}main.html"><code>main</code></a></li>
+              <li><a href="{$base}functions.html">Functions</a></li>
+              <li><a href="{$base}constructors.html">Constructors</a></li>
+              <li><a href="{$base}inlineMethods.html">Inline Methods</a></li>
+              <li><a href="{$base}methodReferences.html">Method References</a></li>
+              <li><a href="{$base}variadicMethods.html">Variadic Methods</a></li>
+              <li><a href="{$base}externalMethods.html">External Methods</a></li>
+            </ul>
+          </li>
+          <li><a href="{$base}fields.html">Fields</a></li>
+          <li>
+            <a href="{$base}statements.html">Statements</a>
+            <ul>
+              <li><a href="{$base}statements.html#assignment">Assignment</a></li>
+              <li><a href="{$base}statements.html#methodCalls">Method Calls</a></li>
+              <li><a href="{$base}statements.html#if"><code>if</code></a></li>
+              <li><a href="{$base}statements.html#for"><code>for</code></a></li>
+              <li><a href="{$base}statements.html#while"><code>while</code></a></li>
+              <li><a href="{$base}statements.html#do"><code>do</code></a></li>
+              <li><a href="{$base}statements.html#loop"><code>loop</code></a></li>
+              <li><a href="{$base}statements.html#break"><code>break</code></a></li>
+              <li><a href="{$base}statements.html#continue"><code>continue</code></a></li>
+              <li><a href="{$base}statements.html#return"><code>return</code></a></li>
+              <li><a href="{$base}statements.html#throw"><code>throw</code></a></li>
+              <li><a href="{$base}statements.html#try"><code>try</code></a></li>
+              <li><a href="{$base}statements.html#assert"><code>assert</code></a></li>
+              <li><a href="{$base}statements.html#unreachable"><code>unreachable</code></a></li>
+              <li><a href="{$base}statements.html#switch"><code>switch</code></a></li>
+            </ul>
+          </li>
+          <li>
+            <a href="{$base}types.html">Types</a>
+            <ul>
+              <li><a href="{$base}basicTypes.html">Basic Types</a></li>
+              <li><a href="{$base}defaultValues.html">Default Values</a></li>
+              <li><a href="{$base}implicitCasting.html">Implicit Casting</a></li>
+            </ul>
+          </li>
+          <li>
+            <a href="{$base}variablesAndConstants.html">Variables and Constants</a>
+            <ul>
+              <li><a href="{$base}variables.html">Variables</a></li>
+              <li><a href="{$base}defines.html">Defines</a></li>
+              <li><a href="{$base}constants.html">Constants</a></li>
+              <li><a href="{$base}properties.html">Properties</a></li>
+            </ul>
+          </li>
+          <li><a href="{$base}arrays.html">Arrays</a></li>
+          <li><a href="{$base}tuples.html">Tuples</a></li>
+          <li>
+            <a href="{$base}expressions.html">Expressions</a>
+            <ul>
+              <li><a href="{$base}operators.html">Operators</a></li>
+              <li><a href="{$base}operatorOverloading.html">Operator Overloading</a></li>
+              <li><a href="{$base}stringInterpolation.html">String Interpolation</a></li>
+              <li><a href="{$base}new.html"><code>new</code></a></li>
+              <li><a href="{$base}self.html"><code>self</code></a></li>
+              <li><a href="{$base}null.html"><code>null</code></a></li>
+            </ul>
+          </li>
+          <li><a href="{$base}annotations.html">Annotations</a></li>
+          <li><a href="{$base}nonNullability.html">Non-nullability</a></li>
+          <li><a href="{$base}immutable.html">Immutability</a></li>
+          <li><a href="{$base}values.html">Value Classes</a></li>
+          <li><a href="{$base}threads.html">Threads</a></li>
+          <li><a href="{$base}keywords.html">Keywords</a></li>
+          <li><a href="{$base}codingConventions.html">Coding Conventions</a></li>
+        </ul>
+      </div>
     </xsl:template>
 
     <xsl:template match="class">
@@ -133,63 +237,81 @@
                         <xsl:text>pandadoc.css</xsl:text>
                     </xsl:attribute>
                 </link>
+                <link rel="stylesheet" type="text/css">
+                    <xsl:attribute name="href">
+                        <xsl:call-template name="basePath">
+                            <xsl:with-param name="className" select="name"/> 
+                        </xsl:call-template>
+                        <xsl:text>panda-master.css</xsl:text>
+                    </xsl:attribute>
+                </link>
             </head>
             <body>
-                <div class="main">
-                    <xsl:apply-templates select="." mode="header"/>
-                    <xsl:apply-templates select="ancestors"/>
-                    <xsl:apply-templates select="doc/description"/>
-                    
-                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
-                        <h2>Constant Summary</h2>
-                        <dl class="summary">
-                            <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) > 0]" mode="summary"/>
-                        </dl>
-                    </xsl:if>
-                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) > 0]) > 0">
-                        <h2>Class Method Summary</h2>
-                        <dl class="summary">
-                            <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) > 0]" mode="summary"/>
-                        </dl>
-                    </xsl:if>
-                    <xsl:if test="count(constructor) > 0">
-                        <h2>Constructor Summary</h2>
-                        <dl class="summary">
-                            <xsl:apply-templates select="constructor" mode="summary"/>
-                        </dl>
-                    </xsl:if>
-                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) = 0]) > 0">
-                        <h2>Field Summary</h2>
-                        <dl class="summary">
-                            <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
-                        </dl>
-                    </xsl:if>
-                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) = 0]) > 0">
-                        <h2>Instance Method Summary</h2>
-                        <dl class="summary">
-                            <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
-                        </dl>
-                    </xsl:if>
-                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
-                        <h2>Constants</h2>
-                        <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) > 0]"/>
-                    </xsl:if>
-                    <xsl:if test="count(constructor) > 0">
-                        <h2>Constructors</h2>
-                        <xsl:apply-templates select="constructor"/>
-                    </xsl:if>
-                    <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) = 0]) > 0">
-                        <h2>Fields</h2>
-                        <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) = 0]"/>
-                    </xsl:if>
-                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) > 0]) > 0">
-                        <h2>Class Methods</h2>
-                        <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) > 0]"/>
-                    </xsl:if>
-                    <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) = 0]) > 0">
-                        <h2>Instance Methods</h2>
-                        <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) = 0]"/>
-                    </xsl:if>
+                <div id="main">
+                    <xsl:call-template name="toc">
+                        <xsl:with-param name="base">
+                            <xsl:text>../</xsl:text>
+                            <xsl:call-template name="basePath">
+                                <xsl:with-param name="className" select="name"/> 
+                            </xsl:call-template>
+                        </xsl:with-param>
+                    </xsl:call-template>
+                    <div id="content">
+                        <xsl:apply-templates select="." mode="header"/>
+                        <xsl:apply-templates select="ancestors"/>
+                        <xsl:apply-templates select="doc/description"/>
+                        
+                        <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                            <h2>Constant Summary</h2>
+                            <dl class="summary">
+                                <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) > 0]" mode="summary"/>
+                            </dl>
+                        </xsl:if>
+                        <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                            <h2>Class Method Summary</h2>
+                            <dl class="summary">
+                                <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) > 0]" mode="summary"/>
+                            </dl>
+                        </xsl:if>
+                        <xsl:if test="count(constructor) > 0">
+                            <h2>Constructor Summary</h2>
+                            <dl class="summary">
+                                <xsl:apply-templates select="constructor" mode="summary"/>
+                            </dl>
+                        </xsl:if>
+                        <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) = 0]) > 0">
+                            <h2>Field Summary</h2>
+                            <dl class="summary">
+                                <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
+                            </dl>
+                        </xsl:if>
+                        <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) = 0]) > 0">
+                            <h2>Instance Method Summary</h2>
+                            <dl class="summary">
+                                <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
+                            </dl>
+                        </xsl:if>
+                        <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                            <h2>Constants</h2>
+                            <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) > 0]"/>
+                        </xsl:if>
+                        <xsl:if test="count(constructor) > 0">
+                            <h2>Constructors</h2>
+                            <xsl:apply-templates select="constructor"/>
+                        </xsl:if>
+                        <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) = 0]) > 0">
+                            <h2>Fields</h2>
+                            <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) = 0]"/>
+                        </xsl:if>
+                        <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) > 0]) > 0">
+                            <h2>Class Methods</h2>
+                            <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) > 0]"/>
+                        </xsl:if>
+                        <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) = 0]) > 0">
+                            <h2>Instance Methods</h2>
+                            <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) = 0]"/>
+                        </xsl:if>
+                    </div>
                 </div>
             </body>
         </html>

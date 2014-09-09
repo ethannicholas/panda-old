@@ -1322,6 +1322,31 @@ class ASTGenerator {
         return methodNode
     }
 
+    ============================================================================
+    Returns the actual text of a doccomment, minus the lines of equals before
+    and after it.
+
+    @param dc the doccomment token
+    @returns the doccomment text
+    ============================================================================
+    @pre(dc.type = TokenType.DOCCOMMENT)
+    function getDocComment(dc:Token):String {
+        def result := new MutableString(dc.text)
+        for i in result.length - 1 ... 0 by -1 {
+            if result[i] != "=" {
+                result.remove(i + 1, result.length)
+                break
+            }
+        }
+        for i in 0 .. result.length {
+            if result[i] != "=" {
+                result.remove(0, i)
+                break
+            }
+        }
+        return result->>(String)
+    }
+
     method isAccessible(f:FieldNode):Bit {
         var a := f.annotations
         if a.isPrivate {
@@ -1772,7 +1797,7 @@ class ASTGenerator {
         def type := convertType(c[1])
         def params := convertParameters(c[2])
         def classLiteral := new ClassLiteral(c[1].position, type)
-        captureNode(classLiteral)
+        captureTree(classLiteral, c[1], null)
         def result := call(c.position, classLiteral, "new", 
                 params)
         captureNode(result, c[1].position)
@@ -3790,6 +3815,7 @@ class ASTGenerator {
                         i += 1
                         context := convert(c[i].position, context, 
                                 convertType(c[i]))
+                        captureNode(context, c[i].position, "type")
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -3802,6 +3828,7 @@ class ASTGenerator {
                         i += 1
                         context := explicitCast(c[i].position, context, 
                                 convertType(c[i]))
+                        captureNode(context, c[i].position, "type")
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -3815,6 +3842,7 @@ class ASTGenerator {
                         i += 1
                         context := convertInstanceOf(position, context, 
                                 convertType(c[i]))
+                        captureNode(context, c[i].position, "type")
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -3826,9 +3854,10 @@ class ASTGenerator {
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
                         i += 1
-                        context := new Not(position,
-                                convertInstanceOf(position, context, 
-                                convertType(c[i])))
+                        def instanceof := convertInstanceOf(position, context, 
+                                convertType(c[i]))
+                        captureNode(instanceof, c[i].position, "type")
+                        context := new Not(position, instanceof)
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -3973,7 +4002,7 @@ class ASTGenerator {
     @pre(l.type = ParseNodeType.ANY_LOOP)
     method convertForEachLoop(l:ParseNode, var i:Int, 
             var vars:Array<(Position, String?, Type?, ParseNode?)>, 
-            label:String?) {
+            label:String?):Node {
         var indexPosition:Position? := null
         var indexName:String? := null
         var indexType:Type? := null
@@ -3988,6 +4017,10 @@ class ASTGenerator {
             indexTypeNode := vars[0][3]
             if indexType = null
                 indexType := Type.INDEX_TYPE
+            if !indexType.isInteger {
+                throw new CompilerException("loop index must be an integer",
+                        indexPosition)
+            }
             if l[i].type = ParseNodeType.FOR_TUPLE {
                 vars := convertForTuple(l[i])
                 i += 1
@@ -4021,9 +4054,12 @@ class ASTGenerator {
                 -- exist. So first we make sure that this is an unresolved
                 -- construct (and thus we don't need to worry about mutable vs.
                 -- immutable arrays)
-                array := implicitCast(array.position, array, 
-                        SymbolTable.master.getType(array.position,
-                            "\{class(Array).name}<\{vars[0][2]->(Type).name}>"))
+                def type := vars[0][2]->(Type)
+                if array-!>(UnresolvedRange) | type.isNumber {
+                    array := implicitCast(array.position, array, 
+                            SymbolTable.master.getType(array.position,
+                                "\{class(Array).name}<\{type.name}>"))
+                }
             }
         }
         array := resolveUnresolvedConstructs(array)
@@ -4055,6 +4091,12 @@ class ASTGenerator {
                             "multiple assignments from a tuple", vars[0][0])
             valueType := vars[0][2]
             valueTypeNode := vars[0][3]
+            if valueType != null & 
+                    !array.type.elementType.canImplicitCastTo(valueType) {
+                throw new CompilerException("elements of " + 
+                        "\{array.type.displayName} cannot be converted to " +
+                        valueType.displayName, valuePosition)
+            }
         }
         else {
             valueName := "$tuple" + nextCount()
@@ -4115,6 +4157,7 @@ class ASTGenerator {
         convertStatementOrBlock(l[i])
         close(class(Block))
         close(class(ForEach))
+        return forEach
     }
 
     ============================================================================
@@ -4125,7 +4168,7 @@ class ASTGenerator {
     @param label the loop label, if any
     ============================================================================
     @private
-    method convertForLoop(l:ParseNode, var i:Int, label:String?) {
+    method convertForLoop(l:ParseNode, var i:Int, label:String?):Node {
         i += 1
         var vars:Array<(Position, String?, Type?, ParseNode?)>
         if l[i].type = ParseNodeType.FOR_TUPLE {
@@ -4146,7 +4189,7 @@ class ASTGenerator {
             }
             vars := [(namePosition, name, type, typeNode)]
         }
-        convertForEachLoop(l, i, vars, label)
+        return convertForEachLoop(l, i, vars, label)
     }
 
     ============================================================================
@@ -4162,22 +4205,25 @@ class ASTGenerator {
                     l[i + 1]->(TokenNode).token.type = TokenType.COLON
             i += 2
         }
+        def result:Node
         switch l[i]->(TokenNode).token.type {
             case TokenType.FOR:
-                convertForLoop(l, i, label)
+                result := convertForLoop(l, i, label)
             case TokenType.DO: {
                 i += 1
                 assert l[i + 1].type = ParseNodeType.TOKEN &
                         l[i + 1]->(TokenNode).token.type = TokenType.WHILE
                 var test := implicitCast(l[i + 2].position, 
                         convertExpression(l[i + 2]), BitType.BIT)
-                open(new Do(l.position, label, test))
+                result := new Do(l.position, label, test)
+                open(result)
                 convertStatementOrBlock(l[i])
                 close(class(Do))
             }
             case TokenType.LOOP: {
                 i += 1
-                open(new Loop(l.position, label))
+                result := new Loop(l.position, label)
+                open(result)
                 convertStatementOrBlock(l[i])
                 close(class(Loop))
             }
@@ -4185,14 +4231,20 @@ class ASTGenerator {
                 i += 1
                 var test := implicitCast(l[i].position, convertExpression(l[i]),
                         BitType.BIT)
-                open(new While(l.position, label, test))
+                result := new While(l.position, label, test)
+                open(result)
                 i += 1
                 convertStatementOrBlock(l[i])
                 close(class(While))
             }
             default: {
-                error("unsupported loop type", l)
+                throw new InternalCompilerException("unsupported loop type", 
+                        l.position)
             }
+        }
+        if label != null {
+            captureNode(result, l[0].position, "label")
+            captureNode(result, l[1].position, "label")
         }
     }
     
@@ -5241,7 +5293,7 @@ class ASTGenerator {
             }
             var cm := new MethodNode(m.position, name, methodType)
             if methodType != MethodNodeType.CONSTRUCTOR
-                captureNode(cm, m[1].position)
+                captureTree(cm, m[1], null)
             open(cm)
             cm.annotations := annotations
 
@@ -5673,7 +5725,7 @@ class ASTGenerator {
             var doccomment:String? := null
             if cm[i].type = ParseNodeType.TOKEN {
                 assert cm[i]->(TokenNode).token.type = TokenType.DOCCOMMENT
-                doccomment := cm[i]->(TokenNode).token.text
+                doccomment := getDocComment(cm[i]->(TokenNode).token)
                 i += 1
             }
             assert cm[i].type = ParseNodeType.ANNOTATIONS
@@ -6181,7 +6233,7 @@ class ASTGenerator {
         var fieldComment:String? := null
         for i in 3 ... e.length - 2 {
             if e[i]->(TokenNode).token.type = TokenType.DOCCOMMENT {
-                fieldComment := e[i]->>(String)
+                fieldComment := getDocComment(e[i]->(TokenNode).token)
                 continue
             }
             if e[i]->(TokenNode).token.type != TokenType.IDENTIFIER
@@ -6377,9 +6429,15 @@ class ASTGenerator {
                     if currentClass = null
                         requireImplicitClass()
                     if !linkageOnly {
-                        if currentMethod = null
+                        if currentMethod = null {
                             requireImplicitMain()
-                        convertSimpleStatement(be[0])
+                            convertSimpleStatement(be[0])
+                        }
+                        def cl := currentClass
+                        if cl != null & cl.name.startsWith("$Implicit") {
+                            while nodeStack.length > 1
+                                nodeStack.pop()
+                        }
                     }
                 }
                 case ParseNodeType.PACKAGE_DECLARATION: {
@@ -6398,7 +6456,7 @@ class ASTGenerator {
                     if be[i].type = ParseNodeType.TOKEN {
                         assert be[i]->(TokenNode).token.type = 
                                 TokenType.DOCCOMMENT
-                        doccomment := be[i]->(TokenNode).token.text
+                        doccomment := getDocComment(be[i]->(TokenNode).token)
                         i += 1
                     }
                     assert be[i].type = ParseNodeType.ANNOTATIONS
@@ -6429,7 +6487,6 @@ class ASTGenerator {
                 nodeStack.pop()
         }
     }
-    @post(nodeStack.length >= @pre(nodeStack.length))
 
     @pre(t.isArray)
     method makeArrayImmutable(position:Position, t:Type):Type {
@@ -6706,7 +6763,22 @@ class ASTGenerator {
         }
     }
 
+    method markPropertiesFinal() {
+        for cl in SymbolTable.master.classes {
+            if !cl.type().isImmutable
+                continue
+            for child in cl.children {
+                if child-?>(FieldNode) {
+                    def f := child->(FieldNode)
+                    if f.annotations.isProperty & !f.annotations.isStatic
+                        f.annotations.isStatic := true
+                }
+            }
+        }
+    }
+
     method phase1Complete() {
+        markPropertiesFinal()
         inferFieldTypes()
         createPropertySynthetics()
     }

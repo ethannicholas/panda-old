@@ -22,43 +22,84 @@ To manually create a property in an object, you need a *getter* and/or a
 *setter* for the property. The getter is a no-argument function which returns
 the property's value, such as:
 
+@SOURCE(
+    class Dummy {
+    def heights := new HashMap()
+    --BEGIN
     function height():Int {
+        def layout := self--SKIP
         return layout.heights[self]
+        ->(Int)--SKIP
     }
+    --END
+    }
+)
 
 Because a no-argument function can be invoked without parentheses, you can 
 access this property as if it were a field:
 
+@SOURCE(
+    class Dummy { def height := 1 }
+    def object := new Dummy()
+    --BEGIN
     Console.writeLine(object.height)
+)
 
 The setter is a special kind of [operator overload](operatorOverloading.html)
 which overloads assignment to the property:
 
+@SOURCE(
+    class Dummy {
+    def heights := new HashMap()
+    def layout := new Dummy()
+    --BEGIN
+    @self
     method height:=(height:Int) {
         layout.heights[self] := height
     }
+    --END
+    }
+)
 
 And again, this setter can be invoked exactly like it were a field:
 
+@SOURCE(
+    class Dummy { var height := 1 }
+    def object := new Dummy()
+    --BEGIN
     object.height := 100
+)
 
 Compound assignment works as well, first calling the getter to get the current
 value and then the setter to apply the new value:
 
+@SOURCE(
+    class Dummy { var height := 1 }
+    def object := new Dummy()
+    def delta := 0
+    --BEGIN
     object.height += delta
+)
 
 It is also possible to combine a setter and a field, such that the field is used 
 for reading and the setter is used for writing. In this case you must mark the
 field as [`@readonly`](annotations.html#readonly) so that assignment is
 unambiguous:
 
+@SOURCE(
+    class Dummy { 
+    --BEGIN
     @readonly
     var height:Int
 
+    @self
     method height:=(height:Int) {
         self.height := height
-        Console.writeLine("{}.height is now: {}", self, height)
+        Console.writeLine("\{self}.height is now: \{height}")
     }
+    --END
+    }
+)
 
 Automatic Properties
 --------------------
@@ -68,7 +109,13 @@ except you let the compiler write the code for you. In the simplest case, define
 a property using the same syntax as a field, but using the `property` keyword
 instead of `var`:
 
+@SOURCE(
+    class Dummy { 
+    --BEGIN
     property height:Int
+    --END
+    }
+)
 
 This does three things:
 
@@ -84,31 +131,46 @@ This does three things:
 For the simple case of `property height:Int`, this is equivalent to the 
 following declarations:
 
+@SOURCE(
+    class Dummy { 
+    --BEGIN
     var _height:Int
 
     function height():Int {
         return _height
     }
 
+    @self
     method height:=(height:Int) {
         self._height := height
     }
+    --END
+    }
+)
 
 If you want to provide your own getters and setters instead of the defaults, 
 simply define them:
 
+@SOURCE(
+    class Dummy { 
+    --BEGIN
     property height:Int
 
+    @self
     method height:=(height:Int) {
         self._height := height
-        Console.writeLine("{}.height is now: {}", self, height)
+        Console.writeLine("\{self}.height is now: \{height}")
     }
+    --END
+    }
+)
 
 This will still create the field and the getter, but the property will notice
 the existing setter and use that instead of an automatically-created one. If the
 property declaration doesn't end up creating either a getter or a setter, you
 will receive a warning like this:
 
+@SOURCE(
     class Test : Immutable {
         property p:Int
 
@@ -116,6 +178,7 @@ will receive a warning like this:
             return 5
         }
     }
+)
 
     > pandac Test.panda
     warning: Test.panda:2:9: property 'p' had neither a getter or a setter created for it:
@@ -128,12 +191,13 @@ This is explaining that the property declaration didn't actually do anything
 beyond what a basic `var` declaration would have. You created a manual getter, 
 so you were probably expecting the synthetic getter to not get created. But
 perhaps you didn't think about the fact that `Test` is declared immutable, and
-therefore the property `p` must be read-only.
+therefore the property `p` must be read-only, so no setter got created either.
 
 The getters and setters created by a property are allowed to implement abstract
 methods (such as interface methods), but may not override concrete methods. For
 instance, this is legal:
 
+@SOURCE(
     interface Shape {
         function centerX():Real
 
@@ -145,21 +209,24 @@ instance, this is legal:
 
         property centerY:Real
 
-        ...
+        -*REPLACE:...*---dummy comment
     }
+)
 
 The getters created by the two properties in `Circle` match the signatures of
 the abstract functions inherited from `Shape`, and so they are automatically 
 marked `@override` and treated as the implementations of these functions. 
 However, this is not legal:
 
+@SOURCE(
     class Super {
         property x:String
     }
 
     class Sub : Super {
-        property x:String -- compile error!
+        property -*REPLACE:x*-y:String -- compile error!
     }
+)
 
 The property created in the subclass will attempt to create a getter and a 
 setter, but a getter and setter with that name already exist due to the 

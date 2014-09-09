@@ -4,6 +4,7 @@ Operator Overloading
 Panda classes may provide their own implementations of 
 [operators](operators.html), which is called *operator overloading*.
 
+@SOURCE(
     -- this won't compile, keep reading!
     class OperatorExample {
         var value:Int
@@ -12,6 +13,7 @@ Panda classes may provide their own implementations of
             self.value := value
         }
 
+        function +(o:Object):Int { return 5 }--SKIP
         @class
         method main() {
             var a := new OperatorExample(12)
@@ -19,6 +21,7 @@ Panda classes may provide their own implementations of
             Console.writeLine(a + b)
         }
     }
+)
 
 If you attempt to compile this class, it will fail with the message `'+' cannot 
 operate on OperatorExample, OperatorExample`, because Panda does not know how to
@@ -27,9 +30,17 @@ add two `OperatorExample`s together.
 We can tell Panda how to add these objects together by providing an 
 implementation of the `+` operator:
 
+@SOURCE(
+    class OperatorExample {
+    var value:Int
+    constructor(i:Int) { }
+    --BEGIN
     function +(right:OperatorExample):OperatorExample {
         return new OperatorExample(value + right.value)
     }
+    --END
+    }
+)
 
 If you define this function and recompile the example, it will now run and 
 produce output similar to:
@@ -42,6 +53,7 @@ object, and this is the default output from `Object`'s
 class and its `hash`. With a more useful implementation of the convert operator, 
 the complete example becomes:
 
+@SOURCE(
     class OperatorExample {
         var value:Int
 
@@ -65,8 +77,11 @@ the complete example becomes:
             Console.writeLine(a + b)
         }
     }
+)
 
-Result: `Overloaded: 28`
+Result:
+
+    Overloaded: 28
 
 Any binary operator can be overloaded simply by providing a function that 
 accepts the left and right operands; either explicitly as a `@class` method with
@@ -84,13 +99,22 @@ The convert operator (`->>`) is unique among all Panda methods, in that
 conversion is the only situation in which the return type of a method is 
 considered during method lookup. Given two functions:
 
+@SOURCE(
+    class Foo {
+    --BEGIN
+    @override
     function ->>():String {
-        ...
+        -*REPLACE:...*---dummy comment
+        return "Hello"--SKIP
     }
 
     function ->>():Int {
-        ...
+        -*REPLACE:...*---dummy comment
+        return 5--SKIP
     }
+    --END
+    }
+)
 
 these two methods are not considered to conflict, despite the fact that they
 have the same name and the same parameters, because converters can be 
@@ -105,11 +129,12 @@ The index (`[]`) and indexed assignment (`[]:=`) operators are also
 overloadable, allowing other classes to be indexed in the same fashion as 
 arrays. Example:
 
+@SOURCE(
     class Bits {
         @private
         var bits:Int64
 
-        method [](index:Int):Bit {
+        function [](index:Int):Bit {
             return (bits >> index && 1) != 0
         }
 
@@ -120,6 +145,7 @@ arrays. Example:
                 bits &&= !!(1 << index)
         }
     }
+)
 
 This class presents an `Int64` value as if it were an array of 64 `Bit` values, 
 allowing you to get and set them individually.
@@ -176,16 +202,22 @@ Properties
 If you define a single-parameter instance method whose name ends in `:=`, that
 method may be invoked via an assignment statement, as follows:
 
+@SOURCE(
     class Example {
-        method property:=(msg:String) {
+        @self
+        method exampleProperty:=(msg:String) {
             Console.writeLine("You have set the property to: {0}", msg)
         }
     }
 
     var e := new Example()
-    e.property := "Overloaded assignment!"
+    e.exampleProperty := "Overloaded assignment!"
+)
 
-Result: `You have set the property to: Overloaded assignment!`
+Result:
+    
+    You have set the property to: Overloaded assignment!
 
 The line `e.property := "Overloaded assignment!"` is actually invoking a method,
-despite looking like a standard assignment.
+despite looking like a standard assignment. Property setters must be declared
+[`@self`](annotations.html#self).

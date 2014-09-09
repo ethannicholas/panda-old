@@ -4,11 +4,16 @@ Packages
 A *package* is a namespace which [classes](classes.html) may belong to. Packages
 are introduced with the `package` [keyword](keywords.html):
 
+@SOURCE(
     package org.pandalanguage.examples
+    --END
+    class A { }
+)
 
 After a `package` statement, all classes appearing in the same file are
 considered to belong to that package.
 
+@SOURCE(
     package org.pandalanguage.package1
 
     class A { }
@@ -18,6 +23,7 @@ considered to belong to that package.
     package org.pandalanguage.package2
 
     class C { }
+)
 
 In this example, classes `A` and `B` belong to package 
 `org.pandalanguage.package1`, and class `C` belongs to package 

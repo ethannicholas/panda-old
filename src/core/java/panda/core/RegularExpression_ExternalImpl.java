@@ -16,6 +16,6 @@ class RegularExpression_ExternalImpl implements panda.core.RegularExpression_Ext
     }
 
     @Override
-    public void close(java.lang.Object nativeHandle) {
+    public void close(panda.core.RegularExpression self) {
     }
 }

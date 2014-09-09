@@ -33,20 +33,34 @@ Every [expression](expressions.html) in Panda has a type. Panda uses
 The run-time type of a value is not necessarily the same as its compile-time
 type. For instance, in the code:
 
-    var s:Object := getString()
+@SOURCE(
+    function getString():String { return "foo" }
+    --BEGIN
+    def s:Object := getString()
+)
 
 presuming that `getString()` does as its name suggests and returns a `String`,
 then the variable `s` will contain a `String` and thus have a run-time type of 
 `String`. But as its type was explicitly declared as `Object`, it has a
 compile-time type of `Object`. You therefore could not write:
 
+@SOURCE(
+    method processString(s:String) { }
+    def s := "Hello"
+    --BEGIN
     processString(s)
+)
 
 because you would be passing an `Object` to a method expecting a `String`. A
 [cast](operators.html#cast) instructs the compiler to treat an object as a
 different compile-time type; in this case you could write:
 
+@SOURCE(
+    method processString(s:String) { }
+    def s := "Hello"
+    --BEGIN
     processString(s->(String))
+)
 
 in order to make this call. Of course, in this case it would have been better to 
 simply declare `s` as being the right type to begin with!
@@ -59,27 +73,42 @@ In addition to the class types described above, [methods](methods.html) have
 types. The type of a function encapsulates its parameter types and return type 
 in the form `(<parameterTypes>)=>(<returnType>)`, e.g.:
 
+@SOURCE(
+    var x:--SKIP
     (Real, Real)=>(Real)
+)
 
 This type represents a function taking two `Real` parameters and returning a
 `Real` result, as in:
 
+@SOURCE(
+    class Dummy {
+    --BEGIN
     @class
     function add(x:Real, y:Real):Real {
         return x + y
     }
+    --END
+    }
+)
 
 Methods which are not functions (i.e. they potentially have side effects) have
 a slightly different signature:
 
+@SOURCE(
+    var x:--SKIP
     (Real, Real)=&>(Real)
+)
 
 The ampersand in the middle of the arrow signifies "and other effects", as a
 method may perform unspecified other actions. Methods may also be declared to 
 not return a value, in which case the return type is left blank. The signature 
 of the `System.exit(Int)` method, for example, is:
 
+@SOURCE(
+    var x:--SKIP
     (Int)=&>()
+)
 
 signifying that it takes a single `Int` as a parameter, has side effects, and
 does not return a value.
@@ -92,32 +121,47 @@ Instance methods and functions (as opposed to `@class` methods and functions)
 have an additional, hidden parameter: their first parameter is `self`. Therefore
 the type of the `String.startsWith(String)` function is:
 
+@SOURCE(
+    var x:--SKIP
     (String, String)=>(Bit)
+)
 
 The first parameter is `self` and the second is the declared parameter of the
 function.
 
 This means that the code:
 
+@SOURCE(
     def startsWith := String::startsWith(String)
     Console.writeLine(startsWith("Hello, World!", "Hello"))
+)
 
 is equivalent to:
 
+@SOURCE(
     Console.writeLine("Hello, World!".startsWith("Hello"))
+)
 
 In a variadic method, the variadic parameter will appear as a `ListView`. For
 instance, the method:
 
+@SOURCE(
     class Foo {
         method writeAll(s:String...) {
-            ...
+            -*REPLACE:...*---dummy comment
         }
     }
+)
 
 has type:
 
-    (Foo, ListView<String>)=&>()
+@SOURCE(
+    class Foo { }
+
+    var x:
+    --BEGIN
+    (Foo, -*REPLACE:ListView*-Array<String>)=&>()
+)
 
 The first parameter type (`Foo`) is the implicit `self` parameter, because
 `writeAll` is an instance method in the class `Foo`, and the second parameter is
@@ -132,10 +176,16 @@ The types described above are mutable, permitting both immutable and mutable
 values to be assigned to them. To restrict a method type to immutable method 
 values only, add an asterisk (`*`) after the arrow:
 
+@SOURCE(
+    var w:--SKIP
     ()=>(Int) -- mutable function
+    var x:--SKIP
     ()=&>(Int) -- mutable method
+    var y:--SKIP
     ()=>*(Int) -- immutable function
+    var z:--SKIP
     ()=&>*(Int) -- immutable method
+)
 
 Tuple Types
 -----------
@@ -143,8 +193,10 @@ Tuple Types
 The type of a [tuple](tuples.html) is described by a parenthesized list of type
 names:
 
+@SOURCE(
     var tuple:(Object, Int)
     tuple := ("Tuple", 12)
+)
 
 Tuples must contain at least two types. Tuples are never modifiable, but will
 only be considered immutable if all of the values they contain are also 

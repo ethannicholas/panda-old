@@ -6,7 +6,9 @@ you build the compiler, add `target/pandac/bin` to your `path`.
 
 Create a file named `hello.panda` containing the following code:
 
+@SOURCE(
     Console.writeLine("Hello, World!")
+)
 
 Run the command `pandac hello.panda`. This will produce an executable file
 named `hello`. Running `hello` will produce the output:

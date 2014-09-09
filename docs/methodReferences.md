@@ -30,34 +30,43 @@ is `self`, and the second parameter is the visible parameter (the string to
 search for). The following code snippet demonstrates how such method references
 work:
 
+@SOURCE(
     def example := "Hello, World!"
     def replace := String::replace(String, String)
     Console.writeLine(replace(example, "Hello", "Goodbye"))
+)
 
 This displays `Goodbye, World!`. Note that the replace function is declared to
 take two parameters, but when calling it in this fashion we pass in three
 parameters: `self`, followed by its two declared parameters. This code is 
 equivalent to:
 
+@SOURCE(
     def example := "Hello, World!"
-    Console.writeLine(example.replace("Hello", "Goodbye")
+    Console.writeLine(example.replace("Hello", "Goodbye"))
+)
 
 Method references may also refer to operators. For instance, we can obtain a 
 reference to the addition operator defined in the `Int` class:
 
+@SOURCE(
     def add := Int::+
     Console.writeLine(add(12, 17))
+)
 
 This displays `29`. The built-in operators defined on the numeric classes are
 particularly useful in combination with `ListView` functions such as `map`, 
 `fold`, and `combine`:
 
+@SOURCE(
     Console.writeLine((2 ... 10).fold(Int::*))
+)
 
 This combines the numbers 2 through 10 using the `Int::*` function; in other
 words, it computes the factorial of 10. To add two arrays of numbers together,
 we can `combine` using the `Int::+` operator:
 
+    -- FIXME combine isn't actually implemented yet
     def list1 := [37, 12, -5]
     def list2 := [8, 9, 14]
     Console.writeLine(list1.combine(list2, Int::+))

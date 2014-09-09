@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.pandadoc
 
 uses org.pandalanguage.pandac.compiler.ASTGenerator
 uses org.pandalanguage.pandac.compiler.CodeGenerator
+uses org.pandalanguage.pandac.compiler.CompilerException
 uses org.pandalanguage.pandac.compiler.PandaCompiler
 uses org.pandalanguage.pandac.parser.PandaLexer
 uses org.pandalanguage.pandac.parser.PandaParser
@@ -33,7 +34,7 @@ uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
 
-class HTMLWriter (CodeGenerator) {
+class HTMLFragmentGenerator (CodeGenerator) {
     @override
     function defaultExtension():String? {
         return null
@@ -42,31 +43,25 @@ class HTMLWriter (CodeGenerator) {
     function identifierType(token:Token, node:(Node, String?)?):String? {
         if node = null
             return null
+        if node[1] != null
+            return node[1]
         if node[0]-?>(ClassLiteral) |
                 node[0]-?>(Construct) |
                 node[0]-?>(NewArrayWithLength) |
                 node[0]-?>(NewArrayWithValues) |
                 node[0]-?>(NewArrayWithRange)
             return "type"
-        else if node[0]-?>(Parameter) {
-            if node[1] = "type"
-                return "type"
-            else
-                return "parameterName"
-        }
-        else if node[0]-?>(MethodNode) {
-            if node[1] = "type"
-                return "type"
-            else
-                return "methodName"
-        }
-        else if node[0]-?>(FieldNode) {
-            if node[1] = "type"
-                return "type"
-            else
-                return "fieldName"
-        }
+        else if node[0]-?>(Parameter)
+            return "parameterName"
+        else if node[0]-?>(MethodNode)
+            return "methodName"
+        else if node[0]-?>(FieldNode)
+            return "fieldName"
         return null
+    }
+
+    method escape(s:String):String {
+        return s.replace("&", "&amp;").replace("<", "&lt;")
     }
 
     method processToken(token:Token, node:(Node, String?)?, out:OutputStream) {
@@ -79,8 +74,8 @@ class HTMLWriter (CodeGenerator) {
             case TokenType.IF, TokenType.ELSE, TokenType.FOR, TokenType.IN,
                     TokenType.DO, TokenType.WHILE, TokenType.LOOP, 
                     TokenType.BREAK, TokenType.CONTINUE, TokenType.SWITCH, 
-                    TokenType.CASE, TokenType.TRY, TokenType.CATCH,
-                    TokenType.RETURN:
+                    TokenType.CASE, TokenType.DEFAULT, TokenType.TRY, 
+                    TokenType.CATCH, TokenType.RETURN:
                 className := "control"
             case TokenType.VAR, TokenType.DEF, TokenType.CONSTANT:
                 className := "var"
@@ -92,7 +87,7 @@ class HTMLWriter (CodeGenerator) {
                 className := "assert"
             case TokenType.TRUE, TokenType.FALSE:
                 className := "literal bit"
-            case TokenType.STRING, TokenType.NUMBER:
+            case TokenType.STRING, TokenType.NUMBER, TokenType.NULL:
                 className := "literal"
             case TokenType.IDENTIFIER: {
                 className := "identifier"
@@ -100,7 +95,7 @@ class HTMLWriter (CodeGenerator) {
                 if idType != null
                     className += " " + idType
             }
-            case TokenType.SELF:
+            case TokenType.SELF, TokenType.ATRETURN:
                 className := "identifier"
             case TokenType.LINECOMMENT, TokenType.BLOCKCOMMENT,
                     TokenType.DOCCOMMENT:
@@ -111,6 +106,13 @@ class HTMLWriter (CodeGenerator) {
                     className := "identifier " + idType
                 else
                     className := "operator"
+            }
+            case TokenType.COLON: {
+                def type := identifierType(token, node)
+                if type != null
+                    className := type
+                else
+                    className := null
             }
             case TokenType.NOT, TokenType.BITWISENOT, TokenType.ADD, 
                     TokenType.SUB, TokenType.MUL, TokenType.DIV, 
@@ -133,10 +135,10 @@ class HTMLWriter (CodeGenerator) {
             case TokenType.PUBLIC, TokenType.PRIVATE, TokenType.PROTECTED, 
                     TokenType.ABSTRACT, TokenType.ATCLASS, TokenType.THREAD, 
                     TokenType.EXTERNAL, TokenType.STATIC, TokenType.READONLY,
-                    TokenType.MATH, TokenType.OVERRIDE, TokenType.LIMITED,
-                    TokenType.ATSELF, TokenType.SAFERETURN, 
-                    TokenType.UNSAFEFUNCTION, TokenType.PRE_OR, TokenType.POST,
-                    TokenType.POST_AND, TokenType.ATRETURN, TokenType.INVARIANT,
+                    TokenType.MATH, TokenType.OVERFLOW, TokenType.OVERRIDE, 
+                    TokenType.LIMITED, TokenType.ATSELF, TokenType.SAFERETURN, 
+                    TokenType.UNSAFEFUNCTION, TokenType.PRE, TokenType.PRE_OR, 
+                    TokenType.POST, TokenType.POST_AND, TokenType.INVARIANT, 
                     TokenType.INSTANCE, TokenType.WRAPPER_METHOD:
                 className := "annotation"
             default: 
@@ -146,27 +148,23 @@ class HTMLWriter (CodeGenerator) {
             className += " " + token.type
         else
             className := token.type->>(String)
+        if !className.contains("methodName") & 
+                identifierType(token, node) = "methodName"
+            className += " methodName"
         out.write('<span class="\{className}">')
-        out.write(token.text)
+        out.write(escape(token.text))
         out.write("</span>")
     }
 
     method writeFile(lexer:PandaLexer, ast:ASTGenerator, out:OutputStream) {
-        out.writeLine("<html>")
-        out.writeLine("<head>")
-        out.writeLine('<link rel="stylesheet" type="text/css" href="pandacode.css" />')
-        out.writeLine("</head>")
-        out.writeLine("<body>")
-        out.write("<pre>")
+        out.write('<div class="pandacode">')
         var token := lexer.next()
         while token.type != TokenType.EOF {
             def node := ast.positionToNodeMap[token.position]->((Node, String?)?)
             processToken(token, node, out)
             token := lexer.next()
         }
-        out.write("</pre>")
-        out.write("</body>")
-        out.write("</html>")
+        out.write("</div>")
         out.close()
     }
 
@@ -186,7 +184,7 @@ class HTMLWriter (CodeGenerator) {
     @override
     method generateCode(outputDir:File) {
         if !outputDir.isDirectory()
-            Console.writeLine(outputDir + " is not a directory")
+            throw new CompilerException(outputDir + " is not a directory")
 
         def compilationUnits := new Array<CompilationUnit>()
         for cl in SymbolTable.master.classes {
