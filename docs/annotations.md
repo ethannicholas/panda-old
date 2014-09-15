@@ -124,30 +124,28 @@ overriding method whenever the superclass method would have been called.
 
 Overriding methods must have the `@override` annotation.
 
-<a name="static"></a>
-@static
+<a name="final"></a>
+@final
 -------
 
-Several other programming languages, such as Java, use the word "static" to mean
-"belonging to the class, rather than any particular instance". The Panda 
-equivalent to this notion is `@class`, *not* `@static`. Panda instead uses the 
-typical English definition of the word "static", meaning "unchanging". 
+The `@final` annotation generally means "unchanging", but has slightly different
+meanings depending on what is being annotated.
 
-A *static field* is one that never changes. It must be assigned by
-the time the object is fully constructed, and cannot be modified after it is
-assigned. The object the field points to might still be modifiable, but the
-field cannot be changed to point to a different object. In other words, if you
-assign a `Monster` to a static field, the `Monster` itself remains modifiable - 
-its health may go up or down, it might be poisoned or killed - but the field 
-cannot be made to point to a different `Monster`.
+A *final field* is one that never changes. It must be assigned by the time the 
+object is fully constructed, and cannot be modified after it is assigned. The 
+object the field points to might still be modifiable, but the field cannot be 
+changed to point to a different object. In other words, if you assign a 
+`Monster` to a final field, the `Monster` itself remains modifiable - its 
+health may go up or down, it might be poisoned or killed - but the field cannot 
+be made to point to a different `Monster`.
 
-A *static method* is one that cannot be overridden in subclasses. This may make
+A *final method* is one that cannot be overridden in subclasses. This may make
 calls to the method faster, by avoiding virtual method lookup and by enabling
 additional optimizations, and it gives you a greater measure of control over how
 your classes are extended.
 
-A *static class* is one that cannot be subclassed. `String` and a number of 
-other important classes in the Panda core libraries are marked static, which 
+A *final class* is one that cannot be subclassed. `String` and a number of 
+other important classes in the Panda core libraries are marked final, which 
 both guarantees consistent behavior and improves performance for very 
 commonly-used classes.
 

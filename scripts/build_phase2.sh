@@ -58,5 +58,3 @@ cp src/core/js/*.js $JAVASCRIPT_TARGET/core
 $PANDAC -f js -o $JAVASCRIPT_TARGET/core `find src/core/panda -name "*.panda"`
 
 scripts/build_gl.sh
-
-scripts/pandadoc.sh

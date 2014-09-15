@@ -109,7 +109,7 @@ and it will sort out that the lambda's type is `(Int)=>(Real)` and that
 therefore the result of the `map` call must be `Array<Real>`. The proposed
 syntax for the `map` function on `ListView<T>` is:
 
-    function <T2> map(fn:(T)=>(T2)):List<T2> {
+    function <T2> map(fn:(T)=>(T2)):ListView<T2> {
         def result := new Array<T2>()
         for v in self
             result.append(fn(v))
@@ -129,6 +129,30 @@ must be instantiated differently for different combinations of types, though
 since all non-primitive Objects will be treated the same, the number of 
 different implementations which actually get instantiated should be small
 compared to the madness that happens with C++ templates.
+
+The "init hole"
+---------------
+
+Panda's current type system is unsound in at least one way. It's currently
+possible to call instance methods in a constructor prior to completely 
+initializing the object. This means that it's possible to "see" fields of the
+object that haven't actually been initialized yet, and thus "see" non-nullable
+fields with a `null` value, generally resulting in a crash. I refer to this as
+the "init hole".
+
+In practice it isn't a *huge* deal -- in writing the entire compiler and a 
+bunch of other Panda programs, I have of course made tons and tons of mistakes
+and gotten thousands of errors at both compilation and runtime, but I have never
+once run into the init hole in real code. But it stresses me out that the 
+problem exists, so I will most likely fix it before 1.0. Unfortunately, the fix
+may be a bit draconian. The only truly safe way to fix it is to disallow any 
+calls to instance methods which could potentially access an uninitialized 
+non-nullable field. In the case of private fields, we can generally make that
+determination pretty well. In the case of protected / public fields, we'll have
+to end up disallowing any calls (even indirect calls) to methods which could be
+overridden, which in most cases will boil down to "you can't call any instance
+methods before initializing all of your public / protected fields". I'm honestly
+not sure yet whether the disease is worse than the cure.
 
 Threading
 ---------
@@ -386,6 +410,8 @@ inner classes. Even if it gains support for named inner classes, Panda will
 probably not offer anonymous inner classes at all: with tuples, first-class 
 functions, lambdas, MessageQueues, and other powerful language features, there 
 just isn't nearly as much need for them as there was in Java.
+
+Inner enums, however, have *got* to happen prior to 1.0.
 
 Multiple-Dimension Indexing
 ---------------------------

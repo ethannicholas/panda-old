@@ -14,4 +14,4 @@ are not required; they may not be implemented at all, or the compiler may choose
 to pass some `Value` objects by value and other `Value` objects by reference.
 
 Because they do not have an identity, `Value` types may not have finalizers
-(`Value` has a `@static` do-nothing finalizer to prevent this.)
+(`Value` has a `@final` do-nothing finalizer to prevent this.)

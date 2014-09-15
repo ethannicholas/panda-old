@@ -40,31 +40,40 @@ class HTMLGenerator (CodeGenerator) {
         return null
     }
 
-    method writeFile(lexer:PandaLexer, ast:ASTGenerator, out:OutputStream) {
+    method writeFile(lexer:PandaLexer, ast:ASTGenerator, depth:Int,
+            out:OutputStream) {
         out.writeLine("<html>")
         out.writeLine("<head>")
-        out.writeLine('<link rel="stylesheet" type="text/css" href="pandadoc.css" />')
-        out.writeLine('<script src="pandacode.js"></script>')
+        constant UP := "../"
+        out.writeLine('<link rel="stylesheet" type="text/css" ' +
+                'href="\{depth * UP}pandacode-monokai.css" />')
+        out.writeLine('<link rel="stylesheet" type="text/css" ' +
+                'href="\{depth * UP}panda-master.css" />')
+        out.writeLine('<link rel="stylesheet" type="text/css" ' +
+                'href="\{depth * UP}pandadoc.css" />')
+        out.writeLine('<link rel="stylesheet" type="text/css" ' +
+                'href="\{depth * UP}panda-source.css" />')
+        out.writeLine('<script src="\{depth * UP}scripts/site.js"></script>')
         out.writeLine("</head>")
         out.writeLine("<body>")
+        out.writeLine('<div id="main">')
+        out.writeLine("@@@TOC@@@")
+        out.writeLine('<div id="content">')
         new HTMLFragmentGenerator().writeFile(lexer, ast, out)
+        out.write("</div>")
         out.write("</div>")
         out.write("</body>")
         out.write("</html>")
-        out.close()
     }
 
-    method writeCompilationUnit(cu:CompilationUnit, outputDir:File) {
-        var dest := cu.name
-        if !dest.endsWith(".panda")
-            return
-        dest := dest[..dest.length - ".panda".length] + ".html"
-        def out := outputDir.resolve(dest).openOutputStream()
+    method writeCompilationUnit(cu:CompilationUnit, depth:Int, dest:File) {
         def source := cu.source
         assert source != null
         def lexer := new PandaLexer(source.openInputStream(), 
                 new Position(cu.name, 1, 1))
-        writeFile(lexer, PandaCompiler.astGenerator, out)
+        def out := dest.openOutputStream()
+        writeFile(lexer, PandaCompiler.astGenerator, depth, out)
+        out.close()
     }
 
     @override
@@ -80,7 +89,12 @@ class HTMLGenerator (CodeGenerator) {
                     compilationUnits.append(compilationUnit)
             }
         }
-        for compilationUnit in compilationUnits
-            writeCompilationUnit(compilationUnit, outputDir)
+        for compilationUnit in compilationUnits {
+            var dest := compilationUnit.name
+            if !dest.endsWith(".panda")
+                continue
+            dest := dest[..dest.length - ".panda".length] + ".html"
+            writeCompilationUnit(compilationUnit, 0, outputDir.resolve(dest))
+        }
    }
 }

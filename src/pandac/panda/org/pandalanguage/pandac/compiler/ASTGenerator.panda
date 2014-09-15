@@ -319,7 +319,7 @@ class ASTGenerator {
     ============================================================================
     var classUses:Map := new HashMap()
 
-    var namePrefix := hash->>(String)
+    var namePrefix := hash.abs->>(String)
 
     var nameCount := 0
 
@@ -1382,7 +1382,7 @@ class ASTGenerator {
             valid := false
         else if f.annotations.isReadOnly & currentClass != f.owner
             valid := false
-        else if f.annotations.isStatic { 
+        else if f.annotations.isFinal { 
             def cm := currentMethod
             if currentClass != f.owner | cm = null | 
                     (cm.methodType != MethodNodeType.CONSTRUCTOR & 
@@ -2178,7 +2178,7 @@ class ASTGenerator {
         def parent := currentMethod
         assert parent != null : "no parent method"
         for v in parent.localVariables {
-            if v.annotations.isStatic & !hasVariableNamed(captures, v.name) {
+            if v.annotations.isFinal & !hasVariableNamed(captures, v.name) {
                 -- we could have multiple variables with the same name in scope,
                 -- so grab from the symbol table to make sure we get the correct
                 -- one
@@ -2189,7 +2189,7 @@ class ASTGenerator {
             }
         }
         for v in parent.parameters {
-            if v.annotations.isStatic & !hasVariableNamed(captures, v.name) {
+            if v.annotations.isFinal & !hasVariableNamed(captures, v.name) {
                 -- we wouldn't have gotten here if there were any other 
                 -- variables with this name in scope, so we can skip the symbol
                 -- table lookup we perform above
@@ -2217,7 +2217,7 @@ class ASTGenerator {
             if name = Parameter.SELF_NAME
                 name := "$" + name
             def field := new FieldNode(name, capture.type)
-            field.annotations.isStatic := true
+            field.annotations.isFinal := true
             cl.add(field)
             cl.symbolTable.putVariable(field)
         }
@@ -2230,7 +2230,7 @@ class ASTGenerator {
         nodeStack.push(cm)
         def selfParam := new Parameter(position, Parameter.SELF_NAME, 
                 cl.type())
-        selfParam.annotations.isStatic := true
+        selfParam.annotations.isFinal := true
         cm.parameters.append(selfParam)
         cm.genericParameterTypes.append(cl.type())
         convertParameterPrototypeList(parameterPrototypes)
@@ -3064,7 +3064,7 @@ class ASTGenerator {
             if call != null {
                 if currentClass != fv.field.parent & 
                         !fv.field.annotations.isReadOnly &
-                        !fv.field.annotations.isStatic {
+                        !fv.field.annotations.isFinal {
                     throw new CompilerException("reference to '\{name}' is " +
                             "ambiguous, both field \{name} (of type " +
                             "\{fv.field.type.displayName}) and method " +
@@ -4124,7 +4124,7 @@ class ASTGenerator {
         captureNode(valueVar)
         if valueTypeNode != null
             captureTree(valueVar, valueTypeNode, "type")
-        valueVar.annotations.isStatic := true
+        valueVar.annotations.isFinal := true
         locals.append(valueVar)
         def forEach := new ForEach(l.position, label, indexVar, valueVar, array)
         open(forEach)
@@ -4327,13 +4327,13 @@ class ASTGenerator {
     ============================================================================
     @pre(v.type = ParseNodeType.VAR_DECLARATION)
     method convertVariableDeclaration(v:ParseNode) {
-        var isStatic:Bit
+        var isFinal:Bit
         def varType := v[0]->(TokenNode).token.type
         if varType = TokenType.VAR
-            isStatic := false
+            isFinal := false
         else {
             assert varType = TokenType.DEF
-            isStatic := true
+            isFinal := true
         }
         def varPositions := new Array<Position>()
         def varNames := new Array<String?>()
@@ -4415,7 +4415,7 @@ class ASTGenerator {
             def typeNode := varTypeNodes[j]
             if typeNode != null
                 captureTree(variable, typeNode, "type")
-            variable.annotations.isStatic := isStatic
+            variable.annotations.isFinal := isFinal
             currentBlock.symbolTable.putVariable(variable)
             def cm := currentMethod
             assert cm != null
@@ -4478,7 +4478,7 @@ class ASTGenerator {
                 captureTree(field, typeNode, "type")
             field.annotations := annotations
             field.annotations.isClass := true
-            field.annotations.isStatic := true
+            field.annotations.isFinal := true
             field.doccomment := doccomment
             cl.add(field)
             cl.symbolTable.putVariable(field)
@@ -4530,7 +4530,7 @@ class ASTGenerator {
                     "mutable type '\{type.displayName}'", c.position)
         }
         def variable := new LocalVariable(c[1].position, name, type)
-        variable.annotations.isStatic := true
+        variable.annotations.isFinal := true
         currentBlock.symbolTable.putVariable(variable)
         def cm := currentMethod
         assert cm != null
@@ -4780,14 +4780,14 @@ class ASTGenerator {
     ============================================================================
     @pre(p.type = ParseNodeType.PARAMETER_PROTOTYPE)
     method convertParameterPrototype(p:ParseNode) {
-        var isStatic:Bit
+        var isFinal:Bit
         var i := 0
         if p[i]->(TokenNode).token.type = TokenType.VAR {
-            isStatic := false
+            isFinal := false
             i += 1
         }
         else
-            isStatic := true
+            isFinal := true
         assert p[i]->(TokenNode).token.type = TokenType.IDENTIFIER
         def name := p[i]->(TokenNode).token
         i += 1
@@ -4816,7 +4816,7 @@ class ASTGenerator {
         captureTree(param, typeNode, "type")
         param.isVarArg := isVarArg
         param.isConvert := isConvert
-        param.annotations.isStatic := isStatic
+        param.annotations.isFinal := isFinal
         var cm := currentMethod
         assert cm != null
         cm.parameters.append(param)
@@ -5168,9 +5168,9 @@ class ASTGenerator {
 
     @private
     method checkMethodAnnotations(m:MethodNode) {
-        if m.annotations.isStatic & m.annotations.isClass {
+        if m.annotations.isFinal & m.annotations.isClass {
             PandaCompiler.reportError("@class methods are not " +
-                    "inherited, they may not be marked @static", 
+                    "inherited, they may not be marked @final", 
                     m.position)
         }
         def isInterface := m.owner.isInterface
@@ -5187,14 +5187,14 @@ class ASTGenerator {
                 }
                 case AnnotationType.ABSTRACT, AnnotationType.CLASS,
                         AnnotationType.EXTERNAL, AnnotationType.OVERRIDE, 
-                        AnnotationType.STATIC: {
+                        AnnotationType.FINAL: {
                     if m.methodType = MethodNodeType.CONSTRUCTOR {
                         PandaCompiler.reportError(
                                 "annotation '\{new Annotations([a])}' is not " +
                                 "supported on constructors", m.position)
                     }
                     else if isInterface & (a = AnnotationType.EXTERNAL |
-                            a = AnnotationType.STATIC) {
+                            a = AnnotationType.FINAL) {
                         PandaCompiler.reportError(
                                 "annotation '\{new Annotations([a])}' is not " +
                                 "supported on interface methods", m.position)
@@ -5303,7 +5303,7 @@ class ASTGenerator {
                     type := type->(WrapperType).primitiveVersion
                 var s := new Parameter(m.position, Parameter.SELF_NAME, 
                         type)
-                s.annotations.isStatic := true
+                s.annotations.isFinal := true
                 cm.parameters.append(s)
                 cm.genericParameterTypes.append(type)
             }
@@ -5406,7 +5406,7 @@ class ASTGenerator {
                         reportError("a method may not override a function", 
                                 cm.position)
                     }
-                    if overridden.annotations.isStatic {
+                    if overridden.annotations.isFinal {
                         reportError("corresponding method in '" + 
                                 overridden.owner.name + 
                                 "' is static and may not be overridden", 
@@ -5469,18 +5469,18 @@ class ASTGenerator {
         def fields := new Array<FieldNode?>()
         if linkageOnly {
             def fieldType := f[0]->(TokenNode).token.type
-            var isStatic:Bit
+            var isFinal:Bit
             if fieldType = TokenType.VAR
-                isStatic := false
+                isFinal := false
             else if fieldType = TokenType.DEF
-                isStatic := true
+                isFinal := true
             else {
                 assert fieldType = TokenType.PROPERTY
-                isStatic := false
+                isFinal := false
                 annotations.isProperty := true
             }
-            if isStatic
-                annotations.isStatic := true
+            if isFinal
+                annotations.isFinal := true
             var i := 1
             while i < f.length & 
                     (f[i]->(TokenNode).token.type = TokenType.IDENTIFIER | 
@@ -5522,7 +5522,7 @@ class ASTGenerator {
                         var fieldIndex := new FieldNode(f.position, indexName,
                                 IntType.INT32)
                         fieldIndex.annotations.isClass := true
-                        fieldIndex.annotations.isStatic := true
+                        fieldIndex.annotations.isFinal := true
                         fieldIndex.annotations.isSynthetic := true
                         cl.add(fieldIndex)
                         cl.symbolTable.putVariable(fieldIndex)
@@ -5564,11 +5564,11 @@ class ASTGenerator {
                 switch a {
                     case AnnotationType.PRIVATE, AnnotationType.PROTECTED,
                             AnnotationType.READONLY: { }
-                    case AnnotationType.STATIC: {
+                    case AnnotationType.FINAL: {
                         def token := f[0]->(TokenNode).token
                         if token.type != TokenType.VAR {
                             PandaCompiler.reportError(
-                                    "annotation '@static' is not supported " +
+                                    "annotation '@final' is not supported " +
                                     "on '\{token}'", f.position)
                         }
                     }
@@ -5587,9 +5587,9 @@ class ASTGenerator {
                 }
             }
             if cl.type().isImmutable & 
-                    !annotations.isStatic &
+                    !annotations.isFinal &
                     !annotations.isThread
-                annotations.isStatic := true
+                annotations.isFinal := true
         }
         assert fields.length > 0
         for i, field in fields {
@@ -5639,7 +5639,7 @@ class ASTGenerator {
                         case TokenType.ATCLASS:    result.isClass      := true
                         case TokenType.THREAD:     result.isThread     := true
                         case TokenType.EXTERNAL:   result.isExternal   := true
-                        case TokenType.STATIC:     result.isStatic     := true
+                        case TokenType.FINAL :     result.isFinal      := true
                         case TokenType.OVERRIDE:   result.isOverride   := true
                         case TokenType.READONLY:   result.isReadOnly   := true
                         case TokenType.LIMITED:    result.isLimited    := true
@@ -5682,9 +5682,9 @@ class ASTGenerator {
             PandaCompiler.reportError("@thread may not be used " +
                     "together with @class", annotations.position)
         }
-        if result.isAbstract & result.isStatic {
+        if result.isAbstract & result.isFinal {
             PandaCompiler.reportError("@abstract may not be used " +
-                    "together with @static", annotations.position)
+                    "together with @final", annotations.position)
         }
         if result.isAbstract & result.isExternal {
             PandaCompiler.reportError("@abstract may not be used " +
@@ -5987,7 +5987,7 @@ class ASTGenerator {
         for a in annotations.all {
             switch a {
                 case AnnotationType.PRIVATE, AnnotationType.PROTECTED,
-                        AnnotationType.ABSTRACT, AnnotationType.STATIC: { }
+                        AnnotationType.ABSTRACT, AnnotationType.FINAL: { }
                 default: {
                     PandaCompiler.reportError(
                             "annotation '\{new Annotations([a])}' is not " +
@@ -6142,7 +6142,7 @@ class ASTGenerator {
                 currentCompilationUnit.symbolTable)
             currentCompilationUnit.add(classNode)
             SymbolTable.master.putClass(classNode)
-            classNode.annotations.isStatic := true
+            classNode.annotations.isFinal := true
         }
         else if linkageOnly {
             while classNode.length > 0 {
@@ -6160,19 +6160,19 @@ class ASTGenerator {
             classNode.supertype := SymbolTable.master.getType(e.position,
                     class(Enumeration).name)->(ClassType)
             var name := new FieldNode("name", ClassType.STRING())
-            name.annotations.isStatic := true
+            name.annotations.isFinal := true
             name.doccomment := "The name of the enumeration constant."
             classNode.symbolTable.putVariable(name)
             classNode.add(name)
             var value := new FieldNode("value", IntType.INT32)
-            value.annotations.isStatic := true
+            value.annotations.isFinal := true
             value.doccomment := "The numeric value of the enumeration constant."
             classNode.symbolTable.putVariable(value)
             classNode.add(value)
             nameMap := new FieldNode("NAME_MAP", ClassType.IMMUTABLE_HASHMAP())
             nameMap.annotations.isClass := true
             nameMap.annotations.isPrivate := true
-            nameMap.annotations.isStatic := true
+            nameMap.annotations.isFinal := true
 
             classNode.symbolTable.putVariable(nameMap)
             -- note we haven't added nameMap yet -- we'll do that after all of
@@ -6243,7 +6243,7 @@ class ASTGenerator {
             field.doccomment := fieldComment
             fieldComment := null
             field.annotations.isClass := true
-            field.annotations.isStatic := true
+            field.annotations.isFinal := true
             var key := e[i]->>(String)
             defaultReturn := key
             var enumValue := count
@@ -6586,8 +6586,8 @@ class ASTGenerator {
                 var setterDenyReason:String? := null
                 if p.annotations.isReadOnly
                     setterDenyReason := "'" + name + "' is declared @readonly"
-                else if p.annotations.isStatic
-                    setterDenyReason := "'" + name + "' is declared @static"
+                else if p.annotations.isFinal
+                    setterDenyReason := "'" + name + "' is declared @final"
                 else if p.owner.type().isImmutable
                     setterDenyReason := "'" + p.owner.name + "' is immutable"
                 else if setters[name] != null {
@@ -6732,7 +6732,7 @@ class ASTGenerator {
                                     "mutable field '\{f.name}' " +
                                     "(\{f.type.displayName})", f.position)
                         }
-                        if immutable & !f.annotations.isStatic {
+                        if immutable & !f.annotations.isFinal {
                             PandaCompiler.reportError(
                                     "immutable class '\{cl.name}' may not " +
                                     "contain variables; did you mean to use " +
@@ -6770,8 +6770,8 @@ class ASTGenerator {
             for child in cl.children {
                 if child-?>(FieldNode) {
                     def f := child->(FieldNode)
-                    if f.annotations.isProperty & !f.annotations.isStatic
-                        f.annotations.isStatic := true
+                    if f.annotations.isProperty & !f.annotations.isFinal
+                        f.annotations.isFinal := true
                 }
             }
         }

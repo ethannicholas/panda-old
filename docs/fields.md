@@ -1,8 +1,8 @@
 Fields
 ======
 
-A *field* is a [variable](variables.html) declared inside of a class body. In
-this simple class:
+A *field* is a [variable](variables.html) or [define](defines.html) declared 
+inside of a class body. In this simple class:
 
 @SOURCE(
     class Point {

@@ -365,7 +365,7 @@ Annotations should always be listed in a consistent order:
 
 1. `@private` / `@protected` 
 2. `@class`
-3. `@static`
+3. `@final`
 4. `@override`
 5. `@math(...)`
 6. `@pre` / `@preOr`

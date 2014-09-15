@@ -10,6 +10,17 @@
 #include "unwind.h"
 #include "math.h"
 
+#ifndef GC
+
+#define GC_MALLOC_ATOMIC MALLOC
+void GC_INIT() { }
+
+void* malloc_zero(size_t s) {
+    return calloc(s, 1);
+}
+
+#endif
+
 void* malloc_atomic(size_t size) {
     void* result = GC_MALLOC_ATOMIC(size);
     memset(result, 0, size);
@@ -129,10 +140,12 @@ int main(int argc, char** argv) {
 typedef void (*finalizer)(Object*);
 typedef void *(*threadRun)(void*);
 
+#ifdef GC
 static void runFinalizer(Object* o, finalizer f) {
     f(o);
     o->cl = NULL;
 }
+#endif
 
 void* pandaGetInterfaceMethod(panda$core$Object* o, panda$core$Class* intf, 
         int index) {
@@ -153,6 +166,7 @@ Object* _pandaNew(Class* class_ptr, Int32 size) {
     result->cl = class_ptr;
     if (debugAllocations)
         printf("%s\n", pandaGetString(class_ptr->name));
+#ifdef GC
     if (class_ptr->overridesFinalize) {
         GC_finalization_proc oldFinalizer;
         GC_PTR oldCD;
@@ -164,6 +178,7 @@ Object* _pandaNew(Class* class_ptr, Int32 size) {
                 &oldFinalizer, 
                 &oldCD);
     }
+#endif
     return result;
 }
 
@@ -1051,6 +1066,14 @@ Real64 panda$core$Panda$pow_Real64_Int32(Real64 x, Int32 y) {
 
 /***** Regex *****/
 
+// we have to manually hang on to the text pointer, because the garbage 
+// collector evidently isn't "seeing" ICU's pointer to it and is thus collecting
+// it
+typedef struct NativeRegex {
+    URegularExpression* regex;
+    char* text;
+} NativeRegex;
+
 void panda$core$RegularExpression$compile(RegularExpression* r, String* regex, 
         Int32 flags) {
     UErrorCode status = U_ZERO_ERROR;
@@ -1060,7 +1083,9 @@ void panda$core$RegularExpression$compile(RegularExpression* r, String* regex,
     int icuFlags = 0;
     if (flags & 1)
         icuFlags |= UREGEX_MULTILINE;
-    r->nativeHandle = uregex_openUText(ut, icuFlags, &parseStatus, &status);
+    r->nativeHandle = MALLOC(sizeof(NativeRegex));
+    ((NativeRegex*) r->nativeHandle)->regex = uregex_openUText(ut, icuFlags, 
+            &parseStatus, &status);
     utext_close(ut);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
@@ -1069,35 +1094,37 @@ void panda$core$RegularExpression$compile(RegularExpression* r, String* regex,
 RegularExpression* panda$core$RegularExpression$clone(RegularExpression* r) {
     RegularExpression* result = pandaNew(panda$core$RegularExpression);
     UErrorCode status = U_ZERO_ERROR;
-    URegularExpression* ur = (URegularExpression*) r->nativeHandle;
-    result->nativeHandle = uregex_clone(ur, &status);
+    URegularExpression* ur = ((NativeRegex*) (r->nativeHandle))->regex;
+    result->nativeHandle = MALLOC(sizeof(NativeRegex));
+    ((NativeRegex*) result->nativeHandle)->regex = uregex_clone(ur, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result;
 }
 
-void panda$core$Matcher$setText(void* ur, String* text) {
+void panda$core$Matcher$setText(void* nr, String* text) {
     UErrorCode status = U_ZERO_ERROR;
     char* utf8 = pandaGetString(text);
+    ((NativeRegex*) nr)->text = utf8;
     UText* ut = utext_openUTF8(NULL, utf8, 
             text->chars->$length, &status);
-    uregex_setUText((URegularExpression*) ur, ut, &status);
+    uregex_setUText(((NativeRegex*) nr)->regex, ut, &status);
     utext_close(ut);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
 }
 
-Bit panda$core$Matcher$matches_$NativePointer(void* ur) {
+Bit panda$core$Matcher$matches_$NativePointer(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
-    Bit result = uregex_matches((URegularExpression*) ur, 0, &status);
+    Bit result = uregex_matches(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result;
 }
 
-Bit panda$core$Matcher$find_$NativePointer_Int32(void* ur, Int32 startIndex) {
+Bit panda$core$Matcher$find_$NativePointer_Int32(void* nr, Int32 startIndex) {
     UErrorCode status = U_ZERO_ERROR;
-    Bit result = uregex_find((URegularExpression*) ur, startIndex, &status);
+    Bit result = uregex_find(((NativeRegex*) nr)->regex, startIndex, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result;
@@ -1107,7 +1134,7 @@ Bit panda$core$Matcher$find_$NativePointer_Int32(void* ur, Int32 startIndex) {
  * Convert a UText to a panda String, closing the UText afterwards.
  */
 String* pandaUTextToString(UText* ut, int length) {
-    // NOTE: we are making the (generally unsafe) assumption that the UText
+    // NOTE: we are making the (usually unsafe) assumption that the UText
     // contains UTF-8 characters, so we can just do a straight copy out rather
     // than bother with conversion. As we are working exclusively in UTF-8,
     // this should always be true. 
@@ -1117,42 +1144,43 @@ String* pandaUTextToString(UText* ut, int length) {
     return result;
 }
 
-Int32 panda$core$Matcher$groupCount_$NativePointer(void* ur) {
+Int32 panda$core$Matcher$groupCount_$NativePointer(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
-    Int32 result = uregex_groupCount((URegularExpression*) ur, &status);
+    Int32 result = uregex_groupCount(((NativeRegex*) nr)->regex, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result + 1;
 }
 
-String* panda$core$Matcher$group_$NativePointer_Int32(void* ur, Int32 group) {
+String* panda$core$Matcher$group_$NativePointer_Int32(void* nr, Int32 group) {
     UErrorCode status = U_ZERO_ERROR;
     int64_t length;
-    UText* ut = uregex_groupUText((URegularExpression*) ur, group, NULL,
+    UText* ut = uregex_groupUText(((NativeRegex*) nr)->regex, group, NULL,
             &length, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return pandaUTextToString(ut, length);
 }
 
-Int32 panda$core$Matcher$start_$NativePointer(void* ur) {
+Int32 panda$core$Matcher$start_$NativePointer(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
-    Int32 result = uregex_start((URegularExpression*) ur, 0, &status);
+    Int32 result = uregex_start(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result;
 }
 
-Int32 panda$core$Matcher$end_$NativePointer(void* ur) {
+Int32 panda$core$Matcher$end_$NativePointer(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
-    Int32 result = uregex_end((URegularExpression*) ur, 0, &status);
+    Int32 result = uregex_end(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result;
 }
 
 void panda$core$RegularExpression$close(RegularExpression* r) {
-    uregex_close((URegularExpression*) r->nativeHandle);
+    uregex_close(((NativeRegex*) r->nativeHandle)->regex);
+    FREE(r->nativeHandle);
     r->nativeHandle = NULL;
 }
 

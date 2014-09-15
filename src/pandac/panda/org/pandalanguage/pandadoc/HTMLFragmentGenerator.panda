@@ -60,8 +60,31 @@ class HTMLFragmentGenerator (CodeGenerator) {
         return null
     }
 
-    method escape(s:String):String {
+    function escape(s:String):String {
         return s.replace("&", "&amp;").replace("<", "&lt;")
+    }
+
+    function getAnchor(m:MethodNode):String {
+        def result := new MutableString(m.name)
+        result.append("(")
+        def start:Int
+        if m.annotations.isClass
+            start := 0
+        else
+            start := 1
+        for i, p in m.parameters {
+            if i < start
+                continue
+            if i > start
+                result.append(",")
+            result.append(p.type.displayName)
+        }
+        result.append(")")
+        if m.returnType != VoidType.VOID {
+            result.append(":")
+            result.append(m.returnType.displayName)
+        }
+        return escape(result->>(String))
     }
 
     method processToken(token:Token, node:(Node, String?)?, out:OutputStream) {
@@ -134,7 +157,7 @@ class HTMLFragmentGenerator (CodeGenerator) {
                 className := "operator"
             case TokenType.PUBLIC, TokenType.PRIVATE, TokenType.PROTECTED, 
                     TokenType.ABSTRACT, TokenType.ATCLASS, TokenType.THREAD, 
-                    TokenType.EXTERNAL, TokenType.STATIC, TokenType.READONLY,
+                    TokenType.EXTERNAL, TokenType.FINAL, TokenType.READONLY,
                     TokenType.MATH, TokenType.OVERFLOW, TokenType.OVERRIDE, 
                     TokenType.LIMITED, TokenType.ATSELF, TokenType.SAFERETURN, 
                     TokenType.UNSAFEFUNCTION, TokenType.PRE, TokenType.PRE_OR, 
@@ -151,6 +174,10 @@ class HTMLFragmentGenerator (CodeGenerator) {
         if !className.contains("methodName") & 
                 identifierType(token, node) = "methodName"
             className += " methodName"
+        if node != null & node[0]-?>(MethodNode) {
+            def m := node[0]->(MethodNode)
+            out.write('<a name="\{getAnchor(m)}"></a>')
+        }
         out.write('<span class="\{className}">')
         out.write(escape(token.text))
         out.write("</span>")
@@ -165,7 +192,6 @@ class HTMLFragmentGenerator (CodeGenerator) {
             token := lexer.next()
         }
         out.write("</div>")
-        out.close()
     }
 
     method writeCompilationUnit(cu:CompilationUnit, outputDir:File) {
@@ -179,6 +205,7 @@ class HTMLFragmentGenerator (CodeGenerator) {
         def lexer := new PandaLexer(source.openInputStream(), 
                 new Position(cu.name, 1, 1))
         writeFile(lexer, PandaCompiler.astGenerator, out)
+        out.close()
     }
 
     @override

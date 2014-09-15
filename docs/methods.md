@@ -48,7 +48,7 @@ The following [annotations](annotations.html) are legal on methods:
 * [`@protected`](annotations.html#protected)
 * [`@class`](annotations.html#class)
 * [`@abstract`](annotations.html#abstract)
-* [`@static`](annotations.html#static)
+* [`@final`](annotations.html#final)
 * [`@override`](annotations.html#override)
 * [`@math(overflow)`](annotations.html#overflow)
 * [`@pre(...)`](annotations.html#pre)

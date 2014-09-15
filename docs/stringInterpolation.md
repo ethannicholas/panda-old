@@ -11,7 +11,7 @@ literals:
 
 String interpolations are introduced with a backslash followed by a left curly
 brace (`\{`) and ended by a right curly brace (`}`). The full range of 
-formatting options described at `OutputStream.write()` are available:
+formatting options described at [OutputStream.write()](api/panda/io/OutputStream.html#write&#40;panda.core.String,panda.collections.Array&lt;panda.core.Object&gt;&#41;) are available:
 
 @SOURCE(
     def total := 42.5988

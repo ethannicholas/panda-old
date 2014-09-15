@@ -7,7 +7,7 @@ support for:
 * First-class immutable objects and value types
 * First-class functions and closures
 * Type inference
-* Non-nullable references
+* Non-nullable references, static proofs of null safety
 * Contracts (preconditions, postconditions, and invariants)
 * Tuples
 * "Sane" operator overloading

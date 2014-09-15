@@ -98,7 +98,7 @@ class DataFlowAnalyzer {
     -- only true while performing a full method analysis, we then turn it off
     -- for incremental rescans to avoid having to do extra housekeeping
     @private
-    var enforceStatics:Bit
+    var enforceFinal:Bit
 
     @private
     method merge(oldValue:DataFlowValue?, 
@@ -434,12 +434,12 @@ class DataFlowAnalyzer {
             if node-?>(VariableAssignment) {
                 def va := node->(VariableAssignment)
                 def key := new ValueKey(LOCAL_CLASS, va.variable)
-                if !va.isInitialValue & va.variable.annotations.isStatic {
+                if !va.isInitialValue & va.variable.annotations.isFinal {
                     def inValue := getInValue(va, outs)
-                    if (enforceStatics & inValue != null & 
+                    if (enforceFinal & inValue != null & 
                             !inValue.definitelyUnassigned) {
                         PandaCompiler.reportError(
-                                "cannot modify static variable '" + 
+                                "cannot modify final variable '" + 
                                 va.variable + "'", va.position)
                     }
                 }
@@ -452,10 +452,10 @@ class DataFlowAnalyzer {
                 def fa := node->(FieldAssignment)
                 def key := getKey(fa.fieldNode, outs)
                 def inValue := getInValue(fa, outs)
-                if enforceStatics & fa.fieldNode.annotations.isStatic() &
+                if enforceFinal & fa.fieldNode.annotations.isFinal() &
                         inValue != null
                     PandaCompiler.reportError(
-                            "cannot modify static field '" + fa.fieldNode + "'",
+                            "cannot modify final field '" + fa.fieldNode + "'",
                             fa.position)
                 var newValue := getValue(fa.value, outs)
                 newValue := new DataFlowValue(newValue.type, newValue.selfOnly,
@@ -660,7 +660,7 @@ class DataFlowAnalyzer {
     }
 
     method analyzeMethod(cfg:CFGGenerator, m:MethodNode):MethodAnalysis {
-        enforceStatics := true
+        enforceFinal := true
         def debug := self.debug
         if debug != null {
             debug.open("method")
@@ -703,7 +703,7 @@ class DataFlowAnalyzer {
             ma.entrance.writeXML(debug)
             debug.close("method")
         }
-        enforceStatics := false
+        enforceFinal := false
         return ma
     }
 

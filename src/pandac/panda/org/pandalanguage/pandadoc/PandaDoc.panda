@@ -13,6 +13,7 @@ uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.CompilationUnit
 uses org.pandalanguage.pandac.tree.ExpressionAnnotation
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
@@ -22,6 +23,7 @@ uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.SymbolTable
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
@@ -101,7 +103,18 @@ class DocComment {
     }
 }
 
+================================================================================
+Documentation generator which scans source files for doccomments and generates
+XML documentation from them.
+
+Please note that while PandaDoc will eventually be general-purpose, right this 
+second it only has one "customer" (the Panda API documentation) and thus has
+gotten a bit locked into this one use case. It definitely needs some more
+flexibility about site layouts, stylesheets, etc.
+================================================================================
 class PandaDoc (CodeGenerator) {
+    var showSource := true
+
     var xml := new MarkdownXMLWriter(new MemoryOutputStream()) -- dummy value
 
     var currentPosition:Position := Position.INTERNAL
@@ -221,24 +234,84 @@ class PandaDoc (CodeGenerator) {
     }
 
     @private
-    @unsafeFunction
     function linkTo(cl:ClassNode):String {
-        def name := cl.type().displayName
-        return (name.split(".").length - 1) * "../" + name.replace(".", "/") +
-                ".html"
+        return linkTo(cl, false)
     }
 
     @private
     @unsafeFunction
+    function linkTo(cl:ClassNode, source:Bit):String {
+        def name := cl.type().displayName
+        if source {
+            return (name.split(".").length - 1) * "../" + "source/" +
+                    name.replace(".", "/") + ".html"
+        }
+        else {
+            return (name.split(".").length - 1) * "../" + 
+                    name.replace(".", "/") + ".html"
+        }
+    }
+
+    @private
     function linkTo(type:Type):String {
+        return linkTo(type, false)
+    }
+
+    @private
+    @unsafeFunction
+    function linkTo(type:Type, source:Bit):String {
         if type.isMethod
-            return linkTo(ClassType.METHOD())
+            return linkTo(ClassType.METHOD(), source)
+        else {
+            if type.isPrimitive
+                return linkTo(type->(PrimitiveType).wrapperVersion(), source)
+            return linkTo(type.classNode, source)
+        }
+    }
+
+    @private
+    function linkTo(m:MethodNode):String {
+        return linkTo(m, false)
+    }
+
+    @private
+    function linkTo(m:MethodNode, source:Bit):String {
+        def result := new MutableString()
+        result.append(linkTo(m.owner, source))
+        result.append("#")
+        result.append(m.name)
+        result.append("(")
+        def start:Int
+        if m.annotations.isClass
+            start := 0
         else
-            return linkTo(type.classNode)
+            start := 1
+        for i, p in m.parameters {
+            if i < start
+                continue
+            if i > start
+                result.append(",")
+            result.append(p.type.displayName)
+        }
+        result.append(")")
+        if m.returnType != VoidType.VOID {
+            result.append(":")
+            result.append(m.returnType.displayName)
+        }
+        return result->>(String)
     }
 
     @private
     function resolveLink(text:String):String {
+        return resolveLink(text, false)
+    }
+
+    @private
+    function resolveLink(text:String, source:Bit):String {
+        if text.startsWith("..") | text.startsWith("/") | 
+                text.startsWith("http:") | text.startsWith("https:") |
+                text.endsWith(".html") | text.contains("#")
+            return text
         def member := text.indexOf("::")
         def classNode:ClassNode
         def memberName:String
@@ -249,7 +322,7 @@ class PandaDoc (CodeGenerator) {
         else {
             if !text.contains("(") {
                 try {
-                    return linkTo(resolveType(text))
+                    return linkTo(resolveType(text), source)
                 }
                 catch e:Exception {
                 }
@@ -260,36 +333,14 @@ class PandaDoc (CodeGenerator) {
         if !memberName.contains("(") {
             def fieldNode := resolveField(classNode, memberName)
             if fieldNode != null
-                return linkTo(fieldNode.owner) + "#" + fieldNode.name
+                return linkTo(fieldNode.owner, source) + "#" + fieldNode.name
         }
         def methodNode := resolveMethod(classNode, memberName)
         if methodNode = null {
             throw new CompilerException("no match found for '\{memberName}' " +
                     "in '\{classNode.name}'", currentPosition)
         }
-        def result := new MutableString()
-        result.append(linkTo(methodNode.owner))
-        result.append("#")
-        result.append(methodNode.name)
-        result.append("(")
-        def start:Int
-        if methodNode.annotations.isClass
-            start := 0
-        else
-            start := 1
-        for i, p in methodNode.parameters {
-            if i < start
-                continue
-            if i > start
-                result.append(",")
-            result.append(p.type.displayName)
-        }
-        result.append(")")
-        if methodNode.returnType != VoidType.VOID {
-            result.append(":")
-            result.append(methodNode.returnType.displayName)
-        }
-        return result->>(String)
+        return linkTo(methodNode, source)
     }
 
     @private
@@ -440,15 +491,21 @@ class PandaDoc (CodeGenerator) {
             PandaCompiler.reportError("method returns nothing but is " +
                     "annotated with @returns", currentPosition)
         }
-        if doccomment != null & doccomment.see.length > 0 {
+        if doccomment != null & doccomment.see.length > 0 | showSource {
             xml.open("seeAlsos")
-            for link in doccomment.see {
-                def finalLink:String
-                if !link.startsWith("[") | !link.endsWith("]")
-                    finalLink := "[\{link}]"
-                else
-                    finalLink := link
-                xml.markdownTag("seeAlso", finalLink)
+            if doccomment != null {
+                for link in doccomment.see {
+                    def finalLink:String
+                    if !link.startsWith("[") | !link.endsWith("]")
+                        finalLink := "[\{link}]"
+                    else
+                        finalLink := link
+                    xml.markdownTag("seeAlso", finalLink)
+                }
+            }
+            if showSource {
+                def link := linkTo(m, true).replace("[", "&#91;")
+                xml.markdownTag("seeAlso", "[Source](\{link})")
             }
             xml.close("seeAlsos")
         }
@@ -541,6 +598,24 @@ class PandaDoc (CodeGenerator) {
         xml.close("class")
     }
 
+    method generateSource(outputDir:File) {
+        def generator := new HTMLGenerator()
+        for cl in SymbolTable.master.classes {
+            if cl.parent-?>(CompilationUnit) {
+                if cl.name.contains("<")
+                    continue
+                def compilationUnit := cl.parent->(CompilationUnit)
+                if !compilationUnit.name.endsWith(".panda")
+                    continue
+                def dest := outputDir.resolve(cl.name.replace(".", "/") + 
+                        ".html")
+                dest.parent()->(File).createDirectories()
+                generator.writeCompilationUnit(compilationUnit, 
+                        cl.name.split(".").length, dest)
+            }
+        }
+    }
+
     @override
     method generateCode(outputDir:File) {
         if !outputDir.isDirectory()
@@ -590,9 +665,10 @@ class PandaDoc (CodeGenerator) {
             index.open("classes")
             for cl in packageList->(Array<ClassNode>) {
                 index.open("class")
-                def name := cl.type().displayName
-                index.textTag("name", name)
-                index.textTag("path", name.replace(".", "/") + ".html")
+                def type := cl.type()
+                index.textTag("name", type.simpleName)
+                index.textTag("path", type.displayName.replace(".", "/") + 
+                        ".html")
                 index.close("class")
             }
             index.close("classes")
@@ -600,5 +676,6 @@ class PandaDoc (CodeGenerator) {
         }
         index.close("packages")
         index.close()
+        generateSource(outputDir.resolve("source"))
     }
 }
