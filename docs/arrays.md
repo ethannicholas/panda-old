@@ -50,7 +50,7 @@ A new, empty array may be created using the syntax:
 
 @SOURCE(
     def a := --SKIP
-    new Array<Object?>()
+    new Array<String>()
 )
 
 ### Initial Length
@@ -137,12 +137,13 @@ A `range` is a simple way to create a list containing a sequence of numbers:
 
 @SOURCE(
     def a := --SKIP
-    -5 .. 5
+    -5 ... 5
 )
 
 This is equivalent to `[-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]`. Ranges are
-shorthand for the [slice operator](operators.html#slice) applied to the `Int32`
-class; in other words `-5 .. 5` is equivalent to `Int[-5 .. 5]`.
+shorthand for the [slice operator](operators.html#slice) applied to the 
+appropriate primitive class; in other words `-5 ... 5` is equivalent to 
+`Int[-5 ... 5]` and `"0" ... "9"` is equivalent to `Char["0" ... "9"]`.
 
 Just like slicing the `Int` class, the upper bound may be omitted (in which case
 it is taken to be `Int.MAX`) and a `by` keyword may be used to specify the step
@@ -152,6 +153,9 @@ value. This is the set of all even `Int32` values between 0 and 500:
     def a := --SKIP
     0 ... 500 by 2
 )
+
+**IMPLEMENTATION NOTE:** Ranges must currently have both bounds specified; the
+upper bound may be left unspecified once generics are completed.
 
 Accessing Array Elements
 ------------------------

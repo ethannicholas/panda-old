@@ -20,10 +20,10 @@ function prepareToC(imagePath) {
     if (supportsLocalStorage()) {
         applyToTree(document.body, function (node) {
             if (node.className === "collapse") {
-                if (localStorage[node.id] === "open")
-                    node.className = "open"
-                else
+                if (localStorage[node.id] === "closed")
                     node.className = "closed"
+                else
+                    node.className = "open"
                 node.innerHTML = '<img src="' + imagePath + "/" + 
                         node.className + '.png" class="bullet"/>' + 
                         node.innerHTML.trim()

@@ -96,7 +96,7 @@ references the field.
 @abstract
 ---------
 
-`@abstract` may be applied to classes or to fields.
+`@abstract` may be applied to classes or to methods.
 
 An *abstract class* may not be instantiated. Abstract classes are often 
 incomplete, and rely on subclasses to fill in their missing functionality.
@@ -113,16 +113,6 @@ like:
 Abstract methods may only appear within abstract classes. If you subclass an
 abstract class, you must either override all of its abstract methods (with 
 non-abstract methods) or mark the subclass abstract as well.
-
-<a name="override"></a>
-@override
----------
-
-A subclass can *override* its superclass' methods by defining methods with the
-same name and parameters; instances of the subclass will then call the 
-overriding method whenever the superclass method would have been called.
-
-Overriding methods must have the `@override` annotation.
 
 <a name="final"></a>
 @final
@@ -283,7 +273,7 @@ Because of these restrictions, methods marked `@limited` may safely be used from
 was created within the function and is not visible from outside the function,
 and any mutable parameters are similarly only visible from within the function.
 
-IMPLEMENTATION NOTE: currently, the compiler "takes your word for it" with 
+**IMPLEMENTATION NOTE:** currently, the compiler "takes your word for it" with 
 @limited: it trusts that you are adhering to the restrictions and does not 
 detect violations of this policy. This will change in the future.
 
@@ -308,16 +298,15 @@ inherited, so auto-marking is safe).
 
 Indicates that there are no references to the return value of a method when the
 method exits; in other words, the method's return value was either created
-within the method, is the result of another `@safeReturn` method, or is a 
-private field which has never at any point been visible, and no persistent 
-references to the value have been created within the method call. 
+within the method or is the result of another `@safeReturn` method, and no 
+persistent references to the value have been created within the method call. 
 
 This is important to allow functions to operate on values returned from other 
 methods: without a `@safeReturn` annotation, the compiler must assume that any 
 mutable value returned from any method is potentially visible and therefore 
 cannot be modified.
 
-IMPLEMENTATION NOTE: currently, the compiler "takes your word for it" with 
+**IMPLEMENTATION NOTE:** currently, the compiler "takes your word for it" with 
 @safeReturn: it trusts that you are adhering to the restrictions and does not 
 detect violations of this policy. This will change in the future.
 
@@ -344,5 +333,5 @@ into a single call.
 ---------
 
 The `@external` annotation marks a method which is implemented by external 
-(non-Panda) code. Like abstract methods, eternal methods do not have a method
+(non-Panda) code. Like abstract methods, external methods do not have a method
 body. See [external methods](externalMethods.html) for more details.

@@ -275,10 +275,8 @@ class PandaDoc (CodeGenerator) {
     }
 
     @private
-    function linkTo(m:MethodNode, source:Bit):String {
+    function methodName(m:MethodNode, name:(Type)=>(String)):String {
         def result := new MutableString()
-        result.append(linkTo(m.owner, source))
-        result.append("#")
         result.append(m.name)
         result.append("(")
         def start:Int
@@ -291,14 +289,44 @@ class PandaDoc (CodeGenerator) {
                 continue
             if i > start
                 result.append(",")
-            result.append(p.type.displayName)
+            result.append(name(p.type))
         }
         result.append(")")
         if m.returnType != VoidType.VOID {
             result.append(":")
-            result.append(m.returnType.displayName)
+            result.append(name(m.returnType))
         }
         return result->>(String)
+    }
+
+    @private
+    function methodName(m:MethodNode):String {
+        return methodName(m, type => type.displayName)
+    }
+
+    @private
+    function simpleName(m:MethodNode):String {
+        return methodName(m, type => type.simpleName)
+    }
+
+
+    @private
+    function linkTo(m:MethodNode, source:Bit):String {
+        def result := new MutableString()
+        result.append(linkTo(m.owner, source))
+        result.append("#")
+        result.append(methodName(m))
+        return result->>(String)
+    }
+
+    @private
+    function linkTo(f:FieldNode):String {
+        return linkTo(f, false)
+    }
+
+    @private
+    function linkTo(f:FieldNode, source:Bit):String {
+        return "\{linkTo(f.owner, source)}#\{f.name}"
     }
 
     @private
@@ -403,7 +431,17 @@ class PandaDoc (CodeGenerator) {
         def post := SafetyChecker.getPostconditionsForMethodAndAncestors(m)
         if post.length > 0 {
             xml.open("post")
-            xml.text(post)
+            if post.length = 1
+                xml.text(post[0])
+            else {
+                def text := new MutableString()
+                for i, p in post {
+                    if i > 0
+                        text.append(" & ")
+                    text.append("(\{p})")
+                }
+                xml.text(text)
+            }
             xml.close("post")
         }
         for ann in m.annotations.all {
@@ -491,7 +529,12 @@ class PandaDoc (CodeGenerator) {
             PandaCompiler.reportError("method returns nothing but is " +
                     "annotated with @returns", currentPosition)
         }
-        if doccomment != null & doccomment.see.length > 0 | showSource {
+        def sourceLink:String?
+        if showSource & !m.position.compilationUnit.endsWith(".plink")
+            sourceLink := linkTo(m.owner, true) + "#" + m.position.line
+        else
+            sourceLink := null
+        if doccomment != null & doccomment.see.length > 0 | sourceLink != null {
             xml.open("seeAlsos")
             if doccomment != null {
                 for link in doccomment.see {
@@ -503,9 +546,9 @@ class PandaDoc (CodeGenerator) {
                     xml.markdownTag("seeAlso", finalLink)
                 }
             }
-            if showSource {
-                def link := linkTo(m, true).replace("[", "&#91;")
-                xml.markdownTag("seeAlso", "[Source](\{link})")
+            if sourceLink != null {
+                xml.markdownTag("seeAlso", 
+                        "[\{m.position:line}](\{sourceLink})")
             }
             xml.close("seeAlsos")
         }
@@ -550,25 +593,35 @@ class PandaDoc (CodeGenerator) {
         currentPosition := cl.position
         currentClass := cl
         xml.open("class")
+        if cl.isInterface
+            xml.attribute("type", "interface")
         xml.textTag("name", cl.type().displayName)
         xml.textTag("simpleName", cl.type().simpleName)
         var ancestor := cl.superclass
-        if ancestor != null {
+        if ancestor != null & !cl.isInterface {
             def ancestors := new Array<ClassNode>()
             while ancestor != null {
                 ancestors.append(ancestor)
                 ancestor := ancestor.superclass
             }
             xml.open("ancestors")
-            for i in ancestors.length - 1 ... 0
-                xml.textTag("class", ancestors[i].type().displayName)
+            for a in ancestors {
+                xml.open("type")
+                xml.textTag("name", a.type().displayName)
+                xml.textTag("simpleName", a.type().simpleName)
+                xml.close("type")
+            }
             xml.close("ancestors")
         }
-        def interfaces := cl.allInterfaces()
+        def interfaces := cl.allInterfaces().filter(intf => intf != cl)
         if interfaces.length > 0 {
             xml.open("interfaces")
-            for intf in interfaces
-                xml.textTag("interface", intf.type().displayName)
+            for intf in interfaces {
+                xml.open("type")
+                xml.textTag("name", intf.type().displayName)
+                xml.textTag("simpleName", intf.type().simpleName)
+                xml.close("type")
+            }
             xml.close("interfaces")
         }
         def cldc := cl.doccomment
@@ -594,6 +647,34 @@ class PandaDoc (CodeGenerator) {
                 if !f.annotations.isPrivate & !f.annotations.isSynthetic
                     writeField(f)
             }
+        }
+        var inheritedMethods := cl.virtualMethods.filter(m => m.owner != cl & 
+                !m.annotations.isPrivate)
+        if cl.isInterface {
+            inheritedMethods := inheritedMethods.filter(
+                    m => m.owner.name != class(Object).name)
+        }
+        if inheritedMethods.length > 0 {
+            xml.open("inheritedMethods")
+            for m in inheritedMethods {
+                xml.open("method")
+                xml.textTag("name", simpleName(m))
+                xml.textTag("link", linkTo(m))
+                xml.close("method")
+            }
+            xml.close("inheritedMethods")
+        }
+        def inheritedFields := cl.unifiedFields.filter(f => f.owner != cl & 
+                !f.annotations.isPrivate)
+        if inheritedFields.length > 0 {
+            xml.open("inheritedFields")
+            for f in inheritedFields {
+                xml.open("field")
+                xml.textTag("name", f.name)
+                xml.textTag("link", linkTo(f))
+                xml.close("field")
+            }
+            xml.close("inheritedFields")
         }
         xml.close("class")
     }

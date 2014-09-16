@@ -328,8 +328,10 @@ exception or a `return`), the code within the `finally` block will be executed.
 
 **IMPLEMENTATION NOTE**: `finally` isn't actually working yet, and there's a
 chance I may change my mind and try a different approach than `finally`. There
-is currently a bug where if you nest try blocks, the outer catch will not catch
-exceptions originating from the inner try block.
+is currently a bug where if you nest `try` blocks, the outer `catch` will not 
+catch exceptions originating from the inner `try` block (this applies only to
+nested `try / catch` structures within *the same method*; exceptions propagate
+between methods just fine).
 
 <a name="assert"></a>
 assert

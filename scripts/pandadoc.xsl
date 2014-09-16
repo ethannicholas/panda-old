@@ -161,8 +161,11 @@
                     <div id="content">
                         <xsl:apply-templates select="." mode="header"/>
                         <xsl:apply-templates select="ancestors"/>
+                        <xsl:apply-templates select="interfaces"/>
+                        <div class="classDescription">
                         <xsl:apply-templates select="doc/description"/>
-                        
+                        </div>
+
                         <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
                             <h2>Constant Summary</h2>
                             <dl class="summary">
@@ -187,12 +190,14 @@
                                 <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
                             </dl>
                         </xsl:if>
+                        <xsl:apply-templates select="inheritedFields"/>
                         <xsl:if test="count((method|function)[count(annotations/annotation[text() = '@class']) = 0]) > 0">
                             <h2>Instance Method Summary</h2>
                             <dl class="summary">
                                 <xsl:apply-templates select="(method|function)[count(annotations/annotation[text() = '@class']) = 0]" mode="summary"/>
                             </dl>
                         </xsl:if>
+                        <xsl:apply-templates select="inheritedMethods"/>
                         <xsl:if test="count(field[count(annotations/annotation[text() = '@class']) > 0]) > 0">
                             <h2>Constants</h2>
                             <xsl:apply-templates select="field[count(annotations/annotation[text() = '@class']) > 0]"/>
@@ -220,7 +225,15 @@
     </xsl:template>
     
     <xsl:template match="class/name" mode="title">
-        <title>Class <xsl:apply-templates/></title>
+        <title>
+            <xsl:choose>
+                <xsl:when test="../@type = 'interface'">
+                    <xsl:text>Interface </xsl:text>
+                </xsl:when>
+                <xsl:otherwise>Class </xsl:otherwise>
+            </xsl:choose>
+            <xsl:apply-templates/>
+        </title>
     </xsl:template>
     
     <xsl:template match="class" mode="header">
@@ -236,11 +249,46 @@
             </strong>
         </xsl:if>
         <h1>
-            <xsl:text>Class </xsl:text>
+            <xsl:choose>
+                <xsl:when test="@type = 'interface'">
+                    <xsl:text>Interface </xsl:text>
+                </xsl:when>
+                <xsl:otherwise>Class </xsl:otherwise>
+            </xsl:choose>
             <xsl:value-of select="simpleName"/>
         </h1>
     </xsl:template>
+
+    <xsl:template match="ancestors/type" mode="indent">
+        <xsl:text>&#xa0;&#xA0;&#xa0;&#xA0;</xsl:text>
+    </xsl:template>
+
+    <xsl:template match="ancestors/type">
+        <div class="ancestor">
+            <xsl:apply-templates select="preceding-sibling::type" mode="indent"/>
+            &#xa0;&#xA0;&#xa0;&#xA0;&#x2514;        
+            <xsl:variable name="href">
+                <xsl:apply-templates select="." mode="href"/>
+            </xsl:variable>
+            <a href="{$href}">
+                <xsl:apply-templates select="simpleName"/>
+            </a>
+        </div>
+    </xsl:template>
     
+    <xsl:template match="ancestors">
+        <p><xsl:apply-templates/></p>
+    </xsl:template>
+
+    <xsl:template match="interfaces">
+        <div class="minorSectionTitle">
+            Implemented Interfaces:
+        </div>
+        <div class="minorSection">
+            <xsl:apply-templates select="type" mode="interface"/>
+        </div>
+    </xsl:template>
+
     <xsl:template match="field" mode="summary">
         <dt>
             <a href="#{name}">
@@ -280,10 +328,6 @@
         </div>
     </xsl:template>
 
-    <xsl:template match="ancestors">
-        <xsl:apply-templates/>
-    </xsl:template>
-    
     <xsl:template name="hint">
         <xsl:param name="operator"/>
         -- <xsl:value-of select="$operator"/> --<br/>
@@ -411,6 +455,11 @@
         </xsl:choose>
     </xsl:template>
     
+    <xsl:template match="method|function|field" mode="inherited">
+        <xsl:if test="count(preceding-sibling::*) > 0">, </xsl:if>
+        <a href="{link}"><xsl:value-of select="name"/></a>
+    </xsl:template>
+
     <xsl:template match="method|constructor|function" mode="summary">
         <dt>
             <code>
@@ -635,7 +684,7 @@
         <xsl:text>.html</xsl:text>
     </xsl:template>
 
-    <xsl:template match="type">
+    <xsl:template match="type" name="type">
         <xsl:variable name="href">
             <xsl:apply-templates select="." mode="href"/>
         </xsl:variable>
@@ -646,6 +695,11 @@
     
     <xsl:template match="type" mode="link">
         <xsl:apply-templates select="name"/>
+    </xsl:template>
+
+    <xsl:template match="type" mode="interface">
+        <xsl:if test="count(preceding-sibling::type) > 0">, </xsl:if>
+        <xsl:call-template name="type"/>
     </xsl:template>
 
     <xsl:template match="type" mode="simple">
@@ -667,6 +721,24 @@
     <xsl:template match="seeAlso">
         <xsl:apply-templates/>
         <br/>
+    </xsl:template>
+
+    <xsl:template match="inheritedMethods">
+        <div class="minorSectionTitle">
+            Inherited Methods:
+        </div>
+        <div class="minorSection">
+            <xsl:apply-templates select="*" mode="inherited"/>
+        </div>
+    </xsl:template>
+
+    <xsl:template match="inheritedFields">
+        <div class="minorSectionTitle">
+            Inherited Fields:
+        </div>
+        <div class="minorSection">
+            <xsl:apply-templates select="*" mode="inherited"/>
+        </div>
     </xsl:template>
 
     <xsl:template match="node()|@*">

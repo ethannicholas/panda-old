@@ -40,18 +40,22 @@ directives beginning with `@` at the end of the documentation comment.
 
 The summary and description permit a very limited subset of Markdown notation
 for text formatting. In particular, they support `*italic text*` and 
-`**bold text**`, `\`code spans\``, code blocks (blocks indented by four spaces), 
-and `[links](target.html)`.
+`**bold text**`, &#96;`code spans`&#96;, code blocks (blocks indented by four 
+spaces), and `[links](target.html)`.
+
+**IMPLEMENTATION NOTE:** Support for Markdown constructs will be extended a bit
+in the future, but is not ever going be a full Markdown implementation.
 
 In addition to normal URL links, links within documentation comments may point
 to particular classes, fields, and methods. If the link target starts with 
-`"http:"` or `"/"`, it will be treated as a URL. Otherwise, the compiler will
-attempt to resolve it as a reference to a class, field, or method. Classes may 
-be named using their fully-qualified names, or simple name / alias if they are
-imported. Fields may be referenced by their simple name, if within the same 
-class, or by a "member" expression of the form `ClassName::fieldName`. Methods
-may be referenced in the same fashion as fields, but may also have a list of
-parameter types to disambiguate similarly-named methods (e.g. `Int::max(Int)`).
+`"http:"`, `"/"`, or `".."`, it will be treated as a URL. Otherwise, the 
+compiler will attempt to resolve it as a reference to a class, field, or method.
+Classes may be named using their fully-qualified names, or simple name / alias 
+if there is a `use` directive for them. Fields may be referenced by their simple
+name, if within the same class, or by a "member" expression of the form 
+`ClassName::fieldName`. Methods may be referenced in the same fashion as fields,
+but may also have a list of parameter types to disambiguate similarly-named 
+methods (e.g. `Int::max(Int)`).
 
 Panda extends the Markdown link syntax to allow for "simple" links. Normally, 
 you would specify the link target using a parenthesized URL after the link text,

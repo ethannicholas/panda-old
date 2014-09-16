@@ -26,9 +26,9 @@ Keep in mind, as described in [method types](types.html#methodTypes), that
 instance methods take an additional hidden parameter containing the value of
 `self`. For instance, `String::indexOf(String)` ostensibly takes only one 
 parameter, but actually has type `(String, String)=>(Int?)`. The first parameter
-is `self`, and the second parameter is the visible parameter (the string to
-search for). The following code snippet demonstrates how such method references
-work:
+is the implicit `self` parameter, and the second parameter is the explicit
+parameter (the string to search for). The following code snippet demonstrates 
+how such method references work:
 
 @SOURCE(
     def example := "Hello, World!"
@@ -72,3 +72,40 @@ we can `combine` using the `Int::+` operator:
     Console.writeLine(list1.combine(list2, Int::+))
 
 This displays `[45, 21, 9]`.
+
+
+Method References and Overriding
+--------------------------------
+
+Calls to references to overridden method are appropriately resolved at runtime.
+For instance, given the code:
+
+@SOURCE(
+    class Super {
+        method hello() {
+            Console.writeLine("Super says hello!")
+        }
+    }
+
+    class Sub : Super {
+        @override
+        method hello() {
+            Console.writeLine("Sub says hello!")
+        }
+    }
+
+    def sub := new Sub()
+    def hello := Super::hello
+    hello(sub)
+)
+
+This program creates a reference to `Super::hello` and then invokes it on an
+object of type `Sub`. Given the reference to `Super::hello`, you might expect 
+this to display:
+
+    Super says hello!
+
+but since `Sub` overrides the `hello` method, the subclass implementation is 
+invoked, and the program actually displays:
+
+    Sub says hello!

@@ -12,8 +12,9 @@ always referred to by the simple name `Int32`.
 Numbers
 -------
 
-Panda numbers come in two basic flavors, `Int` (integer) and `Real` (floating
-point), in several sizes. The following number types are supported:
+Panda numbers come in three basic flavors, `Int` (signed integer), `UInt`
+(unsigned integer), and `Real` (floating point), in several sizes. The following
+number types are supported:
 
 * `Int8` - 8 bit signed integer, range -128 to 127
 * `Int16` - 16 bit signed integer, range -32,768 to 32,767
