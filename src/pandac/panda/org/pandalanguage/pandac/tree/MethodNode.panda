@@ -1,5 +1,6 @@
 package org.pandalanguage.pandac.tree
 
+uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.MethodType
@@ -13,7 +14,7 @@ enum MethodNodeType {
 }
 
 ================================================================================
-Represents a (static or instance) method of a class.
+Represents a (class or instance) method of a class.
 ================================================================================
 class MethodNode : Node {
     constant MAIN_NAME       := "main"
@@ -56,32 +57,28 @@ class MethodNode : Node {
     var parameters := new Array<Parameter>()
 
     ============================================================================
-    The method's generic parameter types, prior to being lowered to their 
-    bounds. If the parameters are not generic, the entries in this array will be
-    the same as the types in the `parameters` array.
-    ============================================================================
-    var genericParameterTypes := new Array<Type>()
-    
-    ============================================================================
     The method's local variables. This includes variables corresponding to 
     parameters which have been "promoted" to local variables.
     ============================================================================
     var localVariables := new Array<Variable>()
     
     ============================================================================
-    The method's actual return type.
+    The method's return type.
     ============================================================================
     var returnType:Type := VoidType.VOID
 
     ============================================================================
-    The method's generic return type.
+    The method body's parse tree (needed for generic methods, may be `null`
+    otherwise).
     ============================================================================
-    var genericReturnType:Type := VoidType.VOID
+    var parseNode:ParseNode?
 
     ============================================================================
     Creates a new `MethodNode`.
     
+    @param position the position of the method
     @param name the name of the method
+    @param methodType the method's type
     ============================================================================
     constructor(position:Position, name:String, methodType:MethodNodeType) {
         super.constructor(position)
@@ -120,19 +117,19 @@ class MethodNode : Node {
     
     ============================================================================
     True if the method is declared virtual (in other words, it needs to appear 
-    in the class' VTABLE). This is false for class and static methods.
+    in the class' VTABLE). This is false for class and final methods.
     ============================================================================
     function isDeclaredVirtual():Bit {
         var a := annotations
-        return !a.isClass & !a.isFinal &
+        return !a.isClass & !a.isFinal & 
                 methodType != MethodNodeType.CONSTRUCTOR
     }
     
     ============================================================================
     True if the method is effectively virtual. Methods are effectively virtual
-    if we need to use VTABLE lookup to call them; methods declared in static
+    if we need to use VTABLE lookup to call them; methods declared in final
     classes and virtual methods which are not ever actually overridden (during
-    sealed compilation) are effectively static rather than effectively virtual.
+    sealed compilation) are effectively final rather than effectively virtual.
     ============================================================================
     function isEffectivelyVirtual():Bit {
         return isDeclaredVirtual & !owner.annotations.isFinal()
@@ -145,22 +142,20 @@ class MethodNode : Node {
     @returns a matching method, or `null` if none
     ============================================================================
     method findMatchingMethod(cl:ClassNode):MethodNode? {
-        var p1 := effectiveParameterTypes(cl)
-        outer: for i in 0 ... cl.length - 1 {
-            if cl[i]-?>(MethodNode) {
-                var m := cl[i]->(MethodNode)
+        outer: for child in cl.children {
+            if child-?>(MethodNode) {
+                var m := child->(MethodNode)
                 if name = m.name & !m.annotations.isClass {
                     var p2 := m.parameters
                     -- different return types are significant for ->>()
                     if m.name = MethodNode.CONVERT_NAME & 
                             returnType != m.returnType
                         continue
-                    if p1.length = p2.length {
+                    if parameters.length = p2.length {
                         -- skip parameter 0, it is self and won't match
-                        for j in 1 ... p1.length - 1 {
-                            if p1[j] != p2[j].type {
+                        for j in 1 .. parameters.length {
+                            if parameters[j].type != p2[j].type
                                 continue outer
-                            }
                         }
                         return m
                     }
@@ -189,70 +184,6 @@ class MethodNode : Node {
         return owner.symbolTable.getType(position, signature->>(String))->(MethodType)
     }
 
-    ============================================================================
-    Given a raw type possibly containing generics, such as `Array<Array<T>>`,
-    and a list of generic parameters and their corresponding concrete types,
-    returns the actual types represented. For instance, given `Array<Array<T>>`,
-    with `T` as a generic parameter and `String` as the concrete type, would
-    return `Array<Array<String>>`.
-    ============================================================================
-    @class
-    method replaceGenerics(position:Position, symbolTable:SymbolTable, raw:Type, 
-            genericParameters:Array<GenericParameterType>,
-            concreteTypes:ImmutableArray<Type>):Type {
-        for i, g in genericParameters {
-            if raw = g
-                return concreteTypes[i]
-        }
-        if raw.unwrapNullable-!>(GenericType)
-            return raw
-        var name := raw.baseName->>(MutableString)
-        name.append("<")
-        for i, p in raw.unwrapNullable->(GenericType).parameters {
-            if i > 0
-                name.append(",")
-            name.append(replaceGenerics(position, symbolTable, p, 
-                    genericParameters, concreteTypes))
-        }
-        return symbolTable.getType(position, name + ">")
-    }
-
-    ============================================================================
-    Returns the parameter types this method should be treated as having while a
-    part of class `cl`. Generally these will be the same as the types present in
-    the `parameters` array, but methods with generic types have three sets of
-    parameter types: the generic types, the lowered types, and the effective
-    types. For instance, consider the method:
-
-        interface Example<K, V> {
-            method foo(key:K, value:V)
-        }
-
-    The three sets of parameter types we need to consider are:
-
-    * The declared parameter types, in this case `[K, V]` (found in
-        `genericParameterTypes)
-    * The lowered parameter types (the type bounds against which the method is
-      actually compiled), in this case `[Object, Object]` (found in
-        `parameters`)
-    * The effective parameter types when the method is instantiated into a
-      particular instance of the generic class: for instance, in 
-      `Example<String, File>` the method's effective types would be 
-      `[String, File]` (found via this function).
-    ============================================================================
-    method effectiveParameterTypes(cl:ClassNode):Array<Type> {
-        var type := cl.type()
-        if type.unwrapNullable-!>(GenericType)
-            return genericParameterTypes->>(Array<Type>)
-        var result := new Array<Type>()
-        for p in genericParameterTypes {
-            result.append(replaceGenerics(position, owner.symbolTable, p, 
-                    owner.genericParameterTypes,
-                    type.unwrapNullable->(GenericType).parameters))
-        }
-        return result
-    }
-    
     ============================================================================
     Returns true if this method overrides `parent`.
     ============================================================================
@@ -287,7 +218,7 @@ class MethodNode : Node {
     ============================================================================
     Returns the method in `cl` or any of its ancestors which this method 
     overrides, or `null` if none. Note that this method ignores the `@final`
-    annotation; improperly overridden static methods are caught in 
+    annotation; improperly overridden final methods are caught in 
     `ASTGenerator`.
     ============================================================================
     @private

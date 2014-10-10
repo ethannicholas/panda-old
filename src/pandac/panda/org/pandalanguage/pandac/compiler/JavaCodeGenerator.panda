@@ -50,7 +50,6 @@ uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
-uses org.pandalanguage.pandac.tree.MethodStub
 uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.Multiply
 uses org.pandalanguage.pandac.tree.NewArrayWithLength
@@ -198,7 +197,7 @@ class JavaCodeGenerator (CodeGenerator) {
             case RealType.REAL64: return "Double"
             case VoidType.VOID:   return "void"
         }
-        var result := t.name
+        var result := t.unwrapGenerics().name
         if t.name.length > MAX_LENGTH
             return hash(t.name, "Class")
         -- we can't use unnamed packages in Java, because classes in named
@@ -274,8 +273,10 @@ class JavaCodeGenerator (CodeGenerator) {
             else
                 return getJavaType(ClassType.MUTABLE_METHOD())
         }
-        else
-            result := t.name.replace(#/\w+/#, token => filterNameToken(token))
+        else {
+            result := t.unwrapGenerics().name.replace(#/\w+/#, 
+                    token => filterNameToken(token))
+        }
         def lt := result.indexOf("<")
         if lt != null
             result := result[..lt] + result[lt..].replace(".", "$")
@@ -1099,6 +1100,8 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateMethodCode(m:MethodNode) {
+        if m.annotations.isUnspecified
+            return
         currentMethod := m
         if m.name = MethodNode.CLASS_INIT_NAME
             hasClassInit := true
@@ -1441,8 +1444,6 @@ class JavaCodeGenerator (CodeGenerator) {
         var buffer := new MemoryOutputStream()
         out := new IndentedOutputStream(buffer)
         for n in cl.children {
-            if n-?>(MethodStub)
-                continue
             if n-?>(MethodNode)
                 generateMethodCode(n->(MethodNode))
             else if n-?>(FieldNode)

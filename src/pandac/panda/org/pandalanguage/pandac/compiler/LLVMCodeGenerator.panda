@@ -36,7 +36,6 @@ uses org.pandalanguage.pandac.tree.ExpressionAnnotation
 uses org.pandalanguage.pandac.tree.FieldAssignment
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.FieldReference
-uses org.pandalanguage.pandac.tree.FieldStub
 uses org.pandalanguage.pandac.tree.For
 uses org.pandalanguage.pandac.tree.GreaterThan
 uses org.pandalanguage.pandac.tree.GreaterThanOrEqual
@@ -55,7 +54,6 @@ uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.MethodStub
 uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.Multiply
 uses org.pandalanguage.pandac.tree.NewArrayWithLength
@@ -590,14 +588,13 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         else
             methodRef := "@" + getName(m)
-        var text := ("fastcc " + getLLVMMethodType(m) + " " + methodRef + 
-                "(")->>(MutableString)
+        var text := ("fastcc \{getLLVMMethodType(m)} \{methodRef}(")->>(MutableString)
         var parameterPrototypes := m.parameters
         var parameters := mc.parameters
-        for i in 0 ... parameters.length - 1 {
-            if i != 0
+        for i, p in parameters {
+            if i > 0
                 text.append(", ")
-            text.append(getTypedReference(parameters[i]))
+            text.append(getTypedReference(p))
         }
         text.append(")")
         if mc.type = VoidType.VOID {
@@ -610,7 +607,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createConstructReference(construct:Construct):String {
-        var targetType := construct.methodNode.parameters[0].type
+        var targetType := construct.methodNode.parameters[0].type        
         var target := targetType.classNode
         var cc := getClassConstant(target)
         var cast := getTempVariable()
@@ -827,17 +824,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         if fr.field.getProperty(CONSTANT) = true
             return value
         var ep := getFieldPointer(fr.object, fr.field)
-        if fr.field-?>(FieldStub) {
-            var rawType := getLLVMType(fr.field->(FieldStub).baseField.type)
-            var load := createCommandReference("load " + 
-                    rawType + "* " + ep, fr->>(String))
-            return createCommandReference("bitcast " + rawType + " " + load + 
-                    " to " + getLLVMType(fr.field.type), "generics cast")
-        }
-        else {
-            return createCommandReference("load " + getLLVMType(fr.field.type) + 
-                    "* " + ep, fr->>(String))
-        }
+        return createCommandReference("load " + getLLVMType(fr.field.type) + 
+                "* " + ep, fr->>(String))
     }
     
     @protected
@@ -2051,7 +2039,7 @@ class LLVMCodeGenerator (CodeGenerator) {
  
     @protected
     method generateMethodCode(m:MethodNode) {
-        if m.annotations.isAbstract | m-?>(MethodStub)
+        if m.annotations.isAbstract
             return
         currentMethod := m
         tempVariable := 1
@@ -2190,6 +2178,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     
     @private
+    @pre(!cl.annotations.isUnspecified)
     method getITable(cl:ClassNode):String {
         -- FIXME use a set
         var visited := new HashMap()
@@ -2229,6 +2218,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    @pre(!cl.annotations.isUnspecified)
     method getClassConstant(cl:ClassNode):ClassConstant {
         var cc := cl.getProperty(CLASS_CONSTANT)->(ClassConstant?)
         if cc = null {
@@ -2332,7 +2322,6 @@ class LLVMCodeGenerator (CodeGenerator) {
         MethodNamer.nameMethods(cl, new CMethodNamingStrategy())
         for child in cl.children {
             switch child.class {
-                case class(MethodStub), class(FieldStub): { }
                 case class(MethodNode):  {
                     if child.live
                         generateMethodCode(child->(MethodNode))
@@ -2391,15 +2380,15 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "[0 x i8*] }")
         var classes := SymbolTable.master.classes
         for cl in classes {
-            if cl.live
+            if cl.live & !cl.annotations.isUnspecified
                 writeTypeDescriptor(cl)
         }
         for cl in classes {
-            if cl.live
+            if cl.live & !cl.annotations.isUnspecified
                 getClassConstant(cl)
         }
         for cl in classes {
-            if cl.live
+            if cl.live & !cl.annotations.isUnspecified
                 generateClassCode(cl)
         }
 

@@ -12,6 +12,9 @@ but a name which hasn't actually been encountered yet, will be handled as an
 `UnresolvedTypeException` is thrown.
 ================================================================================
 class ClassType : Type {
+    @thread
+    def classNodes := new HashMap()
+
     @class
     method CLASS():ClassType {
         return SymbolTable.master.getType(Position.INTERNAL, 
@@ -114,9 +117,9 @@ class ClassType : Type {
 
     @override
     function classNode():ClassNode {
-        var result := SymbolTable.master.getClass(name)
-        assert result != null
-        return result
+        def result := classNodes[self]
+        assert result != null : "no ClassNode for \{name}"
+        return result->(ClassNode)
     }
 
     @override
@@ -155,6 +158,8 @@ class ClassType : Type {
             return 0
         if target = NativePointerType.NATIVE_POINTER
             return NO_MATCH
+        if target-?>(GenericParameterType)
+            return implicitCastCost(target.unwrapGenerics())
         if target.isNullable {
             var result := implicitCastCost(target.unwrapNullable)
             if result != NO_MATCH

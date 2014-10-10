@@ -50,7 +50,7 @@ class ArrayType : GenericType {
     }
 
     constructor(arrayClass:ClassType, elementType:Type) {
-        super.constructor(arrayClass, [elementType])
+        super.constructor(Position.INTERNAL, arrayClass, [elementType])
     }
 
     @override
@@ -72,6 +72,10 @@ class ArrayType : GenericType {
     @override
     method performBasicClassInitialization() {
         classNode.annotations.isFinal := true
+
+        if elementType.isUnspecified
+            classNode.symbolTable.putType(elementType)
+
         var immutable := name.startsWith(ClassNode.IMMUTABLE_ARRAY_NAME)
         if immutable {
             classNode.supertype := SymbolTable.master.getType(
@@ -113,6 +117,16 @@ class ArrayType : GenericType {
     -- where possible, rather than recompiling them for every single array type
     @override
     method performFinalClassInitialization() {
+        def name:String
+        def displayName:String
+        if isImmutable {
+            name := "\{class(ImmutableArray).name}<\{elementType.name}>"
+            displayName := "\{class(ImmutableArray).name}<\{elementType.displayName}>"
+        }
+        else {
+            name := "\{class(Array).name}<\{elementType.name}>"
+            displayName := "\{class(Array).name}<\{elementType.displayName}>"
+        }
         if isImmutable & !elementType.isImmutable {
             PandaCompiler.reportError(new CompilerException(
                     "immutable arrays may not have mutable elements",
@@ -218,7 +232,6 @@ class ArrayType : GenericType {
                         AnnotationType.SELF, AnnotationType.PRIVATE]), 
                     new Position(displayName + ":setLength()", dedupLine, 0))
             dedupLine += 1
-
 
             -- length:=
             def lengthPosition := new Position(displayName + ":length:=()", 
@@ -547,5 +560,9 @@ class ArrayType : GenericType {
                     AnnotationType.OVERRIDE, AnnotationType.OVERFLOW]),
                 new Position(displayName + ":hash", dedupLine, 0))
         dedupLine += 1
+    }
+
+    @override
+    method compilePhase2() {
     }
 }

@@ -17,6 +17,7 @@ uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
@@ -55,6 +56,15 @@ class SymbolTable {
     var inPackage:String? := null
     var packageUses := new Array<String>()
     var classUses := new HashMap()
+
+    -- maps GenericParameterType to their bound types. While it would of course
+    -- be more natural to store this directly on the type, that is complicated
+    -- by the fact that the bound type cannot be resolved at the point that we
+    -- are first creating the GenericParameterType, and Type is immutable so we
+    -- can't update it later. Trying to replace the GenericParameterType with a
+    -- new GenericParameterType and find and update all references proved to be
+    -- more difficult than just storing the bounds here.
+    def bounds := new HashMap()
 
     @private    
     constructor() {
@@ -120,13 +130,15 @@ class SymbolTable {
         var rawName := name
         var nullable := name.endsWith("?")
         if nullable
-            name := name[0 .. name.length - 1 by 1]
+            name := name[..name.length - 1]
         var result:String? := null
         result := classUses[name]->(String?)
         if result = null {
             var t := types[name]->(Type?)
             if t != null
                 result := t.name
+            if t-?>(GenericParameterType)
+                return result
         }
         if result = null & master.types[name] != null
             result := master.types[name]->(Type).name
@@ -151,10 +163,10 @@ class SymbolTable {
                         check := master.types[qualifiedName]->(Type?)
                     if check != null {
                         if result != null & result != check.name {
-                            throw new CompilerException("class '" + rawName +
-                                    "' is ambiguously referenced, both " + 
-                                    result + " and " + check.displayName + " match", 
-                                    position)
+                            throw new CompilerException("class '\{rawName}' " +
+                                    "is ambiguously referenced, both " + 
+                                    "'\{result}' and '\{check.displayName}' " +
+                                    "match", position)
                         }
                         result := check.name
                     }
@@ -167,14 +179,6 @@ class SymbolTable {
                 return parent.resolveName(rawName, position)
             else
                 return null
-        }
-        if master.types[result] = null | 
-                !master.types[result]->(Type).isPrimitive {
-            if master.classMap[result] = null {
-                -- class hasn't been seen yet, we'll need to return an 
-                -- UnresolvedType
-                return null 
-            }
         }
         if nullable
             result += "?"
@@ -276,7 +280,7 @@ class SymbolTable {
                     if p = null
                         return null
                     if j > 1
-                        result.append(", ")
+                        result.append(",")
                     result.append(p)
                 }
                 result.append(">")
@@ -292,12 +296,19 @@ class SymbolTable {
     }
 
     @private
-    @pre(self = master)
     method createClassFor(t:ClassType, position:Position) {
+        if self != master & !t.isUnspecified {
+            master.createClassFor(t, position)
+            return
+        }
+        assert self != master | !t.isUnspecified : 
+                "creating unspecified class \{t.name} in \{self}"
         if classMap[t.name] = null {
-            var cl := new ClassNode(t.name, self)
+            var cl := new ClassNode(t.name, master)
+            cl.symbolTable.types[t.name] := t
             cl.position := position
             putClass(cl)
+            ClassType.classNodes[t] := cl
         }
         t.performBasicClassInitialization()
         if PandaCompiler.symbolsLoaded
@@ -305,7 +316,6 @@ class SymbolTable {
     }
 
     @private
-    @pre(self = master)
     method createType(node:ParseNode):Type {
         if node[0]-?>(TokenNode) {
             if node[0]->(TokenNode).token.type = TokenType.LPAREN {
@@ -431,7 +441,7 @@ class SymbolTable {
             else
                 throw new UnimplementedException(child->>(String))
         }
-        assert types[name] = null
+        assert master.types[name] = null
         if nullable {
             assert name.endsWith("?")
             var base := getType(node.position, name[0 .. name.length - 1])
@@ -456,7 +466,8 @@ class SymbolTable {
                     baseName->>(String) = class(ImmutableArray).name {
                 if generics.length != 1 {
                     throw new CompilerException(baseName + 
-                            " expected exactly 1 generic parameter")
+                            " expected 1 generic parameter, but found " +
+                            generics.length, node.position)
                 }
                 var result := new ArrayType(base->(ClassType), generics[0])
                 putType(result)
@@ -464,7 +475,25 @@ class SymbolTable {
                 return result
             }
             else {
-                var result := new GenericType(base->(ClassType), 
+                if !base.classNode.annotations.isUnspecified {
+                    throw new CompilerException("\{base.displayName} does " +
+                            "not take type parameters", node.position)
+                }
+                def parameterTypes := base.classNode.genericParameterTypes
+                if parameterTypes.length != generics.length {
+                    if parameterTypes.length = 1 {
+                        throw new CompilerException(baseName + 
+                                " expected 1 generic parameter, but found " +
+                                generics.length, node.position)
+                    }
+                    else {
+                        throw new CompilerException(baseName + 
+                                " expected \{parameterTypes.length} generic " +
+                                "parameters, but found \{generics.length}", 
+                                node.position)
+                    }
+                }
+                var result := new GenericType(node.position, base->(ClassType), 
                         generics->>(ImmutableArray<Type>))
                 putType(result)
                 createClassFor(result, node.position)
@@ -487,9 +516,11 @@ class SymbolTable {
         var result:Type? := null
         var parent := self.parent
         if name != null {
-            result := master.types[name]->(Type?)
+            result := types[name]->(Type?)
+            if result = null
+                result := master.types[name]->(Type?)
             if result = null {
-                result := master.createType(Type.parseTypeName(name, 
+                result := createType(Type.parseTypeName(name, 
                         node.position))
             }
             return result
@@ -507,8 +538,12 @@ class SymbolTable {
     }
 
     @private
-    @pre(types[s] = null)
     method putType(t:Type, s:String) {
+        if self != master & !t.isUnspecified {
+            master.putType(t, s)
+            return
+        }
+        assert types[s] = null : "type \{s} is already present in \{self}"
         types[s] := t
         if t.name.startsWith(ClassNode.CORE) & t.name.endsWith("Wrapper") {
             var primitive := t.name[ClassNode.CORE.length ..
@@ -614,11 +649,8 @@ class SymbolTable {
         else
             result := new Array<MethodNode>()
         var parent := self.parent
-        if parent != null {
-            if parent.owner-!>(ClassNode) |
-                    !parent.owner->(ClassNode).annotations.isUnspecified()
+        if parent != null
             addNonOverriddenMethods(result, parent.getMethodsNamed(name))
-        }
         for intf in interfaces
             addNonOverriddenMethods(result, intf.getMethodsNamed(name))
         return result
@@ -661,7 +693,7 @@ class SymbolTable {
             return Type.NO_MATCH
 
         for i, param in methodParams {
-            var targetType := param.type.unwrapGenerics()
+            var targetType := param.type
             var cost := params[i].implicitCastCost(targetType)
             if cost = Type.NO_MATCH {
                 if methodParams[i].isConvert & 
@@ -733,7 +765,7 @@ class SymbolTable {
                 -- null classMethod means we weren't sure whether it was 
                 -- instance or class, and therefore the params array doesn't
                 -- contain the self parameter yet
-                var newParams := new Array<Value>()
+                def newParams := new Array<Value>()
                 newParams.append(new Dummy(owner->(ClassNode).type()))
                 for p in params
                     newParams.append(p)
@@ -796,8 +828,4 @@ class SymbolTable {
         return responseQueue.getMessage()->(Type?)
     }
 *-
-    method error(msg:String, position:Position) {
-        Console.writeLine(position + ": " + msg)
-        System.exit(1)
-    }
 }
