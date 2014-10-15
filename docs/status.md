@@ -366,6 +366,10 @@ the general ability to embed other languages within Panda without too much fuss.
 Potential Features Which Might Happen Eventually
 ================================================
 
+Some of these proposed features may have huge, glaring flaws which render them
+obviously stupid and/or pointless as described. I'm just writing down things I
+was thinking about so I can keep track of them.
+
 Default Interface Implementations
 ---------------------------------
 

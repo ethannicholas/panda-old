@@ -451,7 +451,7 @@ class ASTGenerator {
     ============================================================================
     @pre(t.type = ParseNodeType.TYPE)
     method convertType(t:ParseNode):Type {
-        var name := new MutableString()
+        def name := new MutableString()
         for child in t.children
             name.append(child)
         return getType(t.position, name->>(String))
@@ -507,11 +507,8 @@ class ASTGenerator {
         }
         if v-?>(NullLiteral)
             return new NullLiteral(position, t)
-        if srcType.isNullable & t.isNullable {
-            return nullableToNullableConversion(v, 
-                    t.unwrapGenerics()->(NullableType), 
-                    CastType.IMPLICIT)
-        }
+        if srcType.isNullable & t.isNullable
+            return nullableToNullableConversion(v, t, CastType.IMPLICIT)
         var unwrapped := t.unwrapWrapper
         if srcType = StringOrCharType.STRING_OR_CHAR &
                 ClassType.STRING().canImplicitCastTo(t) {
@@ -622,8 +619,8 @@ class ASTGenerator {
         else {
             -- FIXME use a fold when that's working
             var elementType := values[0].variableType()
-            for i in 1 ... values.length - 1
-                elementType := Type.union(elementType, values[i].variableType())
+            for v in values
+                elementType := Type.union(elementType, v.variableType())
             return elementType
         }
     }
@@ -805,10 +802,8 @@ class ASTGenerator {
         }
         if srcType = t
             return v
-        if srcType.isNullable & t.isNullable {
-            return nullableToNullableConversion(v, 
-                    t.unwrapGenerics()->(NullableType), CastType.EXPLICIT)
-        }
+        if srcType.isNullable & t.isNullable
+            return nullableToNullableConversion(v, t, CastType.EXPLICIT)
         if srcType = StringOrCharType.STRING_OR_CHAR & t.isPrimitive &
                 t.unwrapRealLiteral.isNumeric {
             v := implicitCast(position, v, CharType.CHAR, CastType.EXPLICIT)
@@ -873,7 +868,8 @@ class ASTGenerator {
     ============================================================================
     @private
     @pre(value.type.isNullable)
-    method nullableToNullableConversion(var value:Value, expected:NullableType, 
+    @pre(expected.isNullable)
+    method nullableToNullableConversion(var value:Value, expected:Type, 
             conversion:CastType):Value {
         -- nullable source to nullable target means we need to check 
         -- if the source is null and, if so, just convert straight to null 
@@ -891,17 +887,19 @@ class ASTGenerator {
         nullTest.removeFromParent()
         assert !from.isPrimitive
         var castToNonNull:Value
-        if conversion = CastType.IMPLICIT
+        if conversion = CastType.IMPLICIT {
             castToNonNull := implicitCast(value.position, value, 
                     from.unwrapNullable)
+        }
         else
             castToNonNull := explicitCast(value.position, value, 
                     from.unwrapNullable)
         var finalConvert:Value
         switch conversion {
-            case CastType.IMPLICIT:
+            case CastType.IMPLICIT: {
                 finalConvert := implicitCast(value.position, castToNonNull, 
                         expected)
+            }
 
             case CastType.EXPLICIT: 
                 finalConvert := explicitCast(value.position, castToNonNull, 
@@ -1879,7 +1877,12 @@ class ASTGenerator {
         }          
         def result := new MethodNode(position, name, m.methodType, parameters)
         result.annotations.isSynthetic := true
-        result.returnType := ClassType.OBJECT()
+        if m.returnType.isNullable {
+            result.returnType := SymbolTable.master.getType(Position.INTERNAL,
+                    class(Object).name + "?")
+        }
+        else
+            result.returnType := ClassType.OBJECT()
         m.owner.add(result)
         m.owner.symbolTable.putMethod(result)
         def symbolTable := new SymbolTable(result, m.owner.symbolTable)
@@ -1891,7 +1894,7 @@ class ASTGenerator {
         for p in parameters
             callParams.append(new VariableReference(p))
         block.add(new Return(implicitCast(position,
-                call(position, m, true, callParams), ClassType.OBJECT())))
+                call(position, m, true, callParams), result.returnType)))
         return result
     }
 
@@ -3405,7 +3408,7 @@ class ASTGenerator {
         assert panda != null
         var parameters := new Array<Value>(object)
         if !primitiveTarget
-            parameters.append(new ClassObjectLiteral(position, type))
+            parameters.append(new ClassObjectLiteral(position, type.unwrapNullable))
         
         var methodName := "instanceOf"
         if primitiveTarget {
@@ -5471,9 +5474,10 @@ class ASTGenerator {
                             (r1.isPrimitive & r1 != r2) |
                             (r1.isNullable & !r2.isNullable) {
                         reportError("incompatible return type: a method " +
-                                "returning \{cm.returnType.displayName}" + 
+                                "returning '\{cm.returnType.displayName}'" + 
                                 " may not override a method returning " + 
-                                overridden.returnType.displayName, cm.position)
+                                "'\{overridden.returnType.displayName}'", 
+                                cm.position)
                     }              
                 }
             }
@@ -5960,8 +5964,10 @@ class ASTGenerator {
                 type := SymbolTable.master.getType(Position.INTERNAL,
                         class(Object).name + "?")
             }
-            var g := new GenericParameterType(cc.name, name, type)
+            var g := new GenericParameterType(cc.type(), name, type)
             cc.symbolTable.putType(g)
+            if !g.isNullable
+                cc.symbolTable.putType(new NullableType(g))
             result.append(g)
             -- skip comma
             i += 1
@@ -6871,14 +6877,11 @@ class ASTGenerator {
         var context := new Array<Node>()
         var m:Node := b
         while m-!>(MethodNode) {
-            var parent := m.parent
-            if parent = null {
-                throw new InternalCompilerException(m + " has no parent", 
-                        m.position)
-            }
+            def parent := m.parent
+            assert parent != null  : "\{m} has no parent (\{m.position})"
             m := parent
         }
-        var parent := m.parent
+        def parent := m.parent
         assert parent != null
         nodeStack.push(parent)
         nodeStack.push(m)

@@ -55,7 +55,7 @@ static Bit debugAllocations = 0;
 
 Int32 panda$core$Object$hash(Object* object) {
     return (Int32) ((uintptr_t) object); // this will truncate the pointer on
-                                     // 64-bit systems, but that's ok
+                                         // 64-bit systems, but that's ok
 }
 
 // FIXME: add UTF-8 support
@@ -65,9 +65,8 @@ char* pandaGetString(String* s) {
     Char* chars = s->chars->contents;
     int i;
     for (i = 0; i < length; i++) {
-        if (chars[i] > 255)
-            pandaFatalError("character out of range");
-        result[i] = chars[i];
+        // FIXME: just truncating the characters for now
+        result[i] = chars[i] & 0xff;
     }
     result[length] = '\0';
     return result;

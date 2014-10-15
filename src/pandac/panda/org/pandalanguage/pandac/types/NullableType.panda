@@ -3,14 +3,14 @@ package org.pandalanguage.pandac.types
 ================================================================================
 A nullable version of a `ClassType`.
 ================================================================================
-class NullableType : ClassType {
+class NullableType : Type {
     constant TO_NULLABLE_CAST_COST := 1
     constant FROM_NULLABLE_CAST_COST := 2
 
     @private
-    def base:ClassType
+    def base:Type
 
-    constructor(base:ClassType) {
+    constructor(base:Type) {
         super.constructor(base.name + "?")
         self.base := base
     }
@@ -32,6 +32,11 @@ class NullableType : ClassType {
         return result
     }
 
+    @override
+    method findConverterTo(target:Type):MethodNode? {
+        return base.findConverterTo(target)
+    }
+
     function nonNullableVersion():Type {
         return base
     }
@@ -44,6 +49,16 @@ class NullableType : ClassType {
     @override
     function isNullable():Bit {
         return true
+    }
+
+    @override
+    function isImmutable():Bit {
+        return base.isImmutable()
+    }
+
+    @override
+    function isUnspecified():Bit {
+        return base.isUnspecified
     }
 
     @override
@@ -103,7 +118,10 @@ class NullableType : ClassType {
 
     @override
     function unwrapNullable():Type {
-        return base
+        -- it is possible for our base to also be nullable -- consider the
+        -- case of class Foo<T> { var t:T? }. The bound of T is Object?, which
+        -- means that the type T? is basically Object??.
+        return base.unwrapNullable()
     }
 
     @override
@@ -113,7 +131,11 @@ class NullableType : ClassType {
 
     @override
     method unwrapGenerics():Type {
-        return SymbolTable.master.getType(Position.INTERNAL,
-                base.unwrapGenerics().name + "?")
+        var result := base.unwrapGenerics()
+        if !result.isNullable() {
+            result := SymbolTable.master.getType(Position.INTERNAL,
+                result.name + "?")
+        }
+        return result
     }
 }

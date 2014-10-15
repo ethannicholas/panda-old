@@ -73,8 +73,7 @@ class ArrayType : GenericType {
     method performBasicClassInitialization() {
         classNode.annotations.isFinal := true
 
-        if elementType.isUnspecified
-            classNode.symbolTable.putType(elementType)
+        GenericType.mapType(classNode.symbolTable, elementType)
 
         var immutable := name.startsWith(ClassNode.IMMUTABLE_ARRAY_NAME)
         if immutable {
@@ -117,6 +116,11 @@ class ArrayType : GenericType {
     -- where possible, rather than recompiling them for every single array type
     @override
     method performFinalClassInitialization() {
+        def arrayClass := classNode
+        if arrayClass.state = ClassNodeState.DEFINED | 
+                arrayClass.state = ClassNodeState.EXTERNALLY_DEFINED
+            return
+
         def name:String
         def displayName:String
         if isImmutable {
@@ -129,7 +133,7 @@ class ArrayType : GenericType {
         }
         if isImmutable & !elementType.isImmutable {
             PandaCompiler.reportError(new CompilerException(
-                    "immutable arrays may not have mutable elements",
+                    "immutable array may not have mutable element type '\{elementType.name}'",
                     classNode.position))
         }
 
@@ -138,10 +142,6 @@ class ArrayType : GenericType {
         -- passes, so we need to ensure these fields and methods have different 
         -- positions
         var dedupLine := 2
-        var arrayClass := classNode
-        if arrayClass.state = ClassNodeState.DEFINED | 
-                arrayClass.state = ClassNodeState.EXTERNALLY_DEFINED
-            return
         if arrayClass.state = ClassNodeState.EXTERNAL_INSTANCE
             arrayClass.state := ClassNodeState.EXTERNALLY_DEFINED
         else

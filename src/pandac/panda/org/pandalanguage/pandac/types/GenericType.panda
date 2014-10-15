@@ -7,6 +7,7 @@ uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.types.UnresolvedType
 
 ================================================================================
 A type with generic parameters, such as 
@@ -23,6 +24,8 @@ class GenericType : ClassType {
     constructor(position:Position, base:ClassType, 
             parameters:ImmutableArray<Type>) {
         super.constructor(getName(base, parameters))
+        for p in parameters
+            assert p-!>(UnresolvedType) : "parameter \{p} of \{self} is uninitialized"
         self.position := position
         self.base := base
         self.parameters := parameters
@@ -69,6 +72,18 @@ class GenericType : ClassType {
         return SymbolTable.master.getType(Position.INTERNAL, result->>(String))
     }
 
+    @override
+    function subtypes():ImmutableArray<Type> {
+        return parameters
+    }
+
+    @class
+    method mapType(symbolTable:SymbolTable, t:Type) {
+        symbolTable.types[t.name] := t
+        for child in t.subtypes
+            mapType(symbolTable, child)
+    }
+
     ============================================================================
     Given a raw type possibly containing generics, such as `Array<Array<T>>`,
     and a list of generic parameters and their corresponding concrete types,
@@ -80,21 +95,11 @@ class GenericType : ClassType {
     method replaceGenerics(position:Position, symbolTable:SymbolTable, raw:Type, 
             genericParameters:Array<GenericParameterType>,
             concreteTypes:ImmutableArray<Type>):Type {
-        for i, g in genericParameters {
-            if raw = g
-                return concreteTypes[i]
-        }
-        if raw.unwrapNullable-!>(GenericType)
-            return raw
-        var name := raw.baseName->>(MutableString)
-        name.append("<")
-        for i, p in raw.unwrapNullable->(GenericType).parameters {
-            if i > 0
-                name.append(",")
-            name.append(replaceGenerics(position, symbolTable, p, 
-                    genericParameters, concreteTypes).name)
-        }
-        return symbolTable.getType(position, name + ">")
+        -- Past Me was an idiot. This is so much simpler than what I was doing
+        -- before.
+        def result := symbolTable.getType(position, raw.name)
+        Console.writeLine("replaceGenerics mapped \{raw} to \{result}")
+        return result
     }
 
     @override
@@ -104,7 +109,9 @@ class GenericType : ClassType {
         if parameters.filter(p => p.isUnspecified).length = 0
             classNode.annotations.isUnspecified := false
         for i, p in base.classNode.genericParameterTypes {
+            Console.writeLine("mapping \{p.name} to \{parameters[i]} in \{self}")
             classNode.symbolTable.types[p.name] := parameters[i]
+            mapType(classNode.symbolTable, parameters[i])
         }
     }
 
@@ -115,6 +122,7 @@ class GenericType : ClassType {
                             f.type, base.classNode.genericParameterTypes, 
                             parameters)
         def newField := new FieldNode(f.position, f.name, finalType)
+        Console.writeLine("field type is: " + finalType)
         newField.annotations := f.annotations.copy
         classNode.add(newField)
         classNode.symbolTable.putVariable(newField)
@@ -122,6 +130,7 @@ class GenericType : ClassType {
 
     @private
     method instantiateMethod(m:MethodNode, linkageOnly:Bit) {
+    Console.writeLine("instantiating \{m} into \{self}")
         if m.annotations.isClass
             return
         def genericClass := classNode
@@ -159,6 +168,7 @@ class GenericType : ClassType {
             annotations.isAbstract := true
         def ast := new ASTGenerator()
         ast.strictTypeChecking := false
+        Console.writeLine("compiling \{code} in \{self}")
         ast.compileMethod(genericClass, code->>(String), 
                 annotations,
                 new Position(genericClass.name, m.position.line, 
@@ -171,6 +181,7 @@ class GenericType : ClassType {
             return
         classNode.state := ClassNodeState.DEFINED
         for i, p in base.classNode.genericParameterTypes {
+            Console.writeLine("checking parameter \{i}: \{parameters[i]} against \{p} ")
             if !parameters[i].canImplicitCastTo(p) {
                 throw new CompilerException("'\{base.displayName}' generic " +
                         "parameter \{i + 1} must be compatible with " +
@@ -178,6 +189,7 @@ class GenericType : ClassType {
                         "'\{parameters[i].displayName}'", position)
             }
         }
+        Console.writeLine("passed")
         classNode.supertype := replaceGenerics(
                 classNode.position, classNode.symbolTable, 
                 base.classNode.supertype->(ClassType), 

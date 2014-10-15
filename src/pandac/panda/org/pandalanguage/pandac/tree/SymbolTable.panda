@@ -137,8 +137,12 @@ class SymbolTable {
             var t := types[name]->(Type?)
             if t != null
                 result := t.name
-            if t-?>(GenericParameterType)
+            if t-?>(GenericParameterType) {
+                assert result != null
+                if nullable
+                    result += "?"
                 return result
+            }
         }
         if result = null & master.types[name] != null
             result := master.types[name]->(Type).name
@@ -180,7 +184,7 @@ class SymbolTable {
             else
                 return null
         }
-        if nullable
+        if nullable & !result.endsWith("?")
             result += "?"
         return result
     }
@@ -193,7 +197,7 @@ class SymbolTable {
     @private
     @pre(node.type = ParseNodeType.TYPE)
     function resolveName(node:ParseNode):String? {
-        var result := new MutableString()
+        def result := new MutableString()
         if node[0]-?>(TokenNode) {
             var type := node[0]->(TokenNode).token.type
             if type = TokenType.LPAREN {
@@ -236,7 +240,7 @@ class SymbolTable {
                             }
                             break
                         }
-                        var r := resolveName(node[i])
+                        def r := resolveName(node[i])
                         if r = null
                             return null
                         result.append(r)
@@ -360,7 +364,7 @@ class SymbolTable {
                 for j, p in params {
                     if j > 0
                         name.append(",")
-                    name.append(params[j].displayName)
+                    name.append(params[j].name)
                 }
                 name.append(")")
                 var result:Type
@@ -369,7 +373,7 @@ class SymbolTable {
                         assert node[i]->(TokenNode).token.type = 
                                 TokenType.QUESTION
                         def base := getType(node.position, name->>(String))
-                        result := new NullableType(base->(ClassType))
+                        result := new NullableType(base)
                         putType(result)
                     }
                     else {
@@ -392,10 +396,10 @@ class SymbolTable {
                             name.append("*")
                         name.append("(")
                         if returnType != VoidType.VOID
-                            name.append(returnType.displayName)
+                            name.append(returnType.name)
                         name.append(")")
                         def base := getType(node.position, name->>(String))
-                        result := new NullableType(base->(ClassType))
+                        result := new NullableType(base)
                     }
                     else {
                         result := new MethodType(
@@ -451,7 +455,7 @@ class SymbolTable {
             -- when the class already exists. Double-check!
             var result:Type? := master.types[base.name + "?"]->(Type?)
             if result = null {
-                result := new NullableType(base->(ClassType))
+                result := new NullableType(base)
                 putType(result)
             }
             return result
@@ -819,13 +823,4 @@ class SymbolTable {
         else
             return "SymbolTable(MASTER)"
     }
--*
-    @class
-    method getType(name:String):Type? {
-        def queue := Thread.context[GETTYPE_QUEUE_KEY]->(MessageQueue)
-        queue.post(name)
-        queue.post(responseQueue)
-        return responseQueue.getMessage()->(Type?)
-    }
-*-
 }
