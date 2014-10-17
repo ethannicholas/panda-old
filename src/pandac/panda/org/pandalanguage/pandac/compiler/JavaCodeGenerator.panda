@@ -197,7 +197,7 @@ class JavaCodeGenerator (CodeGenerator) {
             case RealType.REAL64: return "Double"
             case VoidType.VOID:   return "void"
         }
-        var result := t.unwrapGenerics().name
+        var result := t.name
         if t.name.length > MAX_LENGTH
             return hash(t.name, "Class")
         -- we can't use unnamed packages in Java, because classes in named
@@ -273,10 +273,8 @@ class JavaCodeGenerator (CodeGenerator) {
             else
                 return getJavaType(ClassType.MUTABLE_METHOD())
         }
-        else {
-            result := t.unwrapGenerics().name.replace(#/\w+/#, 
-                    token => filterNameToken(token))
-        }
+        else
+            result := t.name.replace(#/\w+/#, token => filterNameToken(token))
         def lt := result.indexOf("<")
         if lt != null
             result := result[..lt] + result[lt..].replace(".", "$")
@@ -1033,6 +1031,9 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateFieldCode(f:FieldNode) {
+        if f.owner.annotations.isUnspecified & !f.annotations.isThread &
+                !f.annotations.isClass
+            return
         if f.name = FieldNode.ELEMENTS_NAME {
             var type := getJavaType(f.type)
             out.writeLine("public " + type + "[] contents = new " + type + 
@@ -1100,7 +1101,7 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateMethodCode(m:MethodNode) {
-        if m.annotations.isUnspecified
+        if m.owner.annotations.isUnspecified & !m.annotations.isClass
             return
         currentMethod := m
         if m.name = MethodNode.CLASS_INIT_NAME
@@ -1234,6 +1235,8 @@ class JavaCodeGenerator (CodeGenerator) {
 
     method generateClassCode(cl:ClassNode) {
         if cl.state != ClassNodeState.DEFINED
+            return
+        if cl.annotations.isUnspecified & cl.isArray()
             return
         hasClassInit := false
         stringConstants := new Array<String>()
