@@ -108,6 +108,7 @@ uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
@@ -1365,10 +1366,16 @@ class ASTGenerator {
     }
 
     method isAccessible(f:FieldNode):Bit {
-        var a := f.annotations
+        var cl := currentClass
+        assert cl != null
+        if cl.type()-?>(GenericType) {
+            -- we've already performed access checks for the unspecified version
+            -- of this class, and the specified version could be (legally) 
+            -- accessing private members of the unspecified version
+            return true
+        }
+        def a := f.annotations
         if a.isPrivate {
-            var cl := currentClass
-            assert cl != null
             while cl.containingClass != null
                 cl := cl.containingClass->(ClassNode)
             def targetClass := f.owner
@@ -1377,7 +1384,7 @@ class ASTGenerator {
             return c1 = c2
         }
         else if a.isProtected {
-            var cm := currentMethod
+            def cm := currentMethod
             assert cm != null
             var caller := cm.parent->(ClassNode?)
             while caller != null & caller.containingClass != null
@@ -1768,10 +1775,10 @@ class ASTGenerator {
                 }
                 else
                     context := getSelf()
---                if isAccessible(variable->(FieldNode)) {
+                if isAccessible(variable->(FieldNode)) {
                     return createFieldReference(id.position, context, 
                             variable->(FieldNode), true)
---                }
+                }
             }
             else {
                 def result := new VariableReference(id.position, variable)
