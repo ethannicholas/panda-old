@@ -1745,12 +1745,12 @@ class ASTGenerator {
         var name := id->>(String)
         if name = "class"
             name := "$class"
-        var variable := currentBlock.symbolTable.getVariable(name)
+        def variable := currentBlock.symbolTable.getVariable(name)
         if variable != null {
             if variable.type = Type.UNRESOLVED
                 throw new UnresolvedTypeException(id.position)
             if variable-?>(FieldNode) {
-                var classField := variable->(FieldNode).annotations.isClass | 
+                def classField := variable->(FieldNode).annotations.isClass | 
                         variable->(FieldNode).annotations.isThread
                 var cm := currentMethod
                 assert cm != null                        
@@ -1768,10 +1768,10 @@ class ASTGenerator {
                 }
                 else
                     context := getSelf()
-                if isAccessible(variable->(FieldNode)) {
+--                if isAccessible(variable->(FieldNode)) {
                     return createFieldReference(id.position, context, 
                             variable->(FieldNode), true)
-                }
+--                }
             }
             else {
                 def result := new VariableReference(id.position, variable)
@@ -1780,10 +1780,10 @@ class ASTGenerator {
             }
         }
         assert !linkageOnly
-        var cl := currentBlock.symbolTable.getClass(name)
-        if cl != null {
-            var type := getType(id.position, name)
-            return new UnresolvedClassLiteral(id.position, type)
+        if id->(TokenNode).token.type = TokenType.IDENTIFIER {
+            def type := currentBlock.symbolTable.getType(id.position, name)
+            if type-!>(UnresolvedType)
+                return new UnresolvedClassLiteral(id.position, type)
         }
         return new Unresolved(id.position, null, name)
     }
@@ -2011,13 +2011,12 @@ class ASTGenerator {
         def mutable := new ClassNode(closure.position, "$mutableClosure" + 
                 safeString(closure.position) + nextCount(), SymbolTable.master)
         def type := new ClassType(mutable.name)
-        ClassType.classNodes[type] := mutable
-        SymbolTable.master.putType(type)
+        SymbolTable.putType(type)
         mutable.annotations.isSynthetic := true
         mutable.supertype := ClassType.MUTABLE_METHOD()
         mutable.state := ClassNodeState.DEFINED
         nodeStack.push(mutable)
-        SymbolTable.master.putClass(mutable)
+        SymbolTable.putClass(mutable)
 
         def immutableVersion := new FieldNode("immutableVersion", 
                 closure.type())
@@ -2228,14 +2227,16 @@ class ASTGenerator {
 
         def cl := new ClassNode(position, "$closure" + safeString(position) +
                 nextCount(), containing.symbolTable)
+        cl.symbolTable.classUses := 
+                new HashMap(containing.symbolTable.classUses)
+        cl.symbolTable.packageUses := containing.symbolTable.packageUses[..]
         def type := new ClassType(cl.name)
-        ClassType.classNodes[type] := cl
-        SymbolTable.master.putType(type)
+        SymbolTable.putType(type)
         cl.annotations.isSynthetic := true
         cl.state := ClassNodeState.DEFINED
         cl.containingClass := containing
         nodeStack.push(cl)
-        SymbolTable.master.putClass(cl)
+        SymbolTable.putClass(cl)
         for capture in captures {
             if capture-?>(FieldNode) {
                 cl.symbolTable.putVariable(capture)
@@ -2677,11 +2678,9 @@ class ASTGenerator {
                 case TokenType.SHIFTLEFT:  value := new ShiftLeft(position)
                 case TokenType.SHIFTRIGHT: value := new ShiftRight(position)
                 case TokenType.POW: {
-                    var panda := SymbolTable.master.getClass(
-                            ClassNode.PANDA_NAME)
-                    assert panda != null
-                    var params := new Array<Value>(left, right)
-                    var exp := panda.symbolTable.getMethod(position, "pow", 
+                    def panda := ClassType.PANDA().classNode
+                    def params := new Array<Value>(left, right)
+                    def exp := panda.symbolTable.getMethod(position, "pow", 
                             params, true)
                     if exp = null {
                         throw new CompilerException(
@@ -3404,8 +3403,7 @@ class ASTGenerator {
                     "be an instance of '\{type.displayName}'", position)
         }
 
-        var panda := SymbolTable.master.getClass(ClassNode.PANDA_NAME)
-        assert panda != null
+        def panda := ClassType.PANDA().classNode
         var parameters := new Array<Value>(object)
         if !primitiveTarget
             parameters.append(new ClassObjectLiteral(position, type.unwrapNullable))
@@ -3447,7 +3445,7 @@ class ASTGenerator {
             symbolTable := SymbolTable.master
         var result := symbolTable.getType(position, s)
         if !linkageOnly & result-?>(UnresolvedType)
-            throw new CompilerException("symbol '\{s}' not found", position)
+            throw new CompilerException("symbol '\{s}' not found in \{symbolTable}:\{symbolTable.classUses}", position)
         return result
     }
 
@@ -5640,8 +5638,7 @@ class ASTGenerator {
                             "field '\{indexName}' not found in \{cl}",
                             f.position)
                 }
-                var panda := SymbolTable.master.getClass(class(Panda).name)
-                assert panda != null
+                def panda := ClassType.PANDA().classNode
                 fieldIndex->(FieldNode).initialValue := call(fieldIndex.position, 
                         new ClassLiteral(panda.type()), "allocThreadLocal", 
                         new Array<Value>())
@@ -5964,10 +5961,10 @@ class ASTGenerator {
                 type := SymbolTable.master.getType(Position.INTERNAL,
                         class(Object).name + "?")
             }
-            var g := new GenericParameterType(cc.type(), name, type)
-            cc.symbolTable.putType(g)
-            if !g.isNullable
-                cc.symbolTable.putType(new NullableType(g))
+            def g := new GenericParameterType(cc.type(), "\{cc.name}.\{name}", 
+                    type)
+            SymbolTable.putType(g)
+            cc.symbolTable.useClass(g.name, name)
             result.append(g)
             -- skip comma
             i += 1
@@ -5981,10 +5978,10 @@ class ASTGenerator {
             genericParametersNode:ParseNode?,
             supertypeNode:ParseNode?, interfaceNodes:Array<ParseNode>, 
             classMembers:ParseNode):ClassNode {
-        var currentPackage := self.currentPackage
+        def currentPackage := self.currentPackage
         if currentPackage != null
             className := currentPackage + "." + className
-        var classNode := SymbolTable.master.getClass(className)
+        var classNode := SymbolTable.classMap[className]->(ClassNode?)
         if linkageOnly & classNode != null & 
                 classNode.state = ClassNodeState.EXTERNALLY_DEFINED {
             -- FIXME need to detect (permitted) duplicate of plink & normal 
@@ -5995,13 +5992,12 @@ class ASTGenerator {
         }
         if classNode = null {
             classNode := new ClassNode(position, className,
-                currentCompilationUnit.symbolTable)
+                    currentCompilationUnit.symbolTable)
             if isInterface
                 classNode.isInterface := true
-            SymbolTable.master.putClass(classNode)
+            SymbolTable.putClass(classNode)
             def type := new ClassType(classNode.name)
-            SymbolTable.master.putType(type)
-            ClassType.classNodes[type] := classNode
+            SymbolTable.putType(type)
             if currentPackage != null
                 classNode.symbolTable.usePackage(currentPackage)
         }
@@ -6016,8 +6012,6 @@ class ASTGenerator {
             }
             else
                 classNode.genericParameterTypes := []
-            for p in classNode.genericParameterTypes
-                classNode.symbolTable.types[p.name] := p
             processUses(classNode)
             classNode.state := ClassNodeState.EXTERNALLY_DEFINED
         }
@@ -6176,15 +6170,14 @@ class ASTGenerator {
             className := currentPackage + "." + className
         assert e[2]->(TokenNode).token.type = TokenType.LBRACE
 
-        var classNode := SymbolTable.master.getClass(className)
+        var classNode := SymbolTable.classMap[className]->(ClassNode?)
         if classNode = null {
             classNode := new ClassNode(e.position, className,
                 currentCompilationUnit.symbolTable)
             def type := new ClassType(className)
-            SymbolTable.master.putType(type)
-            ClassType.classNodes[type] := classNode
+            SymbolTable.putType(type)
             currentCompilationUnit.add(classNode)
-            SymbolTable.master.putClass(classNode)
+            SymbolTable.putClass(classNode)
             classNode.annotations.isFinal := true
         }
         else if linkageOnly {
@@ -6368,11 +6361,10 @@ class ASTGenerator {
             implicitClass.state := ClassNodeState.DEFINED
             implicitClass.annotations.isSynthetic := true
             assert currentNode-?>(CompilationUnit)
-            SymbolTable.master.putClass(implicitClass)
+            SymbolTable.putClass(implicitClass)
             processUses(implicitClass)
             def type := new ClassType(implicitClass.name)
-            SymbolTable.master.putType(type)
-            ClassType.classNodes[type] := implicitClass
+            SymbolTable.putType(type)
         }
         if currentClass = null
             nodeStack.push(implicitClass)
@@ -6603,7 +6595,7 @@ class ASTGenerator {
 
     @private
     method createPropertySynthetics() {
-        for cl in SymbolTable.master.classes {
+        for cl in SymbolTable.classes {
             var properties := new Array<FieldNode>()
             var getters := new HashMap()
             var setters := new HashMap()
@@ -6672,7 +6664,7 @@ class ASTGenerator {
     method inferFieldTypes() {
         var remaining:Array<FieldNode>
         var madeProgress:Bit
-        var classes := SymbolTable.master.classes
+        var classes := SymbolTable.classes
         -- maps Positions to ReusedValueDefinitions
         def tuples := new HashMap()
         do {
@@ -6810,7 +6802,7 @@ class ASTGenerator {
     }
 
     method markPropertiesFinal() {
-        for cl in SymbolTable.master.classes {
+        for cl in SymbolTable.classes {
             if !cl.type().isImmutable
                 continue
             for child in cl.children {

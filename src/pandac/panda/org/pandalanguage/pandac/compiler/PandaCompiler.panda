@@ -169,6 +169,7 @@ class PandaCompiler {
     
     @class
     method reportError(e:CompilerException) {
+        Console.writeLine(e)
         var position := e.position
         if e-?>(InternalCompilerException)
             Console.writeLine(e)
@@ -223,42 +224,27 @@ class PandaCompiler {
     }
 
     @private
-    method finalizeClasses(symbolTable:SymbolTable, phase:Int) {
-        switch phase {
-            case 1: {
-                -- finalize generics first, because arrays of generic types 
-                -- won't compile properly until the superclasses are set
-                for cl in symbolTable.classes {
-                    if cl != symbolTable.owner
-                        finalizeClasses(cl.symbolTable, phase)
-                    def type := cl.type()
-                    if type-?>(GenericType) & !type.isArray
-                        type.performFinalClassInitialization()
-                }
+    method finalizeClasses() {
+        -- finalize generics first, because arrays of generic types won't 
+        -- compile properly until the superclasses are set
+        for cl in SymbolTable.classes {
+            def type := cl.type()
+            if type-?>(GenericType) & !type.isArray
+                type.performFinalClassInitialization()
+        }
+        -- have to finalize the mutable arrays next, since the immutable ones 
+        -- depend upon them
+        for cl in SymbolTable.classes {
+            def type := cl.type()
+            if (type.isArray & !type.isImmutable) | type.isTuple
+                type.performFinalClassInitialization()
+        }
+        for cl in SymbolTable.classes {
+            def type := cl.type()
+            if type.isArray {
+                if type.isImmutable
+                    type.performFinalClassInitialization()
             }
-            case 2: {
-                -- have to finalize the mutable arrays first, since the 
-                -- immutable ones depend upon them
-                for cl in symbolTable.classes {
-                    if cl != symbolTable.owner
-                        finalizeClasses(cl.symbolTable, phase)
-                    def type := cl.type()
-                    if (type.isArray & !type.isImmutable) | type.isTuple
-                        type.performFinalClassInitialization()
-                }
-            }
-            case 3: {
-                for cl in symbolTable.classes {
-                    if cl != symbolTable.owner
-                        finalizeClasses(cl.symbolTable, phase)
-                    def type := cl.type()
-                    if type.isArray {
-                        if type.isImmutable
-                            type.performFinalClassInitialization()
-                    }
-                }
-            }
-            default: unreachable
         }
     }
 
@@ -276,7 +262,7 @@ class PandaCompiler {
 
     @protected
     method resolveTypes() {
-        var allClasses := SymbolTable.master.classes
+        var allClasses := SymbolTable.classes
         var done := false
         do {
             for cl in allClasses {
@@ -332,7 +318,7 @@ class PandaCompiler {
                 cl.setProperty(TYPES_RESOLVED_KEY, true)
             }
             Thread.context[SYMBOLS_LOADED_KEY] := true
-            def newClasses := SymbolTable.master.classes
+            def newClasses := SymbolTable.classes
             done := allClasses.length = newClasses.length
             allClasses := newClasses
         }
@@ -340,16 +326,11 @@ class PandaCompiler {
     }
 
     @private
-    function isUnspecified(t:Type):Bit {
-        return t.unwrapNullable-?>(GenericParameterType)    
-    }
-
-    @private
     function isUnspecified(m:MethodNode):Bit {
-        if isUnspecified(m.returnType)
+        if m.returnType.isUnspecified
             return true
         for p in m.parameters {
-            if isUnspecified(p.type)
+            if p.type.isUnspecified
                 return true
         }
         return false
@@ -357,7 +338,7 @@ class PandaCompiler {
 
     @protected
     method markGenericMethods() {
-        for cl in SymbolTable.master.classes {
+        for cl in SymbolTable.classes {
             for m in cl.methods.filter(
                     m => m.methodType != MethodNodeType.CONSTRUCTOR) {
                 if isUnspecified(m)
@@ -395,7 +376,7 @@ class PandaCompiler {
     -- ensure Array / ImmutableArray are created in pairs where applicable
     @private
     method fixArrays() {
-        var classes := SymbolTable.master.classes
+        var classes := SymbolTable.classes
         for c in classes {
             if c.isArray() {
                 var elementType := c.type().elementType
@@ -442,7 +423,7 @@ class PandaCompiler {
 
     @private
     method detectClassCircularity() {
-        for cl in SymbolTable.master.classes {
+        for cl in SymbolTable.classes {
             var visited := new Array<ClassNode>()
             detectClassCircularity(cl, null, visited)
         }
@@ -482,8 +463,7 @@ class PandaCompiler {
             markGenericMethods()
 
             checkpoint("finalizing classes")
-            for phase in 1 ... 3
-                finalizeClasses(SymbolTable.master, phase)
+            finalizeClasses()
 
             checkpoint("detect class circularity")
             detectClassCircularity()
@@ -501,7 +481,7 @@ class PandaCompiler {
                 return
 
             checkpoint("finishGenerics")
-            for type in SymbolTable.master.types.values {
+            for type in SymbolTable.types {
                 if type-?>(GenericType)
                     type->(GenericType).compilePhase2()
             }

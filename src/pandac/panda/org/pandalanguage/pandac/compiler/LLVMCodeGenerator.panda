@@ -97,6 +97,7 @@ uses org.pandalanguage.pandac.tree.Xor
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
@@ -279,7 +280,6 @@ class LLVMCodeGenerator (CodeGenerator) {
     ============================================================================
     @class
     method getName(var t:Type):String {
-        t := t.unwrapGenerics()
         if t = CharType.CHAR
             return "char"
         else if t = NativePointerType.NATIVE_POINTER
@@ -287,28 +287,31 @@ class LLVMCodeGenerator (CodeGenerator) {
         else if t.isPrimitive
             return getLLVMType(t)
         else if t.isArray {
-            var e := t.elementType
+            def e := t.elementType
             var suffix:String
             if t.isImmutable
                 suffix := "$ImmutableArray"
             else
                 suffix := "$Array"
-            var elementName:String
+            def elementName:String
             if e.isPrimitive {
                 assert e.name.startsWith(ClassNode.CORE)
                 elementName := e.name[ClassNode.CORE.length..]
             }
             else
                 elementName := getName(e)
-            if e.isNullable
+            if e.isNullable {
                 return elementName + "$Z" + suffix
+            }
             else
                 return elementName + suffix
         }
+        else if t-?>(GenericParameterType)
+            return t.name
         else {
             def c := t.classNode
             def result := new MutableString()
-            for i in 0 ... c.name.length - 1 {
+            for i in 0 .. c.name.length {
                 def ch := c.name[i]
                 if ".<,>+?()=&".contains(ch)
                     result.append("$")
@@ -348,7 +351,6 @@ class LLVMCodeGenerator (CodeGenerator) {
     ============================================================================
     @class
     method getLLVMType(var t:Type):String {
-        t := t.unwrapGenerics()
         if t-?>(MethodType) {
             if t.isImmutable
                 return getLLVMType(ClassType.METHOD())
@@ -441,6 +443,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method writeTypeDescriptor(c:ClassNode) {
         if debug
             header.writeLine("; " + c.name)
+            header.writeLine("; " + c.type() + " - " + getName(c.type()))
         header.write("%" + getName(c.type()) + " = type { ")
         var fields := c.unifiedFields
         for i, rawF in fields {
@@ -1000,7 +1003,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 MethodNode.CLASS_INIT_NAME, new Array<Value>(), true)
         if classInit = null {
             throw new InternalCompilerException("classInit method not found " +
-                    " in " + cl.name, cl.position)
+                    "in " + cl.name, cl.position)
         }
         else                            
             call("fastcc void @" + getName(classInit) + "()")
@@ -2039,7 +2042,8 @@ class LLVMCodeGenerator (CodeGenerator) {
  
     @protected
     method generateMethodCode(m:MethodNode) {
-        if m.annotations.isAbstract
+        if m.annotations.isAbstract | (!m.annotations.isClass & 
+                m.owner.annotations.isUnspecified)
             return
         currentMethod := m
         tempVariable := 1
@@ -2149,8 +2153,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method getStringConstantReference(s:String):String {
         var result := stringConstants[s]->(String?)
         if result = null {
-            var string := SymbolTable.master.getClass(ClassNode.STRING_NAME)
-            assert string != null
+            def string := ClassType.STRING().classNode
             var chars := getCharArrayConstantReference(s->>(Array<Char>))
             result := "@s" + stringConstants.length
             stringConstants[s] := result
@@ -2172,13 +2175,11 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method getClassConstant(name:String):ClassConstant {
-        var cl := SymbolTable.master.getClass(name)
-        assert cl != null
+        def cl := SymbolTable.classMap[name]->(ClassNode)
         return getClassConstant(cl)
     }
     
     @private
-    @pre(!cl.annotations.isUnspecified)
     method getITable(cl:ClassNode):String {
         -- FIXME use a set
         var visited := new HashMap()
@@ -2218,7 +2219,6 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
-    @pre(!cl.annotations.isUnspecified)
     method getClassConstant(cl:ClassNode):ClassConstant {
         var cc := cl.getProperty(CLASS_CONSTANT)->(ClassConstant?)
         if cc = null {
@@ -2290,8 +2290,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                         overridesFinalize := true
                 }
             }
-            def classClass := SymbolTable.master.getClass(ClassNode.CLASS_NAME)
-            assert classClass != null
+            def classClass := ClassType.CLASS().classNode
             def classClassConstant := getClassConstant(classClass)
             header.write("constant " + cc.type + 
                     " { " + getLLVMType(ClassType.CLASS()) + " bitcast(" + 
@@ -2378,17 +2377,17 @@ class LLVMCodeGenerator (CodeGenerator) {
                 '"')
         header.writeLine("%$itable = type { %panda$core$Class*, %$itable*, " +
                 "[0 x i8*] }")
-        var classes := SymbolTable.master.classes
+        var classes := SymbolTable.classes
         for cl in classes {
-            if cl.live & !cl.annotations.isUnspecified
+            if cl.live & !cl.annotations.isUnspecified()
                 writeTypeDescriptor(cl)
         }
         for cl in classes {
-            if cl.live & !cl.annotations.isUnspecified
+            if cl.live & !cl.annotations.isUnspecified()
                 getClassConstant(cl)
         }
         for cl in classes {
-            if cl.live & !cl.annotations.isUnspecified
+            if cl.live
                 generateClassCode(cl)
         }
 
