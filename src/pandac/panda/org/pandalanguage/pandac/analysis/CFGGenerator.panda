@@ -54,14 +54,16 @@ class CFGGenerator {
     Maps `Node`s to `ControlNode`s.
     ============================================================================
     @protected
-    var nodeToControlNodeMap:Map := new HashMap()
+    var nodeToControlNodeMap:GenericMap<Node, ControlNode> := 
+            new GenericHashMap<Node, ControlNode>()
 
     ============================================================================
     Maps `ControlNode`s corresponding to loops to `Array<ControlNode>`s 
     containing all `break`s encountered within the loop.
     ============================================================================
     @protected
-    var loopToBreaksMap:Map := new HashMap()
+    var loopToBreaksMap:GenericMap<Node, Array<ControlNode>> := 
+            new GenericHashMap<Node, Array<ControlNode>>()
     
     ============================================================================
     An array of `ControlNode`s corresponding to all `return` statements
@@ -77,7 +79,7 @@ class CFGGenerator {
             result := new ControlNode(node)
             nodeToControlNodeMap[node] := result
         }
-        return result->(ControlNode)
+        return result
     }
     
     function getContainingControlNode(var node:Node):ControlNode {
@@ -86,6 +88,7 @@ class CFGGenerator {
             node := node.parent->(Node)
             result := nodeToControlNodeMap[node]
         }
+        -- FIXME dataflow problem? should know this can't be null
         return result->(ControlNode)
     }
 
@@ -132,10 +135,10 @@ class CFGGenerator {
     
     @protected
     method scanWhile(w:While) {
-        var entry := getControlNode(w.test)
+        def entry := getControlNode(w.test)
         scan(w.test)
         enter(getControlNode(w))
-        var savedActiveNodes := activeNodes
+        def savedActiveNodes := activeNodes
         scan(w.block)
         for active in activeNodes
             active.addExit(entry)
@@ -143,7 +146,7 @@ class CFGGenerator {
             for saved in savedActiveNodes
                 activeNodes.append(saved)
         }
-        var breaks := loopToBreaksMap[w]->(Array<ControlNode>?)
+        def breaks := loopToBreaksMap[w]
         if breaks != null {
             for b in breaks
                 activeNodes.append(b)
@@ -153,13 +156,13 @@ class CFGGenerator {
     @protected
     method scanForEach(f:ForEach) {
         scan(f.list)
-        var entry := getControlNode(f)
+        def entry := getControlNode(f)
         enter(entry)
-        var savedActiveNodes := activeNodes
+        def savedActiveNodes := activeNodes
         scan(f.block)
         for active in activeNodes
             active.addExit(entry)
-        var definiteEntry := false
+        def definiteEntry := false
         -- need to restore definite entry determination
         if !definiteEntry {
             if savedActiveNodes != activeNodes {
@@ -167,7 +170,7 @@ class CFGGenerator {
                     activeNodes.append(saved)
             }
         }
-        var breaks := loopToBreaksMap[f]->(Array<ControlNode>?)
+        def breaks := loopToBreaksMap[f]
         if breaks != null {
             for b in breaks
                 activeNodes.append(b)
@@ -176,13 +179,13 @@ class CFGGenerator {
 
     @protected
     method scanLoop(l:Loop) {
-        var entry := getControlNode(l)
+        def entry := getControlNode(l)
         enter(entry)
         scan(l.block)
         for active in activeNodes
             active.addExit(entry)
         activeNodes := new Array<ControlNode>()
-        var breaks := loopToBreaksMap[l]->(Array<ControlNode>?)
+        def breaks := loopToBreaksMap[l]
         if breaks != null {
             for b in breaks
                 activeNodes.append(b)
@@ -191,7 +194,7 @@ class CFGGenerator {
 
     @protected
     method scanLoopWithContinueBlock(l:LoopWithContinueBlock) {
-        var entry := getControlNode(l)
+        def entry := getControlNode(l)
         enter(entry)
         scan(l.block)
         if activeNodes.length > 0
@@ -199,7 +202,7 @@ class CFGGenerator {
         for active in activeNodes
             active.addExit(entry)
         activeNodes := new Array<ControlNode>()
-        var breaks := loopToBreaksMap[l]->(Array<ControlNode>?)
+        def breaks := loopToBreaksMap[l]
         if breaks != null {
             for b in breaks
                 activeNodes.append(b)
@@ -208,7 +211,7 @@ class CFGGenerator {
 
     @protected
     method scanDo(d:Do) {
-        var entry := getControlNode(d)
+        def entry := getControlNode(d)
         enter(entry)
         scan(d.block)
         if activeNodes.length > 0 {
@@ -216,7 +219,7 @@ class CFGGenerator {
             for active in activeNodes
                 active.addExit(entry)
         }
-        var breaks := loopToBreaksMap[d]->(Array<ControlNode>?)
+        def breaks := loopToBreaksMap[d]
         if breaks != null {
             for b in breaks
                 activeNodes.append(b)
@@ -228,7 +231,7 @@ class CFGGenerator {
         var ancestor := o.parent
         while ancestor != null {
             if ancestor-?>(AbstractLoop) {
-                var loopLabel := ancestor->(AbstractLoop).label
+                def loopLabel := ancestor->(AbstractLoop).label
                 if label = null
                     break
                 else if label = loopLabel
@@ -244,13 +247,13 @@ class CFGGenerator {
 
     @protected
     method scanBreak(b:Break) {
-        var node := getControlNode(b)
+        def node := getControlNode(b)
         enter(node)
-        var loopNode := findLoop(b, b.label)
+        def loopNode := findLoop(b, b.label)
         assert loopNode != null
-        var breaks := loopToBreaksMap[loopNode]->(Array<ControlNode>?)
+        var breaks := loopToBreaksMap[loopNode]
         if breaks = null {
-            breaks := new Array<ControlNode>()
+            breaks := []
             loopToBreaksMap[loopNode] := breaks
         }
         breaks.append(node)
@@ -514,8 +517,8 @@ class CFGGenerator {
     }
 
     method scanMethod(m:MethodNode):MethodAnalysis {
-        nodeToControlNodeMap := new HashMap()
-        loopToBreaksMap := new HashMap()
+        nodeToControlNodeMap := new GenericHashMap<Node, ControlNode>()
+        loopToBreaksMap := new GenericHashMap<Node, Array<ControlNode>>()
         returns := new Array<ControlNode>()
         var entry := getControlNode(m)
         activeNodes := new Array<ControlNode>(entry)

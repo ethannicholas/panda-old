@@ -2149,6 +2149,15 @@ class MutableString:panda.core.Object {
 
 }
 package panda.core
+
+class NotSupportedException:panda.core.Exception {
+    @self
+    constructor()
+
+    @self
+    constructor(message:panda.core.String)
+}
+package panda.core
 @abstract
 class Number:panda.core.Primitive {
     @private @class @final
@@ -3095,15 +3104,6 @@ class System:panda.core.Object {
 
 }
 package panda.core
-
-class UnimplementedException:panda.core.Exception {
-    @self
-    constructor()
-
-    @self
-    constructor(message:panda.core.String)
-}
-package panda.core
 @abstract
 class UnsignedInteger:panda.core.Integer {
     @self
@@ -3123,6 +3123,51 @@ class Array:panda.core.Object {
 
     @self
     constructor()
+}
+package panda.collections
+
+interface Collection<T:panda.core.Object?> : panda.collections.CollectionView<panda.collections.Collection.T>, panda.collections.CollectionWriter<panda.collections.Collection.T> {
+}
+package panda.collections
+
+interface CollectionView<T:panda.core.Object?> : panda.collections.Iterable<panda.collections.CollectionView.T> {
+    @abstract
+    function length():panda.core.Int32
+
+    @abstract
+    function contains(object:panda.collections.CollectionView.T):panda.core.Bit
+
+    
+    function filtered(f:(panda.collections.CollectionView.T)=>(panda.core.Bit)):panda.collections.CollectionView<panda.collections.CollectionView.T>
+{ throw new NotSupportedException() }
+
+    
+    function fold(f:(panda.collections.CollectionView.T,panda.collections.CollectionView.T)=>(panda.collections.CollectionView.T)):panda.collections.CollectionView.T
+{ throw new NotSupportedException() }
+
+    
+    function fold(f:(panda.collections.CollectionView.T,panda.collections.CollectionView.T)=>(panda.collections.CollectionView.T), start:panda.collections.CollectionView.T):panda.collections.CollectionView.T
+{ throw new NotSupportedException() }
+
+    
+    method apply(m:(panda.collections.CollectionView.T)=&>())
+{ throw new NotSupportedException() }
+}
+package panda.collections
+
+interface CollectionWriter<T:panda.core.Object?> {
+    @abstract
+    method add(object:panda.collections.CollectionWriter.T)
+
+    @abstract
+    method remove(object:panda.collections.CollectionWriter.T)
+
+    @abstract
+    method clear()
+
+    
+    method filter(f:(panda.collections.CollectionWriter.T)=>(panda.core.Bit))
+{ throw new NotSupportedException() }
 }
 package panda.collections
 @private
@@ -3146,8 +3191,12 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
     @private @class @final
     var LOAD_FACTOR:panda.core.Real64
 
-    @private @readonly
+    @readonly
     var _length:panda.core.Int32
+
+    @override
+    function length():panda.core.Int32
+{ return _length }
 
     @private
     var contents:panda.collections.Array<panda.collections.GenericMutableMapEntry<panda.collections.GenericHashMap.K,panda.collections.GenericHashMap.V>?>
@@ -3184,8 +3233,8 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
 { var index := indexFor(key) var e := contents[index] while e != null & e.key != key e := e.next if e = null { var old := contents[index] e := new GenericMutableMapEntry<K, V>(key, value) e.next := old contents[index] := e assert contents[index] == e incrementLength() } else e.value := value }
 
     @override @self
-    method remove(key:panda.collections.GenericHashMap.K):panda.core.Bit
-{ def index := indexFor(key) var e := contents[index] if e = null return false if e.key = key { contents[index] := e.next _length -= 1 return true } loop { def next := e.next if next = null { return false } if next.key = key { break } e := next } def next := e.next assert next != null e.next := next.next _length -= 1 return true }
+    method remove(key:panda.collections.GenericHashMap.K)
+{ def index := indexFor(key) var e := contents[index] if e = null return if e.key = key { contents[index] := e.next _length -= 1 return } loop { def next := e.next if next = null { return } if next.key = key { break } e := next } def next := e.next assert next != null e.next := next.next _length -= 1 }
 
     @override @self
     method clear()
@@ -3218,10 +3267,6 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
     @override @preOr(fmt = "" | fmt = "panda")
     function format(fmt:panda.core.String):panda.core.String
 { def result := new MutableString() result.append("{") var first := true for (key, value) in entries { if !first result.append(", ") else first := false if key != null result.append(key.format(fmt)) else result.append("null") result.append(": ") if value != null result.append(value.format(fmt)) else result.append("null") } result.append("}") return result->>(String) }
-
-    @override
-    function length():panda.core.Int32
-{ return self._length }
 
     @class
     method $classInit()
@@ -3259,7 +3304,7 @@ interface GenericMapWriter<K:panda.core.Object?, V:panda.core.Object?> {
     method []:=(key:panda.collections.GenericMapWriter.K, value:panda.collections.GenericMapWriter.V)
 
     @abstract
-    method remove(key:panda.collections.GenericMapWriter.K):panda.core.Bit
+    method remove(key:panda.collections.GenericMapWriter.K)
 
     @abstract
     method clear()
@@ -3417,6 +3462,44 @@ class ImmutableHashMap:panda.core.Immutable (panda.collections.MapView) {
 }
 package panda.collections
 
+class HashSet<T:panda.core.Object?>:panda.core.Object (panda.collections.Set<panda.collections.HashSet.T>) {
+    @final
+    var contents:panda.collections.GenericMap<panda.collections.HashSet.T,panda.collections.HashSet.T>
+
+    @self
+    constructor()
+{ }
+
+    @self
+    constructor(contents:panda.collections.CollectionView<panda.collections.HashSet.T>)
+{ throw new NotSupportedException() }
+
+    @override
+    function length():panda.core.Int32
+{ return contents.length }
+
+    @override
+    function contains(object:panda.collections.HashSet.T):panda.core.Bit
+{ return contents[object] != null }
+
+    @override
+    function iterator():panda.collections.Iterator<panda.collections.HashSet.T>
+{ throw new NotSupportedException() }
+
+    @override
+    method add(object:panda.collections.HashSet.T)
+{ contents[object] := object }
+
+    @override
+    method remove(object:panda.collections.HashSet.T)
+{ contents.remove(object) }
+
+    @override
+    method clear()
+{ contents.clear() }
+}
+package panda.collections
+
 class ImmutableArray:panda.core.Immutable {
     @self
     constructor()
@@ -3432,6 +3515,21 @@ package panda.collections
 class IndexOutOfBoundsError:panda.core.SafetyError {
     @self
     constructor(message:panda.core.String)
+}
+package panda.collections
+
+interface Iterable<T:panda.core.Object?> {
+    @abstract
+    function iterator():panda.collections.Iterator<panda.collections.Iterable.T>
+}
+package panda.collections
+
+interface Iterator<T:panda.core.Object?> {
+    @abstract
+    function done():panda.core.Bit
+
+    @abstract
+    method next():panda.collections.Iterator.T
 }
 package panda.collections
 
@@ -3468,6 +3566,55 @@ interface MapView {
 
     @abstract
     function length():panda.core.Int32
+}
+@final
+class Order:panda.core.Enumeration {
+    @final
+    var name:panda.core.String
+
+    @final
+    var value:panda.core.Int32
+
+    @private @self
+    constructor(name:panda.core.String, value:panda.core.Int32)
+
+    
+    function ->>():panda.core.Int32
+
+    @override
+    function format(fmt:panda.core.String):panda.core.String
+
+    @override
+    function =(o:panda.core.Object):panda.core.Bit
+
+    @override
+    function hash():panda.core.Int32
+
+    @class @final
+    var GREATER:Order
+
+    @class @final
+    var LESS:Order
+
+    @class @final
+    var EQUAL:Order
+
+    @class
+    function ->>(i:panda.core.Int32):Order
+
+    @class
+    function ->>(name:panda.core.String):Order
+
+    @private @class @final
+    var NAME_MAP:panda.collections.ImmutableHashMap
+
+    @class
+    method $classInit()
+
+}
+package panda.collections
+
+interface Set<T:panda.core.Object?> : panda.collections.Collection<panda.collections.Set.T> {
 }
 package panda.collections
 
