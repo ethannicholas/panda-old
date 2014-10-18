@@ -1,0 +1,317 @@
+package panda.collections
+
+================================================================================
+A single key/value pair from a `HashMap`.
+================================================================================
+@private
+class GenericMutableMapEntry<K, V> {
+    ============================================================================
+    The entry's key.
+    ============================================================================
+    def key:K
+
+    ============================================================================
+    The entry's value.
+    ============================================================================
+    var value:V
+    
+    var next:GenericMutableMapEntry<K, V>?
+    
+    @private
+    constructor(key:K, value:V) {
+        self.key := key
+        self.value := value
+    }
+}
+
+================================================================================
+Standard implementation of the [Map] interface, which associates keys with 
+values. An arbitrary number of values can be stored in a `HashMap` and then
+retrieved in constant time:
+
+    def alignment := new HashMap<String, String>()
+    alignment["human"]  := "good"
+    alignment["orc"]    := "evil"
+    alignment["dragon"] := "neutral"
+    Console.writeLine(alignment["human"])
+
+This will display the value `"good"`.
+================================================================================
+class GenericHashMap<K, V> (GenericMap<K, V>) {
+    @private
+    constant LOAD_FACTOR := 0.75
+
+    ============================================================================
+    The number of entries in the `HashMap`.
+    ============================================================================
+    @readonly
+    property length:Int32
+
+    @private 
+    -- length must be a power of 2 (see indexFor)
+    var contents:Array<GenericMutableMapEntry<K, V>?>
+    
+    @private 
+    var threshold:Int32
+    
+    ============================================================================
+    Creates a new, empty `HashMap`.
+    ============================================================================
+    constructor() {
+        clear()
+    }
+    
+    ============================================================================
+    Creates a new `HashMap` with an initial set of keys and values. The first
+    entry in the `keys` array will be paired with the first entry in the 
+    `values` array, and so on.
+
+    @param keys the map keys
+    @param values the map values
+    ============================================================================
+    @pre(keys.length = values.length)
+    constructor(keys:Array<K>, values:Array<V>) {
+        constructor()
+        for i, key in keys
+            self[key] := values[i]
+    }
+
+    ============================================================================
+    Creates a new `HashMap`, copying its keys and values from an existing
+    `Map`.
+
+    @param map the map to copy from
+    ============================================================================
+    constructor(map:GenericMapView<K, V>) {
+        constructor()
+        for (key, value) in map.entries
+            self[key] := value
+    }
+
+    ============================================================================
+    Given a key, returns the bucket in which the key's entry should be stored.
+    ============================================================================
+    @private
+    @math(overflow)
+    function indexFor(key:K):Int32 {
+        var h:Int32
+        if key = null
+            h := 0
+        else
+            h := key.hash
+        -- supplemental hash function to defend against poor hash codes, 
+        -- as we do not use a prime table length
+        h ~~= (h >> 20) ~~ (h >> 12) ~~ (h >> 7) ~~ (h >> 4)
+        -- the bitwise and below is equivalent to mod if length is a power 
+        -- of 2, which is why we require that
+        return h && (contents.length - 1)
+    }
+    
+    @override
+    function [](key:K):V? {
+        var index := indexFor(key)
+        var e := contents[index]
+        while e != null & e.key != key
+            e := e.next
+        if e != null
+            return e.value
+        else
+            return null
+    }
+    
+    @override
+    function contains(key:K):Bit {
+        var index := indexFor(key)
+        var e := contents[index]
+        while e != null & e.key != key
+            e := e.next
+        return e != null
+    }
+
+    @override
+    @self
+    method []:=(key:K, value:V) {
+        var index := indexFor(key)
+        var e := contents[index]
+        while e != null & e.key != key
+            e := e.next
+        if e = null {
+            var old := contents[index]
+            e := new GenericMutableMapEntry<K, V>(key, value)
+            e.next := old
+            contents[index] := e
+            assert contents[index] == e
+            incrementLength()
+        }
+        else
+            e.value := value
+    }
+    
+    @override
+    @self
+    method remove(key:K):Bit {
+        def index := indexFor(key)
+        var e := contents[index]
+        -- not found
+        if e = null
+            return false
+        -- found in the first slot, need to update the contents array
+        if e.key = key {
+            contents[index] := e.next
+            _length -= 1
+            return true
+        }
+        loop {
+            def next := e.next
+            if next = null {
+                -- not found
+                return false
+            }
+            if next.key = key {
+                -- it's the next slot in the list
+                break
+            }
+            e := next
+        }
+        -- we are looking at the entry before it, update its next pointer to
+        -- skip over it
+        def next := e.next
+        assert next != null
+        e.next := next.next
+        _length -= 1
+        return true
+    }
+
+    @override
+    @self
+    method clear() {
+        _length := 0
+        contents := new Array<GenericMutableMapEntry<K, V>?>(16)
+        threshold := (contents.length * LOAD_FACTOR)->>(Int32)
+    }
+    
+    -- FIXME: replace this with a lazy collection when those are available
+    @override
+    function entries():Array<(K, V)> {
+        var result := new Array<(K, V)>()
+        for e in contents {
+            var current := e
+            while current != null {
+                result.append((current.key, current.value))
+                current := current.next
+            }
+        }
+        return result
+    }
+
+    -- FIXME: replace this with a lazy collection when those are available
+    @override
+    function keys():Array<K> {
+        var result := new Array<K>()
+        for e in contents {
+            var current := e
+            while current != null {
+                result.append(current.key)
+                current := current.next
+            }
+        }
+        return result
+    }
+    
+    -- FIXME: replace this with a lazy collection when those are available
+    @override
+    function values():Array<V> {
+        var result := new Array<V>()
+        for e in contents {
+            var current := e
+            while current != null {
+                result.append(current.value)
+                current := current.next
+            }
+        }
+        return result
+    }
+    
+    @override
+    @self
+    method addAll(map:GenericMapView<K, V>) {
+        for (key, value) in map.entries
+            self[key] := value
+    }
+
+    ============================================================================
+    Doubles the size of the `contents` array, rehashing all of its entries.
+    ============================================================================
+    @private
+    method incrementLength() {
+        _length += 1
+        if length >= threshold {
+            _length := 0
+            var oldContents := contents
+            contents := new Array<GenericMutableMapEntry<K, V>?>(contents.length * 2)
+            threshold *= 2
+            for i in oldContents.length - 1 ... 0 by -1 {
+                var e := oldContents[i]
+                while e != null {
+                    self[e.key] := e.value
+                    e := e.next
+                }
+            }
+        }
+    }
+    
+    ============================================================================
+    Returns `true` if `o` is a Map containing the same key/value pairs as this
+    map.
+
+    @param o the object to compare against
+    @returns `true` if the two values are equal
+    ============================================================================
+    @override
+    function =(o:Object):Bit {
+        if o-!>(GenericMap<K, V>)
+            return false
+        var m := o->(GenericMap<K, V>)
+        if length != m.length
+            return false
+        for (key, value) in entries {
+            if value != m[key]
+                return false
+        }
+        return true
+    }
+
+    ============================================================================
+    Formats the map as a string. If the format string is empty, returns the 
+    same string as `->>(String)`. If the format string is `"panda"`, each
+    key and value in the map will be formatted using the format string 
+    `"panda"` (which may cause errors if they do not support this option).
+
+    @param fmt the format string
+    @returns a string representation of this object
+    ============================================================================
+    @override
+    @preOr(fmt = "" | fmt = "panda")
+    function format(fmt:String):String {
+        def result := new MutableString()
+        result.append("{")
+        var first := true
+        for (key, value) in entries {
+            if !first
+                result.append(", ")
+            else
+                first := false
+            if key != null
+                result.append(key.format(fmt))
+            else
+                result.append("null")
+            result.append(": ")
+            if value != null
+                result.append(value.format(fmt))
+            else
+                result.append("null")
+        }
+        result.append("}")
+        return result->>(String)
+    }
+}

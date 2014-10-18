@@ -11,7 +11,6 @@ uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.NativePointerType
-uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
@@ -56,7 +55,7 @@ class HeaderCodeGenerator (CodeGenerator) {
     
     function getName(t:Type):String {
         if t.isNullable
-            return getName(t->(NullableType).nonNullableVersion)
+            return getName(t.unwrapNullable)
         if t.isArray {
             var e := t.elementType
             var suffix:String
@@ -172,11 +171,11 @@ class HeaderCodeGenerator (CodeGenerator) {
         out.writeLine("extern panda$core$Class " + 
                 getName(cl) + "_class;")
         writeMethods(cl, out)
-        for i in 0 ... cl.length - 1 {
-            if cl[i]-?>(FieldNode) {
-                var f := cl[i]->(FieldNode)
+        for child in cl.children {
+            if child-?>(FieldNode) {
+                def f := child->(FieldNode)
                 if f.annotations.isClass {
-                    var t := f.parent->(ClassNode).type()
+                    def t := f.parent->(ClassNode).type()
                     out.writeLine("extern " + getCType(f.type) + " class_" + 
                             getName(t) + "$" + getName(f) + ";")
                 }
@@ -189,14 +188,13 @@ class HeaderCodeGenerator (CodeGenerator) {
     @override
     method generateCode(target:File) {
         MethodNamer.nameMethods(new CMethodNamingStrategy())
-        var out := new BufferedOutputStream(target.openOutputStream())
+        def out := new BufferedOutputStream(target.openOutputStream())
         out.writeLine(HEADER)
         if target.name = "panda.h"
             out.writeLine('#include "panda_base.h"')
-        var classes := SymbolTable.classes
-        for i in 0 ... classes.length - 1 {
-            var cl := classes[i]
-            if cl.state = ClassNodeState.DEFINED {
+        def classes := SymbolTable.classes
+        for cl in classes {
+            if cl.state = ClassNodeState.DEFINED & !cl.annotations.isUnspecified {
                 out.writeLine("#ifndef " + getName(cl) + "_TYPEDEF")
                 out.writeLine("#define " +  getName(cl) + "_TYPEDEF")
                 out.writeLine("typedef struct " + getName(cl) + " " + 
@@ -209,9 +207,8 @@ class HeaderCodeGenerator (CodeGenerator) {
             throw new CompilerException("could not determine parent of " + 
                     target)
         }
-        for i in 0 ... classes.length - 1 {
-            var cl := classes[i]
-            if cl.state = ClassNodeState.DEFINED {
+        for cl in classes {
+            if cl.state = ClassNodeState.DEFINED & !cl.annotations.isUnspecified {
                 out.writeLine('#include "' + getName(cl) + '.h"')
                 var dest := parent.resolve(getName(cl) + ".h")
                 generateHeader(cl, dest)
