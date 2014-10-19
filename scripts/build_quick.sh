@@ -13,6 +13,6 @@ STATIC_SETTINGS=$SHARED_TARGET/StaticSettings.panda
 echo "Compiling pandac (native)..."
 
 mkdir -p $NATIVE_TARGET/pandac/bin
-$PANDAC -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
+$PANDAC -XpreserveTempArtifacts -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
     src/plex/panda/org/pandalanguage/plex/runtime/*.panda $NATIVE_TARGET/plex/src/Lexer.panda \
     $STATIC_SETTINGS

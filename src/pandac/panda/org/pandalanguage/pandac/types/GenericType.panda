@@ -18,6 +18,9 @@ A type with generic parameters, such as
 with respect to generics.
 ================================================================================
 class GenericType : ClassType {
+    @thread
+    def pendingFieldValues := new HashMap()
+
     def position:Position
     def base:ClassType
     def parameters:ImmutableArray<Type>
@@ -229,7 +232,20 @@ class GenericType : ClassType {
     }
 
     method compilePhase2() {
+        if classNode.annotations.isSynthetic
+            return
         for m in base.classNode.methods
             instantiateMethod(m, false)
+        for base in base.classNode.fields {
+            if base.pendingValue != null {
+                for f in classNode.fields {
+                    if base.position = f.position {
+                        f.pendingValue := base.pendingValue
+                        pendingFieldValues[f] := f.pendingValue
+                    }
+                }
+            }
+        }
+        classNode.annotations.isSynthetic := true
     }
 }

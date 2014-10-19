@@ -5641,6 +5641,7 @@ class ASTGenerator {
                     pendingFieldValues[field] := new TupleReference(f[f.length - 1], i)
                 else
                     pendingFieldValues[field] := f[f.length - 1]
+                field.pendingValue := pendingFieldValues[field]
             }
             if field.annotations.isThread &
                     cl.state = ClassNodeState.DEFINED {
@@ -6669,12 +6670,130 @@ class ASTGenerator {
         }
     }
 
+    method processField(f:FieldNode, tuples:HashMap):Bit? {
+        def pending := pendingFieldValues[f]
+        def cl := f.owner
+        def immutable := cl.type().isImmutable
+        var result:Bit? := null
+        if pending != null {
+            nodeStack.push(cl)
+            def m := new MethodNode("<dummy>", 
+                    MethodNodeType.METHOD)
+            m.parent := currentClass
+            if f.annotations.isClass | 
+                    f.annotations.isThread {
+                m.annotations.isClass := true
+            }
+            else {
+                m.parameters.append(new Parameter(
+                        Parameter.SELF_NAME, cl.type()))
+            }
+            nodeStack.push(m)
+            def block := new Block(cl.symbolTable)
+            m.add(block)
+            nodeStack.push(block)
+            try {
+                var node:ParseNode
+                if pending-?>(ParseNode)
+                    node := pending->(ParseNode)
+                else
+                    node := pending->(TupleReference).tuple
+                var value := convertExpression(node)
+                if pending-?>(TupleReference) {
+                    def element :=
+                            pending->(TupleReference).element
+                    if value-?>(UnresolvedTuple)
+                        value := value[element]->(Value)
+                    else {
+                        var reused := tuples[value.position]->(ReusedValueDefinition?)
+                        if reused = null {
+                            reused := new ReusedValueDefinition(value)
+                            tuples[value.position] := reused
+                        }
+                        value := getField(value.position, 
+                                reused.createReference(),
+                                "$field" + element)
+                    }
+                }
+                if f.type != Type.UNRESOLVED & 
+                        value.canImplicitCastTo(f.type) {
+                    value := implicitCast(value.position, value,
+                            f.type)
+                }
+                if value-?>(UnresolvedArray) {
+                    def elementType := 
+                            determineUnresolvedArrayElementType(
+                                value->(UnresolvedArray))
+                    var type := SymbolTable.master.getType(
+                                value.position, 
+                                class(Array).name + "<" + 
+                                elementType.name + ">")
+                    if f.annotations.isClass {
+                        type := makeArrayImmutable(
+                                value.position,
+                                type)
+                    }
+                    value := implicitCast(value.position, value,
+                            type)
+                }
+                if value.type = Type.UNRESOLVED {
+                    throw new UnresolvedTypeException(
+                            value.position)
+                }
+                if f.type = Type.UNRESOLVED
+                    f.type := value.variableType()
+                f.initialValue := implicitCast(value.position, 
+                        value, f.type, CastType.IMPLICIT)
+                pendingFieldValues.remove(f)
+                result := true
+            }
+            catch e:UnresolvedTypeException {
+                result := false
+            }
+            close(class(Block))
+            close(class(MethodNode))
+            close(class(ClassNode))
+        }
+        else if f.type = Type.UNRESOLVED {
+            error("field '\{f.name}' has neither an " +
+                    "explicit type nor an initialization value",
+                    f.position)
+        }
+
+        if immutable & !f.annotations.isClass & 
+                !f.annotations.isThread &
+                !f.type.isImmutable &
+                cl.name != class(Method).name {
+            PandaCompiler.reportError(
+                    "immutable class '\{cl.name}' has " +
+                    "mutable field '\{f.name}' " +
+                    "(\{f.type.displayName})", f.position)
+        }
+        if immutable & !f.annotations.isFinal {
+            PandaCompiler.reportError(
+                    "immutable class '\{cl.name}' may not " +
+                    "contain variables; did you mean to use " +
+                    "'def' instead?", f.position)
+        }
+
+        if f.annotations.isThread & 
+                f.initialValue != null &
+                cl.symbolTable.getMethod(cl.position,
+                    getThreadLocalInitializerName(f),
+                    new Array<Value>(), 
+                    true) = null {
+            createThreadLocalInitializer(f)
+        }
+
+        return result
+    }
+
     ============================================================================
     Determines the type of unresolved fields based on their initialization
     expressions.
     ============================================================================
     @pre(!linkageOnly)
-    method inferFieldTypes() {
+    method inferFieldTypes(genericOnly:Bit) {
         var remaining:Array<FieldNode>
         var madeProgress:Bit
         var classes := SymbolTable.classes
@@ -6684,120 +6803,16 @@ class ASTGenerator {
             madeProgress := false
             remaining := []
             for cl in classes {
-                var immutable := cl.type().isImmutable
+                if genericOnly & cl.type()-!>(GenericType)
+                    continue
                 for child in cl.children {
                     if child-?>(FieldNode) {
                         var f := child->(FieldNode)
-                        var pending := pendingFieldValues[f]
-                        if pending != null {
-                            nodeStack.push(cl)
-                            var m := new MethodNode("<dummy>", 
-                                    MethodNodeType.METHOD)
-                            m.parent := currentClass
-                            if f.annotations.isClass | 
-                                    f.annotations.isThread {
-                                m.annotations.isClass := true
-                            }
-                            else {
-                                m.parameters.append(new Parameter(
-                                        Parameter.SELF_NAME, cl.type()))
-                            }
-                            nodeStack.push(m)
-                            var block := new Block(cl.symbolTable)
-                            m.add(block)
-                            nodeStack.push(block)
-                            try {
-                                var node:ParseNode
-                                if pending-?>(ParseNode)
-                                    node := pending->(ParseNode)
-                                else
-                                    node := pending->(TupleReference).tuple
-                                var value := convertExpression(node)
-                                if pending-?>(TupleReference) {
-                                    def element :=
-                                            pending->(TupleReference).element
-                                    if value-?>(UnresolvedTuple)
-                                        value := value[element]->(Value)
-                                    else {
-                                        var reused := tuples[value.position]->(ReusedValueDefinition?)
-                                        if reused = null {
-                                            reused := new ReusedValueDefinition(value)
-                                            tuples[value.position] := reused
-                                        }
-                                        value := getField(value.position, 
-                                                reused.createReference(),
-                                                "$field" + element)
-                                    }
-                                }
-                                if f.type != Type.UNRESOLVED & 
-                                        value.canImplicitCastTo(f.type) {
-                                    value := implicitCast(value.position, value,
-                                            f.type)
-                                }
-                                if value-?>(UnresolvedArray) {
-                                    var elementType := 
-                                            determineUnresolvedArrayElementType(
-                                                value->(UnresolvedArray))
-                                    var type := SymbolTable.master.getType(
-                                                value.position, 
-                                                class(Array).name + "<" + 
-                                                elementType.name + ">")
-                                    if f.annotations.isClass {
-                                        type := makeArrayImmutable(
-                                                value.position,
-                                                type)
-                                    }
-                                    value := implicitCast(value.position, value,
-                                            type)
-                                }
-                                if value.type = Type.UNRESOLVED {
-                                    throw new UnresolvedTypeException(
-                                            value.position)
-                                }
-                                if f.type = Type.UNRESOLVED
-                                    f.type := value.variableType()
-                                f.initialValue := implicitCast(value.position, 
-                                        value, f.type, CastType.IMPLICIT)
-                                pendingFieldValues.remove(f)
-                                madeProgress := true
-                            }
-                            catch e:UnresolvedTypeException {
-                                remaining.append(f)
-                            }
-                            close(class(Block))
-                            close(class(MethodNode))
-                            close(class(ClassNode))
-                        }
-                        else if f.type = Type.UNRESOLVED {
-                            error("field '\{f.name}' has neither an " +
-                                    "explicit type nor an initialization value",
-                                    f.position)
-                        }
-
-                        if immutable & !f.annotations.isClass & 
-                                !f.annotations.isThread &
-                                !f.type.isImmutable &
-                                cl.name != class(Method).name {
-                            PandaCompiler.reportError(
-                                    "immutable class '\{cl.name}' has " +
-                                    "mutable field '\{f.name}' " +
-                                    "(\{f.type.displayName})", f.position)
-                        }
-                        if immutable & !f.annotations.isFinal {
-                            PandaCompiler.reportError(
-                                    "immutable class '\{cl.name}' may not " +
-                                    "contain variables; did you mean to use " +
-                                    "'def' instead?", f.position)
-                        }
-
-                        if f.annotations.isThread & 
-                                f.initialValue != null &
-                                cl.symbolTable.getMethod(cl.position,
-                                    getThreadLocalInitializerName(f),
-                                    new Array<Value>(), 
-                                    true) = null {
-                            createThreadLocalInitializer(f)
-                        }
+                        def result := processField(f, tuples)
+                        if result = true
+                            madeProgress := true
+                        else if result = false
+                            remaining.append(f)
                     }
                 }
             }
@@ -6830,7 +6845,7 @@ class ASTGenerator {
 
     method phase1Complete() {
         markPropertiesFinal()
-        inferFieldTypes()
+        inferFieldTypes(false)
         createPropertySynthetics()
     }
     
