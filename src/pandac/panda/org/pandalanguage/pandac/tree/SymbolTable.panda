@@ -130,6 +130,15 @@ class SymbolTable {
     }
 
     function resolveName(var name:String, position:Position):String? {
+        if name.startsWith(class(Array).name)
+            name := class(PrimitiveArray).name + name[class(Array).name.length..]
+        else if name.startsWith(class(ImmutableArray).name)
+            name := class(ImmutablePrimitiveArray).name + name[class(ImmutableArray).name.length..]
+        else if name = "Array" | name.startsWith("Array<")
+            name := class(PrimitiveArray).name + name["Array".length..]
+        else if name = "ImmutableArray" | name.startsWith("ImmutableArray<")
+            name := class(ImmutablePrimitiveArray).name + name["ImmutableArray".length..]
+
         def rawName := name
         def nullable := name.endsWith("?")
         if nullable
@@ -465,14 +474,14 @@ class SymbolTable {
                 throw new CompilerException(baseName + 
                         " does not have generic parameters", node.position)
             }
-            if baseName->>(String) = class(Array).name | 
-                    baseName->>(String) = class(ImmutableArray).name {
+            if baseName->>(String) = class(PrimitiveArray).name | 
+                    baseName->>(String) = class(ImmutablePrimitiveArray).name {
                 if generics.length != 1 {
                     throw new CompilerException(baseName + 
                             " expected 1 generic parameter, but found " +
                             generics.length, node.position)
                 }
-                var result := new ArrayType(base->(ClassType), generics[0])
+                def result := new ArrayType(base->(ClassType), generics[0])
                 putType(result)
                 createClassFor(result, node.position)
                 return result
@@ -515,9 +524,8 @@ class SymbolTable {
     @private
     @pre(node.type = ParseNodeType.TYPE)
     method getType(node:ParseNode):Type {
-        var name := resolveName(node)
+        def name := resolveName(node)
         var result:Type? := null
-        var parent := self.parent
         if name != null {
             result := typeMap[name]->(Type?)
             if result = null {
@@ -588,7 +596,7 @@ class SymbolTable {
     
     function getVariable(name:String):Variable? {
         var result := variables[name]->(Variable?)
-        var parent := self.parent
+        def parent := self.parent
         if result = null & parent != null
             result := parent.getVariable(name)
         return result

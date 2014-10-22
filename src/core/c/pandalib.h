@@ -18,7 +18,7 @@
 
 typedef panda$core$Object Object;
 typedef panda$core$Class Class;
-typedef panda$collections$Array Array;
+typedef panda$collections$PrimitiveArray Array;
 typedef panda$core$String String;
 typedef panda$core$String$Array String$Array;
 typedef panda$io$File File;

@@ -8,6 +8,9 @@
 
 #define GC_THREADS
 #define GC_PTHREADS
+// with the version of Clang I'm using, this define is necessary to prevent 
+// libgc errors
+#define GC_ATTR_ALLOC_SIZE(argnum)
 #include "gc.h"
 
 #define calloc error_use_MALLOC_instead

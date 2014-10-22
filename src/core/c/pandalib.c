@@ -358,7 +358,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
 // newLength - the new length
-void panda$collections$Array$setLength(
+void panda$collections$PrimitiveArray$setLength(
         panda$core$Object* arrayObject, Int32 elementSize, 
         Bit elementsArePointers, Int32 newLength) {
     Array* array = (Array*) arrayObject;
@@ -378,10 +378,10 @@ void panda$collections$Array$setLength(
     }
 }
 
-void panda$collections$Array$pandaSetArrayLength(
+void panda$collections$PrimitiveArray$pandaSetArrayLength(
         panda$core$Object* arrayObject, Int32 elementSize, 
         Bit elementsArePointers, Int32 newLength) {
-    panda$collections$Array$setLength(arrayObject, 
+    panda$collections$PrimitiveArray$setLength(arrayObject, 
             elementSize, elementsArePointers, newLength);
 }
 // Called by the exception handler when we have finished dispatching an 
@@ -543,7 +543,7 @@ void panda$core$System$execStream(
     }
 }
 
-void panda$core$System$exec_File_File_Array$LTpanda$core$String$GT(
+void panda$core$System$exec_File_File_PrimitiveArray$LTpanda$core$String$GT(
         File* program, File* dir, String$Array* pandaArgs) {
     panda$core$System$execStream(program->path, dir->path, NULL, stdout, 
                 pandaArgs);
@@ -601,7 +601,7 @@ panda$core$StackTraceEntry$ImmutableArray* panda$core$Error$getStackTrace(
             entry->methodName = pandaNewString(fname, strlen(fname));
         entry->className = pandaNewString("<unknown>", 9);
         int index = result->$length;
-        panda$collections$Array$setLength((Object*) result, 
+        panda$collections$PrimitiveArray$setLength((Object*) result, 
                 sizeof(panda$core$StackTraceEntry*), true, index + 1);
         result->contents[index] = entry;
     }
@@ -698,7 +698,7 @@ File$Array* panda$io$File$list(File* file) {
             String* filename = pandaNewString(buffer, namelength);
             File* file = pandaNew(panda$io$File);
             file->path = filename;
-            panda$collections$Array$setLength((Object*) result, sizeof(File*), 
+            panda$collections$PrimitiveArray$setLength((Object*) result, sizeof(File*), 
                     true, result->$length + 1);
             result->contents[result->$length - 1] = file;
         }

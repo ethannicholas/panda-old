@@ -78,16 +78,16 @@ class ArrayType : GenericType {
 
         GenericType.mapType(classNode.symbolTable, elementType)
 
-        var immutable := name.startsWith(ClassNode.IMMUTABLE_ARRAY_NAME)
+        def immutable := name.startsWith(ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME)
         if immutable {
             classNode.supertype := SymbolTable.master.getType(
                     classNode.position, 
-                    ClassNode.IMMUTABLE_ARRAY_NAME)->(ClassType)
+                    ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME)->(ClassType)
         }
         else {
             classNode.supertype := SymbolTable.master.getType(
                     classNode.position, 
-                    ClassNode.ARRAY_NAME)->(ClassType)
+                    ClassNode.PRIMITIVE_ARRAY_NAME)->(ClassType)
         }
         var dedupLine := 0
         var length := new FieldNode(new Position(displayName, dedupLine, 0), 
@@ -115,8 +115,6 @@ class ArrayType : GenericType {
         classNode.symbolTable.putMethod(lengthMethod)
     }
 
-    -- FIXME PERFORMANCE: should be reusing implementations of these methods
-    -- where possible, rather than recompiling them for every single array type
     @override
     method performFinalClassInitialization() {
         def arrayClass := classNode
@@ -130,12 +128,12 @@ class ArrayType : GenericType {
         def name:String
         def displayName:String
         if isImmutable {
-            name := "\{class(ImmutableArray).name}<\{elementType.name}>"
-            displayName := "\{class(ImmutableArray).name}<\{elementType.displayName}>"
+            name := "\{class(ImmutablePrimitiveArray).name}<\{elementType.name}>"
+            displayName := "\{class(ImmutablePrimitiveArray).name}<\{elementType.displayName}>"
         }
         else {
-            name := "\{class(Array).name}<\{elementType.name}>"
-            displayName := "\{class(Array).name}<\{elementType.displayName}>"
+            name := "\{class(PrimitiveArray).name}<\{elementType.name}>"
+            displayName := "\{class(PrimitiveArray).name}<\{elementType.displayName}>"
         }
         if isImmutable & !elementType.isImmutable {
             PandaCompiler.reportError(new CompilerException(
@@ -152,12 +150,12 @@ class ArrayType : GenericType {
             arrayClass.state := ClassNodeState.EXTERNALLY_DEFINED
         else
             arrayClass.state := ClassNodeState.DEFINED
-        var immutable := 
-                name.startsWith(ClassNode.IMMUTABLE_ARRAY_NAME)
-        var supertype := arrayClass.supertype
+        def immutable := 
+                name.startsWith(ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME)
+        def supertype := arrayClass.supertype
         assert supertype != null
-        var position := arrayClass.position
-        var maxLength := new FieldNode(new Position(displayName, 
+        def position := arrayClass.position
+        def maxLength := new FieldNode(new Position(displayName, 
                 dedupLine, 0), "$maxLength", Type.INDEX_TYPE)
         dedupLine += 1
         if immutable
@@ -165,7 +163,7 @@ class ArrayType : GenericType {
         maxLength.annotations.isPrivate := true
         arrayClass.add(maxLength)
         arrayClass.symbolTable.putVariable(maxLength)
-        var element := new FieldNode(new Position(displayName, 
+        def element := new FieldNode(new Position(displayName, 
                 dedupLine, 0), FieldNode.ELEMENTS_NAME, elementType)
         if immutable
             element.annotations.isFinal := true
@@ -205,9 +203,8 @@ class ArrayType : GenericType {
 
         var mutableVersion := name
         if immutable {
-            assert mutableVersion.startsWith(class(ImmutableArray).name)
             mutableVersion := class(Array).name + 
-                    mutableVersion[class(ImmutableArray).name.length..]
+                    mutableVersion[name.indexOf("<")->(Int)..]
             new ASTGenerator().compileMethod(arrayClass, 
                     "function ->>():" + mutableVersion + " {\n" +
                     "var result := new " + mutableVersion + "()\n" +
