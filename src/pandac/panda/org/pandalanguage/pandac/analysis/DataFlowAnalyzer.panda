@@ -25,9 +25,9 @@ uses org.pandalanguage.pandac.tree.If
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
-uses org.pandalanguage.pandac.tree.NewArrayWithLength
-uses org.pandalanguage.pandac.tree.NewArrayWithRange
-uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NotEqual
 uses org.pandalanguage.pandac.tree.NotIdentity
@@ -90,7 +90,7 @@ class DataFlowAnalyzer {
     var currentMethod:MethodNode?
     
     @private
-    var worklist := new Array<ControlNode>()
+    var worklist := new PrimitiveArray<ControlNode>()
 
     @private
     var visited:Map := new HashMap()
@@ -214,8 +214,8 @@ class DataFlowAnalyzer {
         if result = null {
             result := new DataFlowValue(value.type)
             -- FIXME very simple and incomplete test here
-            if value-?>(Construct) | value-?>(NewArrayWithLength) |
-                    value-?>(NewArrayWithValues) | value-?>(NewArrayWithRange) |
+            if value-?>(Construct) | value-?>(NewPrimitiveArrayWithLength) |
+                    value-?>(NewPrimitiveArrayWithValues) | value-?>(NewPrimitiveArrayWithRange) |
                     value-?>(NullLiteral)
                 result := new DataFlowValue(result.type, true, 
                         result.definitelyAssigned, result.definitelyUnassigned)
@@ -261,7 +261,7 @@ class DataFlowAnalyzer {
     ============================================================================
     @private
     @pre(v.type = BitType.BIT)
-    method evaluateBranch(v:Value, inValues:Map):Array<HashMap> {
+    method evaluateBranch(v:Value, inValues:Map):PrimitiveArray<HashMap> {
         var rawInValues := new HashMap(inValues)
         var trueValues := new HashMap()
         var falseValues := new HashMap()
@@ -383,7 +383,7 @@ class DataFlowAnalyzer {
                     trueValues[key] := leftValue
             }
         }
-        var result := new Array<HashMap>(trueValues, falseValues)
+        var result := new PrimitiveArray<HashMap>(trueValues, falseValues)
         return result
     }
     @post(@return.length = 2)
@@ -527,7 +527,7 @@ class DataFlowAnalyzer {
 
     @private
     method checkAssignmentsAndCasts(c:ControlNode) {
-        checkAssignmentsAndCasts(c, new Array<ControlNode>())
+        checkAssignmentsAndCasts(c, new PrimitiveArray<ControlNode>())
     }
 
     @private
@@ -538,7 +538,7 @@ class DataFlowAnalyzer {
     }
 
     @private
-    method checkAssignmentsAndCasts(c:ControlNode, visited:Array<ControlNode>) {
+    method checkAssignmentsAndCasts(c:ControlNode, visited:PrimitiveArray<ControlNode>) {
         -- FIXME architecture: this is in serious need of a refactoring; need to
         -- unify the logic here with that in mergeOutValues.
         -- FIXME need to use a set
@@ -719,9 +719,10 @@ class DataFlowAnalyzer {
         for child in cl.children {
             if child-?>(MethodNode) {
                 def m := child->(MethodNode)
-                m.markLive()
-                if m.length > 0 {
-                    var ma := analyzeMethod(new CFGGenerator(), m)
+                if m.length > 0 & (!m.owner.annotations.isUnspecified |
+                        !m.annotations.isClass) {
+                    m.markLive()
+                    def ma := analyzeMethod(new CFGGenerator(), m)
                     checkAssignmentsAndCasts(ma.entrance)
                 }
             }
@@ -745,11 +746,11 @@ class DataFlowAnalyzer {
 --        debug.open("dataFlow")
         def classes := SymbolTable.classes
         for cl in classes {
-            if cl.state = ClassNodeState.DEFINED & !cl.isArray()
+            if cl.state = ClassNodeState.DEFINED & !cl.isPrimitiveArray()
                 analyzeClass(cl)
             if cl.name = class(Class).name | cl.name = class(Error).name | 
-                    cl.name = class(Array).name | 
-                    cl.name = class(ImmutableArray<Char>).name
+                    cl.name = class(PrimitiveArray).name | 
+                    cl.name = class(ImmutablePrimitiveArray<Char>).name
                 cl.markLive()
             else if cl.name = class(Panda).name | 
                     cl.name = class(PreconditionError).name |

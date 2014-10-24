@@ -2567,7 +2567,7 @@ class PandaDataParser:panda.core.Object {
     method readValue():panda.core.Immutable?
 
     @private
-    method readArray():panda.collections.ImmutablePrimitiveArray<panda.core.Immutable?>
+    method readPrimitiveArray():panda.collections.ImmutablePrimitiveArray<panda.core.Immutable?>
 
     @private
     method readMap():panda.collections.ImmutableHashMap
@@ -3116,48 +3116,125 @@ class Value:panda.core.Immutable {
     constructor()
 }
 package panda.collections
+@private
+class ArrayIterator<T:panda.core.Object?>:panda.core.Object (panda.collections.Iterator<panda.collections.ArrayIterator.T>) {
+    @final
+    var array:panda.collections.Array<panda.collections.ArrayIterator.T>
+
+    
+    var index := 0
+
+    @self
+    constructor(array:Array<T>)
+{ self.array := array }
+
+    @override
+    function hasMore():Bit
+{ return index < array.length }
+
+    @override
+    method next():T
+{ def result := array[index] index += 1 return result }
+}
+package panda.collections
+
+class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<panda.collections.Array.T>) {
+    @private @class @final
+    var DEFAULT_LENGTH:panda.core.Int32
+
+    @private
+    var contents := new PrimitiveArray<T>(DEFAULT_LENGTH)
+
+    @private
+    var _length := 0
+
+    @self
+    constructor()
+{ }
+
+    @override @preOr(index < _length)
+    function [](index:Int):T
+{ return contents[index] }
+
+    @override
+    function length():Int
+{ return _length }
+
+    @override @self @preOr(index < _length)
+    method []:=(index:Int, value:T)
+{ contents[index] := value }
+
+    @override
+    method add(value:T)
+{ ensureCapacity(_length + 1) _length += 1 self[_length - 1] := value }
+
+    @override
+    method remove(value:T)
+{ throw new NotSupportedException() }
+
+    @override
+    method clear()
+{ contents := new PrimitiveArray<T>(DEFAULT_LENGTH) _length := 0 }
+
+    @override
+    function contains(object:T):Bit
+{ throw new NotSupportedException() }
+
+    @override
+    function iterator():Iterator<T>
+{ return new ArrayIterator<T>(self) }
+
+    @private
+    method ensureCapacity(maxLength:Int)
+{ if maxLength > contents.length { def newContents := new PrimitiveArray<T>(contents.length * 2) for i in 0 .. length newContents[i] := contents[i] contents := newContents } }
+
+    @class
+    method $classInit()
+
+}
+package panda.collections
 
 interface Collection<T:panda.core.Object?> : panda.collections.CollectionView<panda.collections.Collection.T>, panda.collections.CollectionWriter<panda.collections.Collection.T> {
 }
 package panda.collections
 
 interface CollectionView<T:panda.core.Object?> : panda.collections.Iterable<panda.collections.CollectionView.T> {
-    @abstract
-    function length():panda.core.Int32
-
-    @abstract
-    function contains(object:panda.collections.CollectionView.T):panda.core.Bit
+    
+    function length():Int
 
     
-    function filtered(f:(panda.collections.CollectionView.T)=>(panda.core.Bit)):panda.collections.CollectionView<panda.collections.CollectionView.T>
+    function contains(object:T):Bit
+
+    
+    function filtered(f:(T)=>(Bit)):CollectionView<T>
 { throw new NotSupportedException() }
 
     
-    function fold(f:(panda.collections.CollectionView.T,panda.collections.CollectionView.T)=>(panda.collections.CollectionView.T)):panda.collections.CollectionView.T
+    function fold(f:(T,T)=>(T)):T
 { throw new NotSupportedException() }
 
     
-    function fold(f:(panda.collections.CollectionView.T,panda.collections.CollectionView.T)=>(panda.collections.CollectionView.T), start:panda.collections.CollectionView.T):panda.collections.CollectionView.T
+    function fold(f:(T,T)=>(T), start:T):T
 { throw new NotSupportedException() }
 
     
-    method apply(m:(panda.collections.CollectionView.T)=&>())
+    method apply(m:(T)=&>())
 { throw new NotSupportedException() }
 }
 package panda.collections
 
 interface CollectionWriter<T:panda.core.Object?> {
-    @abstract
-    method add(object:panda.collections.CollectionWriter.T)
+    
+    method add(object:T)
 
-    @abstract
-    method remove(object:panda.collections.CollectionWriter.T)
+    
+    method remove(object:T)
 
-    @abstract
+    
     method clear()
 
     
-    method filter(f:(panda.collections.CollectionWriter.T)=>(panda.core.Bit))
+    method filter(f:(T)=>(Bit))
 { throw new NotSupportedException() }
 }
 package panda.collections
@@ -3173,7 +3250,7 @@ class GenericMutableMapEntry<K:panda.core.Object?, V:panda.core.Object?>:panda.c
     var next:panda.collections.GenericMutableMapEntry<panda.collections.GenericMutableMapEntry.K,panda.collections.GenericMutableMapEntry.V>?
 
     @private @self
-    constructor(key:panda.collections.GenericMutableMapEntry.K, value:panda.collections.GenericMutableMapEntry.V)
+    constructor(key:K, value:V)
 { self.key := key self.value := value }
 }
 package panda.collections
@@ -3196,63 +3273,63 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
 { clear() }
 
     @self @pre(keys.length = values.length)
-    constructor(keys:panda.collections.PrimitiveArray<panda.collections.GenericHashMap.K>, values:panda.collections.PrimitiveArray<panda.collections.GenericHashMap.V>)
+    constructor(keys:PrimitiveArray<K>, values:PrimitiveArray<V>)
 { constructor() for i, key in keys self[key] := values[i] }
 
     @self
-    constructor(map:panda.collections.GenericMapView<panda.collections.GenericHashMap.K,panda.collections.GenericHashMap.V>)
+    constructor(map:GenericMapView<K,V>)
 { constructor() for (key, value) in map.entries self[key] := value }
 
     @private @math(overflow)
-    function indexFor(key:panda.collections.GenericHashMap.K):panda.core.Int32
+    function indexFor(key:K):Int32
 { var h:Int32 if key = null h := 0 else h := key.hash h ~~= (h >> 20) ~~ (h >> 12) ~~ (h >> 7) ~~ (h >> 4) return h && (contents.length - 1) }
 
     @override
-    function [](key:panda.collections.GenericHashMap.K):panda.collections.GenericHashMap.V?
+    function [](key:K):V?
 { var index := indexFor(key) var e := contents[index] while e != null & e.key != key e := e.next if e != null return e.value else return null }
 
     @override
-    function contains(key:panda.collections.GenericHashMap.K):panda.core.Bit
+    function contains(key:K):Bit
 { var index := indexFor(key) var e := contents[index] while e != null & e.key != key e := e.next return e != null }
 
     @override @self
-    method []:=(key:panda.collections.GenericHashMap.K, value:panda.collections.GenericHashMap.V)
+    method []:=(key:K, value:V)
 { var index := indexFor(key) var e := contents[index] while e != null & e.key != key e := e.next if e = null { var old := contents[index] e := new GenericMutableMapEntry<K, V>(key, value) e.next := old contents[index] := e assert contents[index] == e incrementLength() } else e.value := value }
 
     @override @self
-    method remove(key:panda.collections.GenericHashMap.K)
+    method remove(key:K)
 { def index := indexFor(key) var e := contents[index] if e = null return if e.key = key { contents[index] := e.next _length -= 1 return } loop { def next := e.next if next = null { return } if next.key = key { break } e := next } def next := e.next assert next != null e.next := next.next _length -= 1 }
 
     @override @self
     method clear()
-{ _length := 0 contents := new Array<GenericMutableMapEntry<K, V>?>(16) threshold := (contents.length * LOAD_FACTOR)->>(Int32) }
+{ _length := 0 contents := new PrimitiveArray<GenericMutableMapEntry<K, V>?>(16) threshold := (contents.length * LOAD_FACTOR)->>(Int32) }
 
     @override
-    function entries():panda.collections.PrimitiveArray<(panda.collections.GenericHashMap.K,panda.collections.GenericHashMap.V)>
-{ var result := new Array<(K, V)>() for e in contents { var current := e while current != null { result.append((current.key, current.value)) current := current.next } } return result }
+    function entries():PrimitiveArray<(K,V)>
+{ var result := new PrimitiveArray<(K, V)>() for e in contents { var current := e while current != null { result.append((current.key, current.value)) current := current.next } } return result }
 
     @override
-    function keys():panda.collections.PrimitiveArray<panda.collections.GenericHashMap.K>
-{ var result := new Array<K>() for e in contents { var current := e while current != null { result.append(current.key) current := current.next } } return result }
+    function keys():PrimitiveArray<K>
+{ var result := new PrimitiveArray<K>() for e in contents { var current := e while current != null { result.append(current.key) current := current.next } } return result }
 
     @override
-    function values():panda.collections.PrimitiveArray<panda.collections.GenericHashMap.V>
-{ var result := new Array<V>() for e in contents { var current := e while current != null { result.append(current.value) current := current.next } } return result }
+    function values():PrimitiveArray<V>
+{ var result := new PrimitiveArray<V>() for e in contents { var current := e while current != null { result.append(current.value) current := current.next } } return result }
 
     @override @self
-    method addAll(map:panda.collections.GenericMapView<panda.collections.GenericHashMap.K,panda.collections.GenericHashMap.V>)
+    method addAll(map:GenericMapView<K,V>)
 { for (key, value) in map.entries self[key] := value }
 
     @private
     method incrementLength()
-{ _length += 1 if length >= threshold { _length := 0 var oldContents := contents contents := new Array<GenericMutableMapEntry<K, V>?>(contents.length * 2) threshold *= 2 for i in oldContents.length - 1 ... 0 by -1 { var e := oldContents[i] while e != null { self[e.key] := e.value e := e.next } } } }
+{ _length += 1 if length >= threshold { _length := 0 var oldContents := contents contents := new PrimitiveArray<GenericMutableMapEntry<K, V>?>(contents.length * 2) threshold *= 2 for i in oldContents.length - 1 ... 0 by -1 { var e := oldContents[i] while e != null { self[e.key] := e.value e := e.next } } } }
 
     @override
-    function =(o:panda.core.Object):panda.core.Bit
+    function =(o:Object):Bit
 { if o-!>(GenericMap<K, V>) return false var m := o->(GenericMap<K, V>) if length != m.length return false for (key, value) in entries { if value != m[key] return false } return true }
 
     @override @preOr(fmt = "" | fmt = "panda")
-    function format(fmt:panda.core.String):panda.core.String
+    function format(fmt:String):String
 { def result := new MutableString() result.append("{") var first := true for (key, value) in entries { if !first result.append(", ") else first := false if key != null result.append(key.format(fmt)) else result.append("null") result.append(": ") if value != null result.append(value.format(fmt)) else result.append("null") } result.append("}") return result->>(String) }
 
     @override
@@ -3270,38 +3347,38 @@ interface GenericMap<K:panda.core.Object?, V:panda.core.Object?> : panda.collect
 package panda.collections
 
 interface GenericMapView<K:panda.core.Object?, V:panda.core.Object?> {
-    @abstract
-    function [](key:panda.collections.GenericMapView.K):panda.collections.GenericMapView.V?
+    
+    function [](key:K):V?
 
-    @abstract
-    function contains(key:panda.collections.GenericMapView.K):panda.core.Bit
+    
+    function contains(key:K):Bit
 
-    @abstract
-    function keys():panda.collections.PrimitiveArray<panda.collections.GenericMapView.K>
+    
+    function keys():PrimitiveArray<K>
 
-    @abstract
-    function values():panda.collections.PrimitiveArray<panda.collections.GenericMapView.V>
+    
+    function values():PrimitiveArray<V>
 
-    @abstract
-    function entries():panda.collections.PrimitiveArray<(panda.collections.GenericMapView.K,panda.collections.GenericMapView.V)>
+    
+    function entries():PrimitiveArray<(K,V)>
 
-    @abstract
-    function length():panda.core.Int32
+    
+    function length():Int
 }
 package panda.collections
 
 interface GenericMapWriter<K:panda.core.Object?, V:panda.core.Object?> {
-    @abstract
-    method []:=(key:panda.collections.GenericMapWriter.K, value:panda.collections.GenericMapWriter.V)
+    
+    method []:=(key:K, value:V)
 
-    @abstract
-    method remove(key:panda.collections.GenericMapWriter.K)
+    
+    method remove(key:K)
 
-    @abstract
+    
     method clear()
 
-    @abstract
-    method addAll(map:panda.collections.GenericMapView<panda.collections.GenericMapWriter.K,panda.collections.GenericMapWriter.V>)
+    
+    method addAll(map:GenericMapView<K,V>)
 }
 package panda.collections
 @private
@@ -3455,40 +3532,43 @@ package panda.collections
 
 class HashSet<T:panda.core.Object?>:panda.core.Object (panda.collections.Set<panda.collections.HashSet.T>) {
     @final
-    var contents:panda.collections.GenericMap<panda.collections.HashSet.T,panda.collections.HashSet.T>
- := new GenericHashMap<T, T>()
+    var contents := new GenericHashMap<T, T>()
 
     @self
     constructor()
 { }
 
     @self
-    constructor(contents:panda.collections.CollectionView<panda.collections.HashSet.T>)
+    constructor(contents:CollectionView<T>)
 { throw new NotSupportedException() }
 
     @override
-    function length():panda.core.Int32
+    function length():Int
 { return contents.length }
 
     @override
-    function contains(object:panda.collections.HashSet.T):panda.core.Bit
+    function contains(object:T):Bit
 { return contents[object] != null }
 
     @override
-    function iterator():panda.collections.Iterator<panda.collections.HashSet.T>
+    function iterator():Iterator<T>
 { throw new NotSupportedException() }
 
     @override
-    method add(object:panda.collections.HashSet.T)
+    method add(object:T)
 { contents[object] := object }
 
     @override
-    method remove(object:panda.collections.HashSet.T)
+    method remove(object:T)
 { contents.remove(object) }
 
     @override
     method clear()
 { contents.clear() }
+}
+package panda.collections
+
+class ImmutableArray<T:panda.core.Object?>:panda.core.Immutable {
 }
 package panda.collections
 
@@ -3511,17 +3591,17 @@ class IndexOutOfBoundsError:panda.core.SafetyError {
 package panda.collections
 
 interface Iterable<T:panda.core.Object?> {
-    @abstract
-    function iterator():panda.collections.Iterator<panda.collections.Iterable.T>
+    
+    function iterator():Iterator<T>
 }
 package panda.collections
 
 interface Iterator<T:panda.core.Object?> {
-    @abstract
-    function done():panda.core.Bit
+    
+    function hasMore():Bit
 
-    @abstract
-    method next():panda.collections.Iterator.T
+    
+    method next():T
 }
 package panda.collections
 
@@ -3529,18 +3609,15 @@ interface List<T:panda.core.Object?> : panda.collections.ListView<panda.collecti
 }
 package panda.collections
 
-interface ListView<T:panda.core.Object?> {
-    @abstract
-    function [](i:panda.core.Int32):panda.collections.ListView.T
-
-    @abstract
-    function length():panda.core.Int32
+interface ListView<T:panda.core.Object?> : panda.collections.CollectionView<panda.collections.ListView.T> {
+    
+    function [](i:Int):T
 }
 package panda.collections
 
 interface ListWriter<T:panda.core.Object?> : panda.collections.CollectionWriter<panda.collections.ListWriter.T> {
-    @abstract
-    method []:=(i:panda.core.Int32, object:panda.collections.ListWriter.T)
+    
+    method []:=(i:Int, object:T)
 }
 package panda.collections
 
@@ -4653,7 +4730,7 @@ class XorShiftRandom:panda.core.Object (panda.math.Random) {
     method int64():panda.core.Int64
 }
 
-class $closureThread_panda_62_2412050444629:panda.core.Method {
+class $closureThread_panda_62_2412050444625:panda.core.Method {
     
     method raw()
 
@@ -4661,12 +4738,12 @@ class $closureThread_panda_62_2412050444629:panda.core.Method {
     constructor()
 }
 
-class $mutableClosureThread_panda_62_24120504446210:panda.core.MutableMethod {
+class $mutableClosureThread_panda_62_2412050444626:panda.core.MutableMethod {
     
-    var immutableVersion:$closureThread_panda_62_2412050444629
+    var immutableVersion:$closureThread_panda_62_2412050444625
 
     @self
-    constructor(immutableVersion:$closureThread_panda_62_2412050444629)
+    constructor(immutableVersion:$closureThread_panda_62_2412050444625)
 
     
     method raw()

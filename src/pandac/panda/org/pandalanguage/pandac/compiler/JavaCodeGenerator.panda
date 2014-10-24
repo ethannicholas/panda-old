@@ -52,9 +52,9 @@ uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.Multiply
-uses org.pandalanguage.pandac.tree.NewArrayWithLength
-uses org.pandalanguage.pandac.tree.NewArrayWithRange
-uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NotEqual
 uses org.pandalanguage.pandac.tree.NotIdentity
@@ -90,7 +90,7 @@ uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.tree.While
 uses org.pandalanguage.pandac.tree.Xor
-uses org.pandalanguage.pandac.types.ArrayType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
@@ -113,11 +113,11 @@ class JavaCodeGenerator (CodeGenerator) {
     var out := new IndentedOutputStream(Console.outputStream)
     var variableIndex := 0
     var currentMethod:MethodNode?
-    var stringConstants := new Array<String>()
+    var stringConstants := new PrimitiveArray<String>()
     var hasClassInit := false
     -- method types we have run into which need interfaces defined for them
     -- FIXME use a set
-    var methodTypes := new Array<MethodType>()
+    var methodTypes := new PrimitiveArray<MethodType>()
 
     @override
     function defaultExtension():String? {
@@ -185,7 +185,7 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method getJavaReferenceType(t:Type):String {
-        if t.isArray
+        if t.isPrimitiveArray
             return getJavaType(t)
         switch t {
             case IntType.INT8, IntType.UINT8:   return "Byte"
@@ -252,8 +252,8 @@ class JavaCodeGenerator (CodeGenerator) {
             case NativePointerType.NATIVE_POINTER: return "java.lang.Object"
         }
         var result:String
-        if t.isArray {
-            var eType := t.unwrapNullable->(ArrayType).elementType
+        if t.isPrimitiveArray {
+            var eType := t.unwrapNullable->(PrimitiveArrayType).elementType
             var eName:String
             if eType.isPrimitive {
                 assert eType.name.startsWith(ClassNode.CORE)
@@ -264,9 +264,9 @@ class JavaCodeGenerator (CodeGenerator) {
             if eType.isNullable
                 eName += "$Z"
             if t.isImmutable
-                result := class(ImmutableArray).name + "<" + eName + ">"
+                result := class(ImmutablePrimitiveArray).name + "<" + eName + ">"
             else
-                result := class(Array).name + "<" + eName + ">"
+                result := class(PrimitiveArray).name + "<" + eName + ">"
         } 
         else if t.unwrapNullable-?>(MethodType) {
             if t.isImmutable
@@ -464,13 +464,13 @@ class JavaCodeGenerator (CodeGenerator) {
         out.write(")")
     }
     
-    method generateNewArrayWithLengthCode(n:NewArrayWithLength) {
+    method generateNewPrimitiveArrayWithLengthCode(n:NewPrimitiveArrayWithLength) {
         out.write("(" + getJavaType(n.type) + ".newWithLength(")
         generateValueCode(n.arrayLength)
         out.write("))")
     }
     
-    method generateNewArrayWithValuesCode(n:NewArrayWithValues) {
+    method generateNewPrimitiveArrayWithValuesCode(n:NewPrimitiveArrayWithValues) {
         out.write("(" + getJavaType(n.type) + ".newWithValues(")
         for i in 0 ... n.values.length - 1 {
             if i > 0
@@ -480,7 +480,7 @@ class JavaCodeGenerator (CodeGenerator) {
         out.write("))")
     }
     
-    method generateNewArrayWithRangeCode(n:NewArrayWithRange) {
+    method generateNewPrimitiveArrayWithRangeCode(n:NewPrimitiveArrayWithRange) {
         out.write("(" + getJavaType(n.type) + ".newWithRange(")
         generateValueCode(n.source)
         out.write(".contents, ")
@@ -745,12 +745,12 @@ class JavaCodeGenerator (CodeGenerator) {
             generateCastCode(v->(Cast))
         else if v-?>(Construct)
             generateConstructCode(v->(Construct))
-        else if v-?>(NewArrayWithLength)
-            generateNewArrayWithLengthCode(v->(NewArrayWithLength))
-        else if v-?>(NewArrayWithValues)
-            generateNewArrayWithValuesCode(v->(NewArrayWithValues))
-        else if v-?>(NewArrayWithRange)
-            generateNewArrayWithRangeCode(v->(NewArrayWithRange))
+        else if v-?>(NewPrimitiveArrayWithLength)
+            generateNewPrimitiveArrayWithLengthCode(v->(NewPrimitiveArrayWithLength))
+        else if v-?>(NewPrimitiveArrayWithValues)
+            generateNewPrimitiveArrayWithValuesCode(v->(NewPrimitiveArrayWithValues))
+        else if v-?>(NewPrimitiveArrayWithRange)
+            generateNewPrimitiveArrayWithRangeCode(v->(NewPrimitiveArrayWithRange))
         else if v-?>(DynamicCall)
             generateDynamicCallCode(v->(DynamicCall))
         else if v-?>(MethodValue)
@@ -1049,7 +1049,7 @@ class JavaCodeGenerator (CodeGenerator) {
                 var initializer := f.parent->(ClassNode).symbolTable.getMethod(
                             f.position,
                             ASTGenerator.getThreadLocalInitializerName(f),
-                            new Array<Value>(), true)
+                            new PrimitiveArray<Value>(), true)
                 if initializer != null {
                     out.writeLine(" {")
                     out.level += 1
@@ -1135,7 +1135,7 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         if m.parameters.length = 0 & getName(m) = 
                 JavaMethodNamingStrategy.PANDAMAIN_NAME
-            out.write("panda.collections.Array$LTpanda$core$String$GT $arg")
+            out.write("panda.collections.PrimitiveArray$LTpanda$core$String$GT $arg")
         out.write(")")
         if m.annotations.isAbstract
             out.writeLine(";")
@@ -1155,7 +1155,7 @@ class JavaCodeGenerator (CodeGenerator) {
                 out.writeLine(");")
                 out.writeLine("}")
             }
-            else if m.name = "setLength" & m.owner.isArray() & 
+            else if m.name = "setLength" & m.owner.isPrimitiveArray() & 
                     !m.annotations.isClass {
                 out.writeLine(" {")
                 var elementType := getJavaType(
@@ -1237,10 +1237,10 @@ class JavaCodeGenerator (CodeGenerator) {
     method generateClassCode(cl:ClassNode) {
         if cl.state != ClassNodeState.DEFINED
             return
-        if cl.annotations.isUnspecified & cl.isArray()
+        if cl.annotations.isUnspecified & cl.isPrimitiveArray()
             return
         hasClassInit := false
-        stringConstants := new Array<String>()
+        stringConstants := new PrimitiveArray<String>()
         var rootPath := self.rootPath
         assert rootPath != null
         var dest := rootPath.resolve(getName(cl).replace(".", "/") + ".java")
@@ -1348,7 +1348,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.writeLine("); }")
         }
 
-        if cl.isArray() {
+        if cl.isPrimitiveArray() {
             var elementType := getJavaType(cl.type().elementType->(Type))
 
             -- no-arg constructor
@@ -1369,19 +1369,19 @@ class JavaCodeGenerator (CodeGenerator) {
 
             -- newWithRange (mutable)
 -*            var arrayName:String
-            var immutableArrayName:String
-            constant MUTABLE_PREFIX := "panda.collections.Array$"
-            constant IMMUTABLE_PREFIX := "panda.collections.ImmutableArray$"
+            var immutablePrimitiveArrayName:String
+            constant MUTABLE_PREFIX := "panda.collections.PrimitiveArray$"
+            constant IMMUTABLE_PREFIX := "panda.collections.ImmutablePrimitiveArray$"
             if cl.type().isImmutable {
-                immutableArrayName := getName(cl)
-                assert immutableArrayName.startsWith(IMMUTABLE_PREFIX)
+                immutablePrimitiveArrayName := getName(cl)
+                assert immutablePrimitiveArrayName.startsWith(IMMUTABLE_PREFIX)
                 arrayName := MUTABLE_PREFIX + 
-                        immutableArrayName[IMMUTABLE_PREFIX.length..]
+                        immutablePrimitiveArrayName[IMMUTABLE_PREFIX.length..]
             }
             else {
                 arrayName := getName(cl)
                 assert arrayName.startsWith(MUTABLE_PREFIX)
-                immutableArrayName := IMMUTABLE_PREFIX + 
+                immutablePrimitiveArrayName := IMMUTABLE_PREFIX + 
                         arrayName[MUTABLE_PREFIX.length..]
             }*-
 
@@ -1423,7 +1423,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.level -= 1
             out.writeLine("}")
             out.writeLine("catch (java.lang.IndexOutOfBoundsException e) {")
-            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$constructor(panda.core.PandaCore.newString(\"Array index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
+            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$constructor(panda.core.PandaCore.newString(\"PrimitiveArray index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
             out.writeLine("}")
             out.level -= 1
             out.writeLine("}")
@@ -1439,7 +1439,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.level -= 1
             out.writeLine("}")
             out.writeLine("catch (java.lang.IndexOutOfBoundsException e) {")
-            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$constructor(panda.core.PandaCore.newString(\"Array index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
+            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$constructor(panda.core.PandaCore.newString(\"PrimitiveArray index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
             out.writeLine("}")
             out.level -= 1
             out.writeLine("}")

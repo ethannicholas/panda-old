@@ -11,6 +11,7 @@ uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.SymbolTable
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
 
 -- FIXME: revamp this to use IndentedOutputStream
@@ -27,9 +28,12 @@ class PLinkCodeGenerator (CodeGenerator) {
         if f.annotations.isSynthetic
             return
         out.writeLine(indent * " " + f.annotations)
-        out.writeLine(indent * " " + "var " + f.name + ":" + f.type.name)
+        out.write(indent * " " + "var " + f.name)
+        if f.type-!>(UnresolvedType)
+            out.write(":" + f.type.name)
         if f.owner.annotations.isUnspecified & f.pendingValue != null
-            out.writeLine(" := " + f.pendingValue->(Object))
+            out.write(" := " + f.pendingValue->(Object))
+        out.writeLine()
     }
 
     method generateMethodCode(m:MethodNode) {
@@ -159,7 +163,7 @@ class PLinkCodeGenerator (CodeGenerator) {
         var first := true
         Console.writeLine("remember to sort packageless classes first!")
         for cl in SymbolTable.classes {
-            if cl.state != ClassNodeState.DEFINED | cl.isArray() | cl.isTuple() |
+            if cl.state != ClassNodeState.DEFINED | cl.isPrimitiveArray() | cl.isTuple() |
                     cl.type()-?>(GenericType)
                 continue
             if first {
@@ -169,7 +173,7 @@ class PLinkCodeGenerator (CodeGenerator) {
             generateClassCode(cl)
         }
         for cl in SymbolTable.classes {
-            if cl.state != ClassNodeState.DEFINED | (!cl.isArray() &
+            if cl.state != ClassNodeState.DEFINED | (!cl.isPrimitiveArray() &
                     !cl.isTuple()) | cl.annotations.isUnspecified
                 continue
             out.writeLine(indent * " " + "@$instance " + cl.name)

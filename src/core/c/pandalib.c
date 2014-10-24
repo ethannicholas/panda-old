@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     executablePath = pandaNewString(argv[0], strlen(argv[0]));
     argc--;
     argv++;
-    arg = (String$Array*) pandaNewArrayWithLength(&panda$core$String$Array_class, 
+    arg = (String$Array*) pandaNewPrimitiveArrayWithLength(&panda$core$String$Array_class, 
             argc, sizeof(String*), true);
     String** contents = (String**) arg->contents;
     int i;
@@ -188,7 +188,7 @@ String* pandaNewString(const char* chars, int byteLength) {
     if (byteLength == -1)
         byteLength = strlen(chars);
     Int32 length = byteLength;
-    Char$ImmutableArray* data = (Char$ImmutableArray*) pandaNewArrayWithLength(
+    Char$ImmutableArray* data = (Char$ImmutableArray*) pandaNewPrimitiveArrayWithLength(
             &Char$ImmutableArray_class, length, sizeof(Char), false);
     int i;
     for (i = 0; i < byteLength; i++)
@@ -204,7 +204,7 @@ String* pandaNewString(const char* chars, int byteLength) {
 // elementSize - the size of each element
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
-Array* pandaNewArrayWithLength(Class* class_ptr, Int32 length, 
+Array* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int32 length, 
         Int32 elementSize, Bit elementsArePointers) {
     if ((elementSize < 0) || (length < 0))
        pandaFatalError("creating array with negative size");
@@ -223,7 +223,7 @@ Array* pandaNewArrayWithLength(Class* class_ptr, Int32 length,
 // elementSize - size of each element
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
-Array* pandaNewArrayWithRange(Class* class_ptr, Array* array, Int32 offset, 
+Array* pandaNewPrimitiveArrayWithRange(Class* class_ptr, Array* array, Int32 offset, 
         Int32 length, Int32 elementSize, Bit elementsArePointers) {
     if ((elementSize < 0) || (length < 0))
        pandaFatalError("creating array with negative size");
@@ -243,7 +243,7 @@ Array* pandaNewArrayWithRange(Class* class_ptr, Array* array, Int32 offset,
 // elementSize - size of each element
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
-Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length, 
+Array* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int32 length, 
         Int32 elementType, ...) {
     if (length < 0)
        pandaFatalError("creating array with negative size");
@@ -261,7 +261,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
     #define ARRAY_PTR    6
     switch (elementType) {
         case ARRAY_INT8: 
-            result = pandaNewArrayWithLength(class_ptr, length, sizeof(Int8), 
+            result = pandaNewPrimitiveArrayWithLength(class_ptr, length, sizeof(Int8), 
                     false);
             target = (unsigned char*) result->contents;
             for (i = 0; i < length; i++) {
@@ -272,7 +272,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
             break;
         
         case ARRAY_INT16: 
-            result = pandaNewArrayWithLength(class_ptr, length, sizeof(Int16), 
+            result = pandaNewPrimitiveArrayWithLength(class_ptr, length, sizeof(Int16), 
                     false);
             target = (unsigned char*) result->contents;
             for (i = 0; i < length; i++) {
@@ -283,7 +283,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
             break;
 
         case ARRAY_INT32: 
-            result = pandaNewArrayWithLength(class_ptr, length, sizeof(Int32), 
+            result = pandaNewPrimitiveArrayWithLength(class_ptr, length, sizeof(Int32), 
                     false);
             target = (unsigned char*) result->contents;
             for (i = 0; i < length; i++) {
@@ -294,7 +294,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
             break;
 
         case ARRAY_INT64:
-            result = pandaNewArrayWithLength(class_ptr, length, sizeof(Int64), 
+            result = pandaNewPrimitiveArrayWithLength(class_ptr, length, sizeof(Int64), 
                     false);
             target = (unsigned char*) result->contents;
             for (i = 0; i < length; i++) {
@@ -305,7 +305,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
             break;
             
         case ARRAY_REAL32: 
-            result = pandaNewArrayWithLength(class_ptr, length, sizeof(Real32), 
+            result = pandaNewPrimitiveArrayWithLength(class_ptr, length, sizeof(Real32), 
                     false);
             target = (unsigned char*) result->contents;
             for (i = 0; i < length; i++) {
@@ -316,7 +316,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
             break;
 
         case ARRAY_REAL64:
-            result = pandaNewArrayWithLength(class_ptr, length, sizeof(Real64), 
+            result = pandaNewPrimitiveArrayWithLength(class_ptr, length, sizeof(Real64), 
                     false);
             target = (unsigned char*) result->contents;
             for (i = 0; i < length; i++) {
@@ -327,7 +327,7 @@ Array* pandaNewArrayWithValues(Class* class_ptr, Int32 length,
             break;
         
         case ARRAY_PTR:
-            result = pandaNewArrayWithLength(class_ptr, length, sizeof(void*), 
+            result = pandaNewPrimitiveArrayWithLength(class_ptr, length, sizeof(void*), 
                     true);
             target = (unsigned char*) result->contents;
             for (i = 0; i < length; i++) {
@@ -572,7 +572,7 @@ panda$core$StackTraceEntry$ImmutableArray* panda$core$Error$getStackTrace(
     (void) self;
     panda$core$StackTraceEntry$ImmutableArray* result = 
             (panda$core$StackTraceEntry$ImmutableArray*) 
-            pandaNewArrayWithLength(&panda$core$StackTraceEntry$ImmutableArray_class, 
+            pandaNewPrimitiveArrayWithLength(&panda$core$StackTraceEntry$ImmutableArray_class, 
                     0, sizeof(panda$core$StackTraceEntry*), true);
 
     unw_cursor_t    cursor;
@@ -685,7 +685,7 @@ File$Array* panda$io$File$list(File* file) {
     DIR *dir;
     struct dirent *ent;
     if ((dir = opendir(path)) != NULL) {
-        result = (File$Array*) pandaNewArrayWithLength(
+        result = (File$Array*) pandaNewPrimitiveArrayWithLength(
                 &panda$io$File$Array_class, 
                 0, sizeof(File*), true);        
         while ((ent = readdir(dir)) != NULL) {

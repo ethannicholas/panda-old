@@ -61,9 +61,9 @@ uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.Multiply
-uses org.pandalanguage.pandac.tree.NewArrayWithLength
-uses org.pandalanguage.pandac.tree.NewArrayWithRange
-uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NotEqual
 uses org.pandalanguage.pandac.tree.NotIdentity
@@ -90,7 +90,7 @@ uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
 uses org.pandalanguage.pandac.tree.UnaryMinus
 uses org.pandalanguage.pandac.tree.Unreachable
-uses org.pandalanguage.pandac.tree.UnresolvedArray
+uses org.pandalanguage.pandac.tree.UnresolvedPrimitiveArray
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedLambda
 uses org.pandalanguage.pandac.tree.UnresolvedRange
@@ -103,7 +103,7 @@ uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.tree.While
 uses org.pandalanguage.pandac.tree.Xor
-uses org.pandalanguage.pandac.types.ArrayType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
@@ -128,9 +128,9 @@ uses org.pandalanguage.pandac.types.WrapperType
 @private
 class MethodMatch {
     var methodNode:MethodNode
-    var params:Array<Value>
+    var params:PrimitiveArray<Value>
 
-    constructor(methodNode:MethodNode, params:Array<Value>) {
+    constructor(methodNode:MethodNode, params:PrimitiveArray<Value>) {
         self.methodNode := methodNode
         self.params := params
     }
@@ -313,7 +313,7 @@ class ASTGenerator {
     ============================================================================
     A list of all packages referenced by `uses`.
     ============================================================================
-    var packageUses := new Array<String>()
+    var packageUses := new PrimitiveArray<String>()
 
     ============================================================================
     A map of `uses` aliases to the classes those aliases represent.
@@ -542,7 +542,7 @@ class ASTGenerator {
             }
             -- create the wrapper
             def wrapped := call(position, new ClassLiteral(position, 
-                    wrapperType), "new", new Array<Value>(v))
+                    wrapperType), "new", new PrimitiveArray<Value>(v))
             -- cast the wrapper to the final dest type (this may upcast and/or
             -- add nullability, but is often a no-op)
             return implicitCast(position, wrapped, t, ct)
@@ -597,8 +597,8 @@ class ASTGenerator {
             return new UnaryMinus(v.position, implicitCast(position, value, t, 
                     ct), t)
         }
-        else if v-?>(UnresolvedArray)
-            return castUnresolvedArray(v->(UnresolvedArray), t, ct)
+        else if v-?>(UnresolvedPrimitiveArray)
+            return castUnresolvedPrimitiveArray(v->(UnresolvedPrimitiveArray), t, ct)
         else if v-?>(UnresolvedTuple)
             return castUnresolvedTuple(v->(UnresolvedTuple), t, ct)
         else if v-?>(UnresolvedRange)
@@ -613,7 +613,7 @@ class ASTGenerator {
     }
 
     @private
-    method determineUnresolvedArrayElementType(a:UnresolvedArray):Type {
+    method determineUnresolvedPrimitiveArrayElementType(a:UnresolvedPrimitiveArray):Type {
         var values := a.values[..]
         if values.length = 0
             return Type.ANY()
@@ -629,17 +629,17 @@ class ASTGenerator {
 
     @private
     @pre(ct = CastType.IMPLICIT | ct = CastType.EXPLICIT)
-    method castUnresolvedArray(a:UnresolvedArray, t:Type, ct:CastType):Value {
+    method castUnresolvedPrimitiveArray(a:UnresolvedPrimitiveArray, t:Type, ct:CastType):Value {
         var values := a.values[..]
         var unwrapped := t.unwrapNullable
         var elementType:Type
         var immutable := false
-        if unwrapped.isArray {
+        if unwrapped.isPrimitiveArray {
             elementType := unwrapped.elementType
             immutable := unwrapped.isImmutable
         }
         else
-            elementType := determineUnresolvedArrayElementType(a)
+            elementType := determineUnresolvedPrimitiveArrayElementType(a)
         for i, v in values {
             v.removeFromParent()
             if ct = CastType.IMPLICIT
@@ -652,30 +652,30 @@ class ASTGenerator {
         var arrayType:Type
         if immutable {
             arrayType := SymbolTable.master.getType(a.position,
-                    class(ImmutableArray).name + "<" + elementType.name + ">")
+                    class(ImmutablePrimitiveArray).name + "<" + elementType.name + ">")
         }
         else {
             arrayType := SymbolTable.master.getType(a.position,
-                    class(Array).name + "<" + elementType.name + ">")
+                    class(PrimitiveArray).name + "<" + elementType.name + ">")
         }
-        var newArray := new NewArrayWithValues(a.position, arrayType, values)
+        var newPrimitiveArray := new NewPrimitiveArrayWithValues(a.position, arrayType, values)
         if ct = CastType.IMPLICIT
-            return implicitCast(newArray.position, newArray, t)
+            return implicitCast(newPrimitiveArray.position, newPrimitiveArray, t)
         else
-            return explicitCast(newArray.position, newArray, t)
+            return explicitCast(newPrimitiveArray.position, newPrimitiveArray, t)
     }
 
     @private
     @pre(ct = CastType.IMPLICIT | ct = CastType.EXPLICIT)
     method castUnresolvedRange(r:UnresolvedRange, t:Type, ct:CastType):Value {
-        if !t.isArray {
+        if !t.isPrimitiveArray {
             return implicitCast(r.position, implicitCast(r.position, r, 
                     r.variableType(), ct), t, ct)
         }
         var type := t.elementType
         if t.isImmutable {
             def mutableVersion := SymbolTable.master.getType(r.position,
-                    class(Array).name + "<" + type.name + ">")
+                    class(PrimitiveArray).name + "<" + type.name + ">")
             return convert(r.position, castUnresolvedRange(r, mutableVersion, 
                     ct), t)
         }
@@ -766,7 +766,7 @@ class ASTGenerator {
         def parameters := methodType.methodParameters
         def returnType := methodType.returnType
         return implicitCast(l.position, resolveLambda(l, 
-                new Array<Type>(parameters, 0, parameters.length), returnType), 
+                new PrimitiveArray<Type>(parameters, 0, parameters.length), returnType), 
                 t, ct)
     }
 
@@ -977,7 +977,7 @@ class ASTGenerator {
                 param := v -- the call() will handle the conversion
             else
                 param := explicitCast(position, v, convert.parameters[0].type)
-            var params := new Array<Value>(param)
+            var params := new PrimitiveArray<Value>(param)
             return implicitCast(position, call(position, convert, 
                     convert.isDeclaredVirtual() & !isSuper, isSuper, params), t)
         }
@@ -992,12 +992,12 @@ class ASTGenerator {
     @post(@return.type = t)
 
     method call(position:Position, m:MethodNode, virtual:Bit,
-            params:Array<Value>):MethodCall {
+            params:PrimitiveArray<Value>):MethodCall {
         return call(position, m, virtual, false, params)
     }
 
     method call(position:Position, var m:MethodNode, virtual:Bit, isSuper:Bit,
-            params:Array<Value>):MethodCall {
+            params:PrimitiveArray<Value>):MethodCall {
         var methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
                 methodParams[methodParams.length - 1].isVarArg
@@ -1020,7 +1020,7 @@ class ASTGenerator {
             count := methodParams.length - 1
         else
             count := methodParams.length
-        var finalParams := new Array<Value>()
+        var finalParams := new PrimitiveArray<Value>()
         for i in 0 .. count {
             var target := m.parameters[i].type
             if params[i].canImplicitCastTo(target)
@@ -1037,9 +1037,9 @@ class ASTGenerator {
             }
         }
         if isVarArg {
-            var values := new Array<Value>()
+            var values := new PrimitiveArray<Value>()
             var isConvert := methodParams[methodParams.length - 1].isConvert
-            var type := methodParams[methodParams.length - 1].type->(ArrayType).elementType
+            var type := methodParams[methodParams.length - 1].type->(PrimitiveArrayType).elementType
             for i in count ... params.length - 1 {
                 if isConvert
                     values.append(convert(params[i].position, params[i], type))
@@ -1048,14 +1048,14 @@ class ASTGenerator {
                             type))
                 }
             }
-            finalParams.append(new NewArrayWithValues(position,
+            finalParams.append(new NewPrimitiveArrayWithValues(position,
                 methodParams[methodParams.length - 1].type, values))
         }
         return new MethodCall(position, m, virtual, isSuper, finalParams)
     }
 
     method construct(position:Position, m:MethodNode,
-            params:Array<Value>):Construct {
+            params:PrimitiveArray<Value>):Construct {
         if m.owner.annotations.isAbstract() {
             throw new CompilerException("cannot create abstract object '" +
                     m.owner.name + "'", position)
@@ -1070,7 +1070,7 @@ class ASTGenerator {
             count := methodParams.length - 2
         else
             count := methodParams.length - 1
-        var finalParams := new Array<Value>()
+        var finalParams := new PrimitiveArray<Value>()
         for i in 0 ... count - 1 {
             var target := m.parameters[i + 1].type
             if params[i].canImplicitCastTo(target)
@@ -1084,9 +1084,9 @@ class ASTGenerator {
             }
         }
         if isVarArg {
-            var values := new Array<Value>()
+            var values := new PrimitiveArray<Value>()
             var isConvert := methodParams[methodParams.length - 1].isConvert
-            var type := methodParams[methodParams.length - 1].type->(ArrayType).elementType
+            var type := methodParams[methodParams.length - 1].type->(PrimitiveArrayType).elementType
             for i in count ... params.length - 1 {
                 if isConvert
                     values.append(convert(params[i].position, params[i],
@@ -1095,7 +1095,7 @@ class ASTGenerator {
                     values.append(implicitCast(params[i].position, 
                         params[i], type))
             }
-            finalParams.append(new NewArrayWithValues(position,
+            finalParams.append(new NewPrimitiveArrayWithValues(position,
                 methodParams[methodParams.length - 1].type, values))
         }
         return new Construct(position, m, finalParams)
@@ -1106,7 +1106,7 @@ class ASTGenerator {
     -- call, and then wrapping the spots we want to test the call in 
     -- try/catches.
     method testCall(position:Position, var context:Value?, 
-                var methodName:String, var params:Array<Value>):Value? {
+                var methodName:String, var params:PrimitiveArray<Value>):Value? {
         if methodName = "constructor"
             methodName := "new"
         var cm := currentMethod
@@ -1152,7 +1152,7 @@ class ASTGenerator {
         else {
             classMethod := false
             var oldParams := params
-            params := new Array<Value>()
+            params := new PrimitiveArray<Value>()
             if context-?>(Super) {
                 var cl := currentClass
                 assert cl != null
@@ -1182,23 +1182,16 @@ class ASTGenerator {
             if classMethod {
                 -- check for a constructor, which is called like a class method
                 -- but implemented as an instance method
-                if type.isArray & methodName = "new" {
+                if type.isPrimitiveArray & methodName = "new" {
                     -- FIXME: hardcoded yuck
                     if params.length = 1 & 
                             params[0].canImplicitCastTo(Type.INDEX_TYPE) {
-                        var elementType := type->(ArrayType).elementType
-                        if !elementType.isPrimitive & 
-                                !elementType.isNullable {
-                            throw new CompilerException(type.displayName + 
-                                    " may not be created with a length, " + 
-                                    elementType.displayName + 
-                                    " does not have a default value", position)
-                        }
-                        return new NewArrayWithLength(position, type, 
+                        var elementType := type->(PrimitiveArrayType).elementType
+                        return new NewPrimitiveArrayWithLength(position, type, 
                                 implicitCast(position, params[0], 
                                 Type.INDEX_TYPE))
                     }
-                    else if params.length = 3 & params[0].type.isArray &
+                    else if params.length = 3 & params[0].type.isPrimitiveArray &
                             (params[0].type.elementType = type.elementType |
                                 params[0].type.elementType.canImplicitCastTo(
                                     type.elementType) & 
@@ -1210,7 +1203,7 @@ class ASTGenerator {
                                 !type.elementType.isNullable
                             PandaCompiler.reportError("cannot create array " +
                                     "with possibly-null values", position)
-                        return new NewArrayWithRange(position, type, 
+                        return new NewPrimitiveArrayWithRange(position, type, 
                                 params[0], 
                                 implicitCast(params[1].position, params[1], 
                                     Type.INDEX_TYPE),
@@ -1218,17 +1211,17 @@ class ASTGenerator {
                                     Type.INDEX_TYPE))
                     }
                     else {
-                        var finalParams := new Array<Value>()
+                        var finalParams := new PrimitiveArray<Value>()
                         for param in params {
                             finalParams.append(implicitCast(position, param,
                                     type.elementType))
                         }
-                        return new NewArrayWithValues(position, type, 
+                        return new NewPrimitiveArrayWithValues(position, type, 
                                 finalParams)
                     }
                 }
                 var oldParams := params
-                params := new Array<Value>()
+                params := new PrimitiveArray<Value>()
                 params.append(new Dummy(context.position,
                         context->(ClassLiteral).value))
                 for param in oldParams
@@ -1270,7 +1263,7 @@ class ASTGenerator {
     }
     
     method call(position:Position, context:Value?, methodName:String, 
-            params:Array<Value>):Value {
+            params:PrimitiveArray<Value>):Value {
         var methodNode := testCall(position, context, methodName, params)
         if methodNode = null {
             def cl := currentClass->(ClassNode)
@@ -1297,11 +1290,11 @@ class ASTGenerator {
                     if lambda.errors.length > 0 {
                         msg.append("\n    possible error in lambda at " +
                                 "\{lambda.position}:")
-                        var entries := new Array<Object>(lambda.errors.entries, 
+                        var entries := new PrimitiveArray<Object>(lambda.errors.entries, 
                                 0, lambda.errors.entries.length)
                         Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
-                            def e1 := eo1->((Object?, Object?))[0]->(Array<Type>)
-                            def e2 := eo2->((Object?, Object?))[0]->(Array<Type>)
+                            def e1 := eo1->((Object?, Object?))[0]->(PrimitiveArray<Type>)
+                            def e2 := eo2->((Object?, Object?))[0]->(PrimitiveArray<Type>)
                             assert e1.length = e2.length
                             for i in 0 .. e1.length {
                                 def n1 := e1[i].name
@@ -1315,7 +1308,7 @@ class ASTGenerator {
                         })
                         for raw in entries {
                             def e := raw->((Object?, Object?))
-                            def types := e[0]->(Array<Type>)
+                            def types := e[0]->(PrimitiveArray<Type>)
                             def typeString := new MutableString()
                             typeString.append("(")
                             for i, type in types {
@@ -1422,7 +1415,7 @@ class ASTGenerator {
     }
 
     method resolveUnresolvedConstructs(var v:Value):Value {
-        if v-?>(UnresolvedArray) | v-?>(UnresolvedTuple) | v-?>(UnresolvedRange)
+        if v-?>(UnresolvedPrimitiveArray) | v-?>(UnresolvedTuple) | v-?>(UnresolvedRange)
             v := implicitCast(v.position, v, v.variableType())
         return v
     }
@@ -1537,7 +1530,7 @@ class ASTGenerator {
         if name.startsWith("!")
             name := name[1..]
         var result:Value? := null
-        var parameters := new Array<Value>(left, right)
+        var parameters := new PrimitiveArray<Value>(left, right)
         if name = "=" & (left.type.isNullable | right.type.isNullable) {
             -- for equality, if one or both parameters are null, we need to
             -- funnel this through Panda.nullableEquals
@@ -1678,7 +1671,7 @@ class ASTGenerator {
         var s := t.text[1 .. t.text.length - 1]
         def result := new MutableString()
         def matcher := STRING_GROUP.matcher(s)
-        def values := new Array<Value>()
+        def values := new PrimitiveArray<Value>()
         var lastEnd := 0
         while matcher.find() {
             result.append(convertStringChars(t.position,
@@ -1835,20 +1828,20 @@ class ASTGenerator {
     }
 
     @pre(a.type = ParseNodeType.ARRAY_LITERAL)
-    method convertArrayLiteral(a:ParseNode):Value {
+    method convertPrimitiveArrayLiteral(a:ParseNode):Value {
         assert a[0]->(TokenNode).token.type = TokenType.LBRACKET
-        var values := new Array<Value>()
+        var values := new PrimitiveArray<Value>()
         for i in 1 ... a.length - 2 by 2
             values.append(convertExpression(a[i]))
         assert a[a.length - 1]->(TokenNode).token.type = TokenType.RBRACKET
-        return new UnresolvedArray(a.position, values)
+        return new UnresolvedPrimitiveArray(a.position, values)
     }
 
     @pre(m.type = ParseNodeType.MAP_LITERAL)
     method convertMapLiteral(m:ParseNode, immutable:Bit):Value {
         assert m[0]->(TokenNode).token.type = TokenType.LBRACE
-        var rawKeys := new Array<Value>()
-        var rawValues := new Array<Value>()
+        var rawKeys := new PrimitiveArray<Value>()
+        var rawValues := new PrimitiveArray<Value>()
         var index := 1
         while index < m.length - 1 {
             rawKeys.append(implicitCast(m[index].position,
@@ -1863,9 +1856,9 @@ class ASTGenerator {
                 index += 1
         }
         assert m[index]->(TokenNode).token.type = TokenType.RBRACE
-        var keys := new NewArrayWithValues(m.position, ArrayType.ARRAY_ANY(), 
+        var keys := new NewPrimitiveArrayWithValues(m.position, PrimitiveArrayType.ARRAY_ANY(), 
                 rawKeys)
-        var values := new NewArrayWithValues(m.position, ArrayType.ARRAY_ANY(), 
+        var values := new NewPrimitiveArrayWithValues(m.position, PrimitiveArrayType.ARRAY_ANY(), 
                 rawValues)
         return call(m.position, new ClassLiteral(ClassType.HASHMAP()), 
                 "new", [keys, values])
@@ -1883,7 +1876,7 @@ class ASTGenerator {
         def position := new Position(m.position.compilationUnit, 
                 m.position.line, 
                 m.position.column + 1)
-        def parameters := new Array<Parameter>()
+        def parameters := new PrimitiveArray<Parameter>()
         for i, p in m.parameters {
             def newParam := new Parameter(position, p.name, p.type)
             parameters.append(newParam)
@@ -1903,7 +1896,7 @@ class ASTGenerator {
             symbolTable.putVariable(param)
         def block := new Block(position, symbolTable)
         result.add(block)
-        def callParams := new Array<Value>()
+        def callParams := new PrimitiveArray<Value>()
         for p in parameters
             callParams.append(new VariableReference(p))
         block.add(new Return(implicitCast(position,
@@ -1912,7 +1905,7 @@ class ASTGenerator {
     }
 
     @private
-    function hasVariableNamed(list:Array<Variable>, name:String):Bit {
+    function hasVariableNamed(list:PrimitiveArray<Variable>, name:String):Bit {
         for v in list {
             if v.name = name
                 return true
@@ -2093,13 +2086,13 @@ class ASTGenerator {
     shim and a constructor, and returns an instance of the closure.
     ============================================================================
     @private
-    method finishClosure(position:Position, captures:Array<Variable>, 
+    method finishClosure(position:Position, captures:PrimitiveArray<Variable>, 
             outerSelf:Value?):Value {
         def cm := currentMethod
         assert cm != null
         def cl := cm.owner
         fixClosureReferences(cm.block)
-        def fields := new Array<FieldNode>()
+        def fields := new PrimitiveArray<FieldNode>()
         for i in cl.children.length - 1 ... 0 by -1 {
             def child := cl.children[i]
             if child-?>(FieldNode) {
@@ -2148,7 +2141,7 @@ class ASTGenerator {
         cl.symbolTable.putMethod(cm)
         def c := cl[cl.length - 1]->(MethodNode)
         assert c->(MethodNode).methodType = MethodNodeType.CONSTRUCTOR
-        def params := new Array<Value>()
+        def params := new PrimitiveArray<Value>()
         for i, p in c.parameters {
             if i = 0
                 continue
@@ -2206,12 +2199,12 @@ class ASTGenerator {
     ============================================================================
     @private
     method prepareForClosureBlock(position:Position, methodType:MethodNodeType,
-            parameterPrototypes:ParseNode, returnType:Type?):Array<Variable> {
+            parameterPrototypes:ParseNode, returnType:Type?):PrimitiveArray<Variable> {
         def containing := currentClass
         assert containing != null : "no containing class"
 
         -- grab captured variables for closure
-        def captures := new Array<Variable>()
+        def captures := new PrimitiveArray<Variable>()
         def parent := currentMethod
         assert parent != null : "no parent method"
         for v in parent.localVariables {
@@ -2333,7 +2326,7 @@ class ASTGenerator {
     ============================================================================
     @pre(lambda.parameterNames.length = types.length)
     method resolveLambda(lambda:UnresolvedLambda, 
-            types:Array<Type>, returnType:Type):Value {
+            types:PrimitiveArray<Type>, returnType:Type):Value {
         def code := new MutableString("function(")
         for i, name in lambda.parameterNames {
             if i > 0
@@ -2348,8 +2341,8 @@ class ASTGenerator {
 
     @pre(l.type = ParseNodeType.LAMBDA)
     method convertLambda(l:ParseNode):Value {
-        var parameterNames:Array<ParseNode> := []
-        var parameterTypes:Array<Type>? := null
+        var parameterNames:PrimitiveArray<ParseNode> := []
+        var parameterTypes:PrimitiveArray<Type>? := null
         var i := 0
         var expectParen := false
         if l[i]->(TokenNode).token.type = TokenType.LPAREN {
@@ -2390,7 +2383,7 @@ class ASTGenerator {
     method convertTuple(t:ParseNode):Value {
         assert t[0]->(TokenNode).token.type = TokenType.LPAREN
         assert t[t.length - 1]->(TokenNode).token.type = TokenType.RPAREN
-        def params := new Array<Value>()
+        def params := new PrimitiveArray<Value>()
         for i in 1 ... t.length - 2 by 2 {
             def expr := convertExpression(t[i])
             params.append(expr)
@@ -2482,7 +2475,7 @@ class ASTGenerator {
             case ParseNodeType.CONSTRUCT:
                 return convertConstruct(e[0])
             case ParseNodeType.ARRAY_LITERAL:
-                return convertArrayLiteral(e[0])
+                return convertPrimitiveArrayLiteral(e[0])
             case ParseNodeType.MAP_LITERAL:
                 return convertMapLiteral(e[0], false)
             case ParseNodeType.METHOD_VALUE:
@@ -2651,7 +2644,7 @@ class ASTGenerator {
             else if type = StringOrCharType.STRING_OR_CHAR
                 type := CharType.CHAR
             def target := getType(right.position, 
-                    class(Array).name + "<" + type.name + ">")
+                    class(PrimitiveArray).name + "<" + type.name + ">")
             if right.canImplicitCastTo(target)
                 right := implicitCast(right.position, right, target)
             else
@@ -2692,7 +2685,7 @@ class ASTGenerator {
                 case TokenType.SHIFTRIGHT: value := new ShiftRight(position)
                 case TokenType.POW: {
                     def panda := ClassType.PANDA().classNode
-                    def params := new Array<Value>(left, right)
+                    def params := new PrimitiveArray<Value>(left, right)
                     def exp := panda.symbolTable.getMethod(position, "pow", 
                             params, true)
                     if exp = null {
@@ -2825,7 +2818,7 @@ class ASTGenerator {
     method resolveNoArgFunction(u:Unresolved):MethodCall? {
         try {
             var result := testCall(u.position, u.context, u.name, 
-                    new Array<Value>())->(MethodCall?)
+                    new PrimitiveArray<Value>())->(MethodCall?)
             if result != null & 
                     result.methodNode.methodType = MethodNodeType.FUNCTION
                 return result
@@ -2849,7 +2842,7 @@ class ASTGenerator {
     This method means "we have all the information about this value we are ever
     going to get, so either give me the value it's describing or raise an 
     error". Note that a resolved construct may still have an unresolved type,
-    such as `UnresolvedArray` or `UnresolvedRange`; those are legal returns from
+    such as `UnresolvedPrimitiveArray` or `UnresolvedRange`; those are legal returns from
     this method.
     ============================================================================
     method resolve(raw:Value):Value {
@@ -2913,7 +2906,7 @@ class ASTGenerator {
     }
 
     method findAssignmentMethod(context:Value, name:String, 
-            params:Array<Value>, isSuper:Bit):MethodMatch? {
+            params:PrimitiveArray<Value>, isSuper:Bit):MethodMatch? {
         if name = "[..]" | name = "[...]" {
             -- check for reduced argument methods first
             if params.length = 4 & params[2]-?>(IntegerLiteral) & 
@@ -2958,7 +2951,7 @@ class ASTGenerator {
     }
 
     method callAssignmentMethod(context:Value, name:String, 
-            params:Array<Value>):Statement? {
+            params:PrimitiveArray<Value>):Statement? {
         var m := findAssignmentMethod(context, name, params, false)
         if m != null {
             return new ValueStatement(call(context.position, m.methodNode, 
@@ -3041,7 +3034,7 @@ class ASTGenerator {
             }
             assert context != null
             var call := callAssignmentMethod(context, name, 
-                    new Array<Value>(right))
+                    new PrimitiveArray<Value>(right))
             if call != null
                 currentNode.add(call)
             else {
@@ -3097,7 +3090,7 @@ class ASTGenerator {
             }
             var name := fv.field.name
             var call := callAssignmentMethod(object, name, 
-                    new Array<Value>(right))
+                    new PrimitiveArray<Value>(right))
             if call != null {
                 if currentClass != fv.field.parent & 
                         !fv.field.annotations.isReadOnly &
@@ -3160,7 +3153,7 @@ class ASTGenerator {
                 currentNode.add(call)
             else {
                 -- FIXME use map
-                var types := new Array<String>()
+                var types := new PrimitiveArray<String>()
                 for p in params
                     types.append(p.type.displayName)
                 throw new CompilerException("'\{pia.context.type.displayName}' does " + 
@@ -3180,7 +3173,7 @@ class ASTGenerator {
             if call != null
                 currentNode.add(call)
             else {
-                var types := new Array<String>()
+                var types := new PrimitiveArray<String>()
                 for p in params
                     types.append(p.type.displayName)
                 if psa.endInclusive
@@ -3224,7 +3217,7 @@ class ASTGenerator {
                 if m != null {
                     -- found assignment method
                     -- promote our parameters, call it and we're done
-                    var params := new Array<Value>()
+                    var params := new PrimitiveArray<Value>()
                     if reuse
                         cm.add(right)
                     else
@@ -3258,7 +3251,7 @@ class ASTGenerator {
                 else {
                     -- no assignment method
                     if methodNode.name = "[]" {
-                        var types := new Array<String>()
+                        var types := new PrimitiveArray<String>()
                         for p in testParams
                             types.append(p.type.displayName)
                         throw new CompilerException("'\{oldParams[0].type.displayName}' " +
@@ -3314,7 +3307,7 @@ class ASTGenerator {
     }
 
     @pre(assignmentOp.type = ParseNodeType.ASSIGNMENT_OPERATOR)
-    method processAssignment(left:Array<Value?>, assignmentOp:ParseNode, 
+    method processAssignment(left:PrimitiveArray<Value?>, assignmentOp:ParseNode, 
             var right:Value) {
         var cm := currentMethod
         assert cm != null
@@ -3417,7 +3410,7 @@ class ASTGenerator {
         }
 
         def panda := ClassType.PANDA().classNode
-        var parameters := new Array<Value>(object)
+        var parameters := new PrimitiveArray<Value>(object)
         if !primitiveTarget
             parameters.append(new ClassObjectLiteral(position, type.unwrapNullable))
         
@@ -3463,15 +3456,15 @@ class ASTGenerator {
     }
 
     @pre(params.type = ParseNodeType.PARAMETERS)
-    method convertParameters(params:ParseNode):Array<Value> {
+    method convertParameters(params:ParseNode):PrimitiveArray<Value> {
         assert params[0]->(TokenNode).token.type = TokenType.LPAREN
-        def result := new Array<Value>()
+        def result := new PrimitiveArray<Value>()
         for i in 1 .. params.length - 1 by 2 {
             var expr := convertExpression(params[i])
             if i = params.length - 2 & expr-?>(UnresolvedRange) {
                 def r := expr->(UnresolvedRange)
                 def left := r.left
-                if left != null & left.variableType().isArray & r.right = null & 
+                if left != null & left.variableType().isPrimitiveArray & r.right = null & 
                         r.step = null & r.endInclusive
                     expr := new Unwrap(left)
             }
@@ -3490,7 +3483,7 @@ class ASTGenerator {
     ============================================================================
     @private
     @pre(v.type.isMethod)
-    method prepareMethodParameters(v:Value, params:Array<Value>) {
+    method prepareMethodParameters(v:Value, params:PrimitiveArray<Value>) {
         var parameterTypes := v.type.unwrapNullable->(MethodType).methodParameters
         if parameterTypes.length != params.length {
             var msg :=  "\{v.type.displayName} requires \{parameterTypes.length}"
@@ -3506,7 +3499,7 @@ class ASTGenerator {
     }
     
     method findSliceMethod(context:Value, endInclusive:Bit,
-            params:Array<Value>):MethodMatch? {
+            params:PrimitiveArray<Value>):MethodMatch? {
         if params.length = 3 & params[2]-?>(IntegerLiteral) & 
                 params[2]->(IntegerLiteral).value = 1 {
             def result := findSliceMethod(context, endInclusive,
@@ -3525,7 +3518,7 @@ class ASTGenerator {
             if result != null
                 return result
         }
-        var finalParams:Array<Value>
+        var finalParams:PrimitiveArray<Value>
         var type:Type
         if context-?>(ClassLiteral) {
             type := context->(ClassLiteral).value
@@ -3555,8 +3548,8 @@ class ASTGenerator {
 
     @private
     @pre(types.type = ParseNodeType.TYPES)
-    method convertTypes(types:ParseNode):Array<Type> {
-        def result:Array<Type> := []
+    method convertTypes(types:ParseNode):PrimitiveArray<Type> {
+        def result:PrimitiveArray<Type> := []
         assert types[0]->(TokenNode).token.type = TokenType.LPAREN
         for i in 1 ... types.length - 2 by 2
             result.append(convertType(types[i]))
@@ -3598,7 +3591,7 @@ class ASTGenerator {
         def cm := currentMethod
         assert cm != null
         def symbols := new SymbolTable(cm, cm.owner.symbolTable)
-        def params := new Array<Value>()
+        def params := new PrimitiveArray<Value>()
         for i, param in cm.parameters {
             symbols.putVariable(param)
             if i != 0
@@ -3621,7 +3614,7 @@ class ASTGenerator {
     ============================================================================
     method processCallOrAssignment(var context:Value?, c:ParseNode):Value? {
         var i := 1
-        def lvalues := new Array<Value?>()
+        def lvalues := new PrimitiveArray<Value?>()
         while i < c.length {
             if c[i].type = ParseNodeType.TOKEN {
                 switch c[i]->(TokenNode).token.type {
@@ -3704,7 +3697,7 @@ class ASTGenerator {
                         }
                         if !slice {
                             assert left != null
-                            if context.type.isArray {
+                            if context.type.isPrimitiveArray {
                                 if context.type.isNullable
                                     context := implicitCast(c.position, context,
                                             context.type.unwrapNullable)
@@ -3729,8 +3722,8 @@ class ASTGenerator {
                                     context := implicitCast(context.position, 
                                             context, wrapper, CastType.IMPLICIT)
                                 }
-                                var cl := context.type.classNode
-                                var params := new Array<Value>(context, left)
+                                def cl := context.type.classNode
+                                var params := new PrimitiveArray<Value>(context, left)
                                 var op := cl.symbolTable.getMethod(c.position, 
                                         "[]", params, false)
                                 if op = null & context-?>(ClassLiteral) {
@@ -3762,7 +3755,7 @@ class ASTGenerator {
                                 context := implicitCast(context.position, 
                                         context, wrapper, CastType.IMPLICIT)
                             }
-                            var cl := context.type.classNode
+                            def cl := context.type.classNode
                             if left = null
                                 left := new NullLiteral(context.position)
                             if right = null
@@ -3795,7 +3788,7 @@ class ASTGenerator {
                         i += 1
                         def name := c[i]->>(String)
                         i += 1
-                        var types:Array<Type>?
+                        var types:PrimitiveArray<Type>?
                         if i < c.length & c[i].type = ParseNodeType.TYPES {
                             types := convertTypes(c[i])
                             i += 1
@@ -3992,8 +3985,8 @@ class ASTGenerator {
 
     @private
     @pre(t.type = ParseNodeType.FOR_TUPLE)
-    method convertForTuple(t:ParseNode):Array<(Position, String?, Type?, ParseNode?)> {
-        def result := new Array<(Position, String?, Type?, ParseNode?)>()
+    method convertForTuple(t:ParseNode):PrimitiveArray<(Position, String?, Type?, ParseNode?)> {
+        def result := new PrimitiveArray<(Position, String?, Type?, ParseNode?)>()
         var i := 0
         assert t[0]->(TokenNode).token.type = TokenType.LPAREN
         i += 1
@@ -4037,7 +4030,7 @@ class ASTGenerator {
     @private
     @pre(l.type = ParseNodeType.ANY_LOOP)
     method convertForEachLoop(l:ParseNode, var i:Int, 
-            var vars:Array<(Position, String?, Type?, ParseNode?)>, 
+            var vars:PrimitiveArray<(Position, String?, Type?, ParseNode?)>, 
             label:String?):Node {
         var indexPosition:Position? := null
         var indexName:String? := null
@@ -4084,7 +4077,7 @@ class ASTGenerator {
         var array := convertExpression(l[i])
         i += 1
         if vars.length = 1 & vars[0][2] != null {
-            if array-?>(UnresolvedArray) | array-?>(UnresolvedRange) {
+            if array-?>(UnresolvedPrimitiveArray) | array-?>(UnresolvedRange) {
                 -- eventually, can just cast to ListView<type>, but as of this
                 -- writing generics aren't in and thus ListView doesn't actually
                 -- exist. So first we make sure that this is an unresolved
@@ -4096,12 +4089,12 @@ class ASTGenerator {
                 if array-!>(UnresolvedRange) | type.isNumber {
                     array := implicitCast(array.position, array, 
                             cl.symbolTable.getType(array.position,
-                                "\{class(Array).name}<\{type.name}>"))
+                                "\{class(PrimitiveArray).name}<\{type.name}>"))
                 }
             }
         }
         array := resolveUnresolvedConstructs(array)
-        if !array.type.isArray {
+        if !array.type.isPrimitiveArray {
             throw new CompilerException("for ... in may only be used on " +
                     "arrays (found '\{array.type.displayName}')", l.position)
         }
@@ -4142,7 +4135,7 @@ class ASTGenerator {
             valueTypeNode := null
         }
         if valueType = null
-            valueType := array.type.unwrapNullable->(ArrayType).elementType
+            valueType := array.type.unwrapNullable->(PrimitiveArrayType).elementType
         def cm := currentMethod
         assert cm != null
         def locals := cm.localVariables
@@ -4208,7 +4201,7 @@ class ASTGenerator {
     @private
     method convertForLoop(l:ParseNode, var i:Int, label:String?):Node {
         i += 1
-        var vars:Array<(Position, String?, Type?, ParseNode?)>
+        var vars:PrimitiveArray<(Position, String?, Type?, ParseNode?)>
         if l[i].type = ParseNodeType.FOR_TUPLE {
             vars := convertForTuple(l[i])
             i += 1
@@ -4373,10 +4366,10 @@ class ASTGenerator {
             assert varType = TokenType.DEF
             isFinal := true
         }
-        def varPositions := new Array<Position>()
-        def varNames := new Array<String?>()
-        def varTypeNodes := new Array<ParseNode?>()
-        def varTypes := new Array<Type?>()
+        def varPositions := new PrimitiveArray<Position>()
+        def varNames := new PrimitiveArray<String?>()
+        def varTypeNodes := new PrimitiveArray<ParseNode?>()
+        def varTypes := new PrimitiveArray<Type?>()
         var i := 1
         loop {
             varPositions.append(v[i].position)
@@ -4844,7 +4837,7 @@ class ASTGenerator {
         if p.length > i {
             assert p[i]->(TokenNode).token.type = TokenType.ELLIPSIS
             isVarArg := true
-            type := getType(p.position, class(Array).name + "<" + type.name + 
+            type := getType(p.position, class(PrimitiveArray).name + "<" + type.name + 
                     ">")
         }
         var param := new Parameter(p.position, name.text, type)
@@ -4928,9 +4921,9 @@ class ASTGenerator {
     ============================================================================
     @pre(m.methodType = MethodNodeType.CONSTRUCTOR)
     method fixConstructor(m:MethodNode) {
-        var cc := currentClass
+        def cc := currentClass
         assert cc != null
-        if cc.name != ClassNode.OBJECT_NAME & 
+        if !cc.annotations.isUnspecified & cc.name != ClassNode.OBJECT_NAME & 
                 !callsOtherSelfConstructor(m) & !callsSuperConstructor(m) {
             var block := m.block
             var originalLength := block.length
@@ -5162,10 +5155,10 @@ class ASTGenerator {
                             "declared '@class'", m.position)
                 }
                 if m.parameters.length > 1 | (m.parameters.length = 1 &
-                        m.parameters[0].type != ArrayType.ARRAY_STRING()) {
+                        m.parameters[0].type != PrimitiveArrayType.ARRAY_STRING()) {
                     throw new CompilerException("method 'main' must accept " +
                             "either no parameters or one parameter of type " +
-                            "'\{class(Array<String>).name}'", m.position)
+                            "'\{class(PrimitiveArray<String>).name}'", m.position)
                 }
             }
             default: {
@@ -5376,6 +5369,8 @@ class ASTGenerator {
             assert cm.parent = cl : "wrong cm.parent"
         }
         else {
+            if cl.annotations.isUnspecified
+                return
             var cm:MethodNode? := null
             for child in cl.children {
                 if child.position = m.position {
@@ -5506,7 +5501,7 @@ class ASTGenerator {
              annotations:Annotations, f:ParseNode) {
         var cl := currentClass
         assert cl != null
-        def fields := new Array<FieldNode?>()
+        def fields := new PrimitiveArray<FieldNode?>()
         if linkageOnly {
             def fieldType := f[0]->(TokenNode).token.type
             var isFinal:Bit
@@ -5655,7 +5650,7 @@ class ASTGenerator {
                 def panda := ClassType.PANDA().classNode
                 fieldIndex->(FieldNode).initialValue := call(fieldIndex.position, 
                         new ClassLiteral(panda.type()), "allocThreadLocal", 
-                        new Array<Value>())
+                        new PrimitiveArray<Value>())
             }
         }
     }
@@ -5892,46 +5887,48 @@ class ASTGenerator {
 
     @private
     method postprocessClass(cl:ClassNode) {
-        -- add default constructor if needed
-        var hasConstructor := false
-        for child in cl.children {
-            if child-?>(MethodNode) {
-                var m := child->(MethodNode)
-                if m.methodType = MethodNodeType.CONSTRUCTOR {
-                    if !linkageOnly
-                        fixConstructor(m)
-                    hasConstructor := true
+        if !cl.annotations.isUnspecified {
+            -- add default constructor if needed
+            var hasConstructor := false
+            for child in cl.children {
+                if child-?>(MethodNode) {
+                    var m := child->(MethodNode)
+                    if m.methodType = MethodNodeType.CONSTRUCTOR {
+                        if !linkageOnly
+                            fixConstructor(m)
+                        hasConstructor := true
+                    }
                 }
             }
-        }
-        if !hasConstructor & !cl.isInterface {
-            new ASTGenerator().compileMethod(cl, 
-                    "constructor() { }", cl.position)
-            cl[cl.length - 1]->(MethodNode).doccomment := 
-                    "Creates a new \{cl.simpleName}."
-        }
-        if !linkageOnly {
-            var isAbstract := cl.annotations.isAbstract | 
-                    cl.isInterface
-            for m in cl.virtualMethods {
-                if m.annotations.isAbstract & !isAbstract {
-                    PandaCompiler.reportError(new CompilerException(
-                            "non-abstract class \{cl.name} does not " +
-                            "implement abstract \{m}",
-                            cl.position))
-                }
+            if !hasConstructor & !cl.isInterface {
+                new ASTGenerator().compileMethod(cl, 
+                        "constructor() { }", cl.position)
+                cl[cl.length - 1]->(MethodNode).doccomment := 
+                        "Creates a new \{cl.simpleName}."
             }
-            for intf in cl.allInterfaces() {
-                if !intf.isInterface {
-                    PandaCompiler.reportError(new CompilerException(
-                            "\{intf.name} is not an interface", cl.position))
+            if !linkageOnly {
+                var isAbstract := cl.annotations.isAbstract | 
+                        cl.isInterface
+                for m in cl.virtualMethods {
+                    if m.annotations.isAbstract & !isAbstract {
+                        PandaCompiler.reportError(new CompilerException(
+                                "non-abstract class \{cl.name} does not " +
+                                "implement abstract \{m}",
+                                cl.position))
+                    }
                 }
-                for m in cl.interfaceMethods(intf) {
-                    if m.annotations.isAbstract &
-                            !(cl.annotations.isAbstract | cl.isInterface) {
-                        error("non-abstract class \{cl.name} " + 
-                                "does not implement interface \{m}",
-                                cl.position)
+                for intf in cl.allInterfaces() {
+                    if !intf.isInterface {
+                        PandaCompiler.reportError(new CompilerException(
+                                "\{intf.name} is not an interface", cl.position))
+                    }
+                    for m in cl.interfaceMethods(intf) {
+                        if m.annotations.isAbstract &
+                                !(cl.annotations.isAbstract | cl.isInterface) {
+                            error("non-abstract class \{cl.name} " + 
+                                    "does not implement interface \{m}",
+                                    cl.position)
+                        }
                     }
                 }
             }
@@ -5955,10 +5952,10 @@ class ASTGenerator {
 
     @private
     @pre(p.type = ParseNodeType.GENERIC_PARAMETERS_DECLARATION)
-    method convertGenericParameterTypes(p:ParseNode):Array<GenericParameterType> {
+    method convertGenericParameterTypes(p:ParseNode):PrimitiveArray<GenericParameterType> {
         var cc := currentClass
         assert cc != null
-        var result := new Array<GenericParameterType>()
+        var result := new PrimitiveArray<GenericParameterType>()
         assert p[0]->(TokenNode).token.type = TokenType.LT
         var i := 1
         while i < p.length - 1 {
@@ -5990,7 +5987,7 @@ class ASTGenerator {
     method convertClassOrInterface(position:Position, doccomment:String?, 
             annotations:Annotations, var className:String, isInterface:Bit,
             genericParametersNode:ParseNode?,
-            supertypeNode:ParseNode?, interfaceNodes:Array<ParseNode>, 
+            supertypeNode:ParseNode?, interfaceNodes:PrimitiveArray<ParseNode>, 
             classMembers:ParseNode):ClassNode {
         def currentPackage := self.currentPackage
         if currentPackage != null
@@ -6102,7 +6099,7 @@ class ASTGenerator {
             i += 2
         }
 
-        var interfaces := new Array<ParseNode>()
+        var interfaces := new PrimitiveArray<ParseNode>()
         if cl[i].type = ParseNodeType.INTERFACES {
             var interfacesNode := cl[i]
             assert interfacesNode[0]->(TokenNode).token.type = TokenType.LPAREN
@@ -6151,7 +6148,7 @@ class ASTGenerator {
         else
             genericParametersNode := null
         
-        var interfaces := new Array<ParseNode>()
+        var interfaces := new PrimitiveArray<ParseNode>()
         if cl[i]-?>(TokenNode) & cl[i]->(TokenNode).token.type = TokenType.COLON {
             i += 1
             interfaces.append(cl[i])
@@ -6346,8 +6343,8 @@ class ASTGenerator {
 
             assert nameMap != null
             pendingFieldValues[nameMap] := new PandaParser().parseExpression(
-                    "new panda.collections.HashMap(new Array<Object?>(" + 
-                    keyInitializer + "), new Array<Object?>(" + 
+                    "new panda.collections.HashMap(new PrimitiveArray<Object?>(" + 
+                    keyInitializer + "), new PrimitiveArray<Object?>(" + 
                     valueInitializer + "))->>(ImmutableHashMap)", 
                     e.position)
         }
@@ -6540,16 +6537,16 @@ class ASTGenerator {
         }
     }
 
-    @pre(t.isArray)
-    method makeArrayImmutable(position:Position, t:Type):Type {
-        var elementType := t->(ArrayType).elementType
-        if elementType.isArray
-            elementType := makeArrayImmutable(position, elementType)
+    @pre(t.isPrimitiveArray)
+    method makePrimitiveArrayImmutable(position:Position, t:Type):Type {
+        var elementType := t->(PrimitiveArrayType).elementType
+        if elementType.isPrimitiveArray
+            elementType := makePrimitiveArrayImmutable(position, elementType)
         if !elementType.isImmutable {
             throw new CompilerException("constants must be immutable (found " +
                     "mutable type '" + elementType.displayName + "')", position)
         }
-        return getType(position, class(ImmutableArray).name + "<" + 
+        return getType(position, class(ImmutablePrimitiveArray).name + "<" + 
                 elementType.name + ">")
     }
 
@@ -6610,7 +6607,7 @@ class ASTGenerator {
     @private
     method createPropertySynthetics() {
         for cl in SymbolTable.classes {
-            var properties := new Array<FieldNode>()
+            var properties := new PrimitiveArray<FieldNode>()
             var getters := new HashMap()
             var setters := new HashMap()
             for child in cl.children {
@@ -6675,89 +6672,93 @@ class ASTGenerator {
         def cl := f.owner
         def immutable := cl.type().isImmutable
         var result:Bit? := null
-        if pending != null {
-            nodeStack.push(cl)
-            def m := new MethodNode("<dummy>", 
-                    MethodNodeType.METHOD)
-            m.parent := currentClass
-            if f.annotations.isClass | 
-                    f.annotations.isThread {
-                m.annotations.isClass := true
-            }
-            else {
-                m.parameters.append(new Parameter(
-                        Parameter.SELF_NAME, cl.type()))
-            }
-            nodeStack.push(m)
-            def block := new Block(cl.symbolTable)
-            m.add(block)
-            nodeStack.push(block)
-            try {
-                var node:ParseNode
-                if pending-?>(ParseNode)
-                    node := pending->(ParseNode)
-                else
-                    node := pending->(TupleReference).tuple
-                var value := convertExpression(node)
-                if pending-?>(TupleReference) {
-                    def element :=
-                            pending->(TupleReference).element
-                    if value-?>(UnresolvedTuple)
-                        value := value[element]->(Value)
-                    else {
-                        var reused := tuples[value.position]->(ReusedValueDefinition?)
-                        if reused = null {
-                            reused := new ReusedValueDefinition(value)
-                            tuples[value.position] := reused
+        if (!cl.annotations.isUnspecified | 
+                f.annotations.isThread |
+                f.annotations.isClass) {
+            if pending != null {
+                nodeStack.push(cl)
+                def m := new MethodNode("<dummy>", 
+                        MethodNodeType.METHOD)
+                m.parent := currentClass
+                if f.annotations.isClass | 
+                        f.annotations.isThread {
+                    m.annotations.isClass := true
+                }
+                else {
+                    m.parameters.append(new Parameter(
+                            Parameter.SELF_NAME, cl.type()))
+                }
+                nodeStack.push(m)
+                def block := new Block(cl.symbolTable)
+                m.add(block)
+                nodeStack.push(block)
+                try {
+                    var node:ParseNode
+                    if pending-?>(ParseNode)
+                        node := pending->(ParseNode)
+                    else
+                        node := pending->(TupleReference).tuple
+                    var value := convertExpression(node)
+                    if pending-?>(TupleReference) {
+                        def element :=
+                                pending->(TupleReference).element
+                        if value-?>(UnresolvedTuple)
+                            value := value[element]->(Value)
+                        else {
+                            var reused := tuples[value.position]->(ReusedValueDefinition?)
+                            if reused = null {
+                                reused := new ReusedValueDefinition(value)
+                                tuples[value.position] := reused
+                            }
+                            value := getField(value.position, 
+                                    reused.createReference(),
+                                    "$field" + element)
                         }
-                        value := getField(value.position, 
-                                reused.createReference(),
-                                "$field" + element)
                     }
-                }
-                if f.type != Type.UNRESOLVED & 
-                        value.canImplicitCastTo(f.type) {
-                    value := implicitCast(value.position, value,
-                            f.type)
-                }
-                if value-?>(UnresolvedArray) {
-                    def elementType := 
-                            determineUnresolvedArrayElementType(
-                                value->(UnresolvedArray))
-                    var type := SymbolTable.master.getType(
-                                value.position, 
-                                class(Array).name + "<" + 
-                                elementType.name + ">")
-                    if f.annotations.isClass {
-                        type := makeArrayImmutable(
-                                value.position,
+                    if f.type-!>(UnresolvedType) & 
+                            value.canImplicitCastTo(f.type) {
+                        value := implicitCast(value.position, value,
+                                f.type)
+                    }
+                    if value-?>(UnresolvedPrimitiveArray) {
+                        def elementType := 
+                                determineUnresolvedPrimitiveArrayElementType(
+                                    value->(UnresolvedPrimitiveArray))
+                        var type := SymbolTable.master.getType(
+                                    value.position, 
+                                    class(PrimitiveArray).name + "<" + 
+                                    elementType.name + ">")
+                        if f.annotations.isClass {
+                            type := makePrimitiveArrayImmutable(
+                                    value.position,
+                                    type)
+                        }
+                        value := implicitCast(value.position, value,
                                 type)
                     }
-                    value := implicitCast(value.position, value,
-                            type)
+                    if value.type = Type.UNRESOLVED {
+                        throw new UnresolvedTypeException(
+                                value.position)
+                    }
+                    if f.type-?>(UnresolvedType)
+                        f.type := value.variableType()
+                    f.initialValue := implicitCast(value.position, 
+                            value, f.type, CastType.IMPLICIT)
+                    pendingFieldValues.remove(f)
+                    result := true
                 }
-                if value.type = Type.UNRESOLVED {
-                    throw new UnresolvedTypeException(
-                            value.position)
+                catch e:UnresolvedTypeException {
+                    result := false
                 }
-                if f.type = Type.UNRESOLVED
-                    f.type := value.variableType()
-                f.initialValue := implicitCast(value.position, 
-                        value, f.type, CastType.IMPLICIT)
-                pendingFieldValues.remove(f)
-                result := true
+                close(class(Block))
+                close(class(MethodNode))
+                close(class(ClassNode))
             }
-            catch e:UnresolvedTypeException {
-                result := false
+            else if f.type = Type.UNRESOLVED {
+                error("field '\{f.name}' has neither an " +
+                        "explicit type nor an initialization value",
+                        f.position)
             }
-            close(class(Block))
-            close(class(MethodNode))
-            close(class(ClassNode))
-        }
-        else if f.type = Type.UNRESOLVED {
-            error("field '\{f.name}' has neither an " +
-                    "explicit type nor an initialization value",
-                    f.position)
         }
 
         if immutable & !f.annotations.isClass & 
@@ -6780,7 +6781,7 @@ class ASTGenerator {
                 f.initialValue != null &
                 cl.symbolTable.getMethod(cl.position,
                     getThreadLocalInitializerName(f),
-                    new Array<Value>(), 
+                    new PrimitiveArray<Value>(), 
                     true) = null {
             createThreadLocalInitializer(f)
         }
@@ -6792,9 +6793,8 @@ class ASTGenerator {
     Determines the type of unresolved fields based on their initialization
     expressions.
     ============================================================================
-    @pre(!linkageOnly)
     method inferFieldTypes(genericOnly:Bit) {
-        var remaining:Array<FieldNode>
+        var remaining:PrimitiveArray<FieldNode>
         var madeProgress:Bit
         var classes := SymbolTable.classes
         -- maps Positions to ReusedValueDefinitions
@@ -6807,7 +6807,7 @@ class ASTGenerator {
                     continue
                 for child in cl.children {
                     if child-?>(FieldNode) {
-                        var f := child->(FieldNode)
+                        def f := child->(FieldNode)
                         def result := processField(f, tuples)
                         if result = true
                             madeProgress := true
@@ -6831,7 +6831,7 @@ class ASTGenerator {
 
     method markPropertiesFinal() {
         for cl in SymbolTable.classes {
-            if !cl.type().isImmutable
+            if cl.annotations.isUnspecified | !cl.type().isImmutable
                 continue
             for child in cl.children {
                 if child-?>(FieldNode) {
@@ -6883,7 +6883,7 @@ class ASTGenerator {
     method reset() {
         currentPackage := null
         classUses := new HashMap()
-        packageUses := new Array<String>()
+        packageUses := new PrimitiveArray<String>()
     }
 
     method convertExpression(s:String, start:Position):Value {
@@ -6894,7 +6894,7 @@ class ASTGenerator {
 
     @pre(nodeStack.length = 0)
     method compileStatement(b:Block, node:ParseNode) {
-        var context := new Array<Node>()
+        var context := new PrimitiveArray<Node>()
         var m:Node := b
         while m-!>(MethodNode) {
             def parent := m.parent
@@ -6944,7 +6944,7 @@ class ASTGenerator {
         self.forceTypeResolution := true
         var parser := new PandaParser()
         var parseNode := parser.parseMethod(s, start)
-        var context := new Array<Node>()
+        var context := new PrimitiveArray<Node>()
         nodeStack.push(cl)
         convertMethodDeclaration(null, annotations, parseNode)
         close(class(ClassNode))

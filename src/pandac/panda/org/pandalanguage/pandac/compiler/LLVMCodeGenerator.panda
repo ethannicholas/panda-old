@@ -56,9 +56,9 @@ uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.Multiply
-uses org.pandalanguage.pandac.tree.NewArrayWithLength
-uses org.pandalanguage.pandac.tree.NewArrayWithRange
-uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NotEqual
 uses org.pandalanguage.pandac.tree.NotIdentity
@@ -109,9 +109,9 @@ uses org.pandalanguage.pandac.types.VoidType
 class ClassConstant {
     var name:String
     var type:String
-    var methods:Array<MethodNode>
+    var methods:PrimitiveArray<MethodNode>
     
-    constructor(name:String, type:String, methods:Array<MethodNode>) {
+    constructor(name:String, type:String, methods:PrimitiveArray<MethodNode>) {
         self.name := name
         self.type := type
         self.methods := methods
@@ -194,7 +194,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     var cStringCount:Int
     
     @private
-    var byteArrayCount:Int
+    var bytePrimitiveArrayCount:Int
     
     @private
     var stringConstants := new HashMap()
@@ -286,7 +286,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             return "ptr"
         else if t.isPrimitive
             return getLLVMType(t)
-        else if t.isArray {
+        else if t.isPrimitiveArray {
             def e := t.elementType
             var suffix:String
             if t.isImmutable
@@ -626,7 +626,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 targetType.name)
 
         var params := construct.parameters
-        var finalParams := new Array<Value>()
+        var finalParams := new PrimitiveArray<Value>()
         -- create a dummy value and force its reference to be what we want
         var dummyReference := new Dummy(targetType)
         dummyReference.setProperty(REFERENCE, result)
@@ -803,7 +803,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     "(i32 " + threadLocalId + ", ")->>(MutableString)
             var initializer := owner.symbolTable.getMethod(fr.position,
                         ASTGenerator.getThreadLocalInitializerName(fr.field),
-                        new Array<Value>(), true)
+                        new PrimitiveArray<Value>(), true)
             if initializer != null {
                 callString.append(
                         getLLVMType(NativePointerType.NATIVE_POINTER) + 
@@ -916,7 +916,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             if checkCast {
                 -- verify the cast. Use a dummy for the first 
                 -- parameter just to get the type right.
-                var params := new Array<Value>(new Dummy(actualType), 
+                var params := new PrimitiveArray<Value>(new Dummy(actualType), 
                         new ClassObjectLiteral(destType.unwrapNullable()), 
                         new BitLiteral(destType.isNullable))
                 var panda := ClassType.PANDA().classNode
@@ -970,9 +970,9 @@ class LLVMCodeGenerator (CodeGenerator) {
                 getName(variable), vr->>(String))
     }
     
-    @pre(array.type.isArray)
+    @pre(array.type.isPrimitiveArray)
     @pre(index.type = Type.INDEX_TYPE)
-    method getArrayElementPointer(array:Value, index:Value):String {
+    method getPrimitiveArrayElementPointer(array:Value, index:Value):String {
         var arrayRef := getTypedReference(array)
         var indexRef := getTypedReference(index)
         if CompilerSettings.boundsChecking {
@@ -1000,7 +1000,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     @private
     method callClassInit(cl:ClassNode) {
         var classInit := cl.symbolTable.getMethod(cl.position,
-                MethodNode.CLASS_INIT_NAME, new Array<Value>(), true)
+                MethodNode.CLASS_INIT_NAME, new PrimitiveArray<Value>(), true)
         if classInit = null {
             throw new InternalCompilerException("classInit method not found " +
                     "in " + cl.name, cl.position)
@@ -1065,7 +1065,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     
     method createIndexValueReference(iv:IndexValue):String {
-        var ep := getArrayElementPointer(iv.array, iv.index)
+        var ep := getPrimitiveArrayElementPointer(iv.array, iv.index)
         return createCommandReference("load " + getLLVMType(iv.type) + "* " + 
                 ep + "; " + iv, iv->>(String))
     }
@@ -1145,7 +1145,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
 
-    method createNewArrayWithLengthReference(na:NewArrayWithLength):String {
+    method createNewPrimitiveArrayWithLengthReference(na:NewPrimitiveArrayWithLength):String {
         var arrayClass := na.type.classNode
         var cc := getClassConstant(arrayClass)
         var cast := getTempVariable()
@@ -1157,7 +1157,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         var ref := getReference(na.arrayLength)
         assert ref != null
         var alloc := createCallReference("i8* " +
-                "@pandaNewArrayWithLength(" + classType + " " + cast + 
+                "@pandaNewPrimitiveArrayWithLength(" + classType + " " + cast + 
                 ", i32 " + ref + ", i32 " + elementType.size + ", i1 " + 
                 !elementType.isPrimitive + ")", "allocate " + na.type.name)
         var result := createCommandReference("bitcast i8* " + alloc + " to " + 
@@ -1165,7 +1165,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
     
-    method createNewArrayWithRangeReference(na:NewArrayWithRange):String {
+    method createNewPrimitiveArrayWithRangeReference(na:NewPrimitiveArrayWithRange):String {
         var arrayClass := na.type.classNode
         var cc := getClassConstant(arrayClass)
         var cast := getTempVariable()
@@ -1173,13 +1173,13 @@ class LLVMCodeGenerator (CodeGenerator) {
         var classType := getLLVMType(ClassType.CLASS())
         writeBody(cast + " = bitcast " + cc.type + "* @" + 
                 cc.name + " to " + classType, "convert class pointer")
-        var rawArray := getTypedReference(na.source)
+        var rawPrimitiveArray := getTypedReference(na.source)
         var arrayCast := getTempVariable()
         -- this cast isn't necessary legal but it doesn't matter
-        writeBody(arrayCast + " = bitcast " + rawArray + " to " + 
-                getLLVMType(ClassType.ARRAY()), "cast array pointer to Array")
+        writeBody(arrayCast + " = bitcast " + rawPrimitiveArray + " to " + 
+                getLLVMType(ClassType.ARRAY()), "cast array pointer to PrimitiveArray")
         var alloc := createCallReference("i8* " +
-                "@pandaNewArrayWithRange(" + classType + " " + cast + ", " + 
+                "@pandaNewPrimitiveArrayWithRange(" + classType + " " + cast + ", " + 
                 getLLVMType(ClassType.ARRAY()) + " " + arrayCast + ", " +
                 getTypedReference(na.offset) + ", " +
                 getTypedReference(na.arrayLength) + ", i32 " + 
@@ -1190,7 +1190,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
     
-    method createNewArrayWithValuesReference(na:NewArrayWithValues):String {
+    method createNewPrimitiveArrayWithValuesReference(na:NewPrimitiveArrayWithValues):String {
         var elementType := na.type.elementType
         var arrayClass := na.type.classNode
         var cc := getClassConstant(arrayClass)
@@ -1228,7 +1228,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             default:
                 type := ARRAY_PTR
         }
-        var references:Array<String> := []
+        var references:PrimitiveArray<String> := []
         for v in na.values {
             var raw := getTypedReference(v)
             if type = ARRAY_REAL32 {
@@ -1242,7 +1242,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         var code := ("i8* (" + classType + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ", i32, ...)* " +
-                "@pandaNewArrayWithValues(" + classType + " " + cast + ", i32 " + 
+                "@pandaNewPrimitiveArrayWithValues(" + classType + " " + cast + ", i32 " + 
                 na.values.length + ", i32 " + type)->>(MutableString)
         for r in references {
             code.append(", ")
@@ -1474,9 +1474,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(NotIdentity): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne")
             case class(BitLiteral): return v->(BitLiteral).value->>(String)
             case class(IndexValue): return createIndexValueReference(v->(IndexValue))
-            case class(NewArrayWithLength): return createNewArrayWithLengthReference(v->(NewArrayWithLength))
-            case class(NewArrayWithValues): return createNewArrayWithValuesReference(v->(NewArrayWithValues))
-            case class(NewArrayWithRange): return createNewArrayWithRangeReference(v->(NewArrayWithRange))
+            case class(NewPrimitiveArrayWithLength): return createNewPrimitiveArrayWithLengthReference(v->(NewPrimitiveArrayWithLength))
+            case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
+            case class(NewPrimitiveArrayWithRange): return createNewPrimitiveArrayWithRangeReference(v->(NewPrimitiveArrayWithRange))
             case class(Not): return createNotReference(v->(Not))
             case class(BitwiseNot): return createBitwiseNotReference(v->(BitwiseNot))
             case class(UnaryMinus): return createUnaryMinusReference(v->(UnaryMinus))
@@ -1524,7 +1524,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @protected
     method generateIndexedAssignmentCode(ia:IndexedAssignment) {
-        var ep := getArrayElementPointer(ia.array, ia.index)
+        var ep := getPrimitiveArrayElementPointer(ia.array, ia.index)
         var elementType := ia.array.type.elementType
         var lref := getLLVMType(elementType) + "* " + ep
         var ref := getReference(ia.value) 
@@ -2063,7 +2063,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         else {
             body.write("define ")
-            if owner.isArray()
+            if owner.isPrimitiveArray()
                 body.write(SHARED_LINKAGE + " ")
         }
         if !externalMethod
@@ -2116,19 +2116,19 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     
     @private
-    method getCharArrayConstantReference(chars:Array<Char>):String {
-        var charArrayType := SymbolTable.master.getType(Position.INTERNAL,
+    method getCharPrimitiveArrayConstantReference(chars:PrimitiveArray<Char>):String {
+        var charPrimitiveArrayType := SymbolTable.master.getType(Position.INTERNAL,
                 ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME + "<panda.core.Char>")
-        var charArrayClass := charArrayType.classNode
-        var cc := getClassConstant(charArrayClass)
+        var charPrimitiveArrayClass := charPrimitiveArrayType.classNode
+        var cc := getClassConstant(charPrimitiveArrayClass)
         var charsType := "[" + chars.length + " x " + 
                 getLLVMType(CharType.CHAR) + "]"
         var type := "{ " + cc.type + "*, " +
                 getLLVMType(Type.INDEX_TYPE) + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ", " + 
                 charsType + "* }"
-        var result := "ca" + byteArrayCount
-        byteArrayCount += 1
+        var result := "ca" + bytePrimitiveArrayCount
+        bytePrimitiveArrayCount += 1
         var charsName := "@" + result + "_chars"
         header.write(charsName + " = private unnamed_addr constant " + 
                 charsType + " [")
@@ -2146,7 +2146,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 charsType + "* " + charsName + " }, align " +
                 NativePointerType.NATIVE_POINTER.size)
         return "bitcast(" + type + "* @" + result + " to " + 
-                getLLVMType(charArrayType) + ")"
+                getLLVMType(charPrimitiveArrayType) + ")"
     }
 
     @private
@@ -2154,10 +2154,10 @@ class LLVMCodeGenerator (CodeGenerator) {
         var result := stringConstants[s]->(String?)
         if result = null {
             def string := ClassType.STRING().classNode
-            var chars := getCharArrayConstantReference(s->>(Array<Char>))
+            var chars := getCharPrimitiveArrayConstantReference(s->>(PrimitiveArray<Char>))
             result := "@s" + stringConstants.length
             stringConstants[s] := result
-            var charArrayType := SymbolTable.master.getType(Position.INTERNAL,
+            var charPrimitiveArrayType := SymbolTable.master.getType(Position.INTERNAL,
                     ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME + 
                     "<panda.core.Char>")
             var cc := getClassConstant(string)
@@ -2167,7 +2167,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     "%" + getName(string.type()) + " { " + 
                     getLLVMType(ClassType.CLASS()) + " bitcast(" + cc.type + 
                     "* @" + cc.name + " to " + getLLVMType(ClassType.CLASS()) + 
-                    "), " + getLLVMType(charArrayType) + " " + chars + " }," +
+                    "), " + getLLVMType(charPrimitiveArrayType) + " " + chars + " }," +
                     " align " + NativePointerType.NATIVE_POINTER.size)
             stringConstants[s] := result
         }
@@ -2327,13 +2327,13 @@ class LLVMCodeGenerator (CodeGenerator) {
                         generateMethodCode(child->(MethodNode))
                 }
                 case class(FieldNode): {
-                    var f := child->(FieldNode).unwrap()
-                    if f.annotations.isClass & f.live {
+                    def f := child->(FieldNode).unwrap()
+                    if f.annotations.isClass {
                         -- write class field
                         body.write("@" + getName(f) + " = ")
                         if cl.state != ClassNodeState.DEFINED
                             body.write("external ")
-                        else if cl.type().isArray
+                        else if cl.type().isPrimitiveArray
                             body.write(SHARED_LINKAGE + " ")
                         body.write("global " + getLLVMType(f.type))
                         if cl.state = ClassNodeState.DEFINED
@@ -2438,19 +2438,19 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("declare void @pandaCheckBounds(" + array + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ")")
 
-        body.writeLine("declare i8* @pandaNewArrayWithLength(" + 
+        body.writeLine("declare i8* @pandaNewPrimitiveArrayWithLength(" + 
                 classType + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ", " +
                 getLLVMType(Type.INDEX_TYPE) + ", " +
                 getLLVMType(BitType.BIT) + ")")
-        body.writeLine("declare i8* @pandaNewArrayWithRange(" + 
+        body.writeLine("declare i8* @pandaNewPrimitiveArrayWithRange(" + 
                 classType + ", " + 
                 array + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ", " +
                 getLLVMType(BitType.BIT) + ")")
-        body.writeLine("declare i8* @pandaNewArrayWithValues(" + 
+        body.writeLine("declare i8* @pandaNewPrimitiveArrayWithValues(" + 
                 classType + ", " + 
                 getLLVMType(Type.INDEX_TYPE) + ", " + 
                 getLLVMType(IntType.INT32) + ", ...)")

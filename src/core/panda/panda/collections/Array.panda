@@ -1,18 +1,93 @@
--*package panda.collections
+package panda.collections
 
-================================================================================
-A mutable list of values. `Array` is a generic class, instantiated to hold a
-particular kind of object such as `Array<Int>` or `Array<String>`.
+@private
+class ArrayIterator<T> (Iterator<T>) {
+    def array:Array<T>
+    var index := 0
 
-See [Arrays](../../../arrays.html) for more information about using arrays in
-Panda.
-================================================================================
-class Array {
-    ============================================================================
-    @hidden
-    ============================================================================
-    @protected
-    @class
-    @external
-    method setLength(a:Object, elementSize:Int32, reserved:Bit, length:Int)
-}*-
+    constructor(array:Array<T>) {
+        self.array := array
+    }
+
+    @override
+    function hasMore():Bit {
+        return index < array.length
+    }
+
+    @override
+    method next():T {
+        def result := array[index]
+        index += 1
+        return result
+    }
+}
+
+class Array<T> (List<T>) {
+    @private
+    constant DEFAULT_LENGTH := 16
+
+    @private
+    var contents := new PrimitiveArray<T>(DEFAULT_LENGTH)
+
+    @private
+    var _length := 0
+
+    constructor() {
+    }
+
+    @override
+    @preOr(index < _length)
+    function [](index:Int):T {
+        return contents[index]
+    }
+
+    @override
+    function length():Int {
+        return _length
+    }
+
+    @self
+    @override
+    @preOr(index < _length)
+    method []:=(index:Int, value:T) {
+        contents[index] := value
+    }
+
+    @override
+    method add(value:T) {
+        ensureCapacity(_length + 1)
+        _length += 1
+        self[_length - 1] := value
+    }
+
+    @override
+    method remove(value:T) {
+        throw new NotSupportedException()
+    }
+
+    @override
+    method clear() {
+        contents := new PrimitiveArray<T>(DEFAULT_LENGTH)
+        _length := 0
+    }
+
+    @override
+    function contains(object:T):Bit {
+        throw new NotSupportedException()
+    }
+
+    @override
+    function iterator():Iterator<T> {
+        return new ArrayIterator<T>(self)
+    }
+
+    @private
+    method ensureCapacity(maxLength:Int) {
+        if maxLength > contents.length {
+            def newContents := new PrimitiveArray<T>(contents.length * 2)
+            for i in 0 .. length
+                newContents[i] := contents[i]
+            contents := newContents
+        }
+    }
+}

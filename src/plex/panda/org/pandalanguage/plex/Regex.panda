@@ -11,7 +11,7 @@ uses org.pandalanguage.plex.TableState
 @abstract
 class Node {
     @abstract
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int>
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int>
 
     @abstract
     @override
@@ -22,10 +22,10 @@ class Set : Node {
     var inverse := false
 
     @readonly
-    var contents := new Array<Object>()
+    var contents := new PrimitiveArray<Object>()
 
     @class
-    method set(table:Array<Bit>, c:Char) {
+    method set(table:PrimitiveArray<Bit>, c:Char) {
         var i := c->(Int)
         while table.length <= i
             table.append(false)
@@ -33,8 +33,8 @@ class Set : Node {
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
-        var table := new Array<Bit>()
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
+        var table := new PrimitiveArray<Bit>()
         for i in 0 ... contents.length - 1 {
             if contents[i]-?>(SingleChar)
                 set(table, contents[i]->(SingleChar).value)
@@ -44,9 +44,9 @@ class Set : Node {
                     set(table, r.contents[j])
             }
         }
-        -- FIXME use ->>(ImmutableArray) when that exists
+        -- FIXME use ->>(ImmutablePrimitiveArray) when that exists
         return Regex.singleton(context.addState(new TableState(inverse, 
-                new ImmutableArray<Bit>(table, 0, table.length), accept...)))
+                new ImmutablePrimitiveArray<Bit>(table, 0, table.length), accept...)))
     }
 
     @override
@@ -69,8 +69,8 @@ class Star : Node {
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
-        var next := new Array<Int>()
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
+        var next := new PrimitiveArray<Int>()
         for i in 0 ... accept.length - 1
             next.append(accept[i])
         var stateId := context.addState(new RemappedState([]))
@@ -78,12 +78,12 @@ class Star : Node {
         var start := contents.makeStartStates(context, next)
         for i in 0 ... accept.length - 1
             start.append(accept[i])
-        var newStates := new Array<State>()
+        var newStates := new PrimitiveArray<State>()
         for i in 0 ... context.states.length - 1
             newStates.append(context.states[i])
-        newStates[stateId] := new RemappedState(new ImmutableArray<Int>(start, 
+        newStates[stateId] := new RemappedState(new ImmutablePrimitiveArray<Int>(start, 
                 0, start.length))
-        context.states := new ImmutableArray<State>(newStates, 0, 
+        context.states := new ImmutablePrimitiveArray<State>(newStates, 0, 
                 newStates.length)
         return start
     }    
@@ -103,24 +103,24 @@ class Plus : Node {
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
         -- a lot of ugliness has crept in here over time, largely due to
         -- having to work around the immutability of various objects when these
         -- objects were not originally built as immutable and I didn't want to
         -- have to completely rewrite everything. Probably should have.
-        var next := new Array<Int>()
+        var next := new PrimitiveArray<Int>()
         for i in 0 ... accept.length - 1
             next.append(accept[i])
         var dummy := new RemappedState()
         var index := context.addState(dummy)
         next.append(index)
         var start := contents.makeStartStates(context, next)
-        var remapped := new RemappedState(new ImmutableArray<Int>(start, 0, 
+        var remapped := new RemappedState(new ImmutablePrimitiveArray<Int>(start, 0, 
                 start.length))
-        var newStates := context.states[0 .. index]->>(Array<State>)
+        var newStates := context.states[0 .. index]->>(PrimitiveArray<State>)
         newStates.append(remapped)
-        newStates.appendAll(context.states[index + 1..]->>(Array<State>))
-        context.states := newStates->>(ImmutableArray<State>)
+        newStates.appendAll(context.states[index + 1..]->>(PrimitiveArray<State>))
+        context.states := newStates->>(ImmutablePrimitiveArray<State>)
         return start
     }    
 
@@ -139,8 +139,8 @@ class Option : Node {
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
-        var states := new Array<Int>()
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
+        var states := new PrimitiveArray<Int>()
         for i in 0 ... accept.length - 1
             states.append(accept[i])
         var start := contents.makeStartStates(context, accept)
@@ -168,8 +168,8 @@ class Union : Node {
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
-        var result := new Array<Int>()
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
+        var result := new PrimitiveArray<Int>()
         var states := left.makeStartStates(context, accept)
         for i in 0 ... states.length - 1
             result.append(states[i])
@@ -194,7 +194,7 @@ class SingleChar : Node {
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
         return Regex.singleton(context.addState(new SingleCharState(value, 
                 accept...)))
     }    
@@ -206,25 +206,25 @@ class SingleChar : Node {
 }
 
 class CharSet : Node {
-    var contents:Array<Char>
+    var contents:PrimitiveArray<Char>
 
     constructor(a:Char, b:Char) {
-        contents := new Array<Char>()
+        contents := new PrimitiveArray<Char>()
         for c in a ... b
             contents.append(c)
     }
 
     constructor(contents:String) {
-        self.contents := contents->>(Array<Char>)
+        self.contents := contents->>(PrimitiveArray<Char>)
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
-        var table := new Array<Bit>()
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
+        var table := new PrimitiveArray<Bit>()
         for j in 0 ... contents.length - 1
             Set.set(table, contents[j])
         return Regex.singleton(context.addState(new TableState(false, 
-                new ImmutableArray<Bit>(table, 0, table.length),
+                new ImmutablePrimitiveArray<Bit>(table, 0, table.length),
                 accept...)))
     }    
 
@@ -237,7 +237,7 @@ class CharSet : Node {
 
 class Any : Node {
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
         return Regex.singleton(context.addState(new AnyState(accept...)))
     }    
 
@@ -260,7 +260,7 @@ class Concat : Node {
     }
 
     @override
-    method makeStartStates(context:NFA, accept:Array<Int>):Array<Int> {
+    method makeStartStates(context:NFA, accept:PrimitiveArray<Int>):PrimitiveArray<Int> {
         var rightStates := right.makeStartStates(context, accept)
         return left.makeStartStates(context, rightStates)
     }
@@ -449,8 +449,8 @@ class Regex {
     }
 
     @class
-    function singleton(i:Int):Array<Int> {
-        var result := new Array<Int>(1)
+    function singleton(i:Int):PrimitiveArray<Int> {
+        var result := new PrimitiveArray<Int>(1)
         result[0] := i
         return result
     }
@@ -470,7 +470,7 @@ class Regex {
         }
     }
 
-    method addToNFA(context:NFA, accept:Int):Array<Int> {
+    method addToNFA(context:NFA, accept:Int):PrimitiveArray<Int> {
         return regexNode.makeStartStates(context, singleton(accept))
     }
 }

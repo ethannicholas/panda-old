@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.types
 
 uses org.pandalanguage.pandac.compiler.ASTGenerator
 uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.PandaCompiler
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.ClassNodeState
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -23,11 +24,11 @@ class GenericType : ClassType {
 
     def position:Position
     def base:ClassType
-    def parameters:ImmutableArray<Type>
+    def parameters:ImmutablePrimitiveArray<Type>
 
     @private
     constructor(position:Position, base:ClassType, 
-            parameters:ImmutableArray<Type>) {
+            parameters:ImmutablePrimitiveArray<Type>) {
         super.constructor(getName(base, parameters))
         for p in parameters
             assert p-!>(UnresolvedType) : "parameter \{p} of \{self} is uninitialized"
@@ -38,7 +39,7 @@ class GenericType : ClassType {
 
     @private
     @class
-    function getName(base:ClassType, parameters:ImmutableArray<Type>):String {
+    function getName(base:ClassType, parameters:ImmutablePrimitiveArray<Type>):String {
         var result := base.name->>(MutableString)
         result.append("<")
         for i, p in parameters {
@@ -78,7 +79,7 @@ class GenericType : ClassType {
     }
 
     @override
-    function subtypes():ImmutableArray<Type> {
+    function subtypes():ImmutablePrimitiveArray<Type> {
         return parameters
     }
 
@@ -103,16 +104,16 @@ class GenericType : ClassType {
     }
 
     ============================================================================
-    Given a raw type possibly containing generics, such as `Array<Array<T>>`,
+    Given a raw type possibly containing generics, such as `PrimitiveArray<PrimitiveArray<T>>`,
     and a list of generic parameters and their corresponding concrete types,
-    returns the actual types represented. For instance, given `Array<Array<T>>`,
+    returns the actual types represented. For instance, given `PrimitiveArray<PrimitiveArray<T>>`,
     with `T` as a generic parameter and `String` as the concrete type, would
-    return `Array<Array<String>>`.
+    return `PrimitiveArray<PrimitiveArray<String>>`.
     ============================================================================
     @class
     method replaceGenerics(position:Position, symbolTable:SymbolTable, raw:Type, 
-            genericParameters:Array<GenericParameterType>,
-            concreteTypes:ImmutableArray<Type>):Type {
+            genericParameters:PrimitiveArray<GenericParameterType>,
+            concreteTypes:ImmutablePrimitiveArray<Type>):Type {
         -- Past Me was an idiot. This is so much simpler than what I was doing
         -- before.
         def result := symbolTable.getType(position, raw.name)
@@ -234,8 +235,6 @@ class GenericType : ClassType {
     method compilePhase2() {
         if classNode.annotations.isSynthetic
             return
-        for m in base.classNode.methods
-            instantiateMethod(m, false)
         for base in base.classNode.fields {
             if base.pendingValue != null {
                 for f in classNode.fields {
@@ -246,6 +245,11 @@ class GenericType : ClassType {
                 }
             }
         }
+        PandaCompiler.astGenerator.pendingFieldValues.addAll(pendingFieldValues)
+        PandaCompiler.astGenerator.inferFieldTypes(true)
+        pendingFieldValues.clear()
+        for m in base.classNode.methods
+            instantiateMethod(m, false)
         classNode.annotations.isSynthetic := true
     }
 }

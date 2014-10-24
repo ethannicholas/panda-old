@@ -164,6 +164,7 @@ class PandaCompiler {
     @class
     method reportError(message:String, position:Position?) {
         def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
+        Console.writeLine("POSTING: \{message}")
         queue.post((message, position, false))
     }
     
@@ -214,7 +215,7 @@ class PandaCompiler {
     }
     
     @protected
-    method loadSymbols(files:Array<File>) {
+    method loadSymbols(files:PrimitiveArray<File>) {
         if CompilerSettings.loadCoreLib
             loadSymbols(PandaCompiler.PANDA_HOME.resolve(
                     "shared/core/lib/PandaCoreClasses.plink"))
@@ -228,19 +229,19 @@ class PandaCompiler {
         -- compile properly until the superclasses are set
         for cl in SymbolTable.classes {
             def type := cl.type()
-            if type-?>(GenericType) & !type.isArray
+            if type-?>(GenericType) & !type.isPrimitiveArray
                 type.performFinalClassInitialization()
         }
         -- have to finalize the mutable arrays next, since the immutable ones 
         -- depend upon them
         for cl in SymbolTable.classes {
             def type := cl.type()
-            if (type.isArray & !type.isImmutable) | type.isTuple
+            if (type.isPrimitiveArray & !type.isImmutable) | type.isTuple
                 type.performFinalClassInitialization()
         }
         for cl in SymbolTable.classes {
             def type := cl.type()
-            if type.isArray {
+            if type.isPrimitiveArray {
                 if type.isImmutable
                     type.performFinalClassInitialization()
             }
@@ -253,7 +254,6 @@ class PandaCompiler {
             return t
         var resolved := s.getType(t->(UnresolvedType).position, t.name)
         if resolved-?>(UnresolvedType) {
-            Console.writeLine("failed to find \{t.name} in \{s} with \{s.packageUses} and \{s.classUses} and \{SymbolTable.typeMap} at: \{new Error()}")
             reportError(new CompilerException("class '" + resolved.name + 
                     "' not found", t->(UnresolvedType).position))
         }
@@ -304,15 +304,23 @@ class PandaCompiler {
                 for child in cl.children {
                     if child-?>(FieldNode) {
                         def f := child->(FieldNode)
-                        f.type := resolveType(symbolTable, f.type)
+                        if !cl.annotations.isUnspecified | 
+                                f.annotations.isThread |
+                                f.annotations.isClass |
+                                f.pendingValue = null
+                            f.type := resolveType(symbolTable, f.type)
                     }
                     else if child-?>(MethodNode) {
                         def m := child->(MethodNode)
-                        m.returnType := resolveType(symbolTable, m.returnType)
-                        def parameters := m.parameters
-                        for i, p in parameters
-                            parameters[i].type := resolveType(symbolTable, 
-                                    p.type)
+                        if !cl.annotations.isUnspecified | 
+                                m.annotations.isClass {
+                            m.returnType := resolveType(symbolTable, 
+                                    m.returnType)
+                            def parameters := m.parameters
+                            for i, p in parameters
+                                parameters[i].type := resolveType(symbolTable, 
+                                        p.type)
+                        }
                     }
                 }
                 cl.setProperty(TYPES_RESOLVED_KEY, true)
@@ -373,21 +381,21 @@ class PandaCompiler {
             Console.write("s")
     }
 
-    -- ensure Array / ImmutableArray are created in pairs where applicable
+    -- ensure PrimitiveArray / ImmutablePrimitiveArray are created in pairs where applicable
     @private
-    method fixArrays() {
+    method fixPrimitiveArrays() {
         var classes := SymbolTable.classes
         for c in classes {
-            if c.isArray() {
+            if c.isPrimitiveArray() {
                 var elementType := c.type().elementType
                 if c.type().isImmutable {
-                    var m := class(Array).name + 
-                            c.name[class(ImmutableArray).name.length..]
+                    var m := class(PrimitiveArray).name + 
+                            c.name[class(ImmutablePrimitiveArray).name.length..]
                     SymbolTable.master.getType(c.position, m)
                 }
                 else if elementType.isImmutable {
-                    var im := class(ImmutableArray).name + 
-                            c.name[class(Array).name.length..]
+                    var im := class(ImmutablePrimitiveArray).name + 
+                            c.name[class(PrimitiveArray).name.length..]
                     SymbolTable.master.getType(c.position, im)
                 }
             }
@@ -397,7 +405,7 @@ class PandaCompiler {
     @private
     -- FIXME use a set
     method detectClassCircularity(root:ClassNode, var current:ClassNode?, 
-            visited:Array<ClassNode>) {
+            visited:PrimitiveArray<ClassNode>) {
         -- we can legitimately run into the same class twice, when an interface
         -- is inherited via two different paths, so we only fail when we run 
         -- into the root class again, not just *any* class we have visited
@@ -421,8 +429,9 @@ class PandaCompiler {
 
     @private
     method detectClassCircularity() {
-        for cl in SymbolTable.classes {
-            var visited := new Array<ClassNode>()
+        for cl in SymbolTable.classes.filter(
+                cl => !cl.annotations.isUnspecified) {
+            var visited := new PrimitiveArray<ClassNode>()
             detectClassCircularity(cl, null, visited)
         }
     }
@@ -432,7 +441,7 @@ class PandaCompiler {
         try {
             Thread.context[ERROR_QUEUE_KEY] := new MessageQueue()
             checkpoint("loading symbols")
-            def symbolFiles := new Array<File>()
+            def symbolFiles := new PrimitiveArray<File>()
             def sources := CompilerSettings.sources
             if sources.length = 0
                 throw new CompilerException("no input files specified")
@@ -483,14 +492,12 @@ class PandaCompiler {
                 if type-?>(GenericType)
                     type->(GenericType).compilePhase2()
             }
-            astGenerator.pendingFieldValues := GenericType.pendingFieldValues
-            astGenerator.inferFieldTypes(true)
             processMessages()
             if errors > 0
                 return
 
-            checkpoint("fixArrays")
-            fixArrays()
+            checkpoint("fixPrimitiveArrays")
+            fixPrimitiveArrays()
             processMessages()
             if errors > 0
                 return
@@ -556,13 +563,13 @@ class PandaCompiler {
         processMessages()
     }
 
-    method processArguments(arg:Array<String>) {
+    method processArguments(arg:PrimitiveArray<String>) {
         -- just a quick hack until I write a general argument-parsing library
-        def librarySearchPaths:Array<File> := [new File("/opt/local/lib")]
-        def libraries:Array<String> := ["panda", "gc", "icui18n", "icuuc", 
+        def librarySearchPaths:PrimitiveArray<File> := [new File("/opt/local/lib")]
+        def libraries:PrimitiveArray<String> := ["panda", "gc", "icui18n", "icuuc", 
                 "icudata"]
-        def sources:Array<File> := []
-        def objectFiles:Array<File> := []
+        def sources:PrimitiveArray<File> := []
+        def objectFiles:PrimitiveArray<File> := []
 
         var i := 0
         while i < arg.length {
@@ -613,14 +620,14 @@ class PandaCompiler {
         librarySearchPaths.append(
                 PANDA_HOME.resolve("native/core/lib"))
 
-        CompilerSettings.setLibraries(libraries->>(ImmutableArray<String>))
+        CompilerSettings.setLibraries(libraries->>(ImmutablePrimitiveArray<String>))
         CompilerSettings.setLibrarySearchPaths(librarySearchPaths)
         CompilerSettings.setSources(sources)
-        CompilerSettings.setObjectFiles(objectFiles->>(ImmutableArray<File>))
+        CompilerSettings.setObjectFiles(objectFiles->>(ImmutablePrimitiveArray<File>))
     }
 
     @class
-    method main(arg:Array<String>) {
+    method main(arg:PrimitiveArray<String>) {
         try {
             if arg.length < 1 {
                 Console.writeLine("usage: pandac <input.panda>")

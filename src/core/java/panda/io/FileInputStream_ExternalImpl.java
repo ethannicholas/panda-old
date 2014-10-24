@@ -2,7 +2,7 @@ package panda.io;
 
 class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External {
     @Override
-    public int read(panda.io.FileInputStream self, panda.collections.Array$LTInt8$GT b, int offset, int length) {
+    public int read(panda.io.FileInputStream self, panda.collections.PrimitiveArray$LTInt8$GT b, int offset, int length) {
         throw new UnsupportedOperationException();
     }
 

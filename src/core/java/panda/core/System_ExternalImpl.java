@@ -18,7 +18,7 @@ class System_ExternalImpl implements panda.core.System_External {
     }
 
     public void exec(panda.io.File command, panda.io.File dir, 
-                panda.collections.Array$LTpanda$core$String$GT args) {
+                panda.collections.PrimitiveArray$LTpanda$core$String$GT args) {
         java.lang.String[] cmd = new java.lang.String[args.$$length + 1];
         cmd[0] = panda.core.PandaCore.toJavaString(command.$path);
         for (int i = 0; i < args.$$length; i++) {
@@ -69,7 +69,7 @@ class System_ExternalImpl implements panda.core.System_External {
     }
 
     public void exec(panda.io.File command, panda.io.File dir, 
-                panda.collections.ImmutableArray$LTpanda$core$String$GT args) {
+                panda.collections.ImmutablePrimitiveArray$LTpanda$core$String$GT args) {
         java.lang.String[] cmd = new java.lang.String[args.$$length + 1];
         cmd[0] = panda.core.PandaCore.toJavaString(command.$path);
         for (int i = 0; i < args.$$length; i++) {
@@ -121,12 +121,12 @@ class System_ExternalImpl implements panda.core.System_External {
 
     public void execStream(panda.core.String path, panda.core.String dir,
                 java.lang.Object inHandle, java.lang.Object outHandle, 
-                panda.collections.Array$LTpanda$core$String$GT args) {
+                panda.collections.PrimitiveArray$LTpanda$core$String$GT args) {
         throw new UnsupportedOperationException();
     }
 
     public void execStream(panda.core.String path, panda.core.String dir,
                 java.lang.Object inHandle, java.lang.Object outHandle, 
-                panda.collections.ImmutableArray$LTpanda$core$String$GT args) {
+                panda.collections.ImmutablePrimitiveArray$LTpanda$core$String$GT args) {
         throw new UnsupportedOperationException();
     }}

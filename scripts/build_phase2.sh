@@ -26,7 +26,7 @@ cd src/core/c
 ./build.sh
 cd "$BASEDIR"
 
-$PANDAC -XnoCoreLib -f lib -o $NATIVE_TARGET/core/lib/PandaCoreClasses.o $CORE_FILES
+$PANDAC -XpreserveTempArtifacts -XnoCoreLib -f lib -o $NATIVE_TARGET/core/lib/PandaCoreClasses.o $CORE_FILES
 
 mkdir -p $NATIVE_TARGET/core/lib
 
@@ -43,7 +43,7 @@ echo "Compiling pandac (native)..."
 cp $NATIVE_TARGET/core/lib/PandaCoreClasses.plink $SHARED_TARGET/core/lib/PandaCoreClasses.plink
 
 mkdir -p $NATIVE_TARGET/pandac/bin
-$PANDAC -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
+$PANDAC -XpreserveTempArtifacts -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
     src/plex/panda/org/pandalanguage/plex/runtime/*.panda $NATIVE_TARGET/plex/src/Lexer.panda \
     $STATIC_SETTINGS
 

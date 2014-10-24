@@ -1,7 +1,7 @@
 package panda.core;
 
-import panda.collections.Array$LTChar$GT;
-import panda.collections.Array$LTpanda$core$String$GT;
+import panda.collections.PrimitiveArray$LTChar$GT;
+import panda.collections.PrimitiveArray$LTpanda$core$String$GT;
 import panda.core.Class;
 
 /**
@@ -37,7 +37,7 @@ public class PandaCore {
     }
 
     public static panda.core.String newString(java.lang.String string) {
-        Array$LTChar$GT chars = new Array$LTChar$GT();
+        PrimitiveArray$LTChar$GT chars = new PrimitiveArray$LTChar$GT();
         chars.$cl = getClass("panda.collections.Array<Char>");
         chars.$$length = string.length();
         chars.contents = string.toCharArray();
@@ -73,8 +73,8 @@ public class PandaCore {
                 newString(value + " is not an instance of " + dest)));
     }
 
-    public static Array$LTpanda$core$String$GT convertArgs(java.lang.String[] arg) {
-        Array$LTpanda$core$String$GT result = new Array$LTpanda$core$String$GT();
+    public static PrimitiveArray$LTpanda$core$String$GT convertArgs(java.lang.String[] arg) {
+        PrimitiveArray$LTpanda$core$String$GT result = new PrimitiveArray$LTpanda$core$String$GT();
         result.$$length = arg.length;
         panda.core.String[] contents = new panda.core.String[arg.length];
         for (int i = 0; i < arg.length; i++)

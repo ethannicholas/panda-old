@@ -50,9 +50,9 @@ uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.Multiply
-uses org.pandalanguage.pandac.tree.NewArrayWithLength
-uses org.pandalanguage.pandac.tree.NewArrayWithRange
-uses org.pandalanguage.pandac.tree.NewArrayWithValues
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NotEqual
 uses org.pandalanguage.pandac.tree.NotIdentity
@@ -121,12 +121,12 @@ class JavaScriptCodeGenerator (CodeGenerator) {
     function getName(t:Type):String {
         if t.isNullable
             return getName(t.unwrapNullable)
-        if t.isArray {
+        if t.isPrimitiveArray {
             var prefix:String
             if t.isImmutable
-                prefix := "panda$collections$ImmutableArray$"
+                prefix := "panda$collections$ImmutablePrimitiveArray$"
             else
-                prefix := "panda$collections$Array$"
+                prefix := "panda$collections$PrimitiveArray$"
             var elementType := t.elementType
             return prefix + MethodNamer.escapeTypeName(getName(elementType))
         }    
@@ -283,16 +283,16 @@ class JavaScriptCodeGenerator (CodeGenerator) {
         out.write(")")
     }
     
-    method generateNewArrayWithLengthCode(n:NewArrayWithLength) {
-        out.write("panda$core$PandaCore$newArrayWithLength(")
+    method generateNewPrimitiveArrayWithLengthCode(n:NewPrimitiveArrayWithLength) {
+        out.write("panda$core$PandaCore$newPrimitiveArrayWithLength(")
         out.write(getName(n.type))
         out.write(", ")
         generateValueCode(n.arrayLength)
         out.write(")")
     }
     
-    method generateNewArrayWithValuesCode(n:NewArrayWithValues) {
-        out.write("panda$core$PandaCore$newArrayWithValues(")
+    method generateNewPrimitiveArrayWithValuesCode(n:NewPrimitiveArrayWithValues) {
+        out.write("panda$core$PandaCore$newPrimitiveArrayWithValues(")
         out.write(getName(n.type))
         for i in 0 ... n.values.length - 1 {
             out.write(", ")
@@ -301,8 +301,8 @@ class JavaScriptCodeGenerator (CodeGenerator) {
         out.write(")")
     }
     
-    method generateNewArrayWithRangeCode(n:NewArrayWithRange) {
-        out.write("panda$core$PandaCore$newArrayWithRange(")
+    method generateNewPrimitiveArrayWithRangeCode(n:NewPrimitiveArrayWithRange) {
+        out.write("panda$core$PandaCore$newPrimitiveArrayWithRange(")
         out.write(getName(n.type))
         out.write(", ")
         generateValueCode(n.source)
@@ -482,12 +482,12 @@ class JavaScriptCodeGenerator (CodeGenerator) {
         }
         else if v-?>(Construct)
             generateConstructCode(v->(Construct))
-        else if v-?>(NewArrayWithLength)
-            generateNewArrayWithLengthCode(v->(NewArrayWithLength))
-        else if v-?>(NewArrayWithValues)
-            generateNewArrayWithValuesCode(v->(NewArrayWithValues))
-        else if v-?>(NewArrayWithRange)
-            generateNewArrayWithRangeCode(v->(NewArrayWithRange))
+        else if v-?>(NewPrimitiveArrayWithLength)
+            generateNewPrimitiveArrayWithLengthCode(v->(NewPrimitiveArrayWithLength))
+        else if v-?>(NewPrimitiveArrayWithValues)
+            generateNewPrimitiveArrayWithValuesCode(v->(NewPrimitiveArrayWithValues))
+        else if v-?>(NewPrimitiveArrayWithRange)
+            generateNewPrimitiveArrayWithRangeCode(v->(NewPrimitiveArrayWithRange))
         else if v-?>(Unwrap)
             generateValueCode(v->(Unwrap).value)
         else if v-?>(ReusedValueDefinition)
@@ -789,7 +789,7 @@ class JavaScriptCodeGenerator (CodeGenerator) {
             var initializer := f.parent->(ClassNode).symbolTable.getMethod(
                     f.position,
                     ASTGenerator.getThreadLocalInitializerName(f),
-                    new Array<Value>(), true)
+                    new PrimitiveArray<Value>(), true)
             if initializer != null
                 out.write(getName(f.owner) + "." + getName(initializer) + "();")
             else
@@ -908,7 +908,7 @@ class JavaScriptCodeGenerator (CodeGenerator) {
     }
 
     method generateClassCode(cl:ClassNode) {
-        if cl.state != ClassNodeState.DEFINED & !cl.type().isArray
+        if cl.state != ClassNodeState.DEFINED & !cl.type().isPrimitiveArray
             return
         var rootPath := self.rootPath
         assert rootPath != null
@@ -961,7 +961,7 @@ class JavaScriptCodeGenerator (CodeGenerator) {
 
     -- FIXME use a Set
     method writeScript(out:IndentedOutputStream,
-            cl:ClassNode, visited:Array<ClassNode>) {
+            cl:ClassNode, visited:PrimitiveArray<ClassNode>) {
         for i in 0 ... visited.length - 1 {
             if visited[i] == cl
                 return
@@ -988,16 +988,16 @@ class JavaScriptCodeGenerator (CodeGenerator) {
         -- force these arrays to be defined, even if they weren't present in the
         -- code, so that PandaCore works. It's ok (though not ideal) if they 
         -- were already defined.
-        out.writeLine("panda$collections$Array$Int16  = { vtable: [] };")
-        out.writeLine("panda$collections$Array$Int32  = { vtable: [] };")
-        out.writeLine("panda$collections$Array$Int64  = { vtable: [] };")
-        out.writeLine("panda$collections$Array$Bit    = { vtable: [] };")
-        out.writeLine("panda$collections$Array$Real32 = { vtable: [] };")
-        out.writeLine("panda$collections$Array$Real64 = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Int16  = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Int32  = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Int64  = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Bit    = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Real32 = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Real64 = { vtable: [] };")
         out.writeLine("</script>")
         out.writeLine("<script src=\"term.js\"></script>")
         out.writeLine("<script src=\"panda$core$PandaCore.js\"></script>")
-        var visited := new Array<ClassNode>()
+        var visited := new PrimitiveArray<ClassNode>()
         for i in 0 ... classes.length - 1
             writeScript(out, classes[i], visited)
         out.writeLine("<script>")
