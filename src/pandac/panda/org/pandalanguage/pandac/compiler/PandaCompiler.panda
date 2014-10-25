@@ -33,6 +33,9 @@ class PandaCompiler {
     @private
     constant SYMBOLS_LOADED_KEY := "PandaCompiler.symbolsLoaded"
 
+    @private
+    constant PHASE_1_COMPLETE_KEY := "PandaCompiler.phase1Complete"
+
     @thread
     def astGenerator := new ASTGenerator()
 
@@ -186,6 +189,11 @@ class PandaCompiler {
         return Thread.context[SYMBOLS_LOADED_KEY] = true
     }
     
+    @class
+    function phase1Complete():Bit {
+        return Thread.context[PHASE_1_COMPLETE_KEY] = true
+    }
+    
     method getCount():Int {
         count += 1
         return count
@@ -224,18 +232,11 @@ class PandaCompiler {
 
     @private
     method finalizeClasses() {
-        -- finalize generics first, because arrays of generic types won't 
-        -- compile properly until the superclasses are set
-        for cl in SymbolTable.classes {
-            def type := cl.type()
-            if type-?>(GenericType) & !type.isPrimitiveArray
-                type.performFinalClassInitialization()
-        }
-        -- have to finalize the mutable arrays next, since the immutable ones 
+        -- have to finalize the mutable arrays first, since the immutable ones 
         -- depend upon them
         for cl in SymbolTable.classes {
             def type := cl.type()
-            if (type.isPrimitiveArray & !type.isImmutable) | type.isTuple
+            if !type.isImmutable | !type.isPrimitiveArray
                 type.performFinalClassInitialization()
         }
         for cl in SymbolTable.classes {
@@ -477,6 +478,7 @@ class PandaCompiler {
             checkpoint("generating AST")
             astGenerator.linkageOnly := false
             astGenerator.phase1Complete()
+            Thread.context[PHASE_1_COMPLETE_KEY] := true
             for source in sources {
                 if !source.path.endsWith(".plink")
                     compile(source)
@@ -497,6 +499,14 @@ class PandaCompiler {
 
             checkpoint("fixPrimitiveArrays")
             fixPrimitiveArrays()
+            processMessages()
+            if errors > 0
+                return
+            checkpoint("finishGenerics2")
+            for type in SymbolTable.types {
+                if type-?>(GenericType)
+                    type->(GenericType).compilePhase2()
+            }
             processMessages()
             if errors > 0
                 return

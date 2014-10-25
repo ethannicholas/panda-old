@@ -85,13 +85,29 @@ class ForEachLoops : MethodTransformer {
         def iterator := new ReusedValueDefinition(
                 ast.call(f.position, list, "iterator", []))
         newBlock.add(new ValueStatement(iterator))
-        def l := new While(f.position, f.label, ast.call(f.position,
-                iterator.createReference(), "hasMore", []))
+        def l := new LoopWithContinueBlock(f.position, f.label)
         def lBlock := new Block(f.position, newBlock.symbolTable)
         l.add(lBlock)
+        def breakIf := new If(f.position, ast.call(f.position,
+                iterator.createReference(), "done", []))
+        def breakBlock := new Block(f.position, newBlock.symbolTable)
+        breakIf.add(breakBlock)
+        breakBlock.add(new Break(f.position))
+        lBlock.add(breakIf)
         lBlock.add(new ValueStatement(new VariableAssignment(f.loopVariable, 
                 ast.call(f.position, iterator.createReference(), "next", []))))
         lBlock.add(oldBlock)
+        def continueBlock := new Block(f.position, newBlock.symbolTable)
+        def indexVariable := f.indexVariable
+        if indexVariable != null {
+            def add := new Add(f.position)
+            add.add(new VariableReference(indexVariable))
+            add.add(new IntegerLiteral(1, indexVariable.type))
+            continueBlock.add(new ValueStatement(new VariableAssignment(
+                    indexVariable,
+                    add)))
+        }
+        l.add(continueBlock)
         newBlock.add(l)
     }
 

@@ -3129,10 +3129,10 @@ class ArrayIterator<T:panda.core.Object?>:panda.core.Object (panda.collections.I
 { self.array := array }
 
     @override
-    function hasMore():Bit
-{ return index < array.length }
+    function done():Bit
+{ return index >= array.length }
 
-    @override
+    @override @self
     method next():T
 { def result := array[index] index += 1 return result }
 }
@@ -3164,29 +3164,45 @@ class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<pand
     method []:=(index:Int, value:T)
 { contents[index] := value }
 
-    @override
+    @override @self
     method add(value:T)
 { ensureCapacity(_length + 1) _length += 1 self[_length - 1] := value }
 
-    @override
-    method remove(value:T)
-{ throw new NotSupportedException() }
+    @override @self
+    method remove(object:T)
+{ for i in 0 .. length if self[i] = object removeIndex(i) }
 
-    @override
+    @override @self
+    method removeIndex(index:Int)
+{ for i in index .. length - 1 self[i] := self[i + 1] _length -= 1 }
+
+    @override @self
     method clear()
 { contents := new PrimitiveArray<T>(DEFAULT_LENGTH) _length := 0 }
 
     @override
     function contains(object:T):Bit
-{ throw new NotSupportedException() }
+{ for v in self { if object = v return true } return false }
 
-    @override
+    @override @safeReturn
     function iterator():Iterator<T>
 { return new ArrayIterator<T>(self) }
 
-    @private
+    @private @self
     method ensureCapacity(maxLength:Int)
 { if maxLength > contents.length { def newContents := new PrimitiveArray<T>(contents.length * 2) for i in 0 .. length newContents[i] := contents[i] contents := newContents } }
+
+    @override
+    function =(o:Object):Bit
+{ if o-!>(ListView<T>) return false def list := o->(ListView<T>) if length != list.length return false for i, v in self { if v != list[i] return false } return true }
+
+    @override @math(overflow)
+    function hash():Int
+{ var result := 0 constant MULTIPLIER := 53 for v in self result := result * MULTIPLIER + v.hash return result }
+
+    @override @preOr(true)
+    function format(fmt:String):String
+{ def result := new MutableString("[") for i, v in self { if i > 0 result.append(", ") result.append(v.format(fmt)) } result.append("]") return result->>(String) }
 
     @class
     method $classInit()
@@ -3195,6 +3211,9 @@ class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<pand
 package panda.collections
 
 interface Collection<T:panda.core.Object?> : panda.collections.CollectionView<panda.collections.Collection.T>, panda.collections.CollectionWriter<panda.collections.Collection.T> {
+    
+    method filterInPlace(f:(T)=>(Bit))
+{ for i in length - 1 ... 0 by -1 { if !f(self[i]) removeIndex(i) } }
 }
 package panda.collections
 
@@ -3206,20 +3225,20 @@ interface CollectionView<T:panda.core.Object?> : panda.collections.Iterable<pand
     function contains(object:T):Bit
 
     
-    function filtered(f:(T)=>(Bit)):CollectionView<T>
-{ throw new NotSupportedException() }
+    function filter(f:(T)=>(Bit)):CollectionView<T>
+{ def result := new Array<T>() for v in self { if f(v) result.add(v) } return result }
 
-    
+    @pre(length > 0)
     function fold(f:(T,T)=>(T)):T
-{ throw new NotSupportedException() }
+{ def i := iterator var result := i.next() while !i.done result := f(result, i.next()) return result }
 
     
     function fold(f:(T,T)=>(T), start:T):T
-{ throw new NotSupportedException() }
+{ var result := start for v in self result := f(result, v) return result }
 
     
     method apply(m:(T)=&>())
-{ throw new NotSupportedException() }
+{ for v in self m(v) }
 }
 package panda.collections
 
@@ -3232,10 +3251,6 @@ interface CollectionWriter<T:panda.core.Object?> {
 
     
     method clear()
-
-    
-    method filter(f:(T)=>(Bit))
-{ throw new NotSupportedException() }
 }
 package panda.collections
 @private
@@ -3254,8 +3269,8 @@ class GenericMutableMapEntry<K:panda.core.Object?, V:panda.core.Object?>:panda.c
 { self.key := key self.value := value }
 }
 package panda.collections
-@private
-class HashMapIterator<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Object (panda.collections.Iterator<(panda.collections.HashMapIterator.K,panda.collections.HashMapIterator.V)>) {
+@abstract @private
+class HashMapIterator<K:panda.core.Object?, V:panda.core.Object?, R:panda.core.Object?>:panda.core.Object (panda.collections.Iterator<panda.collections.HashMapIterator.R>) {
     @final
     var map:panda.collections.GenericHashMap<panda.collections.HashMapIterator.K,panda.collections.HashMapIterator.V>
 
@@ -3270,12 +3285,48 @@ class HashMapIterator<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obj
 { self.map := map entry := map.contents[0] while entry = null { index += 1 if index >= map.contents.length break entry := map.contents[index] } }
 
     @override
-    function hasMore():Bit
-{ return index < map.contents.length }
+    function done():Bit
+{ return index >= map.contents.length }
+
+    @abstract
+    function result(e:GenericMutableMapEntry<K,V>):R
+
+    @override @self
+    method next():R
+{ assert entry != null def result := result(entry) entry := entry.next while entry = null { index += 1 if index >= map.contents.length break entry := map.contents[index] } return result }
+}
+package panda.collections
+@private
+class HashMapEntryIterator<K:panda.core.Object?, V:panda.core.Object?>:panda.collections.HashMapIterator<panda.collections.HashMapEntryIterator.K,panda.collections.HashMapEntryIterator.V,(panda.collections.HashMapEntryIterator.K,panda.collections.HashMapEntryIterator.V)> {
+    @self
+    constructor(map:GenericHashMap<K,V>)
+{ super.constructor(map) }
 
     @override
-    method next():(K,V)
-{ assert entry != null def result := (entry.key, entry.value) entry := entry.next while entry = null { index += 1 if index >= map.contents.length break entry := map.contents[index] } return result }
+    function result(e:GenericMutableMapEntry<K,V>):(K,V)
+{ return (e.key, e.value) }
+}
+package panda.collections
+@private
+class HashMapKeyIterator<K:panda.core.Object?, V:panda.core.Object?>:panda.collections.HashMapIterator<panda.collections.HashMapKeyIterator.K,panda.collections.HashMapKeyIterator.V,panda.collections.HashMapKeyIterator.K> {
+    @self
+    constructor(map:GenericHashMap<K,V>)
+{ super.constructor(map) }
+
+    @override
+    function result(e:GenericMutableMapEntry<K,V>):K
+{ return e.key }
+}
+package panda.collections
+@private
+class HashMapValueIterator<K:panda.core.Object?, V:panda.core.Object?>:panda.collections.HashMapIterator<panda.collections.HashMapValueIterator.K,panda.collections.HashMapValueIterator.V,panda.collections.HashMapValueIterator.V> {
+    @self
+    constructor(map:GenericHashMap<K,V>)
+{ super.constructor(map) }
+
+    @override
+    function result(e:GenericMutableMapEntry<K,V>):V
+{ return e.value }
 }
 package panda.collections
 
@@ -3305,7 +3356,7 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
 
     @self
     constructor(map:GenericMapView<K,V>)
-{ constructor() for (key, value) in map.entries self[key] := value }
+{ constructor() for (key, value) in map self[key] := value }
 
     @private @math(overflow)
     function indexFor(key:K):Int32
@@ -3331,25 +3382,21 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
     method clear()
 { _length := 0 contents := new PrimitiveArray<GenericMutableMapEntry<K, V>?>( DEFAULT_LENGTH) threshold := (contents.length * LOAD_FACTOR)->>(Int32) }
 
-    @override
+    @override @safeReturn
     function iterator():Iterator<(K,V)>
-{ return new HashMapIterator<K, V>(self) }
+{ return new HashMapEntryIterator<K, V>(self) }
 
-    @override
-    function entries():PrimitiveArray<(K,V)>
-{ var result := new PrimitiveArray<(K, V)>() for e in contents { var current := e while current != null { result.append((current.key, current.value)) current := current.next } } return result }
+    @override @safeReturn
+    function keys():Iterator<K>
+{ return new HashMapKeyIterator<K, V>(self) }
 
-    @override
-    function keys():PrimitiveArray<K>
-{ var result := new PrimitiveArray<K>() for e in contents { var current := e while current != null { result.append(current.key) current := current.next } } return result }
-
-    @override
-    function values():PrimitiveArray<V>
-{ var result := new PrimitiveArray<V>() for e in contents { var current := e while current != null { result.append(current.value) current := current.next } } return result }
+    @override @safeReturn
+    function values():Iterator<V>
+{ return new HashMapValueIterator<K, V>(self) }
 
     @override @self
     method addAll(map:GenericMapView<K,V>)
-{ for (key, value) in map.entries self[key] := value }
+{ for (key, value) in map self[key] := value }
 
     @private
     method incrementLength()
@@ -3357,11 +3404,11 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
 
     @override
     function =(o:Object):Bit
-{ if o-!>(GenericMap<K, V>) return false var m := o->(GenericMap<K, V>) if length != m.length return false for (key, value) in entries { if value != m[key] return false } return true }
+{ if o-!>(GenericMap<K, V>) return false var m := o->(GenericMap<K, V>) if length != m.length return false for (key, value) in self { if value != m[key] return false } return true }
 
     @override @preOr(fmt = "" | fmt = "panda")
     function format(fmt:String):String
-{ def result := new MutableString() result.append("{") var first := true for (key, value) in entries { if !first result.append(", ") else first := false if key != null result.append(key.format(fmt)) else result.append("null") result.append(": ") if value != null result.append(value.format(fmt)) else result.append("null") } result.append("}") return result->>(String) }
+{ def result := new MutableString() result.append("{") var first := true for (key, value) in self { if !first result.append(", ") else first := false if key != null result.append(key.format(fmt)) else result.append("null") result.append(": ") if value != null result.append(value.format(fmt)) else result.append("null") } result.append("}") return result->>(String) }
 
     @override
     function length():panda.core.Int32
@@ -3385,13 +3432,10 @@ interface GenericMapView<K:panda.core.Object?, V:panda.core.Object?> : panda.col
     function contains(key:K):Bit
 
     
-    function keys():PrimitiveArray<K>
+    function keys():Iterator<K>
 
     
-    function values():PrimitiveArray<V>
-
-    
-    function entries():PrimitiveArray<(K,V)>
+    function values():Iterator<V>
 
     
     function length():Int
@@ -3622,16 +3666,20 @@ class IndexOutOfBoundsError:panda.core.SafetyError {
 package panda.collections
 
 interface Iterable<T:panda.core.Object?> {
-    
+    @safeReturn
     function iterator():Iterator<T>
 }
 package panda.collections
 
 interface Iterator<T:panda.core.Object?> {
     
-    function hasMore():Bit
+    function done():Bit
 
-    @pre(hasMore)
+    
+    function hasMore():Bit
+{ return !done }
+
+    @self @pre(!done)
     method next():T
 }
 package panda.collections
@@ -3643,6 +3691,13 @@ package panda.collections
 interface ListView<T:panda.core.Object?> : panda.collections.CollectionView<panda.collections.ListView.T> {
     
     function [](i:Int):T
+
+    
+    function join(delimiter:String):String
+{ def result := new MutableString() for i, v in self { if i > 0 result.append(delimiter) result.append(v) } return result->>(String) }
+
+    
+    method removeIndex(index:Int)
 }
 package panda.collections
 

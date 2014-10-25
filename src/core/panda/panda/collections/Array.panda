@@ -10,11 +10,12 @@ class ArrayIterator<T> (Iterator<T>) {
     }
 
     @override
-    function hasMore():Bit {
-        return index < array.length
+    function done():Bit {
+        return index >= array.length
     }
 
     @override
+    @self
     method next():T {
         def result := array[index]
         index += 1
@@ -54,6 +55,7 @@ class Array<T> (List<T>) {
     }
 
     @override
+    @self
     method add(value:T) {
         ensureCapacity(_length + 1)
         _length += 1
@@ -61,11 +63,23 @@ class Array<T> (List<T>) {
     }
 
     @override
-    method remove(value:T) {
-        throw new NotSupportedException()
+    @self
+    method remove(object:T) {
+        for i in 0 .. length
+            if self[i] = object
+                removeIndex(i)
     }
 
     @override
+    @self
+    method removeIndex(index:Int) {
+        for i in index .. length - 1
+            self[i] := self[i + 1]
+        _length -= 1
+    }
+
+    @override
+    @self
     method clear() {
         contents := new PrimitiveArray<T>(DEFAULT_LENGTH)
         _length := 0
@@ -73,15 +87,21 @@ class Array<T> (List<T>) {
 
     @override
     function contains(object:T):Bit {
-        throw new NotSupportedException()
+        for v in self {
+            if object = v
+                return true
+        }
+        return false
     }
 
     @override
+    @safeReturn
     function iterator():Iterator<T> {
         return new ArrayIterator<T>(self)
     }
 
     @private
+    @self
     method ensureCapacity(maxLength:Int) {
         if maxLength > contents.length {
             def newContents := new PrimitiveArray<T>(contents.length * 2)
@@ -89,5 +109,43 @@ class Array<T> (List<T>) {
                 newContents[i] := contents[i]
             contents := newContents
         }
+    }
+
+    @override
+    function =(o:Object):Bit {
+        if o-!>(ListView<T>)
+            return false
+        def list := o->(ListView<T>)
+        if length != list.length
+            return false
+        for i, v in self {
+            if v != list[i]
+                return false
+        }
+        return true
+    }
+
+    @override
+    @math(overflow)
+    function hash():Int {
+        var result := 0
+        constant MULTIPLIER := 53
+        for v in self
+            result := result * MULTIPLIER + v.hash
+        return result
+    }
+
+    @override
+    @preOr(true)
+    function format(fmt:String):String {
+        def result := new MutableString("[")
+        for i, v in self {
+            if i > 0
+                result.append(", ")
+            result.append(v.format(fmt))
+        }
+
+        result.append("]")
+        return result->>(String)
     }
 }
