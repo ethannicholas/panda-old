@@ -612,6 +612,15 @@ class ASTGenerator {
         return new Cast(position, v, t, ct)
     }
 
+
+    method implicitCast(position:Position, v:Value, t:Type):Value {
+        return implicitCast(position, v, t, CastType.IMPLICIT)
+    }
+    
+    method implicitCast(v:Value, t:Type):Value {
+        return implicitCast(v.position, v, t, CastType.IMPLICIT)
+    }
+    
     @private
     method determineUnresolvedPrimitiveArrayElementType(a:UnresolvedPrimitiveArray):Type {
         var values := a.values[..]
@@ -770,14 +779,6 @@ class ASTGenerator {
                 t, ct)
     }
 
-    method implicitCast(position:Position, v:Value, t:Type):Value {
-        return implicitCast(position, v, t, CastType.IMPLICIT)
-    }
-    
-    method implicitCast(v:Value, t:Type):Value {
-        return implicitCast(v.position, v, t, CastType.IMPLICIT)
-    }
-    
     ============================================================================
     Handles an explicit cast from one type to another. Explicit casts are
     specified in the source via the `->` operator.
@@ -4018,6 +4019,27 @@ class ASTGenerator {
         return result
     }
 
+    @private
+    method castToIterable(value:Value):Value {
+        def cl := value.type.classNode
+        for intf in cl.allInterfaces() {
+            if intf.name.startsWith("panda.collections.Iterable<")
+                return implicitCast(value, intf.type())
+        }
+        throw new CompilerException("expected 'panda.collections.Iterable<T>'" +
+                ", but found '\{value.type.displayName}'", value.position)
+    }
+
+    @private
+    function getElementType(value:Value):Type {
+        if value.type.isPrimitiveArray
+            return value.type.unwrapNullable->(PrimitiveArrayType).elementType
+        else {
+            assert value.type.name.startsWith("panda.collections.Iterable<")
+            return value.type.unwrapNullable->(GenericType).parameters[0]
+        }
+    }
+
     ============================================================================
     Processes an ANY_LOOP parse node which contains a for-each `for` loop.
 
@@ -4078,11 +4100,10 @@ class ASTGenerator {
         i += 1
         if vars.length = 1 & vars[0][2] != null {
             if array-?>(UnresolvedPrimitiveArray) | array-?>(UnresolvedRange) {
-                -- eventually, can just cast to ListView<type>, but as of this
-                -- writing generics aren't in and thus ListView doesn't actually
-                -- exist. So first we make sure that this is an unresolved
-                -- construct (and thus we don't need to worry about mutable vs.
-                -- immutable arrays)
+                -- eventually, can just cast to Iterable<type>, but as of this
+                -- writing generics are still under construction. So first we 
+                -- make sure that this is an unresolved construct (and thus we 
+                -- don't need to worry about mutable vs. immutable arrays)
                 def type := vars[0][2]->(Type)
                 def cl := currentClass
                 assert cl != null
@@ -4094,16 +4115,14 @@ class ASTGenerator {
             }
         }
         array := resolveUnresolvedConstructs(array)
-        if !array.type.isPrimitiveArray {
-            throw new CompilerException("for ... in may only be used on " +
-                    "arrays (found '\{array.type.displayName}')", l.position)
-        }
+        if !array.type.isPrimitiveArray
+            array := castToIterable(array)
         if vars.length > 1 {
-            if !array.type.elementType.isTuple {
+            if !getElementType(array).isTuple {
                 throw new CompilerException("'\{array.type.displayName}' " +
                         "is not a tuple", array.position)
             }
-            def count := array.type.elementType.unwrapNullable->(TupleType)
+            def count := getElementType(array).unwrapNullable->(TupleType)
                     .types.length
             if count != vars.length {
                 throw new CompilerException("number of for-loop variables (" + 
@@ -4123,7 +4142,7 @@ class ASTGenerator {
             valueType := vars[0][2]
             valueTypeNode := vars[0][3]
             if valueType != null & 
-                    !array.type.elementType.canImplicitCastTo(valueType) {
+                    !getElementType(array).canImplicitCastTo(valueType) {
                 throw new CompilerException("elements of " + 
                         "\{array.type.displayName} cannot be converted to " +
                         valueType.displayName, valuePosition)
@@ -4131,11 +4150,11 @@ class ASTGenerator {
         }
         else {
             valueName := "$tuple" + nextCount()
-            valueType := array.type.elementType
+            valueType := getElementType(array)
             valueTypeNode := null
         }
         if valueType = null
-            valueType := array.type.unwrapNullable->(PrimitiveArrayType).elementType
+            valueType := getElementType(array)
         def cm := currentMethod
         assert cm != null
         def locals := cm.localVariables
@@ -4173,7 +4192,7 @@ class ASTGenerator {
                     continue
                 var type := t[2]
                 if type = null
-                    type := array.type.elementType.unwrapNullable->(TupleType).types[index]
+                    type := getElementType(array).unwrapNullable->(TupleType).types[index]
                 def elementVar := new LocalVariable(t[0], name, type)
                 locals.append(elementVar)
                 symbols.putVariable(elementVar)

@@ -24,6 +24,83 @@ class GenericMutableMapEntry<K, V> {
     }
 }
 
+@private
+@abstract
+class HashMapIterator<K, V, R> (Iterator<R>) {
+    def map:GenericHashMap<K, V>
+    var index := 0
+    var entry:GenericMutableMapEntry<K, V>?
+
+    constructor(map:GenericHashMap<K, V>) {
+        self.map := map
+        entry := map.contents[0]
+        while entry = null {
+            index += 1
+            if index >= map.contents.length
+                break
+            entry := map.contents[index]
+        }
+    }
+
+    @override
+    function hasMore():Bit {
+        return index < map.contents.length
+    }
+
+    @abstract
+    function result(e:GenericMutableMapEntry<K, V>):R
+
+    @override
+    method next():R {
+        assert entry != null
+        def result := result(entry)
+        entry := entry.next
+        while entry = null {
+            index += 1
+            if index >= map.contents.length
+                break
+            entry := map.contents[index]
+        }
+        return result
+    }
+}
+
+@private
+class HashMapEntryIterator<K, V> : HashMapIterator<K, V, (K, V)> {
+    constructor(map:GenericHashMap<K, V>) {
+        super.constructor(map)
+    }
+
+    @override
+    function result(e:GenericMutableMapEntry<K, V>):(K, V) {
+        return (e.key, e.value)
+    }
+}
+
+@private
+class HashMapKeyIterator<K, V> : HashMapIterator<K, V, K> {
+    constructor(map:GenericHashMap<K, V>) {
+        super.constructor(map)
+    }
+
+    @override
+    function result(e:GenericMutableMapEntry<K, V>):K {
+        return e.key
+    }
+}
+
+@private
+class HashMapValueIterator<K, V> : HashMapIterator<K, V, V> {
+    constructor(map:GenericHashMap<K, V>) {
+        super.constructor(map)
+    }
+
+    @override
+    function result(e:GenericMutableMapEntry<K, V>):V {
+        return e.value
+    }
+}
+
 ================================================================================
 Standard implementation of the [Map] interface, which associates keys with 
 values. An arbitrary number of values can be stored in a `HashMap` and then
@@ -38,6 +115,9 @@ retrieved in constant time:
 This will display the value `"good"`.
 ================================================================================
 class GenericHashMap<K, V> (GenericMap<K, V>) {
+    @private
+    constant DEFAULT_LENGTH := 16
+
     @private
     constant LOAD_FACTOR:Real := 0.75
 
@@ -84,7 +164,7 @@ class GenericHashMap<K, V> (GenericMap<K, V>) {
     ============================================================================
     constructor(map:GenericMapView<K, V>) {
         constructor()
-        for (key, value) in map.entries
+        for (key, value) in map
             self[key] := value
     }
 
@@ -185,56 +265,30 @@ class GenericHashMap<K, V> (GenericMap<K, V>) {
     @self
     method clear() {
         _length := 0
-        contents := new PrimitiveArray<GenericMutableMapEntry<K, V>?>(16)
+        contents := new PrimitiveArray<GenericMutableMapEntry<K, V>?>(
+                DEFAULT_LENGTH)
         threshold := (contents.length * LOAD_FACTOR)->>(Int32)
     }
     
-    -- FIXME: replace this with a lazy collection when those are available
     @override
-    function entries():PrimitiveArray<(K, V)> {
-        var result := new PrimitiveArray<(K, V)>()
-        for e in contents {
-            var current := e
-            while current != null {
-                result.append((current.key, current.value))
-                current := current.next
-            }
-        }
-        return result
+    function iterator():Iterator<(K, V)> {
+        return new HashMapEntryIterator<K, V>(self)
     }
 
-    -- FIXME: replace this with a lazy collection when those are available
     @override
-    function keys():PrimitiveArray<K> {
-        var result := new PrimitiveArray<K>()
-        for e in contents {
-            var current := e
-            while current != null {
-                result.append(current.key)
-                current := current.next
-            }
-        }
-        return result
+    function keys():Iterator<K> {
+        return new HashMapKeyIterator<K, V>(self)
     }
     
-    -- FIXME: replace this with a lazy collection when those are available
     @override
-    function values():PrimitiveArray<V> {
-        var result := new PrimitiveArray<V>()
-        for e in contents {
-            var current := e
-            while current != null {
-                result.append(current.value)
-                current := current.next
-            }
-        }
-        return result
+    function values():Iterator<V> {
+        return new HashMapValueIterator<K, V>(self)
     }
     
     @override
     @self
     method addAll(map:GenericMapView<K, V>) {
-        for (key, value) in map.entries
+        for (key, value) in map
             self[key] := value
     }
 
@@ -273,7 +327,7 @@ class GenericHashMap<K, V> (GenericMap<K, V>) {
         var m := o->(GenericMap<K, V>)
         if length != m.length
             return false
-        for (key, value) in entries {
+        for (key, value) in self {
             if value != m[key]
                 return false
         }
@@ -295,7 +349,7 @@ class GenericHashMap<K, V> (GenericMap<K, V>) {
         def result := new MutableString()
         result.append("{")
         var first := true
-        for (key, value) in entries {
+        for (key, value) in self {
             if !first
                 result.append(", ")
             else

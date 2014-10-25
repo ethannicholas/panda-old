@@ -16,13 +16,16 @@ uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.ReusedValueDefinition
 uses org.pandalanguage.pandac.tree.Statement
 uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.While
 uses org.pandalanguage.pandac.types.Type
 
 ================================================================================
@@ -34,6 +37,64 @@ class ForEachLoops : MethodTransformer {
         super.constructor(ast, cfg, dfa)
     }
 
+    method convertPrimitive(ast:ASTGenerator, f:ForEach, list:Value, 
+            m:MethodNode, oldBlock:Block, newBlock:Block) {
+        var indexVariable := f.indexVariable
+        if indexVariable = null {
+            indexVariable := new LocalVariable(f.position, "$loopIndex", 
+                    Type.INDEX_TYPE)
+            m.localVariables.append(indexVariable)
+        }
+        newBlock.add(new ValueStatement(new VariableAssignment(indexVariable,
+                new IntegerLiteral(0, indexVariable.type))))
+        def array := new ReusedValueDefinition(list)
+        newBlock.add(new ValueStatement(array))
+        def length := ast.resolve(ast.getField(f.position, 
+                array.createReference(), "length"))
+        length.markLive()
+        def end := new ReusedValueDefinition(length)
+        newBlock.add(new ValueStatement(end))
+        def l := new LoopWithContinueBlock(f.position, f.label)
+        def lBlock := new Block(f.position, newBlock.symbolTable)
+        l.add(lBlock)
+        def test := new GreaterThanOrEqual(f.position)
+        test.add(new VariableReference(f.position, indexVariable))
+        test.add(end.createReference())
+        def breakIf := new If(f.position, test)
+        lBlock.add(breakIf)
+        def breakBlock := new Block(f.position, newBlock.symbolTable)
+        breakIf.add(breakBlock)
+        breakBlock.add(new Break(f.position))
+        lBlock.add(new ValueStatement(new VariableAssignment(f.loopVariable, 
+                new IndexValue(array.createReference(), 
+                new VariableReference(indexVariable)))))
+        lBlock.add(oldBlock)
+        def continueBlock := new Block(f.position, newBlock.symbolTable)
+        def add := new Add(f.position)
+        add.add(new VariableReference(indexVariable))
+        add.add(new IntegerLiteral(1, indexVariable.type))
+        continueBlock.add(new ValueStatement(new VariableAssignment(
+                indexVariable,
+                add)))
+        l.add(continueBlock)
+        newBlock.add(l)
+    }
+
+    method convertIterable(ast:ASTGenerator, f:ForEach, list:Value,
+            oldBlock:Block, newBlock:Block) {
+        def iterator := new ReusedValueDefinition(
+                ast.call(f.position, list, "iterator", []))
+        newBlock.add(new ValueStatement(iterator))
+        def l := new While(f.position, f.label, ast.call(f.position,
+                iterator.createReference(), "hasMore", []))
+        def lBlock := new Block(f.position, newBlock.symbolTable)
+        l.add(lBlock)
+        lBlock.add(new ValueStatement(new VariableAssignment(f.loopVariable, 
+                ast.call(f.position, iterator.createReference(), "next", []))))
+        lBlock.add(oldBlock)
+        newBlock.add(l)
+    }
+
     method transform(ast:ASTGenerator, m:MethodNode, analysis:MethodAnalysis,
             var node:Node) {
         if node-?>(ForEach) {
@@ -41,48 +102,14 @@ class ForEachLoops : MethodTransformer {
             def parent := f.parent
             assert parent-?>(Block)
             def b := new Block(f.position, parent->(Block).symbolTable)
-            var indexVariable := f.indexVariable
-            if indexVariable = null {
-                indexVariable := new LocalVariable(f.position, "$loopIndex", 
-                        Type.INDEX_TYPE)
-                m.localVariables.append(indexVariable)
-            }
-            b.add(new ValueStatement(new VariableAssignment(indexVariable,
-                    new IntegerLiteral(0, indexVariable.type))))
             def fList := f.list
             def fBlock := f.block
             fList.removeFromParent()
             fBlock.removeFromParent()
-            def list := new ReusedValueDefinition(fList)
-            b.add(new ValueStatement(list))
-            def length := ast.resolve(ast.getField(f.position, 
-                    list.createReference(), "length"))
-            length.markLive()
-            def end := new ReusedValueDefinition(length)
-            b.add(new ValueStatement(end))
-            def l := new LoopWithContinueBlock(f.position, f.label)
-            def lBlock := new Block(f.position, b.symbolTable)
-            l.add(lBlock)
-            def test := new GreaterThanOrEqual(f.position)
-            test.add(new VariableReference(f.position, indexVariable))
-            test.add(end.createReference())
-            def breakIf := new If(f.position, test)
-            lBlock.add(breakIf)
-            def breakBlock := new Block(f.position, b.symbolTable)
-            breakIf.add(breakBlock)
-            breakBlock.add(new Break(f.position))
-            lBlock.add(new ValueStatement(new VariableAssignment(f.loopVariable, 
-                    new IndexValue(list.createReference(), 
-                    new VariableReference(indexVariable)))))
-            lBlock.add(fBlock)
-            def continueBlock := new Block(f.position, b.symbolTable)
-            def add := new Add(f.position)
-            add.add(new VariableReference(indexVariable))
-            add.add(new IntegerLiteral(1, indexVariable.type))
-            continueBlock.add(new ValueStatement(new VariableAssignment(indexVariable,
-                    add)))
-            l.add(continueBlock)
-            b.add(l)
+            if fList.type.isPrimitiveArray
+                convertPrimitive(ast, f, fList, m, fBlock, b)
+            else
+                convertIterable(ast, f, fList, fBlock, b)
             replace(m, analysis, f, b)
             node := b
         }
