@@ -3202,7 +3202,7 @@ class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<pand
 
     @override @preOr(true)
     function format(fmt:String):String
-{ def result := new MutableString("[") for i, v in self { Panda.log("\{i}: \{v}") if i > 0 result.append(", ") result.append(v.format(fmt)) } result.append("]") return result->>(String) }
+{ def result := new MutableString("[") for i, v in self { if i > 0 result.append(", ") result.append(v.format(fmt)) } result.append("]") return result->>(String) }
 
     @class
     method $classInit()
@@ -3211,9 +3211,6 @@ class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<pand
 package panda.collections
 
 interface Collection<T:panda.core.Object?> : panda.collections.CollectionView<panda.collections.Collection.T>, panda.collections.CollectionWriter<panda.collections.Collection.T> {
-    
-    method filterInPlace(f:(T)=>(Bit))
-{ for i in length - 1 ... 0 by -1 { if !f(self[i]) removeIndex(i) } }
 }
 package panda.collections
 
@@ -3223,6 +3220,7 @@ interface CollectionView<T:panda.core.Object?> : panda.collections.Iterable<pand
 
     
     function contains(object:T):Bit
+{ for v in self { if object = v return true } return false }
 
     
     function filter(f:(T)=>(Bit)):CollectionView<T>
@@ -3239,17 +3237,28 @@ interface CollectionView<T:panda.core.Object?> : panda.collections.Iterable<pand
     
     method apply(m:(T)=&>())
 { for v in self m(v) }
+
+    
+    function ->>():Array<T>
+{ def result := new Array<T>() for v in self result.add(v) return result }
+
+    
+    function ->>():Set<T>
+{ def result := new HashSet<T>() for v in self result.add(v) return result }
 }
 package panda.collections
 
 interface CollectionWriter<T:panda.core.Object?> {
     
+    function length():Int
+
+    @self
     method add(object:T)
 
-    
+    @self
     method remove(object:T)
 
-    
+    @self
     method clear()
 }
 package panda.collections
@@ -3625,25 +3634,51 @@ class HashSet<T:panda.core.Object?>:panda.core.Object (panda.collections.Set<pan
     function contains(object:T):Bit
 { return contents[object] != null }
 
-    @override
+    @override @safeReturn
     function iterator():Iterator<T>
 { throw new NotSupportedException() }
 
-    @override
+    @override @self
     method add(object:T)
 { contents[object] := object }
 
-    @override
+    @override @self
     method remove(object:T)
 { contents.remove(object) }
 
-    @override
+    @override @self
     method clear()
 { contents.clear() }
 }
 package panda.collections
 
-class ImmutableArray<T:panda.core.Object?>:panda.core.Immutable {
+class ImmutableArray<T:panda.core.Immutable>:panda.core.Immutable (panda.collections.ListView<panda.collections.ImmutableArray.T>) {
+    @private @final
+    var contents:panda.collections.PrimitiveArray<panda.collections.ImmutableArray.T>
+
+    @self
+    constructor(contents:Array<T>)
+{ self.contents := new PrimitiveArray<T>() for v in contents self.contents.append(v) }
+
+    @override @preOr(index < _length)
+    function [](index:Int):T
+{ return contents[index] }
+
+    @override
+    function length():Int
+{ return contents.length }
+
+    @override
+    function =(o:Object):Bit
+{ if o-!>(ListView<T>) return false def list := o->(ListView<T>) if length != list.length return false for i, v in self { if v != list[i] return false } return true }
+
+    @override @math(overflow)
+    function hash():Int
+{ var result := 0 constant MULTIPLIER := 53 for v in self result := result * MULTIPLIER + v.hash return result }
+
+    @override @preOr(true)
+    function format(fmt:String):String
+{ def result := new MutableString("[") for i, v in self { if i > 0 result.append(", ") result.append(v.format(fmt)) } result.append("]") return result->>(String) }
 }
 package panda.collections
 
@@ -3681,6 +3716,37 @@ interface Iterator<T:panda.core.Object?> {
 package panda.collections
 
 interface List<T:panda.core.Object?> : panda.collections.ListView<panda.collections.List.T>, panda.collections.ListWriter<panda.collections.List.T> {
+    
+    method removeIndex(index:Int)
+
+    @self
+    method mapInPlace(f:(T)=>(T))
+{ for i in 0 .. length self[i] := f(self[i]) }
+
+    @self
+    method filterInPlace(f:(T)=>(Bit))
+{ for i in length - 1 ... 0 by -1 { if !f(self[i]) removeIndex(i) } }
+}
+package panda.collections
+@private
+class ListIterator<T:panda.core.Object?>:panda.core.Object (panda.collections.Iterator<panda.collections.ListIterator.T>) {
+    @final
+    var list:panda.collections.ListView<panda.collections.ListIterator.T>
+
+    
+    var index := 0
+
+    @self
+    constructor(list:ListView<T>)
+{ self.list := list }
+
+    @override
+    function done():Bit
+{ return index >= list.length }
+
+    @override @self
+    method next():T
+{ def result := list[index] index += 1 return result }
 }
 package panda.collections
 
@@ -3704,21 +3770,19 @@ interface ListView<T:panda.core.Object?> : panda.collections.CollectionView<pand
     function [...](start:Int, end:Int, step:Int):ListView<T>
 { def result := new Array<T>() for i in start ... end by step result.add(self[i]) return result }
 
+    @override @safeReturn
+    function iterator():Iterator<T>
+{ return new ListIterator<T>(self) }
+
     
     function join(delimiter:String):String
 { def result := new MutableString() for i, v in self { if i > 0 result.append(delimiter) result.append(v) } return result->>(String) }
-
-    
-    method removeIndex(index:Int)
 }
 package panda.collections
 
 interface ListWriter<T:panda.core.Object?> : panda.collections.CollectionWriter<panda.collections.ListWriter.T> {
     
     method []:=(i:Int, object:T)
-
-    
-    function length():Int
 
     @self
     method [..]:=(start:Int, var end:Int?, step:Int, list:ListView<T>)

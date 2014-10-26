@@ -4978,6 +4978,14 @@ class ASTGenerator {
         }
     }
 
+    @private
+    function getBaseType(var t:Type):Type {
+        t := t.unwrapNullable
+        if t-?>(GenericType)
+            return t->(GenericType).base
+        return t
+    }
+
     ============================================================================
     Verify that a method has a legal signature. In the case of overloaded
     operators, there are many constraints (such as addition must be a function
@@ -5142,7 +5150,8 @@ class ASTGenerator {
                         throw new CompilerException("expected \{name} to " +
                                 "take a single parameter", m.position)
                     }
-                    if m.returnType != m.owner.type() {
+                    if m.returnType != m.owner.type() & 
+                            getBaseType(m.returnType) != m.owner.type() {
                         throw new CompilerException("expected \{name} to " +
                                 "return '\{m.owner.type().displayName}'", 
                                 m.position)
@@ -5390,12 +5399,12 @@ class ASTGenerator {
             assert cm.parent = cl : "wrong cm.parent"
         }
         else {
-            if cl.annotations.isUnspecified
-                return
             var cm:MethodNode? := null
             for child in cl.children {
                 if child.position = m.position {
                     cm := child->(MethodNode)
+                    if cl.annotations.isUnspecified & !cm.annotations.isClass
+                        return
                     nodeStack.push(cm)
                     break
                 }
@@ -6785,7 +6794,8 @@ class ASTGenerator {
         if immutable & !f.annotations.isClass & 
                 !f.annotations.isThread &
                 !f.type.isImmutable &
-                cl.name != class(Method).name {
+                cl.name != class(Method).name &
+                !cl.name.startsWith("panda.collections.ImmutableArray") {
             PandaCompiler.reportError(
                     "immutable class '\{cl.name}' has " +
                     "mutable field '\{f.name}' " +
