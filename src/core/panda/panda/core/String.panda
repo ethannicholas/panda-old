@@ -5,7 +5,7 @@ An immutable sequence of characters. String literals appearing in Panda code are
 represented at runtime by instances of the `String` class.
 ================================================================================
 @final
-class String : Value {
+class String : Value (ListView<Char>) {
     ============================================================================
     The characters of the string.
     ============================================================================
@@ -34,14 +34,28 @@ class String : Value {
     }
 
     ============================================================================
+    Creates a new `String` initialized with characters from a character array.
+    The `String` and character array do not share state, and the array may
+    subsequently be modified without affecting the `String`.
+
+    @param chars the character array to copy from
+    ============================================================================
+    constructor(chars:Array<Char>) {
+        def a := new PrimitiveArray<Char>()
+        for c in chars
+            a.append(c)
+        self.chars := a->>(ImmutablePrimitiveArray<Char>)
+    }
+
+    ============================================================================
     Returns the length of this string.
     
     @returns the length of this string
     ============================================================================
+    @override
     function length():Int {
         return chars.length
     }
-    @post(@return >= 0)
 
     ============================================================================
     Returns a single character from the string.
@@ -49,6 +63,7 @@ class String : Value {
     @param i the index of the character to return
     @returns the character at the specified index
     ============================================================================
+    @override
     function [](i:Int):Char {
         return chars[i]
     }
@@ -318,15 +333,11 @@ class String : Value {
         if length = 0
             return self->>(String)
         var start := 0
-        -- FIXME when Char functions are available, need to use
-        -- Char.isWhitespace
-        while start < length & isWhitespace(self[start])
+        while start < length & self[start].isWhitespace
             start += 1
 
         var end := length - 1
-        -- FIXME when Char functions are available, need to use
-        -- Char.isWhitespace
-        while end >= start & isWhitespace(self[end])
+        while end >= start & self[end].isWhitespace
             end -= 1
             
         return self[start ... end]
@@ -416,6 +427,7 @@ class String : Value {
     @param needle the character to search for
     @returns `true` if the character was found
     ============================================================================
+    @override
     function contains(needle:Char):Bit {
         return indexOf(needle) != null
     }
@@ -454,63 +466,6 @@ class String : Value {
         return null
     }
     @post(@return = null | @return < length)
-    
-    ============================================================================
-    Returns the index of the first occurrence of the character `c` within this
-    string, or `null` if not found.
-    
-    @param c the character to search for
-    @returns the index of the match, or `null` if not found
-    ============================================================================
-    function indexOf(c:Char):Int? {
-        return indexOf(c, 0)
-    }
-
-    ============================================================================
-    Returns the index of the first occurrence of the character `c` within this
-    string, starting from the specified `index`, or `null` if not found.
-    
-    @param c the character to search for
-    @param start the index to begin searching from
-    @returns the index of the match, or `null` if not found
-    ============================================================================
-    @pre(start >= 0)
-    @pre(start <= length)
-    function indexOf(c:Char, start:Int):Int? {
-        for i in start .. length
-            if self[i] = c
-                return i
-        return null
-    }
-    @post(@return = null | self[@return] = c)
-
-    ============================================================================
-    Returns the index of the last occurrence of the character `c` within this
-    string, or `null` if not found.
-    
-    @param c the character to search for
-    @returns the index of the match, or `null` if not found
-    ============================================================================
-    function lastIndexOf(c:Char):Int? {
-        return lastIndexOf(c, length - 1)
-    }
-
-    ============================================================================
-    Returns the index of the last occurrence of the character `c` within this
-    string, starting from the specified `index`, or `null` if not found.
-    
-    @param c the character to search for
-    @param start the index to begin searching backwards from
-    @returns the index of the match, or `null` if not found
-    ============================================================================
-    function lastIndexOf(c:Char, start:Int):Int? {
-        for i in start ... 0 by -1 {
-            if self[i] = c
-                return i
-        }
-        return null
-    }
-    @post(@return = null | self[@return] = c)
 
     ============================================================================
     Returns a substring of this string from `start` to the end of the string.
@@ -556,6 +511,7 @@ class String : Value {
     @param step the step value
     @returns a substring of this string
     ============================================================================
+    @override
     function [..](start:Int, end:Int, step:Int):String {
         return new String(chars[start .. end by step])
     }
@@ -572,6 +528,7 @@ class String : Value {
     @param step the step value
     @returns a substring of this string
     ============================================================================
+    @override
     function [..](start:Int?, end:Int?, step:Int):String {
         return new String(chars[start .. end by step])
     }
@@ -619,6 +576,7 @@ class String : Value {
     @param step the step value
     @returns a substring of this string
     ============================================================================
+    @override
     function [...](start:Int, end:Int, step:Int):String {
         return new String(chars[start ... end by step])
     }
@@ -635,14 +593,25 @@ class String : Value {
     @param step the step value
     @returns a substring of this string
     ============================================================================
+    @override
     function [...](start:Int?, end:Int?, step:Int):String {
         return new String(chars[start ... end by step])
     }
 
-    -- FIXME remove this when Char is finished
-    @private
-    function isWhitespace(c:Char):Bit {
-        return c = " " | c = "\t" | c = "\n" | c = "\r"
+    @override
+    @safeReturn
+    function iterator():Iterator<Char> {
+        return new ListIterator<Char>(self)
+    }
+
+    @override
+    function filter(f:(Char)=>(Bit)):String {
+        def result := new MutableString()
+        for c in self {
+            if f(c)
+                result.append(c)
+        }
+        return result->>(String)
     }
 
     ============================================================================
@@ -932,6 +901,20 @@ class String : Value {
         else
             return self
     }
+
+    ============================================================================
+    Converts this string to an array of characters.
+    
+    @returns the characters of the string
+    ============================================================================
+    @override
+    function ->>():Array<Char> {
+        var result := new Array<Char>()
+        for i in 0 .. length
+            result.add(self[i])
+        return result
+    }
+    @postAnd(@return.length = length)
 
     ============================================================================
     Converts this string to a UTF-8 sequence of bytes.
