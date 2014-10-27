@@ -3192,17 +3192,9 @@ class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<pand
     method ensureCapacity(maxLength:Int)
 { if maxLength > contents.length { def newContents := new PrimitiveArray<T>(contents.length * 2) for i in 0 .. length newContents[i] := contents[i] contents := newContents } }
 
-    @override
-    function =(o:Object):Bit
-{ if o-!>(ListView<T>) return false def list := o->(ListView<T>) if length != list.length return false for i, v in self { if v != list[i] return false } return true }
-
     @override @math(overflow)
     function hash():Int
 { var result := 0 constant MULTIPLIER := 53 for v in self result := result * MULTIPLIER + v.hash return result }
-
-    @override @preOr(true)
-    function format(fmt:String):String
-{ def result := new MutableString("[") for i, v in self { if i > 0 result.append(", ") result.append(v.format(fmt)) } result.append("]") return result->>(String) }
 
     @class
     method $classInit()
@@ -3241,10 +3233,6 @@ interface CollectionView<T:panda.core.Object?> : panda.collections.Iterable<pand
     
     function ->>():Array<T>
 { def result := new Array<T>() for v in self result.add(v) return result }
-
-    
-    function ->>():Set<T>
-{ def result := new HashSet<T>() for v in self result.add(v) return result }
 }
 package panda.collections
 
@@ -3716,9 +3704,6 @@ interface Iterator<T:panda.core.Object?> {
 package panda.collections
 
 interface List<T:panda.core.Object?> : panda.collections.ListView<panda.collections.List.T>, panda.collections.ListWriter<panda.collections.List.T> {
-    
-    method removeIndex(index:Int)
-
     @self
     method mapInPlace(f:(T)=>(T))
 { for i in 0 .. length self[i] := f(self[i]) }
@@ -3726,6 +3711,29 @@ interface List<T:panda.core.Object?> : panda.collections.ListView<panda.collecti
     @self
     method filterInPlace(f:(T)=>(Bit))
 { for i in length - 1 ... 0 by -1 { if !f(self[i]) removeIndex(i) } }
+
+    @override
+    method insert(value:Int, index:Int)
+{ add(value) for i in length - 1 .. index by -1 self[i] := self[i - 1] self[index] := value }
+
+    
+    method []:=(i:Int, object:T)
+
+    @self
+    method [..]:=(var start:Int?, var end:Int?, step:Int, list:ListView<T>)
+{ if start = null { if step > 0 start := 0 else start := length - 1 } if end = null { if step > 0 end := length else end := -1 } self[start->(Int) .. end->(Int) by step] := list }
+
+    @self
+    method [..]:=(start:Int, end:Int, step:Int, list:ListView<T>)
+{ if step = 1 { def oldLength := end - start def newLength := list.length def delta := newLength - oldLength if delta < 0 { for i in 0 .. -delta removeIndex(start) for i in start .. start + list.length self[i] := list[i - start] } else if delta > 0 { for i in 0 .. delta insert(list[i], start + i) for i in delta .. list.length self[start + i] := list[i] } } else { var src := 0 for dest in start .. end by step { self[dest] := list[src] src += 1 } assert src = list.length : new PreconditionError( "slice source and destination lengths do not match") } }
+
+    @self
+    method [...]:=(var start:Int?, var end:Int?, step:Int, list:ListView<T>)
+{ if start = null { if step > 0 start := 0 else start := length - 1 } if end = null { if step > 0 end := length - 1 else end := 0 } self[start->(Int) ... end->(Int) by step] := list }
+
+    @self
+    method [...]:=(start:Int, end:Int, step:Int, list:ListView<T>)
+{ if step > 0 self[start .. end + 1 by step] := list else self[start .. end - 1 by step] := list }
 }
 package panda.collections
 @private
@@ -3755,16 +3763,16 @@ interface ListView<T:panda.core.Object?> : panda.collections.CollectionView<pand
     function [](i:Int):T
 
     
-    function [..](start:Int, var end:Int?, step:Int):ListView<T>
-{ if end = null { if step > 0 end := length else end := -1 } return self[start .. end->(Int) by step] }
+    function [..](var start:Int?, var end:Int?, step:Int):ListView<T>
+{ if start = null { if step > 0 start := 0 else start := length - 1 } if end = null { if step > 0 end := length else end := -1 } return self[start .. end->(Int) by step] }
 
     
     function [..](start:Int, end:Int, step:Int):ListView<T>
 { def result := new Array<T>() for i in start .. end by step result.add(self[i]) return result }
 
     
-    function [...](start:Int, var end:Int?, step:Int):ListView<T>
-{ if end = null { if step > 0 end := length - 1 else end := 0 } return self[start ... end->(Int) by step] }
+    function [...](var start:Int?, var end:Int?, step:Int):ListView<T>
+{ if start = null { if step > 0 start := 0 else start := length - 1 } if end = null { if step > 0 end := length - 1 else end := 0 } return self[start ... end->(Int) by step] }
 
     
     function [...](start:Int, end:Int, step:Int):ListView<T>
@@ -3782,23 +3790,10 @@ package panda.collections
 
 interface ListWriter<T:panda.core.Object?> : panda.collections.CollectionWriter<panda.collections.ListWriter.T> {
     
-    method []:=(i:Int, object:T)
+    method insert(value:Int, index:Int)
 
-    @self
-    method [..]:=(start:Int, var end:Int?, step:Int, list:ListView<T>)
-{ if end = null { if step > 0 end := length else end := -1 } self[start .. end->(Int) by step] := list }
-
-    @self
-    method [..]:=(start:Int, end:Int, step:Int, list:ListView<T>)
-{ for i, j in start .. end by step self[j] := list[i] }
-
-    @self
-    method [...]:=(start:Int, var end:Int?, step:Int, list:ListView<T>)
-{ if end = null { if step > 0 end := length - 1 else end := 0 } self[start .. end->(Int) by step] := list }
-
-    @self
-    method [...]:=(start:Int, end:Int, step:Int, list:ListView<T>)
-{ for i, j in start ... end by step self[j] := list[i] }
+    
+    method removeIndex(index:Int)
 }
 package panda.collections
 
