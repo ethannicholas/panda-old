@@ -1,0 +1,274 @@
+-*
+package panda.collections
+
+================================================================================
+A single key/value pair from a `HashMap`.
+================================================================================
+@private
+class ImmutableGenericMapEntry<K:Immutable, V:Immutable> : Immutable {
+    ============================================================================
+    The entry's key.
+    ============================================================================
+    def key:K
+
+    ============================================================================
+    The entry's value.
+    ============================================================================
+    var value:V
+    
+    var next:ImmutableGenericMapEntry<K, V>?
+    
+    @private
+    constructor(key:K, value:V) {
+        self.key := key
+        self.value := value
+    }
+}
+
+@private
+@abstract
+class ImmutableHashMapIterator<K:Immutable, V:Immutable, R:Immutable> 
+        (Iterator<R>) {
+    def map:ImmutableGenericHashMap<K, V>
+    var index := 0
+    var entry:ImmutableGenericMapEntry<K, V>?
+
+    constructor(map:GenericHashMap<K, V>) {
+        self.map := map
+        entry := map.contents[0]
+        while entry = null {
+            index += 1
+            if index >= map.contents.length
+                break
+            entry := map.contents[index]
+        }
+    }
+
+    @override
+    function done():Bit {
+        return index >= map.contents.length
+    }
+
+    @abstract
+    function result(e:ImmutableGenericMapEntry<K, V>):R
+
+    @override
+    @self
+    method next():R {
+        assert entry != null
+        def result := result(entry)
+        entry := entry.next
+        while entry = null {
+            index += 1
+            if index >= map.contents.length
+                break
+            entry := map.contents[index]
+        }
+        return result
+    }
+}
+
+@private
+class ImmutableHashMapEntryIterator<K:Immutable, V:Immutable> : 
+        ImmutableHashMapIterator<K, V, (K, V)> {
+    constructor(map:ImmutableGenericHashMap<K, V>) {
+        super.constructor(map)
+    }
+
+    @override
+    function result(e:ImmutableGenericMapEntry<K, V>):(K, V) {
+        return (e.key, e.value)
+    }
+}
+
+@private
+class ImmutableHashMapKeyIterator<K:Immutable, V:Immutable> : 
+        ImmutableHashMapIterator<K, V, K> {
+    constructor(map:GenericHashMap<K, V>) {
+        super.constructor(map)
+    }
+
+    @override
+    function result(e:ImmutableGenericMapEntry<K, V>):K {
+        return e.key
+    }
+}
+
+@private
+class ImmutableHashMapValueIterator<K:Immutable, V:Immutable> : 
+        ImmutableHashMapIterator<K, V, V> {
+    constructor(map:GenericHashMap<K, V>) {
+        super.constructor(map)
+    }
+
+    @override
+    function result(e:ImmutableGenericMapEntry<K, V>):V {
+        return e.value
+    }
+}
+
+================================================================================
+Immutable implementation of the [MapView] interface, which associates keys with 
+values.
+================================================================================
+class ImmutableGenericHashMap<K:Immutable, V:Immutable> : Immutable 
+        (GenericMapView<K, V>) {
+    @private
+    def _length:Int32
+    
+    @private 
+    def contents:ImmutablePrimitiveArray<ImmutableGenericMapEntry<K, V>?> 
+    -- length must be a power of 2 (see indexFor)
+    
+    @private
+    constructor(m:GenericMapView<K, V>) {
+        def h:GenericHashMap
+        if m-?>(GenericHashMap<K, V>)
+            h := m->(GenericHashMap<K, V>)
+        else
+            h := new GenericHashMap<K, V>(m)
+        var contentsTemp := new PrimitiveArray<ImmutableMapEntry?>()
+        for e in h.contents
+            contentsTemp.append(copy(e))
+        contents := new ImmutablePrimitiveArray<ImmutableMapEntry?>(contentsTemp, 0, 
+                contentsTemp.length)
+        _length := h.length
+    }
+    
+    ============================================================================
+    Creates a new `ImmutableHashMap` with a set of keys and values. The first
+    entry in the `keys` array will be paired with the first entry in the 
+    `values` array, and so on.
+
+    @param keys the map keys
+    @param values the map values
+    ============================================================================
+    constructor(keys:PrimitiveArray<Immutable?>, 
+            values:PrimitiveArray<Immutable?>) {
+        -- FIXME remove copies once we have proper generics
+        constructor(new GenericHashMap<K, V>(copy(keys), copy(values)))
+    }
+
+    @private
+    function copy(a:PrimitiveArray<Immutable?>):PrimitiveArray<Object?> {
+        var result := new PrimitiveArray<Object?>()
+        for e in a
+            result.append(e)
+        return result
+    }
+    
+    @private
+    function copy(m:GenericMutableMapEntry<K, V>?):ImmutableGenericMapEntry<K, V>? {
+        if m = null
+            return null
+        return new ImmutableGenericMapEntry(m.key->(Immutable?), 
+                m.value->(Immutable?), copy(m.next))
+    }
+    
+    @private
+    @math(overflow)
+    function indexFor(key:K):Int32 {
+        var h:Int32
+        if key = null
+            h := 0
+        else
+            h := key.hash
+        -- supplemental hash function to defend against poor hash codes, 
+        -- as we do not use a prime table length
+        h ~~= (h >> 20) ~~ (h >> 12) ~~ (h >> 7) ~~ (h >> 4)
+        -- the bitwise and below is equivalent to mod if length is a power 
+        -- of 2, which is why we require that
+        return h && (contents.length - 1)
+    }
+
+    @override
+    function [](key:K):V? {
+        var index := indexFor(key)
+        var e := contents[index]
+        while e != null & e.key != key {
+            e := e.next
+        }
+        if e != null
+            return e.value
+        else
+            return null
+    }
+
+    @override
+    function length():Int {
+        return _length
+    }
+    
+    @override
+    function contains(key:K):Bit {
+        def index := indexFor(key)
+        var e := contents[index]
+        while e != null & e.key != key
+            e := e.next
+        return e != null
+    }
+    
+    @override
+    @safeReturn
+    function iterator():Iterator<(K, V)> {
+        return new HashMapEntryIterator<K, V>(self)
+    }
+
+    @override
+    @safeReturn
+    function keys():Iterator<K> {
+        return new HashMapKeyIterator<K, V>(self)
+    }
+    
+    @override
+    @safeReturn
+    function values():Iterator<V> {
+        return new HashMapValueIterator<K, V>(self)
+    }
+
+    @class
+    function ->>(m:GenericMapView<K, V>):ImmutableGenericHashMap<K, V> {
+        return new ImmutableGenericHashMap<K, V>(h)
+    }
+
+    ============================================================================
+    Formats the map as a string. If the format string is empty, returns the same 
+    string as `->>(String)`. If the format string is `"panda"`, each key and 
+    value in the map will be formatted using the format string `"panda"` (which 
+    may cause errors if they do not support this option).
+
+    @param fmt the format string
+    @returns a string representation of this object
+    ============================================================================
+    @override
+    @preOr(fmt = "" | fmt = "panda")
+    function format(fmt:String):String {
+        def result := new MutableString()
+        result.append("{")
+        var first := true
+        for e in contents {
+            var current := e
+            while current != null {
+                if !first
+                    result.append(", ")
+                else
+                    first := false
+                def key := current.key
+                if key != null
+                    result.append(key.format(fmt))
+                else
+                    result.append("null")
+                result.append(": ")
+                def value := current.value
+                if value != null
+                    result.append(value.format(fmt))
+                else
+                    result.append("null")
+                current := current.next
+            }
+        }
+        result.append("}")
+        return result->>(String)
+    }
+}
+*-
