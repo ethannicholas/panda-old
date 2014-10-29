@@ -556,7 +556,7 @@ class DataFlowAnalyzer {
         -- all current outValues
         var outs := new GenericHashMap<ValueKey, DataFlowValue>(c.inValues)
         -- just variables assigned in this block
-        var newOuts := new HashMap()
+        def newOuts := new HashSet<Variable>()
         outer: for node in c.nodes {
             if node-?>(VariableAssignment) {
                 var va := node->(VariableAssignment)
@@ -564,7 +564,7 @@ class DataFlowAnalyzer {
                 var vr := new VariableReference(v)
                 var newValue := getValue(va.value, outs)
                 outs[getKey(vr, outs)] := newValue
-                newOuts[v] := v
+                newOuts.add(v)
             }
             else if node-?>(FieldAssignment) {
                 var fa := node->(FieldAssignment)
@@ -576,7 +576,7 @@ class DataFlowAnalyzer {
                 var exception := node->(Catch).exception
                 outs[getKey(new VariableReference(exception), outs)] := 
                                     new DataFlowValue(exception.type, true)
-                newOuts[exception] := exception
+                newOuts.add(exception)
             }
             else if node-?>(ForEach) {
                 def f := node->(ForEach)
@@ -586,13 +586,13 @@ class DataFlowAnalyzer {
                     def idxValue := new DataFlowValue(idx.type, true, true, 
                             false)
                     outs[idxKey] := idxValue
-                    newOuts[idx] := idx
+                    newOuts.add(idx)
                 }
                 def v := f.loopVariable
                 def vKey := new ValueKey(LOCAL_CLASS, v)
                 def vValue := new DataFlowValue(v.type, true, true, false)
                 outs[vKey] := vValue
-                newOuts[v] := v
+                newOuts.add(v)
             }
             else if node-?>(Assert) {
                 def branches := evaluateBranch(node->(Assert).test, outs)
@@ -601,7 +601,7 @@ class DataFlowAnalyzer {
             }
             else if node-?>(VariableReference) {
                 def vr := node->(VariableReference)
-                if newOuts[vr.variable] = null {
+                if !newOuts.contains(vr.variable) {
                     def value := getInValue(vr, c.inValues)
                     if value = null | !value.definitelyAssigned {
                         PandaCompiler.reportError(

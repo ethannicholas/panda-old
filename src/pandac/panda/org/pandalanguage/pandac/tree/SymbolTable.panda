@@ -42,29 +42,29 @@ class SymbolTable {
 
 --    @private
     @thread
-    def typeMap := new HashMap()
+    def typeMap:GenericMap<String, Type> := new GenericHashMap<String, Type>()
 
     @thread
-    def classMap := new HashMap()
+    def classMap:GenericMap<String, ClassNode> := new GenericHashMap<String, ClassNode>()
     -- FIXME need an order-preserving hashtable
 
     @private
     @thread
-    def classOrder := new PrimitiveArray<ClassNode>()
+    def classOrder := new Array<ClassNode>()
 
-    var owner:Node?
+    def owner:Node?
     var parent:SymbolTable?
     -- additional interface symboltables that are in scope from this symboltable
-    var interfaces := new PrimitiveArray<SymbolTable>()
-    var variables := new HashMap()
-    var methods := new HashMap()
+    def interfaces := new Array<SymbolTable>()
+    def variables := new GenericHashMap<String, Variable>()
+    def methods := new GenericHashMap<String, Array<MethodNode>>()
     -- package which owns this symboltable. Classes in this package are 
     -- imported, but unlike normal "uses packagename.*" declarations classes
     -- found in the current package "win" against other similar names without
     -- being considered ambiguous
     var inPackage:String? := null
-    var packageUses := new PrimitiveArray<String>()
-    var classUses := new HashMap()
+    def packageUses := new Array<String>()
+    def classUses := new GenericHashMap<String, String>()
 
     -- maps GenericParameterType to their bound types. While it would of course
     -- be more natural to store this directly on the type, that is complicated
@@ -135,9 +135,9 @@ class SymbolTable {
         if nullable
             name := name[..name.length - 1]
         var result:String? := null
-        result := classUses[name]->(String?)
+        result := classUses[name]
         if result = null {
-            def t := typeMap[name]->(Type?)
+            def t := typeMap[name]
             if t != null
                 result := t.name
             if t-?>(GenericParameterType) {
@@ -154,14 +154,14 @@ class SymbolTable {
             def inPackage := self.inPackage
             if inPackage != null {
                 def qualifiedName := inPackage + "." + name
-                def check := typeMap[qualifiedName]->(Type?)
+                def check := typeMap[qualifiedName]
                 if check != null
                     result := check.name
             }
             if result = null {
                 for p in packageUses {
                     def qualifiedName := p + "." + name
-                    def check := typeMap[qualifiedName]->(Type?)
+                    def check := typeMap[qualifiedName]
                     if check != null {
                         if result != null & result != check.name {
                             throw new CompilerException("class '\{rawName}' " +
@@ -183,7 +183,7 @@ class SymbolTable {
 
     ============================================================================
     Given the parse tree for a type name, return the fully qualified name (e.g.
-    "PrimitiveArray<String>" becomes "panda.collections.PrimitiveArray<panda.core.String>").
+    "Array<String>" becomes "panda.collections.Array<panda.core.String>").
     Returns `null` if the name could not be resolved.
     ============================================================================
     @private
@@ -308,7 +308,7 @@ class SymbolTable {
     @pre(classMap[cl.name] = null)
     method putClass(cl:ClassNode) {
         classMap[cl.name] := cl
-        classOrder.append(cl)
+        classOrder.add(cl)
     }
 
     @private
@@ -440,7 +440,7 @@ class SymbolTable {
             else
                 throw new NotSupportedException(child->>(String))
         }
-        assert typeMap[name] = null
+        assert typeMap[name->>(String)] = null
         if nullable {
             assert name.endsWith("?")
             var base := master.getType(node.position, 
@@ -449,7 +449,7 @@ class SymbolTable {
                 base := base->(PrimitiveType).wrapperVersion()
             -- due to aliasing of primitive types, we can actually end up here
             -- when the class already exists. Double-check!
-            var result:Type? := typeMap[base.name + "?"]->(Type?)
+            var result:Type? := typeMap[base.name + "?"]
             if result = null {
                 result := new NullableType(base)
                 putType(result)
@@ -515,7 +515,7 @@ class SymbolTable {
         def name := resolveName(node)
         var result:Type? := null
         if name != null {
-            result := typeMap[name]->(Type?)
+            result := typeMap[name]
             if result = null {
                 result := createType(Type.parseTypeName(name, 
                         node.position))
@@ -563,8 +563,8 @@ class SymbolTable {
     @class
     function types():PrimitiveArray<Type> {
         def result := new PrimitiveArray<Type>()
-        for type in typeMap.values
-            result.append(type->(Type))
+        for (_, type) in typeMap
+            result.append(type)
         return result
     }
     
@@ -583,7 +583,7 @@ class SymbolTable {
     }
     
     function getVariable(name:String):Variable? {
-        var result := variables[name]->(Variable?)
+        var result := variables[name]
         def parent := self.parent
         if result = null & parent != null
             result := parent.getVariable(name)
@@ -597,7 +597,7 @@ class SymbolTable {
     method usePackage(packageName:String) {
         if packageName = "panda.gl"
             useModule(Module.PANDAGL)
-        packageUses.append(packageName)
+        packageUses.add(packageName)
     }
 
     @pre(classUses[alias] = null)
@@ -609,39 +609,37 @@ class SymbolTable {
     
     @pre(owner-?>(ClassNode))
     method putMethod(m:MethodNode) {
-        var named := methods[m.name]->(PrimitiveArray<MethodNode>?)
+        var named := methods[m.name]
         if named = null {
-            named := new PrimitiveArray<MethodNode>()
+            named := new Array<MethodNode>()
             methods[m.name] := named
             assert methods[m.name] != null
         }
-        named.append(m)
+        named.add(m)
     }
 
     -- FIXME PERFORMANCE this is O(n^2), which is ugly, but n is always
     -- going to be small so it's probably not a huge deal
     @private
-    method addNonOverriddenMethods(destList:PrimitiveArray<MethodNode>, 
-            additions:PrimitiveArray<MethodNode>) {
+    method addNonOverriddenMethods(destList:Array<MethodNode>, 
+            additions:CollectionView<MethodNode>) {
         outer: for addition in additions {
             for dest in destList {
                 if dest.isOverrideOf(addition)
                     continue outer
             }
-            destList.append(addition)
+            destList.add(addition)
         }
     }
     
     @private
     @safeReturn
-    method getMethodsNamed(name:String):PrimitiveArray<MethodNode> {
-        var current := methods[name]->(PrimitiveArray<MethodNode>?)
-        var result:PrimitiveArray<MethodNode>
+    method getMethodsNamed(name:String):CollectionView<MethodNode> {
+        def current := methods[name]
+        def result := new Array<MethodNode>()
         if current != null
-            result := new PrimitiveArray<MethodNode>(current, 0, current.length)
-        else
-            result := new PrimitiveArray<MethodNode>()
-        var parent := self.parent
+            result.addAll(current)
+        def parent := self.parent
         if parent != null
             addNonOverriddenMethods(result, parent.getMethodsNamed(name))
         for intf in interfaces
@@ -732,7 +730,7 @@ class SymbolTable {
             classMethod:Bit?):MethodNode? {
         var params := rawParams
         def possibleMatches := getMethodsNamed(name)
-        var result := new PrimitiveArray<MethodNode>()
+        var result := new Array<MethodNode>()
         var minCost := Type.NO_MATCH
         -- classMethod is nullable, so can't simply do "if classMethod". null
         -- is interpreted as both true and false for the purpose of this and the
@@ -743,11 +741,12 @@ class SymbolTable {
                 if m.annotations.isClass {
                     def cost := matchCost(m, params)
                     if cost < minCost {
-                        result := new PrimitiveArray<MethodNode>(m)
+                        result := new Array<MethodNode>()
+                        result.add(m)
                         minCost := cost
                     }
                     else if cost = minCost & cost != Type.NO_MATCH
-                        result.append(m)
+                        result.add(m)
                 }
             }
         }
@@ -767,11 +766,12 @@ class SymbolTable {
                 if !m.annotations.isClass {
                     def cost := matchCost(m, params)
                     if cost < minCost {
-                        result := new PrimitiveArray<MethodNode>(m)
+                        result := new Array<MethodNode>()
+                        result.add(m)
                         minCost := cost
                     }
                     else if cost = minCost & cost != Type.NO_MATCH
-                        result.append(m)
+                        result.add(m)
                 }
             }
         }
@@ -805,7 +805,7 @@ class SymbolTable {
 
     @override     
     function format(fmt:String):String {
-        var owner := self.owner
+        def owner := self.owner
         if owner != null
             return "SymbolTable(" + owner + ")"
         else

@@ -265,14 +265,15 @@ class ASTGenerator {
     `CompilationUnit`. `currentClass`, `currentMethod`, `currentBlock`, and 
     `currentObject` refer to the contents of this stack.
     ============================================================================
-    var nodeStack := new Stack()
+    def nodeStack := new Stack<Node>()
     
     ============================================================================
     Maps fields to their initializer expressions, so that we can insert them at
     the beginning of constructors. The values will either be ParseNodes or
     TupleReferences.
     ============================================================================
-    var pendingFieldValues:Map := new HashMap()
+    var pendingFieldValues:GenericMap<FieldNode, Object> := 
+            new GenericHashMap<FieldNode, Object>()
     
     ============================================================================
     If this source file contains statements appearing outside of a class, holds 
@@ -313,18 +314,20 @@ class ASTGenerator {
     ============================================================================
     A list of all packages referenced by `uses`.
     ============================================================================
-    var packageUses := new PrimitiveArray<String>()
+    var packageUses := new Array<String>()
 
     ============================================================================
     A map of `uses` aliases to the classes those aliases represent.
     ============================================================================
-    var classUses:Map := new HashMap()
+    var classUses:GenericMap<String, String> := 
+            new GenericHashMap<String, String>()
 
     var namePrefix := hash.abs->>(String)
 
     var nameCount := 0
 
-    var positionToNodeMap:Map? := new HashMap()
+    def positionToNodeMap:GenericMap<Position, (Node, String?)> := 
+            new GenericHashMap<Position, (Node, String?)>()
 
     ============================================================================
     Passed in to BinaryOperation.getOperandType(). Set to false when we are
@@ -336,7 +339,7 @@ class ASTGenerator {
     @returns the current node being processed (the top of the node stack).
     ============================================================================
     function currentNode():Node {
-        return nodeStack.peek()->(Node)
+        return nodeStack.peek()
     }
     
     ============================================================================
@@ -344,7 +347,7 @@ class ASTGenerator {
     ============================================================================
     function currentBlock():Block {
         for i in 0 .. nodeStack.length {
-            var n := nodeStack.peek(i)
+            def n := nodeStack.peek(i)
             if n-?>(Block)
                 return n->(Block)
         }
@@ -353,7 +356,7 @@ class ASTGenerator {
 
     function inBlock():Bit {
         for i in 0 .. nodeStack.length {
-            var n := nodeStack.peek(i)
+            def n := nodeStack.peek(i)
             if n-?>(Block)
                 return true
         }
@@ -365,7 +368,7 @@ class ASTGenerator {
     ============================================================================
     function currentMethod():MethodNode? {
         for i in 0 .. nodeStack.length {
-            var n := nodeStack.peek(i)
+            def n := nodeStack.peek(i)
             if n-?>(MethodNode)
                 return n->(MethodNode)
         }
@@ -377,7 +380,7 @@ class ASTGenerator {
     ============================================================================
     function currentClass():ClassNode? {
         for i in 0 .. nodeStack.length {
-            var n := nodeStack.peek(i)
+            def n := nodeStack.peek(i)
             if n-?>(ClassNode)
                 return n->(ClassNode)
         }
@@ -389,7 +392,7 @@ class ASTGenerator {
     ============================================================================
     function currentCompilationUnit():CompilationUnit {
         for i in 0 .. nodeStack.length {
-            var n := nodeStack.peek(i)
+            def n := nodeStack.peek(i)
             if n-?>(CompilationUnit)
                 return n->(CompilationUnit)
         }
@@ -415,7 +418,7 @@ class ASTGenerator {
     @param c the class to verify the top of the stack against
     ============================================================================
     method close(c:Class) {
-        var n := nodeStack.pop()
+        def n := nodeStack.pop()
         assert n.class = c
     }
 
@@ -436,8 +439,7 @@ class ASTGenerator {
 
     @private
     method captureNode(node:Node, position:Position, type:String?) {
-        if positionToNodeMap != null
-            positionToNodeMap[position] := (node, type)
+        positionToNodeMap[position] := (node, type)
     }
 
     @private
@@ -2234,9 +2236,8 @@ class ASTGenerator {
 
         def cl := new ClassNode(position, "$closure" + safeString(position) +
                 nextCount(), containing.symbolTable)
-        cl.symbolTable.classUses := 
-                new HashMap(containing.symbolTable.classUses)
-        cl.symbolTable.packageUses := containing.symbolTable.packageUses[..]
+        cl.symbolTable.classUses.addAll(containing.symbolTable.classUses)
+        cl.symbolTable.packageUses.addAll(containing.symbolTable.packageUses)
         def type := new ClassType(cl.name)
         SymbolTable.putType(type)
         cl.annotations.isSynthetic := true
@@ -5983,7 +5984,7 @@ class ASTGenerator {
         cl.symbolTable.inPackage := currentPackage
         for p in packageUses
             cl.symbolTable.usePackage(p)
-        for (key, value) in classUses.entries
+        for (key, value) in classUses
             cl.symbolTable.useClass(value->(String), key->(String))
     }
 
@@ -6232,8 +6233,11 @@ class ASTGenerator {
             while classNode.length > 0 {
                 def node := classNode[classNode.length - 1]
                 node.removeFromParent()
-                if pendingFieldValues[node] != null
-                    pendingFieldValues.remove(node)
+                if node-?>(FieldNode) {
+                    def f := node->(FieldNode)
+                    if pendingFieldValues[f] != null
+                        pendingFieldValues.remove(f)
+                }
             }
             classNode.symbolTable := new SymbolTable(classNode,
                     currentCompilationUnit.symbolTable)
@@ -6468,7 +6472,7 @@ class ASTGenerator {
                 error("packages may not have aliases", u)
             def packageName := className[0 .. className.length - 
                     starSuffix.length]
-            packageUses.append(packageName)
+            packageUses.add(packageName)
             if cc != null
                 cc.symbolTable.usePackage(packageName)
         }
@@ -6480,7 +6484,7 @@ class ASTGenerator {
                 else
                     alias := className->>(String)
             }
-            var im := classUses[alias]
+            def im := classUses[alias]
             if im != null {
                 throw new CompilerException("duplicate 'uses': " +
                         "\{im} was previously used as '\{alias}'", u.position)
@@ -6910,7 +6914,7 @@ class ASTGenerator {
             close(class(ClassNode))
         close(class(CompilationUnit))
         if !linkageOnly
-            pendingFieldValues := new HashMap()
+            pendingFieldValues.clear()
         return compilationUnit
     }
     @post(nodeStack.length = @pre(nodeStack.length))
@@ -6920,8 +6924,8 @@ class ASTGenerator {
     ============================================================================
     method reset() {
         currentPackage := null
-        classUses := new HashMap()
-        packageUses := new PrimitiveArray<String>()
+        classUses.clear()
+        packageUses.clear()
     }
 
     method convertExpression(s:String, start:Position):Value {
