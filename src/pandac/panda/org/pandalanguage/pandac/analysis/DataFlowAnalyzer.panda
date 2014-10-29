@@ -93,7 +93,7 @@ class DataFlowAnalyzer {
     var worklist := new PrimitiveArray<ControlNode>()
 
     @private
-    var visited:Map := new HashMap()
+    var visited:Collection<ControlNode> := new HashSet<ControlNode>()
 
     -- only true while performing a full method analysis, we then turn it off
     -- for incremental rescans to avoid having to do extra housekeeping
@@ -117,7 +117,8 @@ class DataFlowAnalyzer {
     }
     
     @class
-    method getAliasClass(var n:Node, inValues:Map):Object {
+    method getAliasClass(var n:Node, 
+            inValues:GenericMapView<ValueKey, DataFlowValue>):Object {
         if n-?>(Value)
             n := unwrap(n->(Value))
         if n-?>(VariableReference)
@@ -142,8 +143,9 @@ class DataFlowAnalyzer {
     @private
     @class
     function unwrap(var value:Value):Value {
-        while value-?>(Cast) | value-?>(Ternary) | value-?>(VariableAssignment) |
-                value-?>(AndLeft) | value-?>(OrLeft) | value-?>(ReusedValue) |
+        while value-?>(Cast) | value-?>(Ternary) | 
+                value-?>(VariableAssignment) | value-?>(AndLeft) | 
+                value-?>(OrLeft) | value-?>(ReusedValue) |
                 value-?>(ReusedValueDefinition) {
             if value-?>(Cast)
                 value := value->(Cast).value
@@ -166,12 +168,14 @@ class DataFlowAnalyzer {
     }
     
     @private
-    function isNull(value:Value, inValues:Map):Bit {
+    function isNull(value:Value, 
+            inValues:GenericMapView<ValueKey, DataFlowValue>):Bit {
         return value-?>(NullLiteral)
     }
     
     @class
-    method getKey(node:Node, inValues:Map):ValueKey {
+    method getKey(node:Node, 
+            inValues:GenericMapView<ValueKey, DataFlowValue>):ValueKey {
         var alias:Object
         var keyObject:Object
         if node-?>(FieldNode) {
@@ -192,23 +196,26 @@ class DataFlowAnalyzer {
     }
     
     @class
-    method getInValue(n:Node, inValues:Map):DataFlowValue? {
-        return inValues[getKey(n, inValues)]->(DataFlowValue?)
+    method getInValue(n:Node, 
+            inValues:GenericMapView<ValueKey, DataFlowValue>):DataFlowValue? {
+        return inValues[getKey(n, inValues)]
     }
     
     @class
     method getInValue(va:VariableAssignment, 
-            inValues:Map):DataFlowValue? {
+            inValues:GenericMapView<ValueKey, DataFlowValue>):DataFlowValue? {
         return getInValue(new VariableReference(va.variable), inValues)
     }
     
     @class
-    method getInValue(fa:FieldAssignment, inValues:Map):DataFlowValue? {
+    method getInValue(fa:FieldAssignment, 
+            inValues:GenericMapView<ValueKey, DataFlowValue>):DataFlowValue? {
         return getInValue(fa.fieldNode, inValues)
     }
     
     @class
-    method getValue(var rawValue:Value, inValues:Map):DataFlowValue {
+    method getValue(var rawValue:Value, 
+            inValues:GenericMapView<ValueKey, DataFlowValue>):DataFlowValue {
         var value := unwrap(rawValue)
         var result := getInValue(value, inValues)
         if result = null {
@@ -261,22 +268,23 @@ class DataFlowAnalyzer {
     ============================================================================
     @private
     @pre(v.type = BitType.BIT)
-    method evaluateBranch(v:Value, inValues:Map):PrimitiveArray<HashMap> {
-        var rawInValues := new HashMap(inValues)
-        var trueValues := new HashMap()
-        var falseValues := new HashMap()
+    method evaluateBranch(v:Value, 
+            inValues:GenericMap<ValueKey, DataFlowValue>):PrimitiveArray<GenericMapView<ValueKey, DataFlowValue>> {
+        def rawInValues := new GenericHashMap<ValueKey, DataFlowValue>(inValues)
+        def trueValues := new GenericHashMap<ValueKey, DataFlowValue>()
+        def falseValues := new GenericHashMap<ValueKey, DataFlowValue>()
         if v-?>(Equal) | v-?>(NotEqual) | 
                 v-?>(Identity) | v-?>(NotIdentity) {
-            var left := unwrap(v->(BinaryOperation).left)
-            var right := unwrap(v->(BinaryOperation).right)
+            def left := unwrap(v->(BinaryOperation).left)
+            def right := unwrap(v->(BinaryOperation).right)
             if (isNull(left, inValues) & 
                     getInValue(right, inValues) != null) | 
                     (isNull(right, inValues) & 
                     getInValue(left, inValues) != null) {
                 -- this is a comparison against null, need to filter
                 -- outgoing type
-                var value:Value
-                var notNull:Bit
+                def value:Value
+                def notNull:Bit
                 if isNull(left, inValues)
                     value := right
                 else
@@ -298,7 +306,7 @@ class DataFlowAnalyzer {
         }
         else if isInstanceOf(v) {
             -- panda.core.Panda makes some calls to instanceOf we need to ignore
-            var currentMethod := self.currentMethod
+            def currentMethod := self.currentMethod
             assert currentMethod != null
             if currentMethod.owner.name != ClassNode.PANDA_NAME {
                 var mc := v->(MethodCall)
@@ -335,15 +343,15 @@ class DataFlowAnalyzer {
             
             -- propagate the intersection of the false values along the false 
             -- edge
-            for (key, value) in rawInValues.entries {
+            for (key, value) in rawInValues {
                 var leftValue := leftMaps[1][key]->(DataFlowValue?)
                 var rightValue := rightMaps[1][key]->(DataFlowValue?)
                 if leftValue = null & rightValue = null
                     continue
                 if leftValue = null
-                    leftValue := value->(DataFlowValue?)
+                    leftValue := value
                 if rightValue = null
-                    rightValue := value->(DataFlowValue?)
+                    rightValue := value
                 if rightValue != null
                     falseValues[key] := merge(leftValue, rightValue)
                 else
@@ -358,32 +366,32 @@ class DataFlowAnalyzer {
             -- edge
             -- FIXME: this will give the wrong results when both branches
             -- contain the same value
-            var left := unwrap(v->(BinaryOperation).left)
-            var leftMaps := evaluateBranch(left, inValues)
+            def left := unwrap(v->(BinaryOperation).left)
+            def leftMaps := evaluateBranch(left, inValues)
             falseValues.addAll(leftMaps[1])
-            var right := unwrap(v->(BinaryOperation).right)
-            var rightMaps := evaluateBranch(right, inValues)
+            def right := unwrap(v->(BinaryOperation).right)
+            def rightMaps := evaluateBranch(right, inValues)
             falseValues.addAll(rightMaps[1])
             
             -- propagate the intersection of the true values along the true 
             -- edge
-            var rawEntries := rawInValues.entries
-            for (key, value) in rawEntries {
-                var leftValue := leftMaps[0][key]->(DataFlowValue?)
-                var rightValue := rightMaps[0][key]->(DataFlowValue?)
+            for (key, value) in rawInValues {
+                var leftValue := leftMaps[0][key]
+                var rightValue := rightMaps[0][key]
                 if leftValue = null & rightValue = null
                     continue
                 if leftValue = null
-                    leftValue := value->(DataFlowValue?)
+                    leftValue := value
                 if rightValue = null
-                    rightValue := value->(DataFlowValue?)
+                    rightValue := value
                 if rightValue != null
                     trueValues[key] := merge(leftValue, rightValue)
                 else
                     trueValues[key] := leftValue
             }
         }
-        var result := new PrimitiveArray<HashMap>(trueValues, falseValues)
+        def result := new PrimitiveArray<GenericMapView<ValueKey, DataFlowValue>>(
+                trueValues, falseValues)
         return result
     }
     @post(@return.length = 2)
@@ -397,14 +405,12 @@ class DataFlowAnalyzer {
 
     @private
     method mergeOutValues(c:ControlNode) {
-        visited[c] := c
+        visited.add(c)
         for i, exit in c.exits {
-            var inValues := exit.inValues
-            var entries := getOutValues(c, i).entries
-            var needsWork := visited[exit] = null
-            for (key, value) in entries {
-                var oldValue := inValues[key]->(DataFlowValue?)
-                var newValue := value->(DataFlowValue)
+            def inValues := exit.inValues
+            var needsWork := !visited.contains(exit)
+            for (key, newValue) in getOutValues(c, i) {
+                def oldValue := inValues[key]
                 if oldValue = null | !isSubset(newValue.type, oldValue.type) {
                     inValues[key] := merge(oldValue, newValue)
                     needsWork := true
@@ -427,8 +433,8 @@ class DataFlowAnalyzer {
     In the `if` statement's exit 0 (the first `writeLine()`), `foo` is known to 
     be non-null. In exit 1 (the `else` branch), `foo` is known to be `null`.
     ============================================================================
-    method getOutValues(c:ControlNode, exit:Int):Map {
-        def outs := new HashMap(c.inValues)
+    method getOutValues(c:ControlNode, exit:Int):GenericMapView<ValueKey, DataFlowValue> {
+        def outs := new GenericHashMap<ValueKey, DataFlowValue>(c.inValues)
         for node in c.nodes {
             node.markLive()
             if node-?>(VariableAssignment) {
@@ -548,7 +554,7 @@ class DataFlowAnalyzer {
         }
         visited.append(c)
         -- all current outValues
-        var outs := new HashMap(c.inValues)
+        var outs := new GenericHashMap<ValueKey, DataFlowValue>(c.inValues)
         -- just variables assigned in this block
         var newOuts := new HashMap()
         outer: for node in c.nodes {
@@ -573,31 +579,30 @@ class DataFlowAnalyzer {
                 newOuts[exception] := exception
             }
             else if node-?>(ForEach) {
-                var f := node->(ForEach)
-                var idx := f.indexVariable
+                def f := node->(ForEach)
+                def idx := f.indexVariable
                 if idx != null {
-                    var idxKey := new ValueKey(LOCAL_CLASS, idx)
-                    var idxValue := new DataFlowValue(idx.type, true, true, 
+                    def idxKey := new ValueKey(LOCAL_CLASS, idx)
+                    def idxValue := new DataFlowValue(idx.type, true, true, 
                             false)
                     outs[idxKey] := idxValue
                     newOuts[idx] := idx
                 }
-                var v := f.loopVariable
-                var vKey := new ValueKey(LOCAL_CLASS, v)
-                var vValue := new DataFlowValue(v.type, true, true, false)
+                def v := f.loopVariable
+                def vKey := new ValueKey(LOCAL_CLASS, v)
+                def vValue := new DataFlowValue(v.type, true, true, false)
                 outs[vKey] := vValue
                 newOuts[v] := v
             }
             else if node-?>(Assert) {
-                var branches := evaluateBranch(node->(Assert).test, outs)
-                var trueEntries := branches[0].entries
-                for (key, value) in trueEntries
-                    outs[key] := value->(DataFlowValue)
+                def branches := evaluateBranch(node->(Assert).test, outs)
+                for (key, value) in branches[0]
+                    outs[key] := value
             }
             else if node-?>(VariableReference) {
-                var vr := node->(VariableReference)
+                def vr := node->(VariableReference)
                 if newOuts[vr.variable] = null {
-                    var value := getInValue(vr, c.inValues)
+                    def value := getInValue(vr, c.inValues)
                     if value = null | !value.definitelyAssigned {
                         PandaCompiler.reportError(
                                     new CompilerException("variable '" + 
