@@ -84,7 +84,8 @@ example, the loop:
         Console.writeLine(i)
 )
 
-will display the numbers 1 through 5. Any sort of list may be iterated through:
+will display the numbers 1 through 5. Any object implementing the [Iterable]
+interface may be iterated through, such as this list of strings:
 
 @SOURCE(
     for greeting in ["Hello", "Bonjour", "Konnichi wa"]
@@ -92,15 +93,15 @@ will display the numbers 1 through 5. Any sort of list may be iterated through:
 )
 
 If you need to know which index the loop is currently examining, provide the 
-name of an index variable:
+name of an index variable prior to the value variable:
 
 @SOURCE(
     for i, greeting in ["Hello", "Bonjour", "Konnichi wa"]
-        Console.writeLine("greeting \{i} is: \{greeting}")
+        Console.writeLine("greeting #\{i} is: \{greeting}")
 )
 
 Both the `<index>` and `<value>` may have optional type specifiers, as in
-`for i:Int, v:Int in ...`.
+`for i:Int, v:String in ...`.
 
 Adding or removing entries from the collection while the loop is running causes
 undefined behavior.
@@ -140,10 +141,17 @@ As before, you may specify an index variable name and/or variable types:
     }
 )
 
-**IMPLEMENTATION NOTE**: Currently the only "collection" type is `Array`. Array
-will eventually implement the not-yet-existing `ListView` interface, and other
-collections will be supported in the `for ... in` loop. We will also eventually
-detect addition / removal of entries while looping and raise a `SafetyError`.
+In addition to objects implementing the `Iteratable` interface, `Iterators`
+themselves may be iterated over:
+
+@SOURCE(
+    def map := new GenericHashMap<String, String>();
+    --BEGIN
+    def values:Iterator<String> := map.values
+    for v in values {
+        Console.writeLine("iterator returned: \{v}")
+    }
+)
 
 <a name="while"></a>
 while

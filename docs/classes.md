@@ -146,3 +146,8 @@ declaration comes after the superclass declaration:
 
 Each interface provides (generally abstract) methods, but no fields. See the
 page on [interfaces](interfaces.html) for more information.
+
+Generic Classes
+---------------
+
+See the page on [generics](generics.html) for information on generic classes.

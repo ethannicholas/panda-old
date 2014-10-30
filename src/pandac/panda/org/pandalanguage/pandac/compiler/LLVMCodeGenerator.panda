@@ -197,7 +197,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     var bytePrimitiveArrayCount:Int
     
     @private
-    var stringConstants := new HashMap()
+    def stringConstants := new GenericHashMap<String, String>()
     
     @private
     var currentBlockLabel := "<undefined>"
@@ -212,7 +212,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     var nameCount:Int
     
     @private
-    var promotedParameters := new HashMap()
+    def promotedParameters := new GenericHashMap<Variable, Variable>()
     
     @private
     var currentMethod:MethodNode?
@@ -966,7 +966,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @protected
     method createVariableReference(vr:VariableReference):String {
-        var variable := promotedParameters[vr.variable]->(Variable?)
+        var variable := promotedParameters[vr.variable]
         if variable = null
             variable := vr.variable
         if variable-?>(Parameter)
@@ -1058,7 +1058,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createVariableAssignmentReference(va:VariableAssignment):String {
-        var variable := promotedParameters[va.variable]->(Variable?)
+        var variable := promotedParameters[va.variable]
         if variable = null
             variable := va.variable
         var lref := getLLVMType(variable.type) + "* %" + getName(variable)
@@ -2059,7 +2059,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         var externalMethod := m.annotations.isExternal
         var external := externalMethod | 
                 owner.state = ClassNodeState.EXTERNALLY_DEFINED
-        promotedParameters := new HashMap()
+        promotedParameters.clear()
         if !external
             findPromotedParameters(m.block)
         body.writeLine()
@@ -2100,14 +2100,12 @@ class LLVMCodeGenerator (CodeGenerator) {
                 body.writeLine("%" + getName(v) + " = alloca " + 
                         getLLVMType(v.type))
             }
-            for (key, value) in promotedParameters.entries {
-                def variable := value->(Variable)
-                -- FIXME this check shouldn't be necessary
-                body.writeLine("%" + getName(variable) + " = alloca " + 
-                        getLLVMType(variable.type))
-                body.writeLine("store " + getLLVMType(variable.type) +
-                        " %" + getName(key->(Variable)) + ", " + 
-                        getLLVMType(variable.type) + "* %" + getName(variable))
+            for (source, promoted) in promotedParameters {
+                body.writeLine("%" + getName(promoted) + " = alloca " + 
+                        getLLVMType(promoted.type))
+                body.writeLine("store " + getLLVMType(promoted.type) +
+                        " %" + getName(source) + ", " + 
+                        getLLVMType(promoted.type) + "* %" + getName(promoted))
             }
             
             generateBlockCode(m.block)
@@ -2158,7 +2156,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     method getStringConstantReference(s:String):String {
-        var result := stringConstants[s]->(String?)
+        var result := stringConstants[s]
         if result = null {
             def string := ClassType.STRING().classNode
             var chars := getCharPrimitiveArrayConstantReference(s->>(PrimitiveArray<Char>))
@@ -2189,18 +2187,17 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @private
     method getITable(cl:ClassNode):String {
-        -- FIXME use a set
-        var visited := new HashMap()
-        var interfaces := cl.allInterfaces()
+        def visited := new HashSet<ClassNode>()
+        def interfaces := cl.allInterfaces()
         var previous := "%$itable* null"
         for intf in interfaces {
             if visited.contains(intf)
                 continue
-            visited[intf] := intf
-            var intfCC := getClassConstant(intf)
-            var methods := cl.interfaceMethods(intf)
-            var name := "@" + getName(cl.type()) + "$." + getName(intf.type())
-            var type := "{ " + getLLVMType(ClassType.CLASS()) + 
+            visited.add(intf)
+            def intfCC := getClassConstant(intf)
+            def methods := cl.interfaceMethods(intf)
+            def name := "@" + getName(cl.type()) + "$." + getName(intf.type())
+            def type := "{ " + getLLVMType(ClassType.CLASS()) + 
                     ", %$itable*, [" + methods.length + " x i8*] }"
             header.write(name + " = " + SHARED_LINKAGE + " constant ")
             header.write(type + " { " + 
