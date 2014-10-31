@@ -200,8 +200,8 @@ class PandaCompiler {
     }
 
     method checkpoint(label:String) {
-        if true
-            return
+--        if true
+--            return
         var now := Panda.currentTime()
         var lastCheckpointLabel := lastCheckpointLabel
         if lastCheckpointLabel != null {
@@ -436,6 +436,37 @@ class PandaCompiler {
         }
     }
 
+    @private
+    method checkMethodImplementations() {
+        for cl in SymbolTable.classes.filter(
+                cl => !cl.annotations.isUnspecified) {
+            var isAbstract := cl.annotations.isAbstract | 
+                    cl.isInterface
+            for m in cl.virtualMethods {
+                if m.annotations.isAbstract & !isAbstract {
+                    reportError(new CompilerException(
+                            "non-abstract class \{cl.name} does not " +
+                            "implement abstract \{m}",
+                            cl.position))
+                }
+            }
+            for intf in cl.allInterfaces() {
+                if !intf.isInterface {
+                    reportError(new CompilerException(
+                            "\{intf.name} is not an interface", cl.position))
+                }
+                for m in cl.interfaceMethods(intf) {
+                    if m.annotations.isAbstract &
+                            !(cl.annotations.isAbstract | cl.isInterface) {
+                        reportError("non-abstract class \{cl.name} " + 
+                                "does not implement interface \{m}",
+                                cl.position)
+                    }
+                }
+            }
+        }
+    }
+
     @protected
     method compile() {
         try {
@@ -509,11 +540,19 @@ class PandaCompiler {
             processMessages()
             if errors > 0
                 return
-            checkpoint("finishGenerics2")
+
+            checkpoint("checkMethodImplementations")
+            checkMethodImplementations()
+            processMessages()
+            if errors > 0
+                return
+
+            checkpoint("finishGenerics2 FIXME REMOVE THIS")
             for type in SymbolTable.types {
                 if type-?>(GenericType)
                     type->(GenericType).compilePhase2()
             }
+
             processMessages()
             if errors > 0
                 return

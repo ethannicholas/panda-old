@@ -1293,8 +1293,9 @@ class ASTGenerator {
                     if lambda.errors.length > 0 {
                         msg.append("\n    possible error in lambda at " +
                                 "\{lambda.position}:")
-                        var entries := new PrimitiveArray<Object>(lambda.errors.entries, 
-                                0, lambda.errors.entries.length)
+                        def entries := new PrimitiveArray<Object>()
+                        for e in lambda.errors
+                            entries.append(e)
                         Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
                             def e1 := eo1->((Object?, Object?))[0]->(PrimitiveArray<Type>)
                             def e2 := eo2->((Object?, Object?))[0]->(PrimitiveArray<Type>)
@@ -4951,13 +4952,13 @@ class ASTGenerator {
     @pre(m.methodType = MethodNodeType.CONSTRUCTOR)
     method fixConstructor(m:MethodNode) {
         def cc := currentClass
-        assert cc != null
+        assert cc != null : "currentClass is null"
         if !cc.annotations.isUnspecified & cc.name != ClassNode.OBJECT_NAME & 
                 !callsOtherSelfConstructor(m) & !callsSuperConstructor(m) {
             var block := m.block
             var originalLength := block.length
             var sc := cc.superclass
-            assert sc != null
+            assert sc != null : "no superclass for \{sc}"
             var found := false
             for child in sc.children {
                 if child-?>(MethodNode) {
@@ -4978,7 +4979,7 @@ class ASTGenerator {
             -- need to shift it to the beginning
             new ASTGenerator().compileStatement(block, "super.constructor()", 
                     m.position)
-            assert block.length = originalLength + 1
+            assert block.length = originalLength + 1 : "unexpected block length"
             var call := block[block.length - 1]
             for i in block.length - 1 ... 1 by -1
                 block[i] := block[i - 1]
@@ -5925,6 +5926,7 @@ class ASTGenerator {
 
     @private
     method postprocessClass(cl:ClassNode) {
+        nodeStack.push(cl)
         if !cl.annotations.isUnspecified {
             -- add default constructor if needed
             var hasConstructor := false
@@ -5944,37 +5946,12 @@ class ASTGenerator {
                 cl[cl.length - 1]->(MethodNode).doccomment := 
                         "Creates a new \{cl.simpleName}."
             }
-            if !linkageOnly {
-                var isAbstract := cl.annotations.isAbstract | 
-                        cl.isInterface
-                for m in cl.virtualMethods {
-                    if m.annotations.isAbstract & !isAbstract {
-                        PandaCompiler.reportError(new CompilerException(
-                                "non-abstract class \{cl.name} does not " +
-                                "implement abstract \{m}",
-                                cl.position))
-                    }
-                }
-                for intf in cl.allInterfaces() {
-                    if !intf.isInterface {
-                        PandaCompiler.reportError(new CompilerException(
-                                "\{intf.name} is not an interface", cl.position))
-                    }
-                    for m in cl.interfaceMethods(intf) {
-                        if m.annotations.isAbstract &
-                                !(cl.annotations.isAbstract | cl.isInterface) {
-                            error("non-abstract class \{cl.name} " + 
-                                    "does not implement interface \{m}",
-                                    cl.position)
-                        }
-                    }
-                }
-            }
         }
         if cl.state = ClassNodeState.DEFINED
             createClassInit(cl)
+        close(class(ClassNode))
     }
-    
+
     ============================================================================
     Adds the `uses` directives that we have seen in this compilation unit to the
     specified class' symbol table.

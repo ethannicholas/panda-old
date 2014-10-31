@@ -9,7 +9,7 @@ export BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 cd $BASEDIR
 source scripts/setup-script.sh
 export PANDA_HOME="$BASEDIR/bootstrap"
-export PANDAC="java -ea -Xmx1g -jar $PANDA_HOME/java/pandac/bin/pandac.jar -L $NATIVE_TARGET/core/lib $@"
+export PANDAC="java -ea -Xmx2g -jar $PANDA_HOME/java/pandac/bin/pandac.jar -L $NATIVE_TARGET/core/lib $@"
 export DYLD_LIBRARY_PATH="$NATIVE_TARGET/core/lib:$PANDA_HOME/native/core/lib"
 PANDAC_SRC=src/pandac/panda/org/pandalanguage/pandac
 CORE_FILES="src/core/panda/panda/core/*.panda\

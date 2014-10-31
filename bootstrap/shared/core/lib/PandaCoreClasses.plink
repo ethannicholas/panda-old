@@ -3050,27 +3050,6 @@ class Value:panda.core.Immutable {
     constructor()
 }
 package panda.collections
-@private
-class ArrayIterator<T:panda.core.Object?>:panda.core.Object (panda.collections.Iterator<panda.collections.ArrayIterator.T>) {
-    @final
-    var array:panda.collections.Array<panda.collections.ArrayIterator.T>
-
-    
-    var index := 0
-
-    @self
-    constructor(array:Array<T>)
-{ self.array := array }
-
-    @override
-    function done():Bit
-{ return index >= array.length }
-
-    @override @self
-    method next():T
-{ def result := array[index] index += 1 return result }
-}
-package panda.collections
 
 class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<panda.collections.Array.T>) {
     @private @class @final
@@ -3121,10 +3100,6 @@ class Array<T:panda.core.Object?>:panda.core.Object (panda.collections.List<pand
     @override
     function contains(object:T):Bit
 { for v in self { if object = v return true } return false }
-
-    @override @safeReturn
-    function iterator():Iterator<T>
-{ return new ArrayIterator<T>(self) }
 
     @private @self
     method ensureCapacity(maxLength:Int)
@@ -3301,6 +3276,10 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
     constructor(keys:PrimitiveArray<K>, values:PrimitiveArray<V>)
 { constructor() for i, key in keys self[key] := values[i] }
 
+    @self @pre(keys.length = values.length)
+    constructor(keys:ListView<K>, values:ListView<V>)
+{ constructor() for i, key in keys self[key] := values[i] }
+
     @self
     constructor(map:GenericMapView<K,V>)
 { constructor() for (key, value) in map self[key] := value }
@@ -3332,14 +3311,6 @@ class GenericHashMap<K:panda.core.Object?, V:panda.core.Object?>:panda.core.Obje
     @override @safeReturn
     function iterator():Iterator<(K,V)>
 { return new HashMapEntryIterator<K, V>(self) }
-
-    @override @safeReturn
-    function keys():Iterator<K>
-{ return new HashMapKeyIterator<K, V>(self) }
-
-    @override @safeReturn
-    function values():Iterator<V>
-{ return new HashMapValueIterator<K, V>(self) }
 
     @override @self
     method addAll(map:GenericMapView<K,V>)
@@ -3379,10 +3350,12 @@ interface GenericMapView<K:panda.core.Object?, V:panda.core.Object?> : panda.col
     function contains(key:K):Bit
 
     
-    function keys():Iterator<K>
+    function keys():CollectionView<K>
+{ def result := new Array<K>() for (key, _) in self result.add(key) return result }
 
     
-    function values():Iterator<V>
+    function values():CollectionView<V>
+{ def result := new Array<V>() for (_, value) in self result.add(value) return result }
 
     
     function length():Int
@@ -3617,6 +3590,127 @@ class ImmutableArray<T:panda.core.Immutable>:panda.core.Immutable (panda.collect
     @override @preOr(true)
     function format(fmt:String):String
 { def result := new MutableString("[") for i, v in self { if i > 0 result.append(", ") result.append(v.format(fmt)) } result.append("]") return result->>(String) }
+}
+package panda.collections
+@private
+class ImmutableGenericMapEntry<K:panda.core.Immutable, V:panda.core.Immutable>:panda.core.Immutable {
+    @final
+    var key:panda.collections.ImmutableGenericMapEntry.K
+
+    @final
+    var value:panda.collections.ImmutableGenericMapEntry.V
+
+    @final
+    var next:panda.collections.ImmutableGenericMapEntry<panda.collections.ImmutableGenericMapEntry.K,panda.collections.ImmutableGenericMapEntry.V>?
+
+    @private @self
+    constructor(key:K, value:V, next:ImmutableGenericMapEntry<K,V>?)
+{ self.key := key self.value := value self.next := next }
+}
+package panda.collections
+@abstract @private
+class ImmutableHashMapIterator<K:panda.core.Immutable, V:panda.core.Immutable, R:panda.core.Immutable>:panda.core.Object (panda.collections.Iterator<panda.collections.ImmutableHashMapIterator.R>) {
+    @final
+    var map:panda.collections.ImmutableGenericHashMap<panda.collections.ImmutableHashMapIterator.K,panda.collections.ImmutableHashMapIterator.V>
+
+    
+    var index := 0
+
+    
+    var entry:panda.collections.ImmutableGenericMapEntry<panda.collections.ImmutableHashMapIterator.K,panda.collections.ImmutableHashMapIterator.V>?
+
+    @self
+    constructor(map:ImmutableGenericHashMap<K,V>)
+{ self.map := map entry := map.contents[0] while entry = null { index += 1 if index >= map.contents.length break entry := map.contents[index] } }
+
+    @override
+    function done():Bit
+{ return index >= map.contents.length }
+
+    @abstract
+    function result(e:ImmutableGenericMapEntry<K,V>):R
+
+    @override @self
+    method next():R
+{ assert entry != null def result := result(entry) entry := entry.next while entry = null { index += 1 if index >= map.contents.length break entry := map.contents[index] } return result }
+}
+package panda.collections
+@private
+class ImmutableHashMapEntryIterator<K:panda.core.Immutable, V:panda.core.Immutable>:panda.collections.ImmutableHashMapIterator<panda.collections.ImmutableHashMapEntryIterator.K,panda.collections.ImmutableHashMapEntryIterator.V,(panda.collections.ImmutableHashMapEntryIterator.K,panda.collections.ImmutableHashMapEntryIterator.V)> {
+    @self
+    constructor(map:ImmutableGenericHashMap<K,V>)
+{ super.constructor(map) }
+
+    @override
+    function result(e:ImmutableGenericMapEntry<K,V>):(K,V)
+{ return (e.key, e.value) }
+}
+package panda.collections
+@private
+class ImmutableHashMapKeyIterator<K:panda.core.Immutable, V:panda.core.Immutable>:panda.collections.ImmutableHashMapIterator<panda.collections.ImmutableHashMapKeyIterator.K,panda.collections.ImmutableHashMapKeyIterator.V,panda.collections.ImmutableHashMapKeyIterator.K> {
+    @self
+    constructor(map:ImmutableGenericHashMap<K,V>)
+{ super.constructor(map) }
+
+    @override
+    function result(e:ImmutableGenericMapEntry<K,V>):K
+{ return e.key }
+}
+package panda.collections
+@private
+class ImmutableHashMapValueIterator<K:panda.core.Immutable, V:panda.core.Immutable>:panda.collections.ImmutableHashMapIterator<panda.collections.ImmutableHashMapValueIterator.K,panda.collections.ImmutableHashMapValueIterator.V,panda.collections.ImmutableHashMapValueIterator.V> {
+    @self
+    constructor(map:ImmutableGenericHashMap<K,V>)
+{ super.constructor(map) }
+
+    @override
+    function result(e:ImmutableGenericMapEntry<K,V>):V
+{ return e.value }
+}
+package panda.collections
+
+class ImmutableGenericHashMap<K:panda.core.Immutable, V:panda.core.Immutable>:panda.core.Immutable (panda.collections.GenericMapView<panda.collections.ImmutableGenericHashMap.K,panda.collections.ImmutableGenericHashMap.V>) {
+    @private @final
+    var _length:panda.core.Int32
+
+    @private @final
+    var contents:panda.collections.ImmutablePrimitiveArray<panda.collections.ImmutableGenericMapEntry<panda.collections.ImmutableGenericHashMap.K,panda.collections.ImmutableGenericHashMap.V>?>
+
+    @private @self
+    constructor(m:GenericMapView<K,V>)
+{ def h:GenericHashMap<K, V> if m-?>(GenericHashMap<K, V>) h := m->(GenericHashMap<K, V>) else h := new GenericHashMap<K, V>(m) def contentsTemp := new PrimitiveArray<ImmutableGenericMapEntry<K, V>?>() for e in h.contents contentsTemp.append(copy(e)) contents := new ImmutablePrimitiveArray<ImmutableGenericMapEntry<K, V>?>( contentsTemp, 0, contentsTemp.length) _length := h.length }
+
+    @self
+    constructor(keys:ListView<K>, values:ListView<V>)
+{ constructor(new GenericHashMap<K, V>(keys, values)) }
+
+    @private
+    function copy(m:GenericMutableMapEntry<K,V>?):ImmutableGenericMapEntry<K,V>?
+{ if m = null return null return new ImmutableGenericMapEntry<K, V>(m.key, m.value, copy(m.next)) }
+
+    @private @math(overflow)
+    function indexFor(key:K):Int32
+{ var h:Int32 if key = null h := 0 else h := key.hash h ~~= (h >> 20) ~~ (h >> 12) ~~ (h >> 7) ~~ (h >> 4) return h && (contents.length - 1) }
+
+    @override
+    function [](key:K):V?
+{ var index := indexFor(key) var e := contents[index] while e != null & e.key != key { e := e.next } if e != null return e.value else return null }
+
+    @override
+    function length():Int
+{ return _length }
+
+    @override
+    function contains(key:K):Bit
+{ def index := indexFor(key) var e := contents[index] while e != null & e.key != key e := e.next return e != null }
+
+    @override @safeReturn
+    function iterator():Iterator<(K,V)>
+{ return new ImmutableHashMapEntryIterator<K, V>(self) }
+
+    @override @preOr(fmt = "" | fmt = "panda")
+    function format(fmt:String):String
+{ def result := new MutableString() result.append("{") var first := true for e in contents { var current := e while current != null { if !first result.append(", ") else first := false def key := current.key if key != null result.append(key.format(fmt)) else result.append("null") result.append(": ") def value := current.value if value != null result.append(value.format(fmt)) else result.append("null") current := current.next } } result.append("}") return result->>(String) }
 }
 package panda.collections
 
@@ -4885,7 +4979,7 @@ class XorShiftRandom:panda.core.Object (panda.math.Random) {
     method int64():panda.core.Int64
 }
 
-class $closureThread_panda_62_241520056295:panda.core.Method {
+class $closureThread_panda_62_247500440755:panda.core.Method {
     
     method raw()
 
@@ -4893,12 +4987,12 @@ class $closureThread_panda_62_241520056295:panda.core.Method {
     constructor()
 }
 
-class $mutableClosureThread_panda_62_241520056296:panda.core.MutableMethod {
+class $mutableClosureThread_panda_62_247500440756:panda.core.MutableMethod {
     
-    var immutableVersion:$closureThread_panda_62_241520056295
+    var immutableVersion:$closureThread_panda_62_247500440755
 
     @self
-    constructor(immutableVersion:$closureThread_panda_62_241520056295)
+    constructor(immutableVersion:$closureThread_panda_62_247500440755)
 
     
     method raw()

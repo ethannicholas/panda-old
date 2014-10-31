@@ -32,7 +32,7 @@ class DocComment {
     def owner:Node
     def summary:String
     def longDescription:String
-    def params:Map := new HashMap()
+    def params:GenericMap<String, String> := new GenericHashMap<String, String>()
     def see := new PrimitiveArray<String>()
     var returnDoc:String?
     
@@ -392,14 +392,15 @@ class PandaDoc (CodeGenerator) {
         if d.owner = m
             return
         assert d.owner->(MethodNode).parameters.length = m.parameters.length
-        def remapped := new HashMap()
-        def unused := new HashMap(d.params)
+        def remapped := new GenericHashMap<String, String>()
+        def unused := new HashSet<String>()
+        for (key, _) in d.params
+            unused.add(key)
         for i, p in d.owner->(MethodNode).parameters {
-            remapped[m.parameters[i].name] := d.params[p.name]
+            remapped[m.parameters[i].name] := d.params[p.name]->(String)
             unused.remove(p.name)
         }
-        for (name, value) in unused.entries {
-            assert name != null
+        for name in unused {
             PandaCompiler.reportError("@param annotation for " +
                     "'\{name}', but no parameter by that name", 
                     d.owner.position)
@@ -497,8 +498,7 @@ class PandaDoc (CodeGenerator) {
             }
             xml.close("params")
             if doccomment != null {
-                outer: for (name, value) in doccomment.params.entries {
-                    assert name != null
+                outer: for (name, value) in doccomment.params {
                     for p in m.parameters {
                         if p.name = name 
                             continue outer
@@ -703,7 +703,7 @@ class PandaDoc (CodeGenerator) {
         if !outputDir.isDirectory()
             throw new CompilerException(outputDir + " is not a directory")
 
-        def packages := new HashMap()
+        def packages := new GenericHashMap<String, PrimitiveArray<ClassNode>>()
         -- FIXME oh god I can't wait for generics to be in
         def classes := new PrimitiveArray<Object>(SymbolTable.classes, 0, 
                 SymbolTable.classes.length)
@@ -715,10 +715,13 @@ class PandaDoc (CodeGenerator) {
                 continue
             if cl.state = ClassNodeState.DEFINED & !cl.isPrimitiveArray() & 
                     !cl.annotations.isPrivate() & !cl.annotations.isSynthetic {
-                var packageList := packages[cl.packageName]->(PrimitiveArray<ClassNode>?)
+                var packageName := cl.packageName
+                if packageName = null
+                    packageName := "unnamed"
+                var packageList := packages[packageName]
                 if packageList = null {
                     packageList := new PrimitiveArray<ClassNode>()
-                    packages[cl.packageName] := packageList
+                    packages[packageName] := packageList
                 }
                 packageList.append(cl)
                 def name := cl.type().displayName
@@ -735,13 +738,11 @@ class PandaDoc (CodeGenerator) {
                 outputDir.resolve("index.xml").openOutputStream())
         index.open("packages")
         def packageNames := new PrimitiveArray<Object>()
-        for key in packages.keys {
-            assert key != null
+        for (key, _) in packages
             packageNames.append(key)
-        }
         Panda.sort(packageNames, (x, y) => x->(String) > y->(String))
         for packageName in packageNames {
-            def packageList := packages[packageName]
+            def packageList := packages[packageName->(String)]
             index.open("package")
             index.textTag("name", packageName->(String))
             index.open("classes")
