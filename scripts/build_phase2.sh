@@ -10,7 +10,7 @@ cd $BASEDIR
 source scripts/setup-script.sh
 
 export PANDA_HOME="$TARGET"
-export PANDAC="java -ea -Xmx1g -jar $JAVA_TARGET/pandac/bin/pandac.jar -L $NATIVE_TARGET/core/lib $@"
+export PANDAC="java -ea -Xmx2g -jar $JAVA_TARGET/pandac/bin/pandac.jar -L $NATIVE_TARGET/core/lib $@"
 export PANDA_HOME="$TARGET"
 
 CORE_FILES="src/core/panda/panda/core/*.panda\

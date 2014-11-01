@@ -31,7 +31,7 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
     }
 
     @Override
-    public void startThread(panda.threads.Thread self, panda.collections.HashMap context) {
+    public void startThread(panda.threads.Thread self, panda.collections.GenericHashMap$LTpanda$core$Immutable$Cpanda$core$Immutable$GT context) {
         java.lang.Thread t = new java.lang.Thread() {
             public void run() {
                 Thread.$context.set(context);
