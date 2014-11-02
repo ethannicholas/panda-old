@@ -1,37 +1,28 @@
-package org.pandalanguage.pandac.compiler
-
 @private
 enum SharedMapCommand {
+    LENGTH,
     GET,
     SET,
     CONTAINS,
-    KEYS,
-    VALUES,
-    ENTRIES,
-    LENGTH,
     REMOVE,
     CLEAR
 }
 
+package org.pandalanguage.pandac.compiler
+
 ================================================================================
-An implementation of `Map` which can be safely used by multiple threads. The 
-fact that `SharedMap` is declared `Immutable` is perhaps somewhat misleading: 
-`SharedMap` really represents an immutable handle to a (private) mutable data 
-structure. Because it is immutable, `SharedMap` can easily be shared between
-multiple threads.
+Similar to `HashMap` but safely usable by multiple threads. The fact that 
+`SharedMap` is declared `Immutable` is somewhat misleading: `SharedMap` really
+represents an immutable handle to a (private) mutable data structure. Because it
+is immutable, `SharedMap` can easily be shared between multiple threads.
 
 IMPLEMENTATION NOTE: currently, each separate `SharedMap` instance creates its
 own message handling thread. In the future, either these threads will become so
 lightweight that this isn't a concern, or multiple `SharedMap` instances will be
 pooled together to run on a single thread. But for right now, be careful not to
 create too many instances because threads are fairly heavy.
-
-FIXME: I'm pretty sure I'm going to eliminate the implementation of Map here and
-just let this have its own, very similar but unrelated API. The methods here 
-violate functional safety constraints, and that's going to end up being a 
-problem sooner or later.
 ================================================================================
-class SharedMap : Immutable (Map) {
+class SharedMap<K:Immutable, V:Immutable> : Immutable {
     @private
     def queue:MessageQueue
 
@@ -41,21 +32,15 @@ class SharedMap : Immutable (Map) {
     constructor() {
         def t := Thread.start(method() {
             def queue := Thread.currentThread.queue
-            def contents := new GenericHashMap()
+            def contents := new GenericHashMap<K, V>()
             loop {
                 def msg := queue.getMessage()
                 if msg-?>((SharedMapCommand, MessageQueue)) {
                     def command, replyTo := msg->((SharedMapCommand,
                             MessageQueue))
                     switch command {
-                        case SharedMapCommand.KEYS:
-                            replyTo.post(toImmutable(contents.keys))
-                        case SharedMapCommand.VALUES: 
-                            replyTo.post(toImmutable(contents.values))
-                        case SharedMapCommand.ENTRIES: 
-                            replyTo.post(toImmutable(contents.entries))
                         case SharedMapCommand.LENGTH: 
-                            replyTo.post(contents.length())
+                            replyTo.post(contents.length)
                         default: 
                             unreachable
                     }
@@ -64,24 +49,22 @@ class SharedMap : Immutable (Map) {
                     assert msg = SharedMapCommand.CLEAR
                     contents.clear()
                 }
-                else if msg-?>((SharedMapCommand, Immutable?)) {
-                    def command, payload := msg->((SharedMapCommand, 
-                            Immutable?))
+                else if msg-?>((SharedMapCommand, (K, V))) {
+                    def command, payload := msg->((SharedMapCommand, (K, V)))
                     assert command = SharedMapCommand.SET
-                    def key, value := payload->((Immutable?, Immutable?))
+                    def key, value := payload
                     contents[key] := value
                 }
                 else {
-                    def command, payload, replyTo := 
-                            msg->((SharedMapCommand, Immutable?, 
-                                MessageQueue))
+                    def command, key, replyTo := 
+                            msg->((SharedMapCommand, K, MessageQueue))
                     switch command {
                         case SharedMapCommand.GET: 
-                            replyTo.post(contents[payload]->(Immutable?))
-                        case SharedMapCommand.REMOVE:
-                            replyTo.post(contents.remove(payload))
+                            replyTo.post(contents[key])
                         case SharedMapCommand.CONTAINS: 
-                            replyTo.post(contents.contains(payload))
+                            replyTo.post(contents.contains(key))
+                        case SharedMapCommand.REMOVE:
+                            contents.remove(key)
                         default: 
                             unreachable
                     }
@@ -91,100 +74,40 @@ class SharedMap : Immutable (Map) {
         queue := t.queue
     }
 
-    @private
-    @class 
-    function toImmutable(arr:PrimitiveArray<Object?>):ImmutablePrimitiveArray<Immutable?> {
-        def result := new PrimitiveArray<Immutable?>()
-        for value in arr
-            result.append(value->(Immutable?))
-        return result->>(ImmutablePrimitiveArray<Immutable?>)
-    }
-
-    @private
-    @class 
-    function toImmutable(arr:PrimitiveArray<(Object?, Object?)>):ImmutablePrimitiveArray<(Immutable?, Immutable?)> {
-        def result := new PrimitiveArray<(Immutable?, Immutable?)>()
-        for (key, value) in arr
-            result.append((key->(Immutable?), value->(Immutable?)))
-        return result->>(ImmutablePrimitiveArray<(Immutable?, Immutable?)>)
-    }
-
-    @override
     @unsafeFunction
-    function [](key:Object?):Object? {
+    function [](key:K):V? {
         def reply := Thread.currentThread.queue
-        queue.post((SharedMapCommand.GET, key->(Immutable?), reply))
-        return reply.getMessage()
+        queue.post((SharedMapCommand.GET, key, reply))
+        return reply.getMessage()->(V?)
     }
 
-    @override
-    @unsafeFunction
-    function contains(key:Object?):Bit {
+    method contains(key:K):Bit {
         def reply := Thread.currentThread.queue
-        queue.post((SharedMapCommand.CONTAINS, key->(Immutable?), reply))
+        queue.post((SharedMapCommand.CONTAINS, key, reply))
         return reply.getMessage()->(Bit)
     }
 
-    @override
-    @unsafeFunction
-    function keys():PrimitiveArray<Object?> {
-        def reply := Thread.currentThread.queue
-        queue.post((SharedMapCommand.KEYS, reply))
-        def result := reply.getMessage()->(ImmutablePrimitiveArray<Immutable?>)
-        return new PrimitiveArray<Object?>(result, 0, result.length)
-    }
-
-    @override
-    @unsafeFunction
-    function values():PrimitiveArray<Object?> {
-        def reply := Thread.currentThread.queue
-        queue.post((SharedMapCommand.VALUES, reply))
-        def result := reply.getMessage()->(ImmutablePrimitiveArray<Immutable?>)
-        return new PrimitiveArray<Object?>(result, 0, result.length)
-     }
-
-    @override
-    @unsafeFunction
-    function entries():PrimitiveArray<(Object?, Object?)> {
-        def reply := Thread.currentThread.queue
-        queue.post((SharedMapCommand.ENTRIES, reply))
-        def raw := reply.getMessage()->(ImmutablePrimitiveArray<(Immutable?, 
-                Immutable?)>)
-        def result := new PrimitiveArray<(Object?, Object?)>()
-        for (key, value) in raw
-            result.append((key, value))
-        return result
-    }
-
-    @override
-    @unsafeFunction
-    function length():Int {
+    method length():Int {
         def reply := Thread.currentThread.queue
         queue.post((SharedMapCommand.LENGTH, reply))
         return reply.getMessage()->(Int)
     }
 
-    @override
-    method []:=(key:Object?, value:Object?) {
-        queue.post((SharedMapCommand.SET, (key->(Immutable?), 
-                value->(Immutable?))->(Immutable?)))
+    method []:=(key:K, value:V) {
+        queue.post((SharedMapCommand.SET, (key, value)))
     }
 
-    @override
-    method remove(key:Object?):Bit {
+    method remove(key:K) {
         def reply := Thread.currentThread.queue
-        queue.post((SharedMapCommand.REMOVE, key->(Immutable?)))
-        return reply.getMessage()->(Bit)
+        queue.post((SharedMapCommand.REMOVE, key))
     }
 
-    @override
     method clear() {
         queue.post(SharedMapCommand.CLEAR)
     }
 
-    @override
-    method addAll(map:MapView) {
-        for (key, value) in map.entries
+    method addAll(map:GenericMapView<K, V>) {
+        for (key, value) in map
             self[key] := value
     }
 }
