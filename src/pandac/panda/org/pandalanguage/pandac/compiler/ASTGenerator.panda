@@ -5926,7 +5926,6 @@ class ASTGenerator {
         }
     }
 
-    @private
     method postprocessClass(cl:ClassNode) {
         nodeStack.push(cl)
         if !cl.annotations.isUnspecified {
@@ -6625,65 +6624,68 @@ class ASTGenerator {
                     f.position.column + 2))
     }
 
-    @private
-    method createPropertySynthetics() {
-        for cl in SymbolTable.classes {
-            var properties := new PrimitiveArray<FieldNode>()
-            def getters := new GenericHashMap<String, MethodNode>()
-            def setters := new GenericHashMap<String, MethodNode>()
-            for child in cl.children {
-                if child-?>(FieldNode) {
-                    var f := child->(FieldNode)
-                    if f.annotations.isProperty
-                        properties.append(f)
-                }
-                else if child-?>(MethodNode) {
-                    var m := child->(MethodNode)
-                    if m.name.endsWith(":=")
-                        setters[m.name[..m.name.length - ":=".length]] := m
-                    else if !m.annotations.isClass & m.parameters.length = 1
-                        getters[m.name] := m
-                }
+    method createPropertySynthetics(cl:ClassNode) {
+        constant PROPERTY_SYNTHETICS_CREATED := "propertySyntheticsCreated"
+        if cl.getProperty(PROPERTY_SYNTHETICS_CREATED) != null
+            return
+        cl.setProperty(PROPERTY_SYNTHETICS_CREATED, true)
+        def properties := new PrimitiveArray<FieldNode>()
+        def getters := new GenericHashMap<String, MethodNode>()
+        def setters := new GenericHashMap<String, MethodNode>()
+        for child in cl.children {
+            if child-?>(FieldNode) {
+                var f := child->(FieldNode)
+                if f.annotations.isProperty
+                    properties.append(f)
             }
-            for p in properties {
-                assert p.name.startsWith(FieldNode.PROPERTY_PREFIX)
-                var created := false
-                var name := p.name[FieldNode.PROPERTY_PREFIX.length..]
-                if getters[name] = null {
-                    createGetter(p)
-                    created := true
-                }
-                var setterDenyReason:String? := null
-                if p.annotations.isReadOnly
-                    setterDenyReason := "'" + name + "' is declared @readonly"
-                else if p.annotations.isFinal
-                    setterDenyReason := "'" + name + "' is declared @final"
-                else if p.owner.type().isImmutable
-                    setterDenyReason := "'" + p.owner.name + "' is immutable"
-                else if setters[name] != null {
-                    setterDenyReason := "an explicit setter was defined at " +
-                            setters[name]->(MethodNode).position
-                }
-                else {
-                    createSetter(p)
-                    created := true
-                }
+            else if child-?>(MethodNode) {
+                var m := child->(MethodNode)
+                if m.name.endsWith(":=")
+                    setters[m.name[..m.name.length - ":=".length]] := m
+                else if !m.annotations.isClass & m.parameters.length = 1
+                    getters[m.name] := m
+            }
+        }
+        for p in properties {
+            assert p.name.startsWith(FieldNode.PROPERTY_PREFIX)
+            var created := false
+            var name := p.name[FieldNode.PROPERTY_PREFIX.length..]
+            if getters[name] = null {
+                createGetter(p)
+                created := true
+            }
+            var setterDenyReason:String? := null
+            if p.annotations.isReadOnly
+                setterDenyReason := "'" + name + "' is declared @readonly"
+            else if p.annotations.isFinal
+                setterDenyReason := "'" + name + "' is declared @final"
+            else if p.owner.type().isImmutable
+                setterDenyReason := "'" + p.owner.name + "' is immutable"
+            else if setters[name] != null {
+                setterDenyReason := "an explicit setter was defined at " +
+                        setters[name]->(MethodNode).position
+            }
+            else {
+                createSetter(p)
+                created := true
+            }
+            if !p.annotations.isPrivate
                 p.annotations.isPrivate := true
-                p.annotations.isProtected := false
-                if !created {
-                    assert setterDenyReason != null
-                    def getterDenyReason := "an explicit getter was defined " +
-                            "at " + getters[name]->(MethodNode).position
-                    PandaCompiler.reportWarning("property '" + 
-                            p.name[FieldNode.PROPERTY_PREFIX.length..] +
-                            "' had neither a getter or a setter " +
-                            "created for it:\n    getter not created because " + 
-                            getterDenyReason + 
-                            "\n    setter not created because " + 
-                            setterDenyReason + "\nThis declaration is " + 
-                            "therefore equivalent to 'var " + p.name + ":" + 
-                            p.type.displayName + "'", p.position)
-                }
+            p.annotations.isProtected := false
+            if !created {
+                assert setterDenyReason != null
+                def getterDenyReason := "an explicit getter was defined " +
+                        "at " + getters[name]->(MethodNode).position
+                Console.writeLine("REPORTING ERROR")
+                PandaCompiler.reportWarning("property '" + 
+                        p.name[FieldNode.PROPERTY_PREFIX.length..] +
+                        "' had neither a getter or a setter " +
+                        "created for it:\n    getter not created because " + 
+                        getterDenyReason + 
+                        "\n    setter not created because " + 
+                        setterDenyReason + "\nThis declaration is " + 
+                        "therefore equivalent to 'var " + p.name + ":" + 
+                        p.type.displayName + "'", p.position)
             }
         }
     }
@@ -6865,10 +6867,12 @@ class ASTGenerator {
         }
     }
 
+    @pre(!PandaCompiler.phase1Complete)
     method phase1Complete() {
         markPropertiesFinal()
         inferFieldTypes(false)
-        createPropertySynthetics()
+        for cl in SymbolTable.classes
+            createPropertySynthetics(cl)
     }
     
     ============================================================================

@@ -159,7 +159,9 @@ class GenericType : ClassType {
                         classNode.position, classNode.symbolTable, 
                             f.type, base.classNode.genericParameterTypes, 
                             parameters)
-        def newField := new FieldNode(f.position, f.name, finalType)
+        def position := new Position(name, f.position.line,
+                f.position.column)
+        def newField := new FieldNode(position, f.name, finalType)
         newField.annotations := f.annotations.copy
         classNode.add(newField)
         classNode.symbolTable.putVariable(newField)
@@ -167,8 +169,7 @@ class GenericType : ClassType {
 
     @private
     method instantiateMethod(m:MethodNode, linkageOnly:Bit) {
-        if m.annotations.isClass | (m.annotations.isSynthetic & 
-                m.methodType != MethodNodeType.CONSTRUCTOR)
+        if m.annotations.isClass | m.annotations.isSynthetic
             return
         def genericClass := classNode
         def code := new MutableString()
@@ -243,6 +244,7 @@ class GenericType : ClassType {
             instantiateMethod(m, true)
     }
 
+    @pre(PandaCompiler.phase1Complete())
     method compilePhase2() {
         if classNode.annotations.isSynthetic
             return
@@ -257,7 +259,8 @@ class GenericType : ClassType {
         for base in base.classNode.fields {
             if base.pendingValue != null {
                 for f in classNode.fields {
-                    if base.position = f.position {
+                    if base.position.line = f.position.line &
+                            base.position.column = f.position.column {
                         def pending := base.pendingValue
                         if pending != null {
                             f.pendingValue := pending
@@ -269,6 +272,7 @@ class GenericType : ClassType {
         }
         PandaCompiler.astGenerator.pendingFieldValues.addAll(pendingFieldValues)
         PandaCompiler.astGenerator.inferFieldTypes(true)
+        PandaCompiler.astGenerator.createPropertySynthetics(classNode)
         pendingFieldValues.clear()
         for m in base.classNode.methods
             instantiateMethod(m, false)
