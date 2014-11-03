@@ -101,8 +101,8 @@ void pandaMain(String$Array* arg);
 void pandaStart() {
     panda$threads$Thread* main = pandaNew(panda$threads$Thread);
     panda$threads$Thread$new(main);
-    panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
-    panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$new(threadLocals);
+    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
+    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$new(threadLocals);
     main->threadLocals = threadLocals;
     pthread_setspecific(currentThreadKey, main);
     // run the actual program
@@ -770,7 +770,7 @@ int panda$core$Panda$allocThreadLocal() {
     return result;
 }
 
-panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* panda$core$Panda$getThreadLocals(Thread* thread) {
+panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* panda$core$Panda$getThreadLocals(Thread* thread) {
     return thread->threadLocals;
 }
 
@@ -893,19 +893,19 @@ void panda$threads$MessageQueue$threadExit() {
 
 void panda$threads$Thread$startThread(
         Thread* thread, 
-        panda$collections$GenericHashMap$LTpanda$core$Immutable$Cpanda$core$Immutable$GT* context) {
+        panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Immutable$GT* context) {
     if (thread->preventsExit) {
         pthread_mutex_lock(&preventsExitThreadsMutex);
         preventsExitThreads++;
         pthread_mutex_unlock(&preventsExitThreadsMutex);
     }
-    panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
-    panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$new(threadLocals);
+    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
+    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$new(threadLocals);
     thread->threadLocals = threadLocals;
-    panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE* hashPut =
-            (panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE*) 
+    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE* hashPut =
+            (panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE*) 
                 *(&threadLocals->cl->vtable + 
-                panda$collections$GenericHashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_INDEX);    
+                panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_INDEX);    
     hashPut(threadLocals, class_panda$threads$Thread$context$index, 
             (panda$core$Object*) context);
     panda$core$BitWrapper* trueWrapper = pandaNew(panda$core$BitWrapper);
