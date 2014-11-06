@@ -57,20 +57,8 @@ class PandaParser {
     Loop labels we have encountered while parsing the current method.
     ============================================================================
     @private
-    var loopLabels := new PrimitiveArray<String>()
+    def loopLabels := new HashSet<String>()
 
-    ============================================================================
-    The root parse node.
-    ============================================================================
-    @private
-    var root:ParseNode?
-    
-    ============================================================================
-    `open()` will add new nodes as childen of currentNode.
-    ============================================================================
-    @private
-    var currentNode := root
-    
     ============================================================================
     Returns the next token from the lexer.
     
@@ -78,7 +66,7 @@ class PandaParser {
     ============================================================================
     @protected
     method nextToken():Token {
-        var result:Token
+        def result:Token
         if pushbackBuffer.length > 0 {
             result := pushbackBuffer[pushbackBuffer.length - 1]
             pushbackBuffer.length -= 1
@@ -93,9 +81,6 @@ class PandaParser {
             if result.type = TokenType.UNTERMINATED_STRING
                 error("unterminated string literal", result)
         }
-        var cn := currentNode
-        assert cn != null
-        cn.add(new TokenNode(result))
         return result
     }
     
@@ -107,12 +92,6 @@ class PandaParser {
     ============================================================================
     @protected
     method pushback(t:Token) {
-        var cn := currentNode
-        assert cn != null
-        var last := cn.length - 1
-        assert cn[last]-?>(TokenNode) &
-                cn[last]->(TokenNode).token = t
-        cn.length -= 1
         pushbackBuffer.append(t)
     }
     
@@ -136,10 +115,12 @@ class PandaParser {
     @return the matching token or `null`
     ============================================================================
     @protected
-    method checkNext(type:TokenType):Token? {
+    method checkNext(type:TokenType, children:Array<ParseNode>):Token? {
         var t := nextToken()
-        if t.type = type
+        if t.type = type {
+            children.add(new TokenNode(t))
             return t
+        }
         else {
             pushback(t)
             return null
@@ -155,30 +136,15 @@ class PandaParser {
     @return the next token
     ============================================================================
     @protected
-    method expect(type:TokenType, message:String):Token {
+    method expect(type:TokenType, message:String, 
+            children:Array<ParseNode>):Token {
         var t := nextToken()
+        children.add(new TokenNode(t))
         if t.type != type
             error("expected " + message + ", but found '" + t + "'", t)
         return t
     }
 
-    @protected
-    method open(type:ParseNodeType) {
-        var p := new ParseNode(type)
-        var cn := currentNode
-        assert cn != null
-        cn.add(p)
-        p.parent := cn
-        currentNode := p
-    }
-    
-    @protected
-    method close(type:ParseNodeType) {
-        var cn := currentNode
-        assert cn != null & cn.type = type
-        currentNode := cn.parent
-    }
-    
     @protected
     method error(s:String, t:Token) {
         error(s, t.position)
@@ -193,24 +159,22 @@ class PandaParser {
     compilationUnit = bodyEntry* EOF
     ============================================================================
     @protected
-    method compilationUnit() {
-        open(ParseNodeType.COMPILATION_UNIT)
-        var node := currentNode
-        while peek().type != TokenType.EOF {
-            bodyEntry()
-        }
-        close(ParseNodeType.COMPILATION_UNIT)
+    method compilationUnit():ParseNode {
+        def children := new Array<ParseNode>()
+        while peek().type != TokenType.EOF
+            children.add(bodyEntry())
+        return new ParseNode(ParseNodeType.COMPILATION_UNIT, children)
     }
 
     ============================================================================
     instanceDeclaration = INSTANCE type
     ============================================================================
     @protected
-    method instanceDeclaration() {
-        open(ParseNodeType.INSTANCE_DECLARATION)
-        expect(TokenType.INSTANCE, "'@$instance'")
-        type()
-        close(ParseNodeType.INSTANCE_DECLARATION)
+    method instanceDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.INSTANCE, "'@$instance'", children)
+        children.add(type())
+        return new ParseNode(ParseNodeType.INSTANCE_DECLARATION, children)
     }
 
     ============================================================================
@@ -219,8 +183,8 @@ class PandaParser {
                 packageDeclaration | usesStatement | instance | simpleStatement
     ============================================================================
     @protected
-    method bodyEntry() {
-        open(ParseNodeType.BODY_ENTRY)
+    method bodyEntry():ParseNode {
+        def children := new Array<ParseNode>()
         var t := peek()
         switch t.type {
             case TokenType.DOCCOMMENT, TokenType.PROTECTED, TokenType.PRIVATE,
@@ -230,41 +194,46 @@ class PandaParser {
                     TokenType.PRE, TokenType.WRAPPER_METHOD, TokenType.CLASS, 
                     TokenType.INTERFACE, TokenType.ENUM, TokenType.METHOD, 
                     TokenType.FUNCTION: {
-                checkNext(TokenType.DOCCOMMENT)
-                annotations()
+                checkNext(TokenType.DOCCOMMENT, children)
+                children.add(annotations())
                 t := peek()
                 switch t.type {
-                    case TokenType.CLASS: classDeclaration()
-                    case TokenType.INTERFACE: interfaceDeclaration()
+                    case TokenType.CLASS: 
+                        children.add(classDeclaration())
+                    case TokenType.INTERFACE: 
+                        children.add(interfaceDeclaration())
                     case TokenType.METHOD, TokenType.FUNCTION:
-                            methodDeclaration()
-                    case TokenType.ENUM: enumeration()
+                        children.add(methodDeclaration())
+                    case TokenType.ENUM: 
+                        children.add(enumeration())
                     default: {                    
-                        nextToken()
+                        children.add(new TokenNode(nextToken()))
                         error("expected 'class' or 'method', found '" + t.text + 
                                 "' instead", t)
                     }
                 }
             }
-            case TokenType.PACKAGE: packageDeclaration()
-            case TokenType.USES: usesStatement()
-            case TokenType.INSTANCE: instanceDeclaration()
-            default: simpleStatement()
+            case TokenType.PACKAGE: children.add(packageDeclaration())
+            case TokenType.USES: children.add(usesStatement())
+            case TokenType.INSTANCE: children.add(instanceDeclaration())
+            default: children.add(simpleStatement())
         }
-        close(ParseNodeType.BODY_ENTRY)
+        return new ParseNode(ParseNodeType.BODY_ENTRY, children)
     }
     
     ============================================================================
     packageDeclaration = PACKAGE IDENTIFIER (DOT IDENTIFIER)*
     ============================================================================
     @protected
-    method packageDeclaration() {
-        open(ParseNodeType.PACKAGE_DECLARATION)
-        expect(TokenType.PACKAGE, "'package'")
-        expect(TokenType.IDENTIFIER, "package name")
-        while checkNext(TokenType.DOT) != null
-            expect(TokenType.IDENTIFIER, "identifer as part of package name")
-        close(ParseNodeType.PACKAGE_DECLARATION)
+    method packageDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.PACKAGE, "'package'", children)
+        expect(TokenType.IDENTIFIER, "package name", children)
+        while checkNext(TokenType.DOT, children) != null {
+            expect(TokenType.IDENTIFIER, "identifer as part of package name",
+                    children)
+        }
+        return new ParseNode(ParseNodeType.PACKAGE_DECLARATION, children)
     }
 
     ============================================================================
@@ -272,44 +241,45 @@ class PandaParser {
             (AS IDENTIFIER)?
     ============================================================================
     @protected
-    method usesStatement() {
-        open(ParseNodeType.USES_STATEMENT)
-        expect(TokenType.USES, "'uses'")
-        expect(TokenType.IDENTIFIER, "class name")
-        while checkNext(TokenType.DOT) != null {
-            var token := nextToken()
+    method usesStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.USES, "'uses'", children)
+        expect(TokenType.IDENTIFIER, "class name", children)
+        while checkNext(TokenType.DOT, children) != null {
+            def token := nextToken()
             if token.type != TokenType.IDENTIFIER & token.type != TokenType.MUL
                 throw new CompilerException("expected identifier or '*', " +
                         "found '" + token + "'", token.position)
+            children.add(new TokenNode(token))
         }
-        if checkNext(TokenType.AS) != null
-            expect(TokenType.IDENTIFIER, "identifier")
-        close(ParseNodeType.USES_STATEMENT)
+        if checkNext(TokenType.AS, children) != null
+            expect(TokenType.IDENTIFIER, "identifier", children)
+        return new ParseNode(ParseNodeType.USES_STATEMENT, children)
     }
 
     ============================================================================
     interfaces = LPAREN TYPE (COMMA TYPE)* RPAREN
     ============================================================================
     @protected
-    method interfaces() {
-        open(ParseNodeType.INTERFACES)
-        expect(TokenType.LPAREN, "'('")
-        type()
-        while checkNext(TokenType.COMMA) != null
-            type()
-        expect(TokenType.RPAREN, "')' to complete interfaces")
-        close(ParseNodeType.INTERFACES)
+    method interfaces():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LPAREN, "'('", children)
+        children.add(type())
+        while checkNext(TokenType.COMMA, children) != null
+            children.add(type())
+        expect(TokenType.RPAREN, "', children)' to complete interfaces", children)
+        return new ParseNode(ParseNodeType.INTERFACES, children)
     }
 
     ============================================================================
     classMembers = classMemberDeclaration*
     ============================================================================
     @protected
-    method classMembers() {
-        open(ParseNodeType.CLASS_MEMBERS)
+    method classMembers():ParseNode {
+        def children := new Array<ParseNode>()
         while peek().type != TokenType.RBRACE
-            classMemberDeclaration()
-        close(ParseNodeType.CLASS_MEMBERS)
+            children.add(classMemberDeclaration())
+        return new ParseNode(ParseNodeType.CLASS_MEMBERS, children)
     }
 
     ============================================================================
@@ -317,20 +287,20 @@ class PandaParser {
             (COLON classType)? interfaces? LBRACE classMembers RBRACE
     ============================================================================
     @protected
-    method classDeclaration() {
-        open(ParseNodeType.CLASS_DECLARATION)
-        expect(TokenType.CLASS, "'class'")
-        expect(TokenType.IDENTIFIER, "class' name (an identifier)")
+    method classDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.CLASS, "'class'", children)
+        expect(TokenType.IDENTIFIER, "class' name (an identifier)", children)
         if peek().type = TokenType.LT
-            genericParametersDeclaration()
-        if checkNext(TokenType.COLON) != null
-            classType()
+            children.add(genericParametersDeclaration())
+        if checkNext(TokenType.COLON, children) != null
+            children.add(classType())
         if peek().type = TokenType.LPAREN
-            interfaces()
-        expect(TokenType.LBRACE, "'{' to begin class body")
-        classMembers()
-        expect(TokenType.RBRACE, "'}' to complete class body")
-        close(ParseNodeType.CLASS_DECLARATION)
+            children.add(interfaces())
+        expect(TokenType.LBRACE, "'{' to begin class body", children)
+        children.add(classMembers())
+        expect(TokenType.RBRACE, "'}' to complete class body", children)
+        return new ParseNode(ParseNodeType.CLASS_DECLARATION, children)
     }
     
     ============================================================================
@@ -339,21 +309,22 @@ class PandaParser {
             RBRACE
     ============================================================================
     @protected
-    method interfaceDeclaration() {
-        open(ParseNodeType.INTERFACE_DECLARATION)
-        expect(TokenType.INTERFACE, "'interface'")
-        expect(TokenType.IDENTIFIER, "interface's name (an identifier)")
+    method interfaceDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.INTERFACE, "'interface'", children)
+        expect(TokenType.IDENTIFIER, "interface's name (an identifier)",
+                children)
         if peek().type = TokenType.LT
-            genericParametersDeclaration()
-        if checkNext(TokenType.COLON) != null {
-            classType()
-            while checkNext(TokenType.COMMA) != null
-                classType()
+            children.add(genericParametersDeclaration())
+        if checkNext(TokenType.COLON, children) != null {
+            children.add(classType())
+            while checkNext(TokenType.COMMA, children) != null
+                children.add(classType())
         }
-        expect(TokenType.LBRACE, "'{' to begin interface body")
-        classMembers()
-        expect(TokenType.RBRACE, "'}' to complete interface body")
-        close(ParseNodeType.INTERFACE_DECLARATION)
+        expect(TokenType.LBRACE, "'{' to begin interface body", children)
+        children.add(classMembers())
+        expect(TokenType.RBRACE, "'}' to complete interface body", children)
+        return new ParseNode(ParseNodeType.INTERFACE_DECLARATION, children)
     }
 
     ============================================================================
@@ -361,57 +332,62 @@ class PandaParser {
             RBRACE
     ============================================================================
     @protected
-    method enumeration() {
-        open(ParseNodeType.ENUM)
-        expect(TokenType.ENUM, "'enum'")
-        expect(TokenType.IDENTIFIER, "enum's name (an identifier)")
-        expect(TokenType.LBRACE, "'{' to begin enum body")
+    method enumeration():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.ENUM, "'enum'", children)
+        expect(TokenType.IDENTIFIER, "enum's name (an identifier)", children)
+        expect(TokenType.LBRACE, "'{' to begin enum body", children)
         var t := nextToken()
-        if t.type = TokenType.DOCCOMMENT
+        children.add(new TokenNode(t))
+        if t.type = TokenType.DOCCOMMENT {
             t := nextToken()
+            children.add(new TokenNode(t))
+        }
         if t.type = TokenType.IDENTIFIER {
-            while checkNext(TokenType.RBRACE) = null {
+            while checkNext(TokenType.RBRACE, children) = null {
                 expect(TokenType.COMMA, 
-                        "',' or '}', to either continue or complete enum")
-                checkNext(TokenType.DOCCOMMENT)
-                expect(TokenType.IDENTIFIER, "enum entry name (an identifier)")
+                        "',' or '}', to either continue or complete enum",
+                        children)
+                checkNext(TokenType.DOCCOMMENT, children)
+                expect(TokenType.IDENTIFIER, "enum entry name (an identifier)",
+                        children)
             }
         }
         else if t.type != TokenType.RBRACE {
             error("expected '}' to complete enum body, but found '" + t + "'", 
                     t)
         }
-        close(ParseNodeType.ENUM)
+        return new ParseNode(ParseNodeType.ENUM, children)
     }
     
     ============================================================================
     classMemberDeclaration = invariant | 
-            DOCCOMMENT? annotations (methodDeclaration | fieldDeclaration |
-                constantFieldDeclaration)
+            DOCCOMMENT? annotations (methodDeclaration | fieldDeclaration)
     ============================================================================
     @protected
-    method classMemberDeclaration() {
-        open(ParseNodeType.CLASS_MEMBER_DECLARATION)
+    method classMemberDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
         if peek().type = TokenType.INVARIANT
-            invariant()
+            children.add(invariant())
         else {
-            checkNext(TokenType.DOCCOMMENT)
-            annotations()
+            checkNext(TokenType.DOCCOMMENT, children)
+            children.add(annotations())
             switch peek().type {
                 case TokenType.METHOD,
-                     TokenType.FUNCTION,
-                     TokenType.CONSTRUCTOR: methodDeclaration()
-                case TokenType.VAR, TokenType.DEF, TokenType.PROPERTY: 
-                        fieldDeclaration()
-                case TokenType.CONSTANT: constantFieldDeclaration()
+                        TokenType.FUNCTION,
+                        TokenType.CONSTRUCTOR: 
+                    children.add(methodDeclaration())
+                case TokenType.VAR, TokenType.DEF, TokenType.PROPERTY, 
+                        TokenType.CONSTANT: 
+                    children.add(fieldDeclaration())
                 default: {
-                    var t := nextToken()
+                    def t := nextToken()
                     error("expected 'method', 'var', or 'constant', but " +
-                        "found '" + t + "'", t)
+                        "found '\{t}'", t)
                 }
             }
         }
-        close(ParseNodeType.CLASS_MEMBER_DECLARATION)
+        return new ParseNode(ParseNodeType.CLASS_MEMBER_DECLARATION, children)
     }
     
     ============================================================================
@@ -421,59 +397,60 @@ class PandaParser {
             CONVERT | (LBRACKET (DOTDOT | ELLIPSIS)? RBRACKET ASSIGNMENT?)
     ============================================================================
     @protected
-    method methodName() {
-        open(ParseNodeType.METHOD_NAME)
-        var t := nextToken()
+    method methodName():ParseNode {
+        def children := new Array<ParseNode>()
+        def t := nextToken()
+        children.add(new TokenNode(t))
         switch t.type {
-            case TokenType.IDENTIFIER: {
-                checkNext(TokenType.ASSIGNMENT)
-            }
+            case TokenType.IDENTIFIER:
+                checkNext(TokenType.ASSIGNMENT, children)
             case TokenType.ADD,
-                 TokenType.SUB,
-                 TokenType.MUL,
-                 TokenType.DIV,
-                 TokenType.INTDIV,
-                 TokenType.POW,
-                 TokenType.EQ,
-                 TokenType.GT,
-                 TokenType.LT,
-                 TokenType.GTEQ,
-                 TokenType.LTEQ,
-                 TokenType.REM,
-                 TokenType.AND,
-                 TokenType.BITWISEAND,
-                 TokenType.OR,
-                 TokenType.BITWISEOR,
-                 TokenType.XOR,
-                 TokenType.BITWISEXOR,
-                 TokenType.NOT,
-                 TokenType.BITWISENOT,
-                 TokenType.SHIFTLEFT,
-                 TokenType.SHIFTRIGHT,
-                 TokenType.CONVERT: { }
+                     TokenType.SUB,
+                     TokenType.MUL,
+                     TokenType.DIV,
+                     TokenType.INTDIV,
+                     TokenType.POW,
+                     TokenType.EQ,
+                     TokenType.GT,
+                     TokenType.LT,
+                     TokenType.GTEQ,
+                     TokenType.LTEQ,
+                     TokenType.REM,
+                     TokenType.AND,
+                     TokenType.BITWISEAND,
+                     TokenType.OR,
+                     TokenType.BITWISEOR,
+                     TokenType.XOR,
+                     TokenType.BITWISEXOR,
+                     TokenType.NOT,
+                     TokenType.BITWISENOT,
+                     TokenType.SHIFTLEFT,
+                     TokenType.SHIFTRIGHT,
+                     TokenType.CONVERT: { }
             case TokenType.LBRACKET: {
-                if checkNext(TokenType.DOTDOT) = null
-                    checkNext(TokenType.ELLIPSIS)
-                expect(TokenType.RBRACKET, "']'")
-                checkNext(TokenType.ASSIGNMENT)
+                if checkNext(TokenType.DOTDOT, children) = null
+                    checkNext(TokenType.ELLIPSIS, children)
+                expect(TokenType.RBRACKET, "']'", children)
+                checkNext(TokenType.ASSIGNMENT, children)
             }
-            default: error("'" + t.text + "' is not a valid method name",
-                    t)
+            default: 
+                error("'\{t}' is not a valid method name", t)
         }
-        close(ParseNodeType.METHOD_NAME)
+        return new ParseNode(ParseNodeType.METHOD_NAME, children)
     }
 
     ============================================================================
     methodDeclaration = (METHOD | FUNCTION | CONSTRUCTOR) 
             (methodName if not constructor) 
-            genericParametersDeclaration? parameterPrototypeList 
+            genericParametersDeclaration? formalParameterList 
             typeDeclaration? block? postcondition*
     ============================================================================
     @protected
-    method methodDeclaration() {
-        open(ParseNodeType.METHOD_DECLARATION)
-        loopLabels.length := 0
+    method methodDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        loopLabels.clear()
         def methodType := nextToken()
+        children.add(new TokenNode(methodType))
         switch methodType.type {
             case TokenType.FUNCTION, TokenType.METHOD, TokenType.CONSTRUCTOR: { 
             }
@@ -481,172 +458,151 @@ class PandaParser {
                     methodType)
         }
 
-        var cn := currentNode
-        assert cn != null
-        if cn[0]->(TokenNode).token.type != TokenType.CONSTRUCTOR
-            methodName()
+        if methodType.type != TokenType.CONSTRUCTOR
+            children.add(methodName())
         if peek().type = TokenType.LT
-            genericParametersDeclaration()
-        parameterPrototypeList()
-        if methodType = TokenType.FUNCTION | peek().type = TokenType.COLON {
+            children.add(genericParametersDeclaration())
+        children.add(formalParameterList())
+        if methodType.type = TokenType.FUNCTION | 
+                peek().type = TokenType.COLON {
             expectReturnValue := true
-            typeDeclaration()
+            children.add(typeDeclaration())
         }
         else
             expectReturnValue := false
         if peek().type = TokenType.LBRACE
-            block()
+            children.add(block())
         while peek().type = TokenType.POST | peek().type = TokenType.POST_AND
-            postcondition()
-        close(ParseNodeType.METHOD_DECLARATION)
+            children.add(postcondition())
+        return new ParseNode(ParseNodeType.METHOD_DECLARATION, children)
     }
 
     ============================================================================
-    parameterPrototype = VAR? IDENTIFIER (COLON | CONVERT) type ELLIPSIS?
+    formalParameter = VAR? IDENTIFIER (COLON | CONVERT) type ELLIPSIS?
     ============================================================================
     @protected
-    method parameterPrototype() {
-        open(ParseNodeType.PARAMETER_PROTOTYPE)
-        checkNext(TokenType.VAR)
-        expect(TokenType.IDENTIFIER, "parameter name (an identifier)")
-        var t := nextToken()
+    method formalParameter():ParseNode {
+        def children := new Array<ParseNode>()
+        checkNext(TokenType.VAR, children)
+        expect(TokenType.IDENTIFIER, "parameter name (an identifier)", children)
+        def t := nextToken()
         if t.type != TokenType.COLON & t.type != TokenType.CONVERT
             error("expected ':' or '->>' after parameter name", t)
-        type()
-        checkNext(TokenType.ELLIPSIS)
-        close(ParseNodeType.PARAMETER_PROTOTYPE)
+        children.add(new TokenNode(t))
+        children.add(type())
+        checkNext(TokenType.ELLIPSIS, children)
+        return new ParseNode(ParseNodeType.FORMAL_PARAMETER, children)
     }
     
     ============================================================================
-    parameterPrototypeList = LPAREN parameterPrototype 
-            (COMMA parameterPrototype)* RPAREN
+    formalParameterList = LPAREN formalParameter (COMMA formalParameter)* RPAREN
     ============================================================================
     @protected
-    method parameterPrototypeList() {
-        open(ParseNodeType.PARAMETER_PROTOTYPE_LIST)
-        expect(TokenType.LPAREN, "'(' to begin parameter list")
+    method formalParameterList():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LPAREN, "'(' to begin parameter list", children)
         if peek().type != TokenType.RPAREN {
-            parameterPrototype()
-            while checkNext(TokenType.COMMA) != null
-                parameterPrototype()
+            children.add(formalParameter())
+            while checkNext(TokenType.COMMA, children) != null
+                children.add(formalParameter())
         }
-        expect(TokenType.RPAREN, "')' to complete parameter list")
-        close(ParseNodeType.PARAMETER_PROTOTYPE_LIST)
+        expect(TokenType.RPAREN, "', children)' to complete parameter list", 
+                children)
+        return new ParseNode(ParseNodeType.FORMAL_PARAMETER_LIST, children)
     }
 
     ============================================================================
-    methodValue = (FUNCTION | METHOD) parameterPrototypeList 
-            typeDeclaration? block
+    methodValue = (FUNCTION | METHOD) formalParameterList typeDeclaration? block
     ============================================================================
     @protected
-    method methodValue() {
-        open(ParseNodeType.METHOD_VALUE)
-        var t := nextToken()
+    method methodValue():ParseNode {
+        def children := new Array<ParseNode>()
+        def t := nextToken()
         if t.type != TokenType.FUNCTION & t.type != TokenType.METHOD {
             throw new CompilerException("expected 'function' or 'method', " +
                     "but found '" + t + "'", t.position)
         }
-        parameterPrototypeList()
+        children.add(new TokenNode(t))
+        children.add(formalParameterList())
         if peek().type = TokenType.COLON {
-            typeDeclaration()
+            children.add(typeDeclaration())
             expectReturnValue := true
         }
-        block()
-        close(ParseNodeType.METHOD_VALUE)
+        else
+            expectReturnValue := false
+        children.add(block())
+        return new ParseNode(ParseNodeType.METHOD_VALUE, children)
     }
 
     ============================================================================
-    fieldDeclaration = (VAR | DEF | PROPERTY) (IDENTIFIER | UNDERSCORE) 
-            typeDeclaration? (COMMA (IDENTIFIER | UNDERSCORE) typeDeclaration?)*
+    fieldDeclaration = (VAR | DEF | PROPERTY | CONSTANT) 
+            (IDENTIFIER | UNDERSCORE) typeDeclaration? 
+            (COMMA (IDENTIFIER | UNDERSCORE) typeDeclaration?)*
             (ASSIGNMENT expression)?
     ============================================================================
     @protected
-    method fieldDeclaration() {
-        open(ParseNodeType.FIELD_DECLARATION)
-        if checkNext(TokenType.DEF) = null & 
-                checkNext(TokenType.PROPERTY) = null
-            expect(TokenType.VAR, "'var'")
-        if checkNext(TokenType.UNDERSCORE) = null
-            expect(TokenType.IDENTIFIER, "field name (an identifier)")
+    method fieldDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        if checkNext(TokenType.DEF, children) = null & 
+                checkNext(TokenType.PROPERTY, children) = null &
+                checkNext(TokenType.CONSTANT, children) = null
+            expect(TokenType.VAR, "'var'", children)
+        if checkNext(TokenType.UNDERSCORE, children) = null
+            expect(TokenType.IDENTIFIER, "field name (an identifier)", children)
         if peek().type = TokenType.COLON
-            typeDeclaration()
-        while checkNext(TokenType.COMMA) != null {
-            if checkNext(TokenType.UNDERSCORE) = null
-                expect(TokenType.IDENTIFIER, "field name (an identifier)")
+            children.add(typeDeclaration())
+        while checkNext(TokenType.COMMA, children) != null {
+            if checkNext(TokenType.UNDERSCORE, children) = null {
+                expect(TokenType.IDENTIFIER, "field name (an identifier)", 
+                        children)
+            }
             if peek().type = TokenType.COLON
-                typeDeclaration()
+                children.add(typeDeclaration())
         }
-        if checkNext(TokenType.ASSIGNMENT) != null
-            expression()
-        close(ParseNodeType.FIELD_DECLARATION)
+        if checkNext(TokenType.ASSIGNMENT, children) != null
+            children.add(expression())
+        return new ParseNode(ParseNodeType.FIELD_DECLARATION, children)
     }
     
     ============================================================================
     typeDeclaration = COLON type
     ============================================================================
     @protected
-    method typeDeclaration() {
-        open(ParseNodeType.TYPE_DECLARATION)
-        expect(TokenType.COLON, "':'")
-        type()
-        close(ParseNodeType.TYPE_DECLARATION)
+    method typeDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.COLON, "':'", children)
+        children.add(type())
+        return new ParseNode(ParseNodeType.TYPE_DECLARATION, children)
     }
 
     ============================================================================
-    varDeclaration = (VAR | DEF) (IDENTIFIER | UNDERSCORE) typeDeclaration? 
-            (COMMA (IDENTIFIER | UNDERSCORE) typeDeclaration?)* (ASSIGNMENT 
-            expression)?
+    varDeclaration = (VAR | DEF | CONSTANT) (IDENTIFIER | UNDERSCORE) 
+            typeDeclaration? (COMMA (IDENTIFIER | UNDERSCORE) typeDeclaration?)* 
+            (ASSIGNMENT expression)?
     ============================================================================
     @protected
-    method varDeclaration() {
-        open(ParseNodeType.VAR_DECLARATION)
-        if checkNext(TokenType.DEF) = null
-            expect(TokenType.VAR, "'var'")
-        if checkNext(TokenType.UNDERSCORE) = null
-            expect(TokenType.IDENTIFIER, "variable name (an identifier)")
-        if peek().type = TokenType.COLON
-            typeDeclaration()
-        while checkNext(TokenType.COMMA) != null {
-            if checkNext(TokenType.UNDERSCORE) = null
-                expect(TokenType.IDENTIFIER, "variable name (an identifier)")
-            if peek().type = TokenType.COLON
-                typeDeclaration()
+    method varDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        if checkNext(TokenType.DEF, children) = null &
+                checkNext(TokenType.CONSTANT, children) = null
+            expect(TokenType.VAR, "'var'", children)
+        if checkNext(TokenType.UNDERSCORE, children) = null {
+            expect(TokenType.IDENTIFIER, "variable name (an identifier)", 
+                    children)
         }
-        if checkNext(TokenType.ASSIGNMENT) != null
-            expression()
-        close(ParseNodeType.VAR_DECLARATION)
-    }
-    
-    ============================================================================
-    constantFieldDeclaration = CONSTANT IDENTIFIER typeDeclaration? ASSIGNMENT 
-            expression
-    ============================================================================
-    @protected
-    method constantFieldDeclaration() {
-        open(ParseNodeType.CONSTANT_FIELD_DECLARATION)
-        expect(TokenType.CONSTANT, "'constant'")
-        expect(TokenType.IDENTIFIER, "constant name (an identifier)")
         if peek().type = TokenType.COLON
-            typeDeclaration()
-        expect(TokenType.ASSIGNMENT, "':=' to define a value for a constant")
-        expression()
-        close(ParseNodeType.CONSTANT_FIELD_DECLARATION)
-    }
-    
-    ============================================================================
-    constantDeclaration = CONSTANT IDENTIFIER typeDeclaration? ASSIGNMENT
-            expression
-    ============================================================================
-    @protected
-    method constantDeclaration() {
-        open(ParseNodeType.CONSTANT_DECLARATION)
-        expect(TokenType.CONSTANT, "'constant'")
-        expect(TokenType.IDENTIFIER, "constant name (an identifier)")
-        if peek().type = TokenType.COLON
-            typeDeclaration()
-        expect(TokenType.ASSIGNMENT, "':=' to define a value for a constant")
-        expression()
-        close(ParseNodeType.CONSTANT_DECLARATION)
+            children.add(typeDeclaration())
+        while checkNext(TokenType.COMMA, children) != null {
+            if checkNext(TokenType.UNDERSCORE, children) = null {
+                expect(TokenType.IDENTIFIER, "variable name (an identifier)", 
+                        children)
+            }
+            if peek().type = TokenType.COLON
+                children.add(typeDeclaration())
+        }
+        if checkNext(TokenType.ASSIGNMENT, children) != null
+            children.add(expression())
+        return new ParseNode(ParseNodeType.VAR_DECLARATION, children)
     }
     
     ============================================================================
@@ -654,36 +610,40 @@ class PandaParser {
             (COMMA IDENTIFIER typeDeclaration?)? GT
     ============================================================================
     @protected
-    method genericParametersDeclaration() {
-        open(ParseNodeType.GENERIC_PARAMETERS_DECLARATION)
-        expect(TokenType.LT, "'<'")
-        expect(TokenType.IDENTIFIER, "generic parameter name (an identifier)")
+    method genericParametersDeclaration():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LT, "'<'", children)
+        expect(TokenType.IDENTIFIER, "generic parameter name (an identifier)", 
+                children)
         if peek().type = TokenType.COLON
-            typeDeclaration()
-        while checkNext(TokenType.COMMA) != null {
+            children.add(typeDeclaration())
+        while checkNext(TokenType.COMMA, children) != null {
             expect(TokenType.IDENTIFIER, 
-                    "generic parameter name (an identifier)")
+                    "generic parameter name (an identifier)", children)
             if peek().type = TokenType.COLON
-                typeDeclaration()
+                children.add(typeDeclaration())
         }
         expect(TokenType.GT, 
-                "',' or '>', to continue or complete generic parameters")
-        close(ParseNodeType.GENERIC_PARAMETERS_DECLARATION)
+                "',' or '>', to continue or complete generic parameters",
+                children)
+        return new ParseNode(ParseNodeType.GENERIC_PARAMETERS_DECLARATION, 
+                children)
     }
 
     ============================================================================
     genericParameters = LT type (COMMA type)? GT
     ============================================================================
     @protected
-    method genericParameters() {
-        open(ParseNodeType.GENERIC_PARAMETERS)
-        expect(TokenType.LT, "'<'")
-        type()
-        while checkNext(TokenType.COMMA) != null
-            type()
+    method genericParameters():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LT, "'<'", children)
+        children.add(type())
+        while checkNext(TokenType.COMMA, children) != null
+            children.add(type())
         expect(TokenType.GT, 
-                "',' or '>', to continue or complete generic parameters")
-        close(ParseNodeType.GENERIC_PARAMETERS)
+                "',' or '>', to continue or complete generic parameters",
+                children)
+        return new ParseNode(ParseNodeType.GENERIC_PARAMETERS, children)
     }
     
     ============================================================================
@@ -692,32 +652,33 @@ class PandaParser {
             mathAnnotation | precondition
     ============================================================================
     @protected
-    method annotations() {
-        open(ParseNodeType.ANNOTATIONS)
+    method annotations():ParseNode {
+        def children := new Array<ParseNode>()
         loop {
-            var t := nextToken()
+            def t := nextToken()
             switch t.type {
                 case TokenType.PROTECTED,
-                     TokenType.PRIVATE,
-                     TokenType.ATCLASS,
-                     TokenType.THREAD,
-                     TokenType.ABSTRACT,
-                     TokenType.EXTERNAL,
-                     TokenType.OVERRIDE,
-                     TokenType.READONLY,
-                     TokenType.LIMITED,
-                     TokenType.ATSELF,
-                     TokenType.SAFERETURN,
-                     TokenType.UNSAFEFUNCTION,
-                     TokenType.FINAL,
-                     TokenType.WRAPPER_METHOD: { }
+                         TokenType.PRIVATE,
+                         TokenType.ATCLASS,
+                         TokenType.THREAD,
+                         TokenType.ABSTRACT,
+                         TokenType.EXTERNAL,
+                         TokenType.OVERRIDE,
+                         TokenType.READONLY,
+                         TokenType.LIMITED,
+                         TokenType.ATSELF,
+                         TokenType.SAFERETURN,
+                         TokenType.UNSAFEFUNCTION,
+                         TokenType.FINAL,
+                         TokenType.WRAPPER_METHOD:
+                    children.add(new TokenNode(t))
                 case TokenType.MATH: {
                     pushback(t)
-                    mathAnnotation()
+                    children.add(mathAnnotation())
                 }
                 case TokenType.PRE, TokenType.PRE_OR: {
                     pushback(t)
-                    precondition()
+                    children.add(precondition())
                 }
                 default: {
                     pushback(t)
@@ -725,7 +686,7 @@ class PandaParser {
                 }
             }
         }
-        close(ParseNodeType.ANNOTATIONS)
+        return new ParseNode(ParseNodeType.ANNOTATIONS, children)
     }
     
     ============================================================================
@@ -733,13 +694,13 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method mathAnnotation() {
-        open(ParseNodeType.MATH_ANNOTATION)
-        expect(TokenType.MATH, "'@math'")
-        expect(TokenType.LPAREN, "'(' for @math annotation")
-        expect(TokenType.OVERFLOW, "'overflow' for @math annotation")
-        expect(TokenType.RPAREN, "')' to complete @math annotation")
-        close(ParseNodeType.MATH_ANNOTATION)
+    method mathAnnotation():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.MATH, "'@math'", children)
+        expect(TokenType.LPAREN, "'(' for @math annotation", children)
+        expect(TokenType.OVERFLOW, "'overflow' for @math annotation", children)
+        expect(TokenType.RPAREN, "')' to complete @math annotation", children)
+        return new ParseNode(ParseNodeType.MATH_ANNOTATION, children)
     }
     
     ============================================================================
@@ -747,13 +708,13 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method invariant() {
-        open(ParseNodeType.INVARIANT)
-        expect(TokenType.INVARIANT, "'@invariant'")
-        expect(TokenType.LPAREN, "'(' for @invariant")
-        expression()
-        expect(TokenType.RPAREN, "')' to complete @invariant")
-        close(ParseNodeType.INVARIANT)
+    method invariant():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.INVARIANT, "'@invariant'", children)
+        expect(TokenType.LPAREN, "'(' for @invariant", children)
+        children.add(expression())
+        expect(TokenType.RPAREN, "')' to complete @invariant", children)
+        return new ParseNode(ParseNodeType.INVARIANT, children)
     }
     
     ============================================================================
@@ -761,14 +722,14 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method precondition() {
-        open(ParseNodeType.PRECONDITION)
-        if checkNext(TokenType.PRE_OR) = null
-            expect(TokenType.PRE, "'@pre'")
-        expect(TokenType.LPAREN, "'(' for precondition")
-        expression()
-        expect(TokenType.RPAREN, "')' to complete precondition")
-        close(ParseNodeType.PRECONDITION)
+    method precondition():ParseNode {
+        def children := new Array<ParseNode>()
+        if checkNext(TokenType.PRE_OR, children) = null
+            expect(TokenType.PRE, "'@pre'", children)
+        expect(TokenType.LPAREN, "'(' for precondition", children)
+        children.add(expression())
+        expect(TokenType.RPAREN, "')' to complete precondition", children)
+        return new ParseNode(ParseNodeType.PRECONDITION, children)
     }
 
     ============================================================================
@@ -776,14 +737,14 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method postcondition() {
-        open(ParseNodeType.POSTCONDITION)
-        if checkNext(TokenType.POST_AND) = null
-            expect(TokenType.POST, "'@post'")
-        expect(TokenType.LPAREN, "'(' for postcondition")
-        expression()
-        expect(TokenType.RPAREN, "')' to complete postcondition")
-        close(ParseNodeType.POSTCONDITION)
+    method postcondition():ParseNode {
+        def children := new Array<ParseNode>()
+        if checkNext(TokenType.POST_AND, children) = null
+            expect(TokenType.POST, "'@post'", children)
+        expect(TokenType.LPAREN, "'(' for postcondition", children)
+        children.add(expression())
+        expect(TokenType.RPAREN, "')' to complete postcondition", children)
+        return new ParseNode(ParseNodeType.POSTCONDITION, children)
     }
 
     -- there's a bit of awkwardness here with how we handle the 
@@ -799,12 +760,14 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method className() {
-        expect(TokenType.IDENTIFIER, "type name (an identifier)")
-        while checkNext(TokenType.DOT) != null
-            expect(TokenType.IDENTIFIER, "identifier as part of type name")
+    method className(children:Array<ParseNode>) {
+        expect(TokenType.IDENTIFIER, "type name (an identifier)", children)
+        while checkNext(TokenType.DOT, children) != null {
+            expect(TokenType.IDENTIFIER, "identifier as part of type name", 
+                    children)
+        }
         if peek().type = TokenType.LT
-            genericParameters()
+            children.add(genericParameters())
     }
 
     ============================================================================
@@ -812,10 +775,10 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method classType() {
-        open(ParseNodeType.TYPE)
-        className()
-        close(ParseNodeType.TYPE)
+    method classType():ParseNode {
+        def children := new Array<ParseNode>()
+        className(children)
+        return new ParseNode(ParseNodeType.TYPE, children)
     }
 
     ============================================================================
@@ -823,11 +786,11 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method simpleType() {
-        open(ParseNodeType.TYPE)
-        className()
-        checkNext(TokenType.QUESTION)
-        close(ParseNodeType.TYPE)
+    method simpleType():ParseNode {
+        def children := new Array<ParseNode>()
+        className(children)
+        checkNext(TokenType.QUESTION, children)
+        return new ParseNode(ParseNodeType.TYPE, children)
     }
 
     ============================================================================
@@ -837,33 +800,39 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method methodOrTupleType() {
-        open(ParseNodeType.TYPE)
-        expect(TokenType.LPAREN, "'('")
+    method methodOrTupleType():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LPAREN, "'('", children)
         var t := nextToken()
         if t.type != TokenType.RPAREN {
             pushback(t)
-            type()
+            children.add(type())
             t := nextToken()
+            children.add(new TokenNode(t))
             while t.type = TokenType.COMMA {
-                type()
+                children.add(type())
                 t := nextToken()
+                children.add(new TokenNode(t))
             }
         }
+        else
+            children.add(new TokenNode(t))
         def yields := peek().type
         if yields = TokenType.YIELDS |
                 yields = TokenType.YIELDS_METHOD | 
                 yields = TokenType.YIELDS_IMMUTABLE |
                 yields = TokenType.YIELDS_METHOD_IMMUTABLE {
-            nextToken()
-            expect(TokenType.LPAREN, "'(' after '" + yields + "' in method type")
-            if checkNext(TokenType.RPAREN) = null {
-                type() 
-                expect(TokenType.RPAREN, "')' to complete method type")
+            children.add(new TokenNode(nextToken()))
+            expect(TokenType.LPAREN, "'(' after '\{yields}' in method type", 
+                    children)
+            if checkNext(TokenType.RPAREN, children) = null {
+                children.add(type())
+                expect(TokenType.RPAREN, "')' to complete method type", 
+                        children)
             }
         }
-        checkNext(TokenType.QUESTION)
-        close(ParseNodeType.TYPE)
+        checkNext(TokenType.QUESTION, children)
+        return new ParseNode(ParseNodeType.TYPE, children)
     }
 
     ============================================================================
@@ -871,11 +840,11 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method type() {
+    method type():ParseNode {
         if peek().type = TokenType.LPAREN
-            methodOrTupleType()
+            return methodOrTupleType()
         else
-            simpleType()    
+            return simpleType()
     }
     
     ============================================================================
@@ -883,16 +852,16 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method parameters() {
-        open(ParseNodeType.PARAMETERS)
-        expect(TokenType.LPAREN, "'(' to begin parameters")
-        if checkNext(TokenType.RPAREN) = null {
-            expression()
-            while checkNext(TokenType.COMMA) != null
-                expression()
-            expect(TokenType.RPAREN, "')' to complete parameters")
+    method parameters():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LPAREN, "'(' to begin parameters", children)
+        if checkNext(TokenType.RPAREN, children) = null {
+            children.add(expression())
+            while checkNext(TokenType.COMMA, children) != null
+                children.add(expression())
+            expect(TokenType.RPAREN, "')' to complete parameters", children)
         }
-        close(ParseNodeType.PARAMETERS)
+        return new ParseNode(ParseNodeType.PARAMETERS, children)
     }
 
     ============================================================================
@@ -900,12 +869,12 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method construct() {
-        open(ParseNodeType.CONSTRUCT)
-        expect(TokenType.NEW, "'new'")
-        type()
-        parameters()
-        close(ParseNodeType.CONSTRUCT)
+    method construct():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.NEW, "'new'", children)
+        children.add(type())
+        children.add(parameters())
+        return new ParseNode(ParseNodeType.CONSTRUCT, children)
     }
 
     ============================================================================
@@ -913,17 +882,17 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method arrayLiteral() {
-        open(ParseNodeType.ARRAY_LITERAL)
-        expect(TokenType.LBRACKET, "'['")
-        if checkNext(TokenType.RBRACKET) = null {
-            expression()
-            while checkNext(TokenType.COMMA) != null
-                expression()
+    method arrayLiteral():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LBRACKET, "'['", children)
+        if checkNext(TokenType.RBRACKET, children) = null {
+            children.add(expression())
+            while checkNext(TokenType.COMMA, children) != null
+                children.add(expression())
             expect(TokenType.RBRACKET, "',' or ']' to continue or " +
-                    "complete array")
+                    "complete array", children)
         }
-        close(ParseNodeType.ARRAY_LITERAL)
+        return new ParseNode(ParseNodeType.ARRAY_LITERAL, children)
     }
 
     ============================================================================
@@ -932,54 +901,40 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method mapLiteral() {
-        open(ParseNodeType.MAP_LITERAL)
-        expect(TokenType.LBRACE, "'{'")
-        if checkNext(TokenType.RBRACE) = null {
-            expression()
-            expect(TokenType.COLON, "':'")
-            expression()
-            while checkNext(TokenType.COMMA) != null {
-                expression()
-                expect(TokenType.COLON, "':'")
-                expression()
+    method mapLiteral():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LBRACE, "'{'", children)
+        if checkNext(TokenType.RBRACE, children) = null {
+            children.add(expression())
+            expect(TokenType.COLON, "':'", children)
+            children.add(expression())
+            while checkNext(TokenType.COMMA, children) != null {
+                children.add(expression())
+                expect(TokenType.COLON, "':'", children)
+                children.add(expression())
             }
             expect(TokenType.RBRACE, "',' or '}' to continue or " +
-                    "complete map")
+                    "complete map", children)
         }
-        close(ParseNodeType.MAP_LITERAL)
+        return new ParseNode(ParseNodeType.MAP_LITERAL, children)
     }
-
 
     -- uh oh! we ran into something that started out looking like a lambda but
     -- turned out not to be; undo it and treat it as a tuple instead. At some
     -- point I may end up having to do a general lookahead solution, but so far
     -- this is the only spot in the grammar requiring additional lookahead
     @private
-    method rollbackLambda() {
-        def lambda := currentNode
-        assert lambda != null & lambda.type = ParseNodeType.LAMBDA
-        def term := lambda.parent
-        assert term != null & term.type = ParseNodeType.TERM
-        -- remove the lambda
-        term.children.length -= 1
+    method rollbackLambda(children:ListView<ParseNode>):ListView<ParseNode> {
         -- push everything back
-        for i in lambda.children.length - 1 ... 0 by -1 {
-            def child := lambda.children[i]
-            assert child.type = ParseNodeType.TOKEN
-            pushback(child->(TokenNode).token)
-        }
-        currentNode := term
-        expect(TokenType.LPAREN, "'(' to begin tuple")
-        expression()
-        while checkNext(TokenType.COMMA) != null
-            expression()
-        expect(TokenType.RPAREN, "')' to complete tuple")
-        -- fixed! we pushed back the children of the bogus lambda node, killed 
-        -- the lambda, and reevaluated it as a tuple. We could get a slight
-        -- performance boost by just reparenting the lambda nodes and continuing
-        -- the parsing without pushing anything back, but that's significantly
-        -- more complicated.
+        for i in children.length - 1 ... 0 by -1
+            pushback(children[i]->(TokenNode).token)
+        def newChildren := new Array<ParseNode>()
+        expect(TokenType.LPAREN, "'(' to begin tuple", newChildren)
+        newChildren.add(expression())
+        while checkNext(TokenType.COMMA, newChildren) != null
+            newChildren.add(expression())
+        expect(TokenType.RPAREN, "')' to complete tuple", newChildren)
+        return newChildren
     }
 
     ============================================================================
@@ -991,62 +946,60 @@ class PandaParser {
 
     Note that lambda can "backtrack" by realizing that it has, in fact, just
     encountered a tuple consisting of identifiers (which looks the same as the
-    start of a lambda, e.g. "(x, y)"). In this case it will fix the parse tree
-    to look like a tuple.
+    start of a lambda, e.g. "(x, y)"). It will therefore return either a lambda
+    parse node or the sequence of parse nodes for a tuple.
     ============================================================================
     @protected
     @self
-    method lambda() {
-        open(ParseNodeType.LAMBDA)
+    method lambda():(ParseNode?, ListView<ParseNode>?) {
+        def children := new Array<ParseNode>()
         var foundTypes := false
         if peek().type = TokenType.LPAREN {
-            expect(TokenType.LPAREN, "'('")
-            expect(TokenType.IDENTIFIER, "identifier for lambda parameter")
+            expect(TokenType.LPAREN, "'('", children)
+            expect(TokenType.IDENTIFIER, "identifier for lambda parameter", 
+                    children)
             if peek().type = TokenType.COLON {
                 foundTypes := true
-                typeDeclaration()
+                children.add(typeDeclaration())
             }
-            while checkNext(TokenType.COMMA) != null {
-                if checkNext(TokenType.IDENTIFIER) = null {
-                    rollbackLambda()
-                    return
-                }
+            while checkNext(TokenType.COMMA, children) != null {
+                if checkNext(TokenType.IDENTIFIER, children) = null
+                    return (null, rollbackLambda(children))
                 if foundTypes
-                    typeDeclaration()
+                    children.add(typeDeclaration())
             }
-            if checkNext(TokenType.RPAREN) = null {
-                rollbackLambda()
-                return
-            }
+            if checkNext(TokenType.RPAREN, children) = null
+                return (null, rollbackLambda(children))
         }
         else {
-            expect(TokenType.IDENTIFIER, "identifier for lambda parameter")
+            expect(TokenType.IDENTIFIER, "identifier for lambda parameter", 
+                    children)
             if peek().type = TokenType.COLON {
-                typeDeclaration()
+                children.add(typeDeclaration())
                 foundTypes := true
             }
         }
         if foundTypes | peek().type = TokenType.YIELDS {
-            expect(TokenType.YIELDS, "'=>' after lambda parameters")
-            expression()
-            close(ParseNodeType.LAMBDA)
+            expect(TokenType.YIELDS, "'=>' after lambda parameters", children)
+            children.add(expression())
+            return (new ParseNode(ParseNodeType.LAMBDA, children), null)
         }
         else
-            rollbackLambda()
+            return (null, rollbackLambda(children))
     }
 
     ============================================================================
-    classLiteral = CLASS LPAREN className RPAREN
+    classLiteral = CLASS LPAREN classType RPAREN
     ============================================================================
     @protected
     @self
-    method classLiteral() {
-        open(ParseNodeType.CLASS_LITERAL)
-        expect(TokenType.CLASS, "'class'")
-        expect(TokenType.LPAREN, "'(' after 'class'")
-        classType()
-        expect(TokenType.RPAREN, "')' after class name")
-        close(ParseNodeType.CLASS_LITERAL)
+    method classLiteral():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.CLASS, "'class'", children)
+        expect(TokenType.LPAREN, "'(' after 'class'", children)
+        children.add(classType())
+        expect(TokenType.RPAREN, "')' after class name", children)
+        return new ParseNode(ParseNodeType.CLASS_LITERAL, children)
     }
 
     ============================================================================
@@ -1057,85 +1010,103 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method term() {
-        open(ParseNodeType.TERM)
-        var t := nextToken()
+    method term():ParseNode {
+        def children := new Array<ParseNode>()
+        def t := nextToken()
         switch t.type {
             case TokenType.NUMBER,
-                 TokenType.TRUE,
-                 TokenType.FALSE,
-                 TokenType.NULL,
-                 TokenType.STRING,
-                 TokenType.PLUGIN,
-                 TokenType.SELF,
-                 TokenType.SUPER: { }
+                     TokenType.TRUE,
+                     TokenType.FALSE,
+                     TokenType.NULL,
+                     TokenType.STRING,
+                     TokenType.PLUGIN,
+                     TokenType.SELF,
+                     TokenType.SUPER: {
+                children.add(new TokenNode(t))
+            }
             case TokenType.IDENTIFIER: { 
+                children.add(new TokenNode(t))
                 if !suppressLambdas {
                     -- check for a lambda
-                    var p := peek().type
+                    def p := peek().type
                     if p = TokenType.COLON | p = TokenType.YIELDS {
                         pushback(t)
-                        lambda()
+                        def lambda, tuple := lambda()
+                        if lambda != null
+                            children.add(lambda)
+                        else {
+                            assert tuple != null
+                            children.addAll(tuple)
+                        }
                     }
                 }
             }
             case TokenType.LPAREN: {
+                children.add(new TokenNode(t))
                 -- figure out if we've got a parenthesized lambda, i.e.
                 -- (x:Real, y:Real) => x + y
                 var haveLambda := false
-                var id := checkNext(TokenType.IDENTIFIER)
+                var id := checkNext(TokenType.IDENTIFIER, children)
                 if id != null {
-                    var p := peek().type
+                    def p := peek().type
                     pushback(id)
                     if p = TokenType.COLON | p = TokenType.COMMA {
                         pushback(t)
-                        lambda()
+                        def lambda, tuple := lambda()
+                        if lambda != null
+                            children.add(lambda)
+                        else {
+                            assert tuple != null
+                            children.addAll(tuple)
+                        }
                         haveLambda := true
                     }
                 }
                 if !haveLambda {
-                    expression()
-                    while checkNext(TokenType.COMMA) != null
-                        expression()
-                    expect(TokenType.RPAREN, "')' to complete expression")
+                    children.add(expression())
+                    while checkNext(TokenType.COMMA, children) != null
+                        children.add(expression())
+                    expect(TokenType.RPAREN, "')' to complete expression", 
+                            children)
                 }
             }
-            case TokenType.ATRETURN: { }
+            case TokenType.ATRETURN:
+                children.add(new TokenNode(t))
             case TokenType.PRE: {
-                expect(TokenType.LPAREN, "'(' following '@pre'")
-                expression()
-                expect(TokenType.RPAREN, "')' to complete @pre")
+                children.add(new TokenNode(t))
+                expect(TokenType.LPAREN, "'(' following '@pre'", children)
+                children.add(expression())
+                expect(TokenType.RPAREN, "')' to complete @pre", children)
             }
             case TokenType.NEW: {
                 pushback(t)
-                construct()
+                children.add(construct())
             }
             case TokenType.LBRACKET: {
                 pushback(t)
-                arrayLiteral()
+                children.add(arrayLiteral())
             }
             case TokenType.LBRACE: {
                 pushback(t)
-                mapLiteral()
+                children.add(mapLiteral())
             }
             case TokenType.FUNCTION,
                  TokenType.METHOD: {
                 pushback(t)
-                methodValue()
+                children.add(methodValue())
             }
             case TokenType.CLASS: {
                 if peek().type = TokenType.LPAREN {
                     pushback(t)
-                    classLiteral()
+                    children.add(classLiteral())
                 }
-                -- else just leave the CLASS token to be handled as a reference
-                -- to self.class
+                else
+                    children.add(new TokenNode(t))
             }
-            default: {
+            default:
                 error("expected an expression, but found '" + t + "'", t)
-            }
         }
-        close(ParseNodeType.TERM)
+        return new ParseNode(ParseNodeType.TERM, children)
     }
 
     ============================================================================
@@ -1143,16 +1114,16 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method types() {
-        open(ParseNodeType.TYPES)
-        expect(TokenType.LPAREN, "'(' to begin parameters")
-        if checkNext(TokenType.RPAREN) = null {
-            type()
-            while checkNext(TokenType.COMMA) != null
-                type()
-            expect(TokenType.RPAREN, "')' to complete parameters")
+    method types():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LPAREN, "'(' to begin parameters", children)
+        if checkNext(TokenType.RPAREN, children) = null {
+            children.add(type())
+            while checkNext(TokenType.COMMA, children) != null
+                children.add(type())
+            expect(TokenType.RPAREN, "')' to complete parameters", children)
         }
-        close(ParseNodeType.TYPES)
+        return new ParseNode(ParseNodeType.TYPES, children)
     }
 
     ============================================================================
@@ -1166,49 +1137,54 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method callExpression() {
-        open(ParseNodeType.CALL_EXPRESSION)
-        term()
+    method callExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(term())
         loop {
             var t := nextToken()
             switch t.type {
                 case TokenType.LPAREN: {
                     pushback(t)
-                    parameters()
+                    children.add(parameters())
                 }
                 case TokenType.LBRACKET: {
+                    children.add(new TokenNode(t))
                     if peek().type != TokenType.DOTDOT & 
                             peek().type != TokenType.ELLIPSIS
-                        expression()
-                    if checkNext(TokenType.DOTDOT) != null |
-                            checkNext(TokenType.ELLIPSIS) != null {
-                        var p := peek().type
+                        children.add(expression())
+                    if checkNext(TokenType.DOTDOT, children) != null |
+                            checkNext(TokenType.ELLIPSIS, children) != null {
+                        def p := peek().type
                         if p != TokenType.RBRACKET & p != TokenType.BY
-                            expression()
-                        if checkNext(TokenType.BY) != null
-                            expression()
+                            children.add(expression())
+                        if checkNext(TokenType.BY, children) != null
+                            children.add(expression())
                     }
-                    expect(TokenType.RBRACKET, "']'")
+                    expect(TokenType.RBRACKET, "']'", children)
                 }
                 case TokenType.DOT: {
+                    children.add(new TokenNode(t))
                     t := nextToken()
                     if t.type != TokenType.IDENTIFIER & 
                             t.type != TokenType.CLASS &
                             t.type != TokenType.CONSTRUCTOR
                         error("expected identifier, but found " + t.text, t)
+                    children.add(new TokenNode(t))
                 }
                 case TokenType.MEMBER: {
-                    methodName()
+                    children.add(new TokenNode(t))
+                    children.add(methodName())
                     if peek().type = TokenType.LPAREN
-                        types()
+                        children.add(types())
                 }
                 case TokenType.INSTANCEOF,
                         TokenType.NINSTANCEOF,
                         TokenType.CAST,
                         TokenType.CONVERT: {
-                    expect(TokenType.LPAREN, "'(' after '" + t + "'")
-                    type()
-                    expect(TokenType.RPAREN, "')' after type name")
+                    children.add(new TokenNode(t))
+                    expect(TokenType.LPAREN, "'(' after '" + t + "'", children)
+                    children.add(type())
+                    expect(TokenType.RPAREN, "')' after type name", children)
                 }
                 default: {
                     pushback(t)
@@ -1216,7 +1192,7 @@ class PandaParser {
                 }
             }
         }
-        close(ParseNodeType.CALL_EXPRESSION)
+        return new ParseNode(ParseNodeType.CALL_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1224,13 +1200,13 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method exponentExpression() {
-        open(ParseNodeType.EXPONENT_EXPRESSION)
-        callExpression()
+    method exponentExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(callExpression())
 
-        while checkNext(TokenType.POW) != null
-            callExpression()
-        close(ParseNodeType.EXPONENT_EXPRESSION)
+        while checkNext(TokenType.POW, children) != null
+            children.add(callExpression())
+        return new ParseNode(ParseNodeType.EXPONENT_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1238,13 +1214,14 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method unaryOperator() {
-        open(ParseNodeType.UNARY_OPERATOR)
-        var t := nextToken()
+    method unaryOperator():ParseNode {
+        def children := new Array<ParseNode>()
+        def t := nextToken()
         if t.type != TokenType.SUB & t.type != TokenType.NOT & 
                 t.type != TokenType.BITWISENOT
             error("expected '-', '!', or '!!", t)
-        close(ParseNodeType.UNARY_OPERATOR)
+        children.add(new TokenNode(t))
+        return new ParseNode(ParseNodeType.UNARY_OPERATOR, children)
     }
 
     ============================================================================
@@ -1252,16 +1229,15 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method unaryExpression() {
-        open(ParseNodeType.UNARY_EXPRESSION)
-        var t := peek()
+    method unaryExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        def t := peek()
         switch t.type {
-            case TokenType.SUB, TokenType.NOT, TokenType.BITWISENOT: {
-                unaryOperator()
-            }
+            case TokenType.SUB, TokenType.NOT, TokenType.BITWISENOT:
+                children.add(unaryOperator())
         }
-        exponentExpression()
-        close(ParseNodeType.UNARY_EXPRESSION)
+        children.add(exponentExpression())
+        return new ParseNode(ParseNodeType.UNARY_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1271,10 +1247,10 @@ class PandaParser {
     @private
     @self
     method nextIsGT(t:Token):Bit {
-        var next := peek()
+        def next := peek()
         if next.type = TokenType.GT {
-            var p1 := t.position
-            var p2 := next.position
+            def p1 := t.position
+            def p2 := next.position
             return p1.line = p2.line & p1.column + 1 = p2.column
         }
         return false
@@ -1286,38 +1262,37 @@ class PandaParser {
             SHIFTLEFT | SHIFTRIGHT | BITWISEAND | BITWISEXOR) unaryExpression)*
     Note that SHIFTRIGHT is handled specially.
     Sequences of GTs can happen as part of generic parameters (e.g.
-    PrimitiveArray<PrimitiveArray<String>>) and it is easier to combine separate GTs than it is to
+    Array<Array<String>>) and it is easier to combine separate GTs than it is to
     split apart SHIFTRIGHT. So here we lookahead after encountering a GT and 
     synthesize the shift right token if we encounter an additional GT.
     ============================================================================
     @protected
     @self
-    method multiplicativeExpression() {
-        open(ParseNodeType.MULTIPLICATIVE_EXPRESSION)
-        unaryExpression()
+    method multiplicativeExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(unaryExpression())
     
         loop {
-            var t := nextToken()
+            def t := nextToken()
             switch t.type {
                 case TokenType.MUL, 
-                     TokenType.DIV,
-                     TokenType.INTDIV, 
-                     TokenType.REM,
-                     TokenType.SHIFTLEFT,
-                     TokenType.BITWISEAND,
-                     TokenType.BITWISEXOR: unaryExpression()
+                        TokenType.DIV,
+                        TokenType.INTDIV, 
+                        TokenType.REM,
+                        TokenType.SHIFTLEFT,
+                        TokenType.BITWISEAND,
+                        TokenType.BITWISEXOR: {
+                    children.add(new TokenNode(t))
+                    children.add(unaryExpression())
+                }
                 case TokenType.GT: {
                     if nextIsGT(t) {
                         -- ">>"
-                        var second := expect(TokenType.GT, "'>'")
-                        var cn := currentNode
-                        assert cn != null
-                        cn.children.length -= 1
-                        cn.children[cn.length - 1] := 
-                                new TokenNode(new Token(
-                                    TokenType.SHIFTRIGHT,
-                                    ">>", t.position))
-                        unaryExpression()
+                        nextToken() -- consume '>'
+                        children.add(new TokenNode(new Token(
+                                TokenType.SHIFTRIGHT,
+                                ">>", t.position)))
+                        children.add(unaryExpression())
                     }
                     else {
                         -- just a plain ">", don't handle it here
@@ -1331,7 +1306,7 @@ class PandaParser {
                 }
             }
         }
-        close(ParseNodeType.MULTIPLICATIVE_EXPRESSION)
+        return new ParseNode(ParseNodeType.MULTIPLICATIVE_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1340,22 +1315,24 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method additiveExpression() {
-        open(ParseNodeType.ADDITIVE_EXPRESSION)
-        multiplicativeExpression()
+    method additiveExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(multiplicativeExpression())
     
         loop {
-            var t := nextToken()
+            def t := nextToken()
             switch t.type {
-                case TokenType.ADD, TokenType.SUB, TokenType.BITWISEOR:
-                    multiplicativeExpression()
+                case TokenType.ADD, TokenType.SUB, TokenType.BITWISEOR: {
+                    children.add(new TokenNode(t))
+                    children.add(multiplicativeExpression())
+                }
                 default: {
                     pushback(t)
                     break
                 }
             }
         }
-        close(ParseNodeType.ADDITIVE_EXPRESSION)
+        return new ParseNode(ParseNodeType.ADDITIVE_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1365,20 +1342,20 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method rangeExpression() {
-        open(ParseNodeType.RANGE_EXPRESSION)
-        additiveExpression()
-        if checkNext(TokenType.DOTDOT) != null | 
-                checkNext(TokenType.ELLIPSIS) != null {
+    method rangeExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(additiveExpression())
+        if checkNext(TokenType.DOTDOT, children) != null | 
+                checkNext(TokenType.ELLIPSIS, children) != null {
             def p := peek().type
             if p = TokenType.NUMBER | p = TokenType.IDENTIFIER | 
                     p = TokenType.SUB | p = TokenType.BITWISENOT |
                     p = TokenType.STRING | p = TokenType.LPAREN
-                additiveExpression()
-            if checkNext(TokenType.BY) != null
-                additiveExpression()
+                children.add(additiveExpression())
+            if checkNext(TokenType.BY, children) != null
+                children.add(additiveExpression())
         }
-        close(ParseNodeType.RANGE_EXPRESSION)
+        return new ParseNode(ParseNodeType.RANGE_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1387,29 +1364,32 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method comparisonExpression() {
-        open(ParseNodeType.COMPARISON_EXPRESSION)
-        rangeExpression()
+    method comparisonExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(rangeExpression())
 
         loop {
-            var t := nextToken()
+            def t := nextToken()
             switch t.type {
                 case TokenType.EQ, 
-                     TokenType.IDENTITY,
-                     TokenType.NEQ,
-                     TokenType.NIDENTITY,
-                     TokenType.LT,
-                     TokenType.GT,
-                     TokenType.LTEQ,
-                     TokenType.GTEQ,
-                     TokenType.IN: rangeExpression()
+                        TokenType.IDENTITY,
+                        TokenType.NEQ,
+                        TokenType.NIDENTITY,
+                        TokenType.LT,
+                        TokenType.GT,
+                        TokenType.LTEQ,
+                        TokenType.GTEQ,
+                        TokenType.IN: {
+                    children.add(new TokenNode(t))
+                    children.add(rangeExpression())
+                }
                 default: {
                     pushback(t)
                     break
                 }
             }
         }
-        close(ParseNodeType.COMPARISON_EXPRESSION)
+        return new ParseNode(ParseNodeType.COMPARISON_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1417,22 +1397,24 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method andExpression() {
-        open(ParseNodeType.AND_EXPRESSION)
-        comparisonExpression()
+    method andExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(comparisonExpression())
 
         loop {
-            var t := nextToken()
+            def t := nextToken()
             switch t.type {
-                case TokenType.AND, TokenType.XOR:
-                    comparisonExpression()
+                case TokenType.AND, TokenType.XOR: {
+                    children.add(new TokenNode(t))
+                    children.add(comparisonExpression())
+                }
                 default: {
                     pushback(t)
                     break
                 }
             }
         }
-        close(ParseNodeType.AND_EXPRESSION)
+        return new ParseNode(ParseNodeType.AND_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1440,13 +1422,13 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method orExpression() {
-        open(ParseNodeType.OR_EXPRESSION)
-        andExpression()
+    method orExpression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(andExpression())
 
-        while checkNext(TokenType.OR) != null
-            andExpression()
-        close(ParseNodeType.OR_EXPRESSION)
+        while checkNext(TokenType.OR, children) != null
+            children.add(andExpression())
+        return new ParseNode(ParseNodeType.OR_EXPRESSION, children)
     }
 
     ============================================================================
@@ -1454,62 +1436,73 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method expression() {
-        open(ParseNodeType.EXPRESSION)
-        orExpression()
-        close(ParseNodeType.EXPRESSION)
+    method expression():ParseNode {
+        def children := new Array<ParseNode>()
+        children.add(orExpression())
+        return new ParseNode(ParseNodeType.EXPRESSION, children)
     }
 
     ============================================================================
-    simpleStatement = assertStatement | varDeclaration | constantDeclaration | 
+    simpleStatement = assertStatement | varDeclaration | 
             anyLoop | callOrAssignment | ifStatement | switchStatement |
             tryStatement
     ============================================================================
     @protected
     @self
-    method simpleStatement() {
-        open(ParseNodeType.SIMPLE_STATEMENT)
+    method simpleStatement():ParseNode {
+        def children := new Array<ParseNode>()
         var t := peek()
         switch t.type {
-            case TokenType.ASSERT: assertStatement()
-            case TokenType.VAR, TokenType.DEF: varDeclaration()
-            case TokenType.CONSTANT: constantDeclaration()
+            case TokenType.ASSERT: 
+                children.add(assertStatement())
+            case TokenType.VAR, TokenType.DEF, TokenType.CONSTANT: 
+                children.add(varDeclaration())
             case TokenType.IDENTIFIER: {
-                nextToken()
+                t := nextToken()
                 if peek().type = TokenType.COLON {
                     pushback(t)
-                    anyLoop()
+                    children.add(anyLoop())
                 }
                 else {
                     pushback(t)
-                    callOrAssignment()
+                    children.add(callOrAssignment())
                 }
             }
             case TokenType.SELF,
                     TokenType.NEW,
                     TokenType.LBRACKET:
-                callOrAssignment()
+                children.add(callOrAssignment())
             case TokenType.SUPER,
-                 TokenType.CONSTRUCTOR: callOrAssignment()
+                    TokenType.CONSTRUCTOR: 
+                children.add(callOrAssignment())
             case TokenType.WHILE,
-                 TokenType.FOR,
-                 TokenType.DO,
-                 TokenType.LOOP: anyLoop()
-            case TokenType.IF: ifStatement()
-            case TokenType.SWITCH: switchStatement()
-            case TokenType.TRY: tryStatement()
+                    TokenType.FOR,
+                    TokenType.DO,
+                    TokenType.LOOP: 
+                children.add(anyLoop())
+            case TokenType.IF: 
+                children.add(ifStatement())
+            case TokenType.SWITCH: 
+                children.add(switchStatement())
+            case TokenType.TRY: 
+                children.add(tryStatement())
             default: {
+                -- consume the token so we don't keep re-erroring on it
                 nextToken()
                 switch t.type {
                     case TokenType.RETURN, TokenType.BREAK, TokenType.CONTINUE,
-                            TokenType.THROW, TokenType.UNREACHABLE: error("'" + 
-                            t + "' must be the final statement of a block", t)
-                    default: error("syntax error, expected statement but " +
-                            "found '" + t + "'", t)
+                            TokenType.THROW, TokenType.UNREACHABLE: {
+                        error("'\{t}' must be the final statement of a block", 
+                                t)
+                    }
+                    default: {
+                        error("syntax error, expected statement but found " +
+                                "'\{t}'", t)
+                    }
                 }
             }
         }
-        close(ParseNodeType.SIMPLE_STATEMENT)
+        return new ParseNode(ParseNodeType.SIMPLE_STATEMENT, children)
     }
 
     ============================================================================
@@ -1517,28 +1510,27 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method block() {
-        open(ParseNodeType.BLOCK)
-        var block := currentNode
-        expect(TokenType.LBRACE, "'{'")
+    method block():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LBRACE, "'{'", children)
         loop {
-            var t := peek()
+            def t := peek()
             switch t.type {
                 case TokenType.RETURN, TokenType.BREAK, TokenType.CONTINUE,
                         TokenType.THROW, TokenType.UNREACHABLE: {
-                    terminalStatement()
-                    expect(TokenType.RBRACE, "'}' to complete block")
+                    children.add(terminalStatement())
+                    expect(TokenType.RBRACE, "'}' to complete block", children)
                     break
                 }
                 case TokenType.RBRACE: {
-                    expect(TokenType.RBRACE, "'}' to complete block")
+                    expect(TokenType.RBRACE, "'}' to complete block", children)
                     break
                 }
                 default:
-                    statement()
+                    children.add(statement())
             }
         }
-        close(ParseNodeType.BLOCK)
+        return new ParseNode(ParseNodeType.BLOCK, children)
     }
 
     ============================================================================
@@ -1546,13 +1538,13 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method statement() {
-        open(ParseNodeType.STATEMENT)
+    method statement():ParseNode {
+        def children := new Array<ParseNode>()
         if peek().type = TokenType.LBRACE
-            block()
+            children.add(block())
         else
-            simpleStatement()
-        close(ParseNodeType.STATEMENT)
+            children.add(simpleStatement())
+        return new ParseNode(ParseNodeType.STATEMENT, children)
     }
 
     ============================================================================
@@ -1560,19 +1552,22 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method statementOrBlock() {
-        open(ParseNodeType.STATEMENT_OR_BLOCK)
-        var t := peek()
+    method statementOrBlock():ParseNode {
+        def children := new Array<ParseNode>()
+        def t := peek()
         switch t.type {
             case TokenType.RETURN,
-                 TokenType.BREAK,
-                 TokenType.CONTINUE,
-                 TokenType.THROW,
-                 TokenType.UNREACHABLE: terminalStatement()
-            case TokenType.LBRACE: block()
-            default: simpleStatement()
+                    TokenType.BREAK,
+                    TokenType.CONTINUE,
+                    TokenType.THROW,
+                    TokenType.UNREACHABLE: 
+                children.add(terminalStatement())
+            case TokenType.LBRACE: 
+                children.add(block())
+            default: 
+                children.add(simpleStatement())
         }
-        close(ParseNodeType.STATEMENT_OR_BLOCK)
+        return new ParseNode(ParseNodeType.STATEMENT_OR_BLOCK, children)
     }
 
     ============================================================================
@@ -1580,15 +1575,15 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method assertStatement() {
-        open(ParseNodeType.ASSERT_STATEMENT)
-        expect(TokenType.ASSERT, "'assert'")
+    method assertStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.ASSERT, "'assert'", children)
         suppressLambdas := true
-        expression()
+        children.add(expression())
         suppressLambdas := false
-        if checkNext(TokenType.COLON) != null
-            expression()
-        close(ParseNodeType.ASSERT_STATEMENT)
+        if checkNext(TokenType.COLON, children) != null
+            children.add(expression())
+        return new ParseNode(ParseNodeType.ASSERT_STATEMENT, children)
     }
 
     ============================================================================
@@ -1597,12 +1592,12 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method returnStatement() {
-        open(ParseNodeType.RETURN_STATEMENT)
-        expect(TokenType.RETURN, "'return'")
+    method returnStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.RETURN, "'return'", children)
         if expectReturnValue
-            expression()
-        close(ParseNodeType.RETURN_STATEMENT)
+            children.add(expression())
+        return new ParseNode(ParseNodeType.RETURN_STATEMENT, children)
     }
 
     ============================================================================
@@ -1611,20 +1606,15 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method breakStatement() {
-        open(ParseNodeType.BREAK_STATEMENT)
-        expect(TokenType.BREAK, "'break'")
-        var t := peek()
+    method breakStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.BREAK, "'break'", children)
+        def t := peek()
         if t.type = TokenType.IDENTIFIER {
-            var id := t.text
-            for i in 0 ... loopLabels.length - 1 {
-                if loopLabels[i] = id {
-                    nextToken()
-                    break
-                }
-            }
+            if loopLabels.contains(t.text)
+                children.add(new TokenNode(nextToken()))
         }
-        close(ParseNodeType.BREAK_STATEMENT)
+        return new ParseNode(ParseNodeType.BREAK_STATEMENT, children)
     }
 
     ============================================================================
@@ -1633,20 +1623,15 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method continueStatement() {
-        open(ParseNodeType.CONTINUE_STATEMENT)
-        expect(TokenType.CONTINUE, "'continue'")
-        var t := peek()
+    method continueStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.CONTINUE, "'continue'", children)
+        def t := peek()
         if t.type = TokenType.IDENTIFIER {
-            var id := t.text
-            for i in 0 ... loopLabels.length - 1 {
-                if loopLabels[i] = id {
-                    nextToken()
-                    break
-                }
-            }
+            if loopLabels.contains(t.text)
+                children.add(new TokenNode(nextToken()))
         }
-        close(ParseNodeType.CONTINUE_STATEMENT)
+        return new ParseNode(ParseNodeType.CONTINUE_STATEMENT, children)
     }
 
     ============================================================================
@@ -1655,17 +1640,21 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method terminalStatement() {
-        open(ParseNodeType.TERMINAL_STATEMENT)
+    method terminalStatement():ParseNode {
+        def children := new Array<ParseNode>()
         switch peek().type {
-            case TokenType.RETURN:   returnStatement()
-            case TokenType.BREAK:    breakStatement()
-            case TokenType.CONTINUE: continueStatement()
-            case TokenType.THROW:    throwStatement()
-            case TokenType.UNREACHABLE: expect(TokenType.UNREACHABLE, 
-                    "'unreachable'")
+            case TokenType.RETURN:
+                children.add(returnStatement())
+            case TokenType.BREAK:
+                children.add(breakStatement())
+            case TokenType.CONTINUE: 
+                children.add(continueStatement())
+            case TokenType.THROW:
+                children.add(throwStatement())
+            case TokenType.UNREACHABLE: 
+                expect(TokenType.UNREACHABLE, "'unreachable'", children)
         }
-        close(ParseNodeType.TERMINAL_STATEMENT)
+        return new ParseNode(ParseNodeType.TERMINAL_STATEMENT, children)
     }
 
     ============================================================================
@@ -1674,32 +1663,36 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method forTuple() {
-        open(ParseNodeType.FOR_TUPLE)
-        expect(TokenType.LPAREN, "'('")
-        if checkNext(TokenType.UNDERSCORE) = null {
+    method forTuple():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.LPAREN, "'('", children)
+        if checkNext(TokenType.UNDERSCORE, children) = null {
             expect(TokenType.IDENTIFIER, "variable name (an identifier) after " + 
-                "'(' in for-loop")
+                "'(' in for-loop", children)
         }
         if peek().type = TokenType.COLON
-            typeDeclaration()
-        expect(TokenType.COMMA, "',' to introduce a second variable in for-loop")
-        if checkNext(TokenType.UNDERSCORE) = null {
-            expect(TokenType.IDENTIFIER, "variable name (an identifier) after " + 
-                    "',' in for-loop")
+            children.add(typeDeclaration())
+        expect(TokenType.COMMA, 
+                "',' to introduce a second variable in for-loop", 
+                children)
+        if checkNext(TokenType.UNDERSCORE, children) = null {
+            expect(TokenType.IDENTIFIER, 
+                    "variable name (an identifier, children) after ',' in " +
+                    "for-loop", children)
         }
         if peek().type = TokenType.COLON
-            typeDeclaration()
-        while checkNext(TokenType.COMMA) != null {
-            if checkNext(TokenType.UNDERSCORE) = null {
+            children.add(typeDeclaration())
+        while checkNext(TokenType.COMMA, children) != null {
+            if checkNext(TokenType.UNDERSCORE, children) = null {
                 expect(TokenType.IDENTIFIER, "variable name (an identifier) " +
-                        "after ',' in for-loop")
+                        "after ',' in for-loop", children)
             }
             if peek().type = TokenType.COLON
-                typeDeclaration()
+                children.add(typeDeclaration())
         }
-        expect(TokenType.RPAREN, "')' after list of variables in for-loop")
-        close(ParseNodeType.FOR_TUPLE)
+        expect(TokenType.RPAREN, "')' after list of variables in for-loop", 
+                children)
+        return new ParseNode(ParseNodeType.FOR_TUPLE, children)
     }
 
     ============================================================================
@@ -1715,52 +1708,55 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method anyLoop() {
-        open(ParseNodeType.ANY_LOOP)
+    method anyLoop():ParseNode {
+        def children := new Array<ParseNode>()
         var t := nextToken()
+        children.add(new TokenNode(t))
         if t.type = TokenType.IDENTIFIER {
             -- label
-            loopLabels.append(t.text)
-            expect(TokenType.COLON, "':' after loop label")
+            loopLabels.add(t.text)
+            expect(TokenType.COLON, "':' after loop label", children)
             t := nextToken()
+            children.add(new TokenNode(t))
         }
         switch t.type {
             case TokenType.DO: {
-                statementOrBlock()
-                expect(TokenType.WHILE, "'while'")
-                expression()
+                children.add(statementOrBlock())
+                expect(TokenType.WHILE, "'while'", children)
+                children.add(expression())
             }
             case TokenType.LOOP:
-                statementOrBlock()
+                children.add(statementOrBlock())
             case TokenType.WHILE: {
-                expression()
-                statementOrBlock()
+                children.add(expression())
+                children.add(statementOrBlock())
             }
             case TokenType.FOR: {
                 if peek().type = TokenType.LPAREN
-                    forTuple()
+                    children.add(forTuple())
                 else {
                     expect(TokenType.IDENTIFIER, 
-                            "for-loop variable name (an identifier)")
+                            "for-loop variable name (an identifier)", children)
                     if peek().type = TokenType.COLON
-                        typeDeclaration()
-                    if checkNext(TokenType.COMMA) != null {
+                        children.add(typeDeclaration())
+                    if checkNext(TokenType.COMMA, children) != null {
                         if peek().type = TokenType.LPAREN
-                            forTuple()
+                            children.add(forTuple())
                         else {
                             expect(TokenType.IDENTIFIER, 
-                                    "for-loop variable name (an identifier)")
+                                    "for-loop variable name (an identifier)",
+                                    children)
                             if peek().type = TokenType.COLON
-                                typeDeclaration()
+                                children.add(typeDeclaration())
                         }
                     }
                 }
-                expect(TokenType.IN, "'in' in for-loop")
-                expression()
-                statementOrBlock()
+                expect(TokenType.IN, "'in' in for-loop", children)
+                children.add(expression())
+                children.add(statementOrBlock())
             }
         }
-        close(ParseNodeType.ANY_LOOP)
+        return new ParseNode(ParseNodeType.ANY_LOOP, children)
     }
 
     ============================================================================
@@ -1768,14 +1764,14 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method ifStatement() {
-        open(ParseNodeType.IF)
-        expect(TokenType.IF, "'if'")
-        expression()
-        statementOrBlock()
-        if checkNext(TokenType.ELSE) != null
-            statementOrBlock()
-        close(ParseNodeType.IF)
+    method ifStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.IF, "'if'", children)
+        children.add(expression())
+        children.add(statementOrBlock())
+        if checkNext(TokenType.ELSE, children) != null
+            children.add(statementOrBlock())
+        return new ParseNode(ParseNodeType.IF, children)
     }
 
     ============================================================================
@@ -1783,17 +1779,17 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method switchCase() {
-        open(ParseNodeType.SWITCH_CASE)
-        expect(TokenType.CASE, "'case'")
+    method switchCase():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.CASE, "'case'", children)
         suppressLambdas := true
-        expression()
-        while checkNext(TokenType.COMMA) != null
-            expression()
+        children.add(expression())
+        while checkNext(TokenType.COMMA, children) != null
+            children.add(expression())
         suppressLambdas := false
-        expect(TokenType.COLON, "':' after case value")
-        statementOrBlock()
-        close(ParseNodeType.SWITCH_CASE)
+        expect(TokenType.COLON, "':' after case value", children)
+        children.add(statementOrBlock())
+        return new ParseNode(ParseNodeType.SWITCH_CASE, children)
     }
 
     ============================================================================
@@ -1801,12 +1797,12 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method switchDefault() {
-        open(ParseNodeType.SWITCH_DEFAULT)
-        expect(TokenType.DEFAULT, "'default'")
-        expect(TokenType.COLON, "':' after 'default'")
-        statementOrBlock()
-        close(ParseNodeType.SWITCH_DEFAULT)
+    method switchDefault():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.DEFAULT, "'default'", children)
+        expect(TokenType.COLON, "':' after 'default'", children)
+        children.add(statementOrBlock())
+        return new ParseNode(ParseNodeType.SWITCH_DEFAULT, children)
     }
     
     ============================================================================
@@ -1814,17 +1810,17 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method switchStatement() {
-        open(ParseNodeType.SWITCH_STATEMENT)
-        expect(TokenType.SWITCH, "'switch'")
-        expression()
-        expect(TokenType.LBRACE, "'{' to begin switch body")
+    method switchStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.SWITCH, "'switch'", children)
+        children.add(expression())
+        expect(TokenType.LBRACE, "'{' to begin switch body", children)
         while peek().type = TokenType.CASE
-            switchCase()
+            children.add(switchCase())
         if peek().type = TokenType.DEFAULT
-            switchDefault()
-        expect(TokenType.RBRACE, "'}' to complete switch body")
-        close(ParseNodeType.SWITCH_STATEMENT)
+            children.add(switchDefault())
+        expect(TokenType.RBRACE, "'}' to complete switch body", children)
+        return new ParseNode(ParseNodeType.SWITCH_STATEMENT, children)
     }
     
     ============================================================================
@@ -1832,14 +1828,14 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method catchBlock() {
-        open(ParseNodeType.CATCH_BLOCK)
-        expect(TokenType.CATCH, "'catch'")
+    method catchBlock():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.CATCH, "'catch'", children)
         expect(TokenType.IDENTIFIER, 
-                "error variable name for catch (an identifier)")
-        typeDeclaration()
-        block()
-        close(ParseNodeType.CATCH_BLOCK)
+                "error variable name for catch (an identifier)", children)
+        children.add(typeDeclaration())
+        children.add(block())
+        return new ParseNode(ParseNodeType.CATCH_BLOCK, children)
     }
     
     ============================================================================
@@ -1847,11 +1843,11 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method finallyBlock() {
-        open(ParseNodeType.FINALLY_BLOCK)
-        expect(TokenType.FINALLY, "'finally'")
-        block()
-        close(ParseNodeType.FINALLY_BLOCK)
+    method finallyBlock():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.FINALLY, "'finally'", children)
+        children.add(block())
+        return new ParseNode(ParseNodeType.FINALLY_BLOCK, children)
     }
 
     ============================================================================
@@ -1859,18 +1855,18 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method tryStatement() {
-        open(ParseNodeType.TRY_STATEMENT)
-        var tryToken := expect(TokenType.TRY, "'try'")
-        block()
-        var t := peek().type
+    method tryStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        def tryToken := expect(TokenType.TRY, "'try'", children)
+        children.add(block())
+        def t := peek().type
         if t != TokenType.CATCH & t != TokenType.FINALLY
             error("try without catch or finally", tryToken)
         while peek().type = TokenType.CATCH
-            catchBlock()
+            children.add(catchBlock())
         if peek().type = TokenType.FINALLY
-            finallyBlock()
-        close(ParseNodeType.TRY_STATEMENT)
+            children.add(finallyBlock())
+        return new ParseNode(ParseNodeType.TRY_STATEMENT, children)
     }
 
     ============================================================================
@@ -1878,11 +1874,11 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method throwStatement() {
-        open(ParseNodeType.THROW_STATEMENT)
-        expect(TokenType.THROW, "'throw'")
-        expression()
-        close(ParseNodeType.THROW_STATEMENT)
+    method throwStatement():ParseNode {
+        def children := new Array<ParseNode>()
+        expect(TokenType.THROW, "'throw'", children)
+        children.add(expression())
+        return new ParseNode(ParseNodeType.THROW_STATEMENT, children)
     }
 
     ============================================================================
@@ -1915,12 +1911,13 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method assignmentOperator() {
-        open(ParseNodeType.ASSIGNMENT_OPERATOR)
-        var t := nextToken()
+    method assignmentOperator():ParseNode {
+        def children := new Array<ParseNode>()
+        def t := nextToken()
         if !isAssignmentOperator(t.type)
             error("expected assignment operator, found '" + t.text + "'", t)
-        close(ParseNodeType.ASSIGNMENT_OPERATOR)
+        children.add(new TokenNode(t))
+        return new ParseNode(ParseNodeType.ASSIGNMENT_OPERATOR, children)
     }
 
     ============================================================================
@@ -1935,8 +1932,8 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method lvalue() {
-        if checkNext(TokenType.UNDERSCORE) != null
+    method lvalue(children:Array<ParseNode>) {
+        if checkNext(TokenType.UNDERSCORE, children) != null
             return
         var t := nextToken()
         if t.type = TokenType.IDENTIFIER | t.type = TokenType.SELF |
@@ -1944,42 +1941,47 @@ class PandaParser {
                  t.type = TokenType.NEW {
             if t.type = TokenType.NEW {
                 pushback(t)
-                construct()
+                children.add(construct())
             }
+            children.add(new TokenNode(t))
             loop {
                 t := nextToken()
                 switch t.type {
                     case TokenType.DOT: {
-                        var next := nextToken()
+                        children.add(new TokenNode(t))
+                        def next := nextToken()
                         if next.type != TokenType.IDENTIFIER &
                                 next.type != TokenType.CONSTRUCTOR {
-                            error("expected identifier, but found '" + next + 
-                                    "'", next)
+                            error("expected identifier, but found '\{next}'",
+                                    next)
                         }
+                        children.add(new TokenNode(t))
                     }
                     case TokenType.LPAREN: {
                         pushback(t)
-                        parameters()
+                        children.add(parameters())
                     }
                     case TokenType.LBRACKET: {
+                        children.add(new TokenNode(t))
                         def range := peek().type
                         if range != TokenType.DOTDOT & 
                                 range != TokenType.ELLIPSIS
-                            expression()
-                        if checkNext(TokenType.DOTDOT) != null |
-                                checkNext(TokenType.ELLIPSIS) != null {
-                            var p := peek().type
+                            children.add(expression())
+                        if checkNext(TokenType.DOTDOT, children) != null |
+                                checkNext(TokenType.ELLIPSIS, children) != null {
+                            def p := peek().type
                             if p != TokenType.RBRACKET & p != TokenType.BY
-                                expression()
-                            if checkNext(TokenType.BY) != null
-                                expression()
+                                children.add(expression())
+                            if checkNext(TokenType.BY, children) != null
+                                children.add(expression())
                         }
-                        expect(TokenType.RBRACKET, "']'")
+                        expect(TokenType.RBRACKET, "']'", children)
                     }
                     case TokenType.CAST, TokenType.CONVERT: {
-                        expect(TokenType.LPAREN, "'(' after '" + t + "'")
-                        type()
-                        expect(TokenType.RPAREN, "')' after type name")
+                        children.add(new TokenNode(t))
+                        expect(TokenType.LPAREN, "'(' after '\{t}'", children)
+                        children.add(type())
+                        expect(TokenType.RPAREN, "')' after type name", children)
                     }
                     default: {
                         pushback(t)
@@ -1989,7 +1991,7 @@ class PandaParser {
             }
         }
         else 
-            error("expected identifier, but found '" + t + "'", t)
+            error("expected identifier, but found '\{t}'", t)
     }
 
     ============================================================================
@@ -1998,21 +2000,21 @@ class PandaParser {
     ============================================================================
     @protected
     @self
-    method callOrAssignment() {
-        open(ParseNodeType.CALL_OR_ASSIGNMENT)
+    method callOrAssignment():ParseNode {
+        def children := new Array<ParseNode>()
         if peek().type = TokenType.LBRACKET {
-            callExpression()
+            children.add(callExpression())
         }
         else {
-            lvalue()
-            while checkNext(TokenType.COMMA) != null
-                lvalue()
+            lvalue(children)
+            while checkNext(TokenType.COMMA, children) != null
+                lvalue(children)
             if isAssignmentOperator(peek().type) {
-                assignmentOperator()
-                expression()
+                children.add(assignmentOperator())
+                children.add(expression())
             }
         }
-        close(ParseNodeType.CALL_OR_ASSIGNMENT)
+        return new ParseNode(ParseNodeType.CALL_OR_ASSIGNMENT, children)
     }
     
     @protected
@@ -2025,8 +2027,8 @@ class PandaParser {
             Console.write(n.type)
         Console.writeLine()
         indent += 2
-        for i in 0 ... n.length - 1
-            writeTree(n[i])
+        for child in n
+            writeTree(child)
         indent -= 2
     }
     
@@ -2038,30 +2040,25 @@ class PandaParser {
             Console.write(n->(TokenNode).token.text)
             Console.write(" ")
         }
-        for i in 0 ... n.length - 1
-            dumpText(n[i])
+        for child in n
+            dumpText(child)
     }
 
     @private
     method checkEnd(parsing:String) {
-        var next := nextToken()
+        def next := nextToken()
         if next.type != TokenType.EOF {
             throw new CompilerException("unexpected token after end of " +
-                    parsing + ": '" + next.text + "'", next.position)
+                    parsing + ": '\{next.text}'", next.position)
         }
     }
 
     @self
     method parseCompilationUnit(name:String, inStream:InputStream):ParseNode {
         lexer := new PandaLexer(inStream, new Position(name, 1, 1))
-        root := new ParseNode(ParseNodeType.ROOT)
-        currentNode := root
-        compilationUnit()
-        var root := self.root
-        assert root != null
-        assert root.length = 1
+        def result := compilationUnit()
         checkEnd("compilation unit")
-        return root[0]
+        return result
     }
 
     @self
@@ -2071,69 +2068,42 @@ class PandaParser {
     
     @self
     method parseType(s:String, start:Position):ParseNode {
-        if s.endsWith("??")
-            throw new Exception("double question: \{s}")
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        type()
-        assert root.length = 1
+        def result := type()
         checkEnd("type")
-        return root[0]
+        return result
     }
 
     @self
     method parseStatement(s:String, start:Position):ParseNode {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        statement()
-        assert root.length = 1
+        def result := statement()
         checkEnd("statement")
-        return root[0]
+        return result
     }
 
     @self
     method parseMethod(s:String, start:Position):ParseNode {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        methodDeclaration()
-        assert root.length = 1
+        def result := methodDeclaration()
         checkEnd("method")
-        return root[0]
+        return result
     }
 
     @self
     method parseMethodValue(s:String, start:Position):ParseNode {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        methodValue()
-        assert root.length = 1
+        def result := methodValue()
         checkEnd("method")
-        return root[0]
+        return result
     }
 
     @self
     method parseExpressionWithExtraText(s:String, start:Position):(ParseNode, String) {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
         suppressLambdas := true
-        expression()
+        def result := expression()
         suppressLambdas := false
-        assert root.length = 1
         def remaining := new MutableString()
         while pushbackBuffer.length > 0 {
             def next := nextToken()
@@ -2141,58 +2111,38 @@ class PandaParser {
                 remaining.append(next)
         }
         remaining.append(lexer.lex.source.readAsString())
-        return (root[0], remaining->>(String))
+        return (result, remaining->>(String))
     }
 
     @self
     method parseExpression(s:String, start:Position):ParseNode {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        expression()
-        assert root.length = 1
+        def result := expression()
         checkEnd("expression")
-        return root[0]
+        return result
     }
 
     @self
     method parseCallExpression(s:String, start:Position):ParseNode {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        callExpression()
-        assert root.length = 1
+        def result := callExpression()
         checkEnd("expression")
-        return root[0]
+        return result
     }
 
     @self
-    method parseParameterPrototypeList(s:String, start:Position):ParseNode {
+    method parseFormalParameterList(s:String, start:Position):ParseNode {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        parameterPrototypeList()
-        assert root.length = 1
+        def result := formalParameterList()
         checkEnd("parameters")
-        return root[0]
+        return result
     }
 
     @self
     method parseTypes(s:String, start:Position):ParseNode {
         lexer := new PandaLexer(s, start)
-        root := new ParseNode(ParseNodeType.ROOT)
-        var root := self.root
-        assert root != null
-        currentNode := root
-        types()
-        assert root.length = 1
+        def result := types()
         checkEnd("types")
-        return root[0]
+        return result
     }
 }

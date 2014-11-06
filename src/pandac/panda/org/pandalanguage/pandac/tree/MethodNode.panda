@@ -1,11 +1,6 @@
 package org.pandalanguage.pandac.tree
 
-uses org.pandalanguage.pandac.parser.ParseNode
-uses org.pandalanguage.pandac.types.GenericType
-uses org.pandalanguage.pandac.types.GenericParameterType
-uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.Type
-uses org.pandalanguage.pandac.types.VoidType
 
 enum MethodNodeType {
     METHOD,
@@ -13,288 +8,28 @@ enum MethodNodeType {
     CONSTRUCTOR
 }
 
-================================================================================
-Represents a (class or instance) method of a class.
-================================================================================
 class MethodNode : Node {
-    constant MAIN_NAME       := "main"
-
-    constant START_NAME      := "start"
-
-    constant CONVERT_NAME    := "->>"
-
-    constant FINALIZE_NAME   := "finalize"
-
     constant CLASS_INIT_NAME := "$classInit"
 
-    ============================================================================
-    The name of the method.
-    ============================================================================
-    var name:String
-    
-    ============================================================================
-    METHOD, FUNCTION, or CONSTRUCTOR.
-    ============================================================================
-    var methodType:MethodNodeType
-    
-    ============================================================================
-    The contents of the doccomment attached to the method, or `null` if none.
-    ============================================================================
-    var doccomment:String?
+    constant CONVERT_NAME := "->>"
 
-    ============================================================================
-    The annotations attached to this method.
-    ============================================================================
-    var annotations := new Annotations()
+    def name:String
 
-    ============================================================================
-    The method's parameters. This must include the implicit `self` parameter of 
-    instance methods or constructors. The types here are "actual" types, meaning
-    that generics are lowered to their bounds (for instance, `PrimitiveArray<T>` might
-    become `PrimitiveArray<Object>`). See `genericParameterTypes` for the actual generic 
-    types.
-    ============================================================================
-    var parameters := new PrimitiveArray<Parameter>()
+    def annotations:Annotations
 
-    ============================================================================
-    The method's local variables. This includes variables corresponding to 
-    parameters which have been "promoted" to local variables.
-    ============================================================================
-    var localVariables := new PrimitiveArray<Variable>()
-    
-    ============================================================================
-    The method's return type.
-    ============================================================================
-    var returnType:Type := VoidType.VOID
+    def parameters:ImmutableArray<Parameter>
 
-    ============================================================================
-    The method body's parse tree (needed for generic methods, may be `null`
-    otherwise).
-    ============================================================================
-    var parseNode:ParseNode?
+    def returnType:Type
 
-    ============================================================================
-    Creates a new `MethodNode`.
-    
-    @param position the position of the method
-    @param name the name of the method
-    @param methodType the method's type
-    ============================================================================
-    constructor(position:Position, name:String, methodType:MethodNodeType) {
-        super.constructor(position)
-        self.name := name
-        self.methodType := methodType
-    }
-    
-    constructor(name:String, methodType:MethodNodeType) {
-        self.name := name
-        self.methodType := methodType
+    function type():Type {
+        throw new NotSupportedException()
     }
 
-    constructor(name:String, methodType:MethodNodeType, 
-            parameters:PrimitiveArray<Parameter>) {
-        constructor(name, methodType)
-        for p in parameters
-            self.parameters.append(p)
-    }
-
-    constructor(position:Position, name:String, methodType:MethodNodeType, 
-            parameters:PrimitiveArray<Parameter>) {
-        super.constructor(position)
-        self.name := name
-        self.methodType := methodType
-        for p in parameters
-            self.parameters.append(p)
-    }
-
-    function owner():ClassNode {
-        return parent->(ClassNode)
-    }
-    
-    function block():Block {
-        assert self.length > 0 : "\{owner.name}::\{self} does not have a block"
-        return self[0]->(Block)
-    }
-    
-    ============================================================================
-    True if the method is declared virtual (in other words, it needs to appear 
-    in the class' VTABLE). This is false for class and final methods.
-    ============================================================================
     function isDeclaredVirtual():Bit {
-        var a := annotations
-        return !a.isClass & !a.isFinal & 
-                methodType != MethodNodeType.CONSTRUCTOR
-    }
-    
-    ============================================================================
-    True if the method is effectively virtual. Methods are effectively virtual
-    if we need to use VTABLE lookup to call them; methods declared in final
-    classes and virtual methods which are not ever actually overridden (during
-    sealed compilation) are effectively final rather than effectively virtual.
-    ============================================================================
-    function isEffectivelyVirtual():Bit {
-        return isDeclaredVirtual & !owner.annotations.isFinal()
+        throw new NotSupportedException()
     }
 
-    ============================================================================
-    Finds a method with the same signature in a different class.
-    
-    @param cl the class to search for a matching method
-    @returns a matching method, or `null` if none
-    ============================================================================
-    method findMatchingMethod(cl:ClassNode):MethodNode? {
-        outer: for child in cl.children {
-            if child-?>(MethodNode) {
-                var m := child->(MethodNode)
-                if name = m.name & !m.annotations.isClass {
-                    var p2 := m.parameters
-                    -- different return types are significant for ->>()
-                    if m.name = MethodNode.CONVERT_NAME & 
-                            returnType != m.returnType
-                        continue
-                    if parameters.length = p2.length {
-                        -- skip parameter 0, it is self and won't match
-                        for j in 1 .. parameters.length {
-                            if parameters[j].type != p2[j].type
-                                continue outer
-                        }
-                        return m
-                    }
-                }
-            }
-        }
-        return null
-    }
-
-    method type():MethodType {
-        var signature := "("->>(MutableString)
-        for i, p in parameters {
-            if i > 0
-                signature.append(", ")
-            signature.append(p.type.name)
-        }
-        signature.append(")")
-        if methodType = MethodNodeType.FUNCTION
-            signature.append("=>*")
-        else
-            signature.append("=&>*")
-        signature.append("(")
-        if returnType != VoidType.VOID
-            signature.append(returnType.name)
-        signature.append(")")
-        return owner.symbolTable.getType(position, signature->>(String))->(MethodType)
-    }
-
-    ============================================================================
-    Returns true if this method overrides `parent`.
-    ============================================================================
-    function isOverrideOf(parent:MethodNode):Bit {
-        if parent.name != name
-            return false
-        var isClass := parent.annotations.isClass
-        if isClass != annotations.isClass
-            return false
-        if parent.name = CONVERT_NAME & parent.returnType != returnType
-            return false
-        var parentParams := parent.parameters
-        if parentParams.length != parameters.length
-            return false
-        var start:Int
-        if isClass
-            start := 0
-        else {
-            -- skip 0; self will not match because we are looking at two
-            -- different classes
-            start := 1
-            assert parentParams[0].name = Parameter.SELF_NAME
-            assert parameters[0].name = Parameter.SELF_NAME
-        }
-        for i in start ... parentParams.length - 1 {
-            if parentParams[i].type != parameters[i].type
-                return false
-        }
-        return true
-    }
-
-    ============================================================================
-    Returns the method in `cl` or any of its ancestors which this method 
-    overrides, or `null` if none. Note that this method ignores the `@final`
-    annotation; improperly overridden final methods are caught in 
-    `ASTGenerator`.
-    ============================================================================
-    @private
-    method findOverriddenMethod(cl:ClassNode):MethodNode? {
-        var result:MethodNode? := null
-        if cl != owner
-            result := findMatchingMethod(cl)
-        if result = null {
-            var superclass := cl.superclass
-            if superclass != null
-                result := findOverriddenMethod(superclass)
-        }
-        if result = null {
-            for intf in cl.interfaces {
-                result := findOverriddenMethod(intf.classNode)
-                if result != null
-                    break
-            }
-        }
-        return result
-    }
-    
-    ============================================================================
-    Returns the method which this method overrides, or `null` if none.
-    ============================================================================
-    method findOverriddenMethod():MethodNode? {
-        return findOverriddenMethod(owner)
-    }
-
-
-    function unwrap():MethodNode {
-        return self
-    }
-
-    @override
-    method markLive() {
-        if !live {
-            super.markLive()
-            for p in parameters
-                p.type.markLive()
-            returnType.markLive()
-        }
-    }
-
-    @override
-    function format(fmt:String):String {
-        var result := new MutableString()
-        switch methodType {
-            case MethodNodeType.METHOD: result.append("method ")
-            case MethodNodeType.FUNCTION: result.append("function ")
-            case MethodNodeType.CONSTRUCTOR: result.append("constructor ")
-            default: unreachable
-        }
-        result.append(name)
-        result.append("(")
-        var start:Int
-        if annotations.isClass
-            start := 0
-        else
-            start := 1
-        for i in start ... parameters.length - 1 {
-            if i > start
-                result.append(", ")
-            result.append(parameters[i].name)
-            if parameters[i].isConvert
-                result.append("->>")
-            else
-                result.append(":")
-            result.append(parameters[i].type.name)
-        }
-        result.append(")")
-        if returnType != VoidType.VOID {
-            result.append(":")
-            result.append(returnType.name)
-        }
-        return result->>(String)
+    function isOverrideOf(m:MethodNode):Bit {
+        throw new NotSupportedException()
     }
 }

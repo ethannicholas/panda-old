@@ -41,8 +41,8 @@ enum AnnotationType {
 ================================================================================
 The annotations attached to a class, method, or field.
 ================================================================================
-class Annotations {
-    constant annotationNames := new ImmutableHashMap<AnnotationType, String>(
+class Annotations : Immutable {
+    constant NAMES := new ImmutableHashMap<AnnotationType, String>(
         [
             AnnotationType.PRIVATE,
             AnnotationType.PROTECTED,
@@ -77,38 +77,49 @@ class Annotations {
         ]
     )
 
-    @readonly
-    var position:Position
+    def position:Position
 
-    @readonly
-    var pre:PrimitiveArray<ParseNode> := []
+    def pre:ImmutableArray<ParseNode>
 
-    @readonly
-    var post:PrimitiveArray<ParseNode> := []
+    def post:ImmutableArray<ParseNode>
 
-    @readonly
-    var invariants:PrimitiveArray<ParseNode> := []
+    def invariants:ImmutableArray<ParseNode>
 
     @private
-    var bits:Int
+    def bits:Int
 
-    constructor() {
-        constructor(Position.INTERNAL)
-    }
-
-    constructor(position:Position) {
+    constructor(position:Position, annotations:ListView<AnnotationType>,
+            pre:ListView<ParseNode>, post:ListView<ParseNode>, 
+            invariants:ListView<ParseNode>) {
         self.position := position
+        var bits := 0
+        for a in annotations {
+            def mask := 1 << a->>(Int)
+            if bits && mask != 0 {
+                var name := NAMES[a]
+                if name = null
+                    name := a->>(String)
+                PandaCompiler.reportError("'\{name}' was specified twice", 
+                        position)
+            }
+            bits ||= mask
+        }
+        self.bits := bits
+        self.pre := new ImmutableArray<ParseNode>(pre)
+        self.post := new ImmutableArray<ParseNode>(post)
+        self.invariants := new ImmutableArray<ParseNode>(invariants)
     }
 
-    constructor(annotations:PrimitiveArray<AnnotationType>) {
-        constructor(Position.INTERNAL, annotations)
+    @private
+    constructor(position:Position, bits:Int, pre:ListView<ParseNode>, 
+            post:ListView<ParseNode>, invariants:ListView<ParseNode>) {
+        self.position := position
+        self.bits := bits
+        self.pre := new ImmutableArray<ParseNode>(pre)
+        self.post := new ImmutableArray<ParseNode>(post)
+        self.invariants := new ImmutableArray<ParseNode>(invariants)
     }
 
-    constructor(position:Position, annotations:PrimitiveArray<AnnotationType>) {
-        constructor(position)
-        for a in annotations
-            set(a, true)
-    }
 
     ============================================================================
     Returns a list of all annotation types present in this object.
@@ -134,187 +145,76 @@ class Annotations {
         return bits[AnnotationType.PRIVATE->>(Int)]
     }
 
-    @self
-    method isPrivate:=(b:Bit) {
-        set(AnnotationType.PRIVATE, b)
-    }
-
     function isProtected():Bit {
         return bits[AnnotationType.PROTECTED->>(Int)]
-    }
-
-    @self
-    method isProtected:=(b:Bit) {
-        set(AnnotationType.PROTECTED, b)
     }
 
     function isClass():Bit {
         return bits[AnnotationType.CLASS->>(Int)]
     }
 
-    @self
-    method isClass:=(b:Bit) {
-        set(AnnotationType.CLASS, b)
-    }
-
     function isThread():Bit {
         return bits[AnnotationType.THREAD->>(Int)]
-    }
-
-    @self
-    method isThread:=(b:Bit) {
-        set(AnnotationType.THREAD, b)
     }
 
     function isAbstract():Bit {
         return bits[AnnotationType.ABSTRACT->>(Int)]
     }
 
-    @self
-    method isAbstract:=(b:Bit) {
-        set(AnnotationType.ABSTRACT, b)
-    }
-
     function isExternal():Bit {
         return bits[AnnotationType.EXTERNAL->>(Int)]
-    }
-
-    @self
-    method isExternal:=(b:Bit) {
-        set(AnnotationType.EXTERNAL, b)
     }
 
     function isOverflow():Bit {
         return bits[AnnotationType.OVERFLOW->>(Int)]
     }
 
-    @self
-    method isOverflow:=(b:Bit) {
-        set(AnnotationType.OVERFLOW, b)
-    }
-
     function isReadOnly():Bit {
         return bits[AnnotationType.READONLY->>(Int)]
-    }
-
-    @self
-    method isReadOnly:=(b:Bit) {
-        set(AnnotationType.READONLY, b)
     }
 
     function isOverride():Bit {
         return bits[AnnotationType.OVERRIDE->>(Int)]
     }
     
-    @self
-    method isOverride:=(b:Bit) {
-        set(AnnotationType.OVERRIDE, b)
-    }
-
     function isFinal():Bit {
         return bits[AnnotationType.FINAL->>(Int)]
     }
     
-    @self
-    method isFinal:=(b:Bit) {
-        set(AnnotationType.FINAL, b)
-    }
-
     function isLimited():Bit {
         return bits[AnnotationType.LIMITED->>(Int)]
     }
     
-    @self
-    method isLimited:=(b:Bit) {
-        set(AnnotationType.LIMITED, b)
-    }
-
     function isSelf():Bit {
         return bits[AnnotationType.SELF->>(Int)]
     }
     
-    @self
-    method isSelf:=(b:Bit) {
-        set(AnnotationType.SELF, b)
-    }
-
     function isSafeReturn():Bit {
         return bits[AnnotationType.SAFERETURN->>(Int)]
     }
     
-    @self
-    method isSafeReturn:=(b:Bit) {
-        set(AnnotationType.SAFERETURN, b)
-    }
-
     function isSynthetic():Bit {
         return bits[AnnotationType.SYNTHETIC->>(Int)]
-    }
-
-    @self
-    method isSynthetic:=(b:Bit) {
-        set(AnnotationType.SYNTHETIC, b)
     }
 
     function isUnspecified():Bit {
         return bits[AnnotationType.UNSPECIFIED->>(Int)]
     }
 
-    @self
-    method isUnspecified:=(b:Bit) {
-        set(AnnotationType.UNSPECIFIED, b)
-    }
-
     function isUnsafeFunction():Bit {
         return bits[AnnotationType.UNSAFEFUNCTION->>(Int)]
-    }
-
-    @self
-    method isUnsafeFunction:=(b:Bit) {
-        set(AnnotationType.UNSAFEFUNCTION, b)
     }
 
     function isProperty():Bit {
         return bits[AnnotationType.PROPERTY->>(Int)]
     }
 
-    @self
-    method isProperty:=(b:Bit) {
-        set(AnnotationType.PROPERTY, b)
-    }
-
     function isWrapperMethod():Bit {
         return bits[AnnotationType.WRAPPER_METHOD->>(Int)]
     }
 
-    @self
-    method isWrapperMethod:=(b:Bit) {
-        set(AnnotationType.WRAPPER_METHOD, b)
-    }
-
     function isGenericMethod():Bit {
         return bits[AnnotationType.GENERIC_METHOD->>(Int)]
-    }
-
-    @self
-    method isGenericMethod:=(b:Bit) {
-        set(AnnotationType.GENERIC_METHOD, b)
-    }
-
-    @private
-    method set(ann:AnnotationType, b:Bit) {
-        var mask := 1 << ann->>(Int)
-        if b & (bits && mask != 0) {
-            var name := annotationNames[ann]
-            if name = null
-                name := ann->>(String)
-            PandaCompiler.reportError("'" + name + 
-                    "' was specified twice", position)
-        }
-        if b
-            bits ||= mask
-        else
-            bits &&= !!mask
     }
 
     @private
@@ -335,13 +235,9 @@ class Annotations {
             addString(s, result)
     }
 
-    function copy():Annotations {
-        var result := new Annotations()
-        result.bits := bits
-        result.pre := pre[..]
-        result.post := post[..]
-        result.invariants := invariants[..]
-        return result
+    function +(a:AnnotationType):Annotations {
+        def newAnnotations := bits || 1 << a->>(Int)
+        return new Annotations(position, newAnnotations, pre, post, invariants)
     }
 
     @override

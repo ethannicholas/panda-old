@@ -1,0 +1,750 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.parser.ParseNode
+uses org.pandalanguage.pandac.parser.ParseNodeType
+uses org.pandalanguage.pandac.parser.Token
+uses org.pandalanguage.pandac.parser.TokenNode
+uses org.pandalanguage.pandac.parser.TokenType
+uses org.pandalanguage.pandac.stubs.UntypedClassStub
+uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
+uses org.pandalanguage.pandac.stubs.UntypedFieldStub
+uses org.pandalanguage.pandac.stubs.UntypedFormalParameter
+uses org.pandalanguage.pandac.stubs.UntypedGenericParameter
+uses org.pandalanguage.pandac.stubs.UntypedMethodStub
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.FieldNodeType
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.Statement
+
+================================================================================
+Converts the parse tree for a compilation unit into an 
+[UntypedCompilationUnitStub].
+================================================================================
+class Scanner : Immutable {
+    ============================================================================
+    Processes an ANNOTATIONS parse node.
+    ============================================================================
+    @pre(node.type = ParseNodeType.ANNOTATIONS)
+    function convertAnnotations(node:ParseNode):(Annotations, ListView<Message>?) {
+        var messages:List<Message>? := null
+        var foundPre := false
+        var foundPreOr := false
+        def annotations := new Array<AnnotationType>()
+        def pre := new Array<ParseNode>()
+        for ann in node.children {
+            switch ann.type {
+                case ParseNodeType.TOKEN: {
+                    switch ann->(TokenNode).token.type {
+                        case TokenType.PROTECTED:
+                            annotations.add(AnnotationType.PROTECTED)
+                        case TokenType.PRIVATE:
+                            annotations.add(AnnotationType.PRIVATE)
+                        case TokenType.ABSTRACT:
+                            annotations.add(AnnotationType.ABSTRACT)
+                        case TokenType.ATCLASS:
+                            annotations.add(AnnotationType.CLASS)
+                        case TokenType.THREAD:
+                            annotations.add(AnnotationType.THREAD)
+                        case TokenType.EXTERNAL:
+                            annotations.add(AnnotationType.EXTERNAL)
+                        case TokenType.FINAL:
+                            annotations.add(AnnotationType.FINAL)
+                        case TokenType.OVERRIDE:
+                            annotations.add(AnnotationType.OVERRIDE)
+                        case TokenType.READONLY:
+                            annotations.add(AnnotationType.READONLY)
+                        case TokenType.LIMITED:
+                            annotations.add(AnnotationType.LIMITED)
+                        case TokenType.ATSELF:
+                            annotations.add(AnnotationType.SELF)
+                        case TokenType.SAFERETURN:
+                            annotations.add(AnnotationType.SAFERETURN)
+                        case TokenType.WRAPPER_METHOD:
+                            annotations.add(AnnotationType.WRAPPER_METHOD)
+                        case TokenType.UNSAFEFUNCTION: 
+                            annotations.add(AnnotationType.UNSAFEFUNCTION)
+                        default: 
+                            throw new InternalCompilerException(
+                                    "unsupported annotation: \{ann}", 
+                                    ann.position)
+                    }
+                }
+                case ParseNodeType.MATH_ANNOTATION:
+                    annotations.add(AnnotationType.OVERFLOW)
+                case ParseNodeType.PRECONDITION: {
+                    switch ann[0]->(TokenNode).token.type {
+                        case TokenType.PRE: foundPre := true
+                        case TokenType.PRE_OR: foundPreOr := true
+                        default: unreachable
+                    }
+                    pre.add(ann[2])
+                }
+                default: unreachable
+            }
+        }
+        def result := new Annotations(node.position, annotations, pre, 
+                new Array<ParseNode>(), new Array<ParseNode>())
+        if result.isPrivate & result.isProtected {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@private may not be used " +
+                    "together with @protected", node.position))
+        }
+        if result.isSelf & result.isClass {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@self may not be used " +
+                    "together with @class", node.position))
+        }
+        if result.isOverride & result.isClass {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@override may not be used " +
+                    "together with @class", node.position))
+        }
+        if result.isThread & result.isClass {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@thread may not be used " +
+                    "together with @class", node.position))
+        }
+        if result.isAbstract & result.isFinal {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@abstract may not be used " +
+                    "together with @final", node.position))
+        }
+        if result.isAbstract & result.isExternal {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@abstract may not be used " +
+                    "together with @external", node.position))
+        }
+        if result.isLimited & result.isSelf {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@limited may not be used " +
+                    "together with @self", node.position))
+        }
+        def override := result.isOverride
+        if override & foundPre {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@pre may not be used " +
+                    "together with @override; did you mean to use @preOr?", 
+                    node.position))
+        }
+        else if !override & foundPreOr {
+            if messages = null
+                messages := new Array<Message>()
+            messages.add(new Message("@preOr must be used " +
+                    "together with @override", node.position))
+        }
+        return (result, messages)
+    }
+
+    ============================================================================
+    Processes a FORMAL_PARAMETER parse node.
+    ============================================================================
+    @pre(p.type = ParseNodeType.FORMAL_PARAMETER)
+    function convertFormalParameter(p:ParseNode):UntypedFormalParameter {
+        var i := 0
+        def isFinal:Bit
+        if p[i]->(TokenNode).token.type = TokenType.VAR {
+            isFinal := false
+            i += 1
+        }
+        else
+            isFinal := true
+        assert p[i]->(TokenNode).token.type = TokenType.IDENTIFIER
+        def name := p[i]->(TokenNode).token.text
+        i += 1
+        def isConvert:Bit
+        if p[i]->(TokenNode).token.type = TokenType.COLON
+            isConvert := false
+        else {
+            assert p[i]->(TokenNode).token.type = TokenType.CONVERT
+            isConvert := true
+        }
+        i += 1
+        def typeNode := p[i]
+        i += 1
+        def isVarArg:Bit
+        if p.length > i {
+            assert p[i]->(TokenNode).token.type = TokenType.ELLIPSIS
+            isVarArg := true
+        }
+        else
+            isVarArg := false
+        return new UntypedFormalParameter(p.position, name, typeNode, isFinal,
+                isConvert, isVarArg)
+    }
+
+    ============================================================================
+    Processes a FORMAL_PARAMETER_LIST parse node.
+    ============================================================================
+    @pre(pl.type = ParseNodeType.FORMAL_PARAMETER_LIST)
+    function convertFormalParameterList(pl:ParseNode):
+            (ListView<UntypedFormalParameter>, ListView<Message>?) {
+        def result := new Array<UntypedFormalParameter>()
+        var messages:List<Message>? := null
+        for i in 1 ... pl.length - 2 by 2 {
+            def p := convertFormalParameter(pl[i])
+            if i < pl.length - 2 & p.isVarArg {
+                if messages = null
+                    messages := new Array<Message>()
+                messages.add(new Message("only the last parameter of a " +
+                        "method may accept a variable number of arguments", 
+                        pl[i].position))
+            }
+            result.add(p)
+        }
+        return (result, messages)
+    }
+
+    ============================================================================
+    Processes a METHOD_DECLARATION parse node.
+    ============================================================================
+    @pre(m.type = ParseNodeType.METHOD_DECLARATION)
+    function convertMethodDeclaration(doccomment:String?,
+            var annotations:Annotations,
+            m:ParseNode):(UntypedMethodStub, ListView<Message>?) {
+        var messages:List<Message>? := null
+        var i := 0
+        def methodType:MethodNodeType
+        switch m[i]->(TokenNode).token.type {
+            case TokenType.METHOD: 
+                methodType := MethodNodeType.METHOD
+            case TokenType.FUNCTION: 
+                methodType := MethodNodeType.FUNCTION
+            case TokenType.CONSTRUCTOR: {
+                methodType := MethodNodeType.CONSTRUCTOR
+                -- FIXME HACK constructors are almost invariably @self, and
+                -- will be auto-detected as such in the future. For right
+                -- now, just mark everything @self until we have such
+                -- detection in place.
+                if !annotations.isSelf
+                    annotations += AnnotationType.SELF
+            }
+            default: throw new InternalCompilerException(
+                    "unsupported methodType: " + m[i])
+        }
+        i += 1
+        def name:String
+        if m[i].type = ParseNodeType.METHOD_NAME {
+            name := m[i]->>(String).replace(" ", "")
+            i += 1
+        }
+        else
+            name := "constructor"
+        if m[i].type = ParseNodeType.GENERIC_PARAMETERS_DECLARATION
+            throw new NotSupportedException("generic methods")
+        def formalParameters, fpMessages := convertFormalParameterList(m[i])
+        if fpMessages != null {
+            if messages = null
+                messages := new Array<Message>()
+            messages.addAll(fpMessages)
+        }
+        i += 1
+        var returnType:ParseNode? := null
+        if m.length > i & m[i].type = ParseNodeType.TYPE_DECLARATION {
+            if methodType = MethodNodeType.CONSTRUCTOR {
+                if messages = null
+                    messages := new Array<Message>()
+                messages.add(new Message(
+                        "constructors may not have a return type", 
+                        m[i].position))
+            }
+            else
+                returnType := m[i][1]
+            i += 1
+        }
+        def block:ParseNode?
+        if m.length > i & m[i].type = ParseNodeType.BLOCK
+            block := m[i]
+        else
+            block := null
+        return (new UntypedMethodStub(m.position, name, annotations,
+                methodType, formalParameters, returnType, block), messages)
+    }
+
+    ============================================================================
+    Processes a FIELD_DECLARATION parse node.
+    ============================================================================
+    @pre(f.type = ParseNodeType.FIELD_DECLARATION)
+    function convertFieldDeclaration(doccomment:String?,
+             annotations:Annotations, 
+             f:ParseNode):(List<UntypedFieldStub>, ListView<Message>?) {
+        def result := new Array<UntypedFieldStub>()
+        def fieldType:FieldNodeType
+        switch f[0]->(TokenNode).token.type {
+            case TokenType.VAR:
+                fieldType := FieldNodeType.VAR
+            case TokenType.DEF:
+                fieldType := FieldNodeType.DEF
+            case TokenType.PROPERTY:
+                fieldType := FieldNodeType.PROPERTY
+            case TokenType.CONSTANT:
+                fieldType := FieldNodeType.CONSTANT
+            default:
+                throw new InternalCompilerException("unsupported fieldType " +
+                        f[0]->(TokenNode).token.type, f[0].position)
+        }
+        var i := 1
+        var tuplePosition:Int? := null
+        def initialValue:ParseNode?
+        if f[f.length - 1].type = ParseNodeType.EXPRESSION
+            initialValue := f[f.length - 1]
+        else
+            initialValue := null
+        while i < f.length & 
+                (f[i]->(TokenNode).token.type = TokenType.IDENTIFIER | 
+                    f[i]->(TokenNode).token.type = TokenType.UNDERSCORE) {
+            if f[i]->(TokenNode).token.type != TokenType.UNDERSCORE {
+                def position := f[i].position
+                def name := f[i]->(TokenNode).token.text
+                i += 1
+                def typeNode:ParseNode?
+                if f.length > i & f[i].type = ParseNodeType.TYPE_DECLARATION {
+                    typeNode := f[i][1]
+                    i += 1
+                }
+                else
+                    typeNode := null
+                
+                if i < f.length & f[i]->(TokenNode).token.type = TokenType.COMMA {
+                    i += 1
+                    if tuplePosition = null
+                        tuplePosition := 0
+                    else
+                        tuplePosition += 1
+                }
+                result.add(new UntypedFieldStub(position, name, annotations,
+                        fieldType, typeNode, initialValue, tuplePosition))
+            }
+            else {
+                if i < f.length & f[i]->(TokenNode).token.type = TokenType.COMMA {
+                    i += 1
+                    if tuplePosition = null
+                        tuplePosition := 0
+                    else
+                        tuplePosition += 1
+                }
+            }
+        }
+        return (result, null)
+    }
+
+    ============================================================================
+    Processes a CLASS_MEMBER_DECLARATION parse node.
+    ============================================================================
+    @pre(cm.type = ParseNodeType.CLASS_MEMBER_DECLARATION)
+    function convertClassMember(cm:ParseNode):(UntypedMethodStub?, 
+            ListView<UntypedFieldStub>?, ParseNode?, ListView<Message>?) {
+        var messages:List<Message>? := null
+        if cm[0].type = ParseNodeType.INVARIANT
+            return (null, null, cm[0][2], null)
+        var i := 0
+        var doccomment:String? := null
+        if cm[i].type = ParseNodeType.TOKEN {
+            assert cm[i]->(TokenNode).token.type = TokenType.DOCCOMMENT
+            doccomment := getDocComment(cm[i]->(TokenNode).token)
+            i += 1
+        }
+        assert cm[i].type = ParseNodeType.ANNOTATIONS
+        def annotations, annotationMessages := convertAnnotations(cm[i])
+        if annotationMessages != null {
+            if messages = null
+                messages := new Array<Message>()
+            messages.addAll(annotationMessages)
+        }
+        i += 1
+        switch cm[i].type {
+            case ParseNodeType.METHOD_DECLARATION: {
+                def m, methodMessages := convertMethodDeclaration(doccomment, 
+                        annotations, cm[i])
+                if methodMessages != null {
+                    if messages = null
+                        messages := new Array<Message>()
+                    messages.addAll(methodMessages)
+                }
+                return (m, null, null, messages)
+            }
+            case ParseNodeType.FIELD_DECLARATION: {
+                def f, fieldMessages := convertFieldDeclaration(doccomment, 
+                        annotations, cm[i])
+                if fieldMessages != null {
+                    if messages = null
+                        messages := new Array<Message>()
+                    messages.addAll(fieldMessages)
+                }
+                return (null, f, null, messages)
+            }
+            default:
+                throw new InternalCompilerException(
+                        "unsupported class member \{cm.type}", cm.position)
+        }
+    }
+
+    @private
+    @pre(classMembers.type = ParseNodeType.CLASS_MEMBERS)
+    @pre(genericParametersNode = null | 
+            genericParametersNode.type = 
+                ParseNodeType.GENERIC_PARAMETERS_DECLARATION)
+    function convertClassOrInterface(position:Position, doccomment:String?, 
+            annotations:Annotations, className:String, 
+            packageUses:CollectionView<String>, 
+            classAliases:MapView<String, String>,
+            isInterface:Bit, genericParametersNode:ParseNode?, 
+            supertypeNode:ParseNode?, interfaces:ListView<ParseNode>,
+            classMembers:ParseNode):(UntypedClassStub, ListView<Message>?) {
+        var messages:List<Message>? := null
+        def methods := new Array<UntypedMethodStub>()
+        def fields := new Array<UntypedFieldStub>()
+        def invariants := new Array<ParseNode>()
+        for a in annotations.all {
+            switch a {
+                case AnnotationType.PRIVATE, AnnotationType.PROTECTED,
+                        AnnotationType.ABSTRACT, AnnotationType.FINAL,
+                        AnnotationType.UNSPECIFIED: { }
+                default: {
+                    var name := Annotations.NAMES[a]
+                    if name = null
+                        name := a->>(String)
+                    if messages = null
+                        messages := new Array<Message>()
+                    messages.add(new Message("annotation '\{name}' is not " +
+                            "supported on classes", position))
+                }
+            }
+        }
+
+        for member in classMembers.children {
+            def m, f, inv, childMessages := convertClassMember(member)
+            if m != null
+                methods.add(m)
+            if f != null
+                fields.addAll(f)
+            if inv != null
+                invariants.add(inv)
+            if childMessages != null {
+                if messages = null
+                    messages := new Array<Message>()
+                messages.addAll(childMessages)
+            }
+        }
+
+        def genericParameters := new Array<UntypedGenericParameter>()
+        if genericParametersNode != null {
+            var i := 1
+            loop {
+                assert genericParametersNode[i]->(TokenNode).token.type = 
+                        TokenType.IDENTIFIER
+                def parameterPosition := genericParametersNode[i].position
+                def name := genericParametersNode[i]->>(String)
+                i += 1
+                def type:ParseNode?
+                if genericParametersNode[i].type = 
+                        ParseNodeType.TYPE_DECLARATION {
+                    type := genericParametersNode[i][1]
+                    i += 1
+                }
+                else
+                    type := null
+                genericParameters.add(new UntypedGenericParameter(
+                        parameterPosition,name, type))
+                def tokenType := 
+                        genericParametersNode[i]->(TokenNode).token.type
+                if tokenType = TokenType.COMMA
+                    i += 1
+                else if tokenType = TokenType.GT
+                    break
+                else
+                    unreachable
+            }
+        }
+
+        return (new UntypedClassStub(position, className, isInterface, 
+                annotations, packageUses, classAliases, supertypeNode, 
+                interfaces, methods, fields, invariants, genericParameters), 
+                messages)
+    }
+
+    ============================================================================
+    Converts a CLASS_DECLARATION node.
+    ============================================================================
+    @pre(cl.type = ParseNodeType.CLASS_DECLARATION)
+    function convertClassDeclaration(packageName:String?, 
+            packageUses:CollectionView<String>, 
+            classAliases:MapView<String, String>,
+            doccomment:String?, var annotations:Annotations,
+            cl:ParseNode):(UntypedClassStub, ListView<Message>?) {
+        assert cl[0]->(TokenNode).token.type = TokenType.CLASS
+        assert cl[1]->(TokenNode).token.type = TokenType.IDENTIFIER
+        def className:String
+        if packageName != null
+            className := packageName + "." + cl[1]->>(String)
+        else
+            className := cl[1]->>(String)
+        var i := 2
+        var genericParametersNode:ParseNode? := null
+        if cl[i].type = ParseNodeType.GENERIC_PARAMETERS_DECLARATION {
+            genericParametersNode := cl[i]
+            i += 1
+        }
+        else
+            genericParametersNode := null
+        
+        var supertypeNode:ParseNode? := null
+        if cl[i].type = ParseNodeType.TOKEN & 
+                cl[i]->(TokenNode).token.type = TokenType.COLON {
+            supertypeNode := cl[i + 1]
+            i += 2
+        }
+
+        var interfaces := new Array<ParseNode>()
+        if cl[i].type = ParseNodeType.INTERFACES {
+            var interfacesNode := cl[i]
+            assert interfacesNode[0]->(TokenNode).token.type = TokenType.LPAREN
+            for j in 1 ... interfacesNode.length - 2 by 2
+                interfaces.add(interfacesNode[j])
+            assert interfacesNode[interfacesNode.length - 
+                    1]->(TokenNode).token.type = TokenType.RPAREN
+            i += 1
+        }
+        assert cl[i]->(TokenNode).token.type = TokenType.LBRACE
+        i += 1
+        return convertClassOrInterface(cl.position, doccomment, 
+                annotations, className, packageUses, classAliases, false, 
+                genericParametersNode, supertypeNode, interfaces, cl[i])
+    }
+
+    ============================================================================
+    Converts an INTERFACE_DECLARATION node.
+    ============================================================================
+    @pre(cl.type = ParseNodeType.INTERFACE_DECLARATION)
+    function convertInterfaceDeclaration(packageName:String?, 
+            packageUses:CollectionView<String>, 
+            classAliases:MapView<String, String>,
+            doccomment:String?, var annotations:Annotations, 
+            cl:ParseNode):(UntypedClassStub, ListView<Message>?) {
+        assert cl[0]->(TokenNode).token.type = TokenType.INTERFACE
+        assert cl[1]->(TokenNode).token.type = TokenType.IDENTIFIER
+        def className:String
+        if packageName != null
+            className := packageName + "." + cl[1]->>(String)
+        else
+            className := cl[1]->>(String)
+        var i := 2
+        var genericParametersNode:ParseNode?
+        if cl[i].type = ParseNodeType.GENERIC_PARAMETERS_DECLARATION {
+            genericParametersNode := cl[i]
+            i += 1
+        }
+        else
+            genericParametersNode := null
+        
+        var interfaces := new Array<ParseNode>()
+        if cl[i]-?>(TokenNode) & cl[i]->(TokenNode).token.type = TokenType.COLON {
+            i += 1
+            interfaces.add(cl[i])
+            i += 1
+            while cl[i]-?>(TokenNode) & 
+                    cl[i]->(TokenNode).token.type = TokenType.COMMA {
+                i += 1
+                interfaces.add(cl[i])
+                i += 1
+            }
+        }
+        assert cl[i]->(TokenNode).token.type = TokenType.LBRACE
+        i += 1
+        return convertClassOrInterface(cl.position, doccomment, annotations, 
+                className, packageUses, classAliases, true, 
+                genericParametersNode, null, interfaces, cl[i])
+    }
+
+    ============================================================================
+    Returns the actual text of a doccomment, minus the lines of equals before
+    and after it.
+
+    @param dc the doccomment token
+    @returns the doccomment text
+    ============================================================================
+    @pre(dc.type = TokenType.DOCCOMMENT)
+    function getDocComment(dc:Token):String {
+        def result := new MutableString(dc.text)
+        for i in result.length - 1 ... 0 by -1 {
+            if result[i] != "=" {
+                result.remove(i + 1, result.length)
+                break
+            }
+        }
+        for i in 0 .. result.length {
+            if result[i] != "=" {
+                result.remove(0, i)
+                break
+            }
+        }
+        return result->>(String)
+    }
+
+    ============================================================================
+    Processes a USES_STATEMENT parse node.
+
+    @returns a tuple containing either (packageName, null, null, null) or 
+            (null, className, alias, null), or (null, null, null, error)
+    ============================================================================
+    @pre(u.type = ParseNodeType.USES_STATEMENT)
+    function convertUsesDeclaration(u:ParseNode):(String?, String?, String?, 
+            Message?) {
+        assert u[0]->(TokenNode).token.type = TokenType.USES
+        var index := 1
+        def className := new MutableString()
+        var alias:String? := null
+        while index < u.length & 
+                u[index]->(TokenNode).token.type != TokenType.AS {
+            className.append(u[index])
+            index += 1
+        }
+        if index < u.length {
+            assert u[index]->(TokenNode).token.type = TokenType.AS
+            assert index = u.length - 2
+            alias := u[u.length - 1]->>(String)
+        }
+        constant PACKAGE_SUFFIX := ".*"
+        if className.endsWith(PACKAGE_SUFFIX) {
+            if alias != null {
+                return (null, null, null, 
+                        new Message("packages may not have aliases", 
+                            u.position))
+            }
+            def packageName := className[0 .. className.length - 
+                    PACKAGE_SUFFIX.length]
+            return (packageName, null, null, null)
+        }
+        else {
+            if alias = null {
+                def dot := className.lastIndexOf(".")
+                if dot != null
+                    alias := className[dot + 1..]
+                else
+                    alias := className->>(String)
+            }
+            return (null, className->>(String), alias, null)
+        }
+    }
+
+    ============================================================================
+    Processes a COMPILATION_UNIT parse node.
+    ============================================================================
+    @pre(node.type = ParseNodeType.COMPILATION_UNIT)
+    function convertCompilationUnit(name:String,
+            node:ParseNode):(UntypedCompilationUnitStub, ListView<Message>?) {
+        def classes := new Array<UntypedClassStub>()
+        def methods := new Array<UntypedMethodStub>()
+        def statements := new Array<ParseNode>()
+        var messages:List<Message>? := null
+        var currentPackage:String? := null
+        def packageUses := new Array<String>()
+        packageUses.add("panda.collections")
+        packageUses.add("panda.core")
+        packageUses.add("panda.io")
+        packageUses.add("panda.math")
+        packageUses.add("panda.threads")
+        def classAliases := new HashMap<String, String>()
+        classAliases["Int"] := class(Int32).name
+        classAliases["UInt"] := class(UInt32).name
+        classAliases["Real"] := class(Real64).name
+        for child in node.children {
+            assert child.type = ParseNodeType.BODY_ENTRY
+            switch child[0].type {
+                case ParseNodeType.SIMPLE_STATEMENT:
+                    throw new NotSupportedException("simple statement")
+                case ParseNodeType.PACKAGE_DECLARATION:
+                    currentPackage := child[0][1..].join("")
+                case ParseNodeType.USES_STATEMENT: {
+                    def packageName, className, alias, message := 
+                            convertUsesDeclaration(child[0])
+                    if packageName != null
+                        packageUses.add(packageName)
+                    if className != null {
+                        assert alias != null
+                        classAliases[className] := alias
+                    }
+                    if message != null {
+                        if messages = null
+                            messages := new Array<Message>()
+                        messages.add(message)
+                    }
+                }
+                case ParseNodeType.INSTANCE_DECLARATION: {
+                }
+                default: {
+                    var i := 0
+                    var doccomment:String? := null
+                    if child[i].type = ParseNodeType.TOKEN {
+                        assert child[i]->(TokenNode).token.type = 
+                                TokenType.DOCCOMMENT
+                        doccomment := getDocComment(child[i]->(TokenNode).token)
+                        i += 1
+                    }
+                    assert child[i].type = ParseNodeType.ANNOTATIONS
+                    def annotations, annotationMessages := 
+                            convertAnnotations(child[i])
+                    if annotationMessages != null {
+                        if messages = null
+                            messages := new Array<Message>()
+                        messages.addAll(annotationMessages)
+                    }
+                    i += 1
+                    switch child[i].type {
+                        case ParseNodeType.CLASS_DECLARATION: {
+                            def cl, classMessages := convertClassDeclaration(
+                                    currentPackage, packageUses, classAliases, 
+                                    doccomment, annotations, child[i])
+                            classes.add(cl)
+                            if classMessages != null {
+                                if messages = null
+                                    messages := new Array<Message>()
+                                messages.addAll(classMessages)
+                            }
+                        }
+                        case ParseNodeType.INTERFACE_DECLARATION: {
+                            def intf, intfMessages := 
+                                    convertInterfaceDeclaration(currentPackage,
+                                        packageUses, classAliases, doccomment,
+                                        annotations, child[i])
+                            classes.add(intf)
+                            if intfMessages != null {
+                                if messages = null
+                                    messages := new Array<Message>()
+                                messages.addAll(intfMessages)
+                            }
+                        }
+                        case ParseNodeType.METHOD_DECLARATION: {
+                            def m, methodMessages := convertMethodDeclaration(
+                                    doccomment, 
+                                    annotations + AnnotationType.CLASS, 
+                                    child[i])
+                            methods.add(m)
+                            if methodMessages != null {
+                                if messages = null
+                                    messages := new Array<Message>()
+                                messages.addAll(methodMessages)
+                            }
+                        }
+                        case ParseNodeType.ENUM:
+                            throw new NotSupportedException("enum")
+                        default:
+                            throw new InternalCompilerException(
+                                    "unsupported body entry", child.position)
+                    }
+                }
+            }
+        }
+        return (new UntypedCompilationUnitStub(name, classes, methods, 
+                statements), messages)
+    }
+}

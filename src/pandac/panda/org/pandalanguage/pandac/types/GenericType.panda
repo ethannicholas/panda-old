@@ -19,27 +19,19 @@ A type with generic parameters, such as
 with respect to generics.
 ================================================================================
 class GenericType : ClassType {
-    @thread
-    def pendingFieldValues := new HashMap<FieldNode, Object>()
-
-    def position:Position
     def base:ClassType
-    def parameters:ImmutablePrimitiveArray<Type>
+    def parameters:ImmutableArray<Type>
 
-    constructor(position:Position, base:ClassType, 
-            parameters:ImmutablePrimitiveArray<Type>) {
+    constructor(base:ClassType, 
+            parameters:ListView<Type>) {
         super.constructor(getName(base, parameters))
-
-        for p in parameters
-            assert p-!>(UnresolvedType) : "parameter \{p} of \{self} is uninitialized"
-        self.position := position
         self.base := base
-        self.parameters := parameters
+        self.parameters := new ImmutableArray<Type>(parameters)
     }
 
     @private
     @class
-    function getName(base:ClassType, parameters:ImmutablePrimitiveArray<Type>):String {
+    function getName(base:ClassType, parameters:ListView<Type>):String {
         var result := base.name->>(MutableString)
         result.append("<")
         for i, p in parameters {
@@ -71,21 +63,8 @@ class GenericType : ClassType {
     }
 
     @override
-    method unwrapGenerics():Type {
-        def result := new MutableString(base.name)
-        result.append("<")
-        for i, p in parameters {
-            if i > 0
-                result.append(",")
-            result.append(p.unwrapGenerics().name)
-        }
-        result.append(">")
-        return SymbolTable.master.getType(Position.INTERNAL, result->>(String))
-    }
-
-    @override
     function subtypes():ImmutablePrimitiveArray<Type> {
-        return parameters
+        throw new NotSupportedException()
     }
 
     @private
@@ -95,188 +74,5 @@ class GenericType : ClassType {
         if pos = null
             return name
         return name[pos + 1..]
-    }
-
-    @class
-    method mapType(symbolTable:SymbolTable, t:Type) {
-    if true return
-        if t.unwrapNullable-?>(GenericParameterType) {
-            def name := t.unwrapNullable.name
-            symbolTable.useClass(name, simpleName(name))
-        }
-        for child in t.subtypes
-            mapType(symbolTable, child)
-    }
-
-    ============================================================================
-    Given a raw type possibly containing generics, such as `PrimitiveArray<PrimitiveArray<T>>`,
-    and a list of generic parameters and their corresponding concrete types,
-    returns the actual types represented. For instance, given `PrimitiveArray<PrimitiveArray<T>>`,
-    with `T` as a generic parameter and `String` as the concrete type, would
-    return `PrimitiveArray<PrimitiveArray<String>>`.
-    ============================================================================
-    @class
-    method replaceGenerics(position:Position, symbolTable:SymbolTable, raw:Type, 
-            genericParameters:PrimitiveArray<GenericParameterType>,
-            concreteTypes:ImmutablePrimitiveArray<Type>):Type {
-        -- Past Me was an idiot. This is so much simpler than what I was doing
-        -- before.
-        def result := symbolTable.getType(position, raw.name)
-        return result
-    }
-
-    @override
-    method performBasicClassInitialization() {
-        classNode.isInterface := base.classNode.isInterface
-        classNode.annotations := base.classNode.annotations.copy
-        if parameters.filter(p => p.isUnspecified).length = 0
-            classNode.annotations.isUnspecified := false
-        for i, p in base.classNode.genericParameterTypes {
-            classNode.symbolTable.useClass(parameters[i].name, p.name)
-            if simpleName(p.name) != p.name {
-                classNode.symbolTable.useClass(parameters[i].name, 
-                        simpleName(p.name))
-            }
-            mapType(classNode.symbolTable, parameters[i])
-        }
-        for (cl, alias) in base.classNode.symbolTable.classUses {
-            if !classNode.symbolTable.classUses.contains(alias)
-                classNode.symbolTable.useClass(cl, alias)
-        }
-        for p in base.classNode.symbolTable.packageUses {
-            if !classNode.symbolTable.packageUses.contains(p)
-                classNode.symbolTable.usePackage(p)
-        }
-    }
-
-    @private
-    method instantiateField(f:FieldNode) {
-        if f.annotations.isClass | f.annotations.isThread {
-            classNode.symbolTable.putVariable(f)
-            return
-        }
-        def finalType := replaceGenerics(
-                        classNode.position, classNode.symbolTable, 
-                            f.type, base.classNode.genericParameterTypes, 
-                            parameters)
-        def position := new Position(name, f.position.line,
-                f.position.column)
-        def newField := new FieldNode(position, f.name, finalType)
-        newField.annotations := f.annotations.copy
-        classNode.add(newField)
-        classNode.symbolTable.putVariable(newField)
-    }
-
-    @private
-    method instantiateMethod(m:MethodNode, linkageOnly:Bit) {
-        if m.annotations.isClass | m.annotations.isSynthetic
-            return
-        def genericClass := classNode
-        def code := new MutableString()
-        switch m.methodType {
-            case MethodNodeType.CONSTRUCTOR: code.append("constructor(")
-            case MethodNodeType.METHOD:      code.append("method \{m.name}(")
-            case MethodNodeType.FUNCTION:    code.append("function \{m.name}(")
-        }
-        def start := 1
-        for i, p in m.parameters[start..] {
-            if i > 0
-                code.append(", ")
-            def finalType := replaceGenerics(
-                    genericClass.position, genericClass.symbolTable, 
-                        p.type, base.classNode.genericParameterTypes, 
-                        parameters)
-            if !p.annotations.isFinal
-                code.append("var ")
-            code.append("\{p.name}:\{finalType.name}")
-        }
-        code.append(")")
-        if m.returnType != VoidType.VOID {
-            def finalType := replaceGenerics(
-                    genericClass.position, genericClass.symbolTable, 
-                        m.returnType, base.classNode.genericParameterTypes, 
-                        parameters)
-            code.append(":\{finalType.name}")
-        }
-        def body := m.parseNode
-        if body != null
-            code.append(body)
-        else if !linkageOnly
-            return
-        def annotations := m.annotations.copy
-        if body = null {
-            if !annotations.isAbstract
-                annotations.isAbstract := true
-        }
-        else
-            annotations.isAbstract := false
-        def ast := new ASTGenerator()
-        ast.strictTypeChecking := false
-        ast.compileMethod(genericClass, code->>(String), 
-                annotations,
-                new Position(genericClass.name, m.position.line, 
-                    m.position.column), linkageOnly)
-    }
-
-    @override
-    method performFinalClassInitialization() {
-        if classNode.state = ClassNodeState.DEFINED 
-            return
-        if !classNode.annotations.isUnspecified
-            classNode.annotations.isUnspecified := isUnspecified
-        classNode.state := ClassNodeState.DEFINED
-        classNode.supertype := replaceGenerics(
-                classNode.position, classNode.symbolTable, 
-                base.classNode.supertype->(ClassType), 
-                base.classNode.genericParameterTypes, parameters)->(ClassType)
-        for intf in base.classNode.interfaces {
-            def finalIntf := replaceGenerics(
-                    classNode.position, classNode.symbolTable, 
-                    intf, 
-                    base.classNode.genericParameterTypes, parameters)->(ClassType)
-            classNode.interfaces.append(finalIntf)
-            classNode.symbolTable.interfaces.add(
-                    finalIntf.classNode.symbolTable)
-        }
-        for f in base.classNode.fields
-            instantiateField(f)
-        for m in base.classNode.methods
-            instantiateMethod(m, true)
-    }
-
-    @pre(PandaCompiler.phase1Complete())
-    method compilePhase2() {
-        if classNode.annotations.isSynthetic
-            return
--*        for i, p in base.classNode.genericParameterTypes {
-            if !parameters[i].canImplicitCastTo(p) {
-                throw new CompilerException("'\{base.displayName}' generic " +
-                        "parameter \{i + 1} must be compatible with " +
-                        "'\{p.bound}', but found " +
-                        "'\{parameters[i]}'", position)
-            }
-        } *-
-        for base in base.classNode.fields {
-            if base.pendingValue != null {
-                for f in classNode.fields {
-                    if base.position.line = f.position.line &
-                            base.position.column = f.position.column {
-                        def pending := base.pendingValue
-                        if pending != null {
-                            f.pendingValue := pending
-                            pendingFieldValues[f] := pending
-                        }
-                    }
-                }
-            }
-        }
-        PandaCompiler.astGenerator.pendingFieldValues.addAll(pendingFieldValues)
-        PandaCompiler.astGenerator.inferFieldTypes(true)
-        PandaCompiler.astGenerator.createPropertySynthetics(classNode)
-        pendingFieldValues.clear()
-        for m in base.classNode.methods
-            instantiateMethod(m, false)
-        PandaCompiler.astGenerator.postprocessClass(classNode)        
-        classNode.annotations.isSynthetic := true
     }
 }

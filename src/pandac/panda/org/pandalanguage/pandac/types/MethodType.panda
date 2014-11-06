@@ -8,10 +8,10 @@ be `void`).
 ================================================================================
 class MethodType : ClassType {
     @private
-    def _methodParameters:ImmutablePrimitiveArray<Type>
+    def _methodParameters:ImmutableArray<Type>
     
     @private
-    def _returnType:Type
+    def _returnType:Type?
 
     @readonly
     def isFunction:Bit
@@ -19,11 +19,11 @@ class MethodType : ClassType {
     @private
     def immutableMethod:Bit
 
-    constructor(methodParameters:ImmutablePrimitiveArray<Type>, returnType:Type,
+    constructor(methodParameters:ListView<Type>, returnType:Type?, 
             isFunction:Bit, isImmutable:Bit) {
         super.constructor(getName(methodParameters, returnType, isFunction,
                 isImmutable))
-        self._methodParameters := methodParameters
+        self._methodParameters := new ImmutableArray<Type>(methodParameters)
         self._returnType := returnType
         self.isFunction := isFunction
         self.immutableMethod := isImmutable
@@ -44,8 +44,8 @@ class MethodType : ClassType {
         if immutableMethod
             result.append("*")
         result.append("(")
-        if returnType != VoidType.VOID
-            result.append(returnType.simpleName)
+        if _returnType != null
+            result.append(_returnType.simpleName)
         result.append(")")
         return result->>(String)
     }
@@ -65,15 +65,15 @@ class MethodType : ClassType {
         if immutableMethod
             result.append("*")
         result.append("(")
-        if returnType != VoidType.VOID
-            result.append(returnType.displayName)
+        if _returnType != null
+            result.append(_returnType.displayName)
         result.append(")")
         return result->>(String)
     }
 
     @override
     function isUnspecified():Bit {
-        if _returnType.isUnspecified
+        if _returnType != null & _returnType.isUnspecified
             return true
         for p in _methodParameters {
             if p.isUnspecified
@@ -83,27 +83,24 @@ class MethodType : ClassType {
     }
 
     @override
-    function methodParameters():ImmutablePrimitiveArray<Type> {
+    function methodParameters():ListView<Type> {
         return _methodParameters
     }
 
     @override
-    function returnType():Type {
+    function returnType():Type? {
         return _returnType
     }
 
     @override
     function subtypes():ImmutablePrimitiveArray<Type> {
-        def result := new PrimitiveArray<Type>()
-        result.appendAll(_methodParameters->>(PrimitiveArray<Type>))
-        result.append(_returnType)
-        return result->>(ImmutablePrimitiveArray<Type>)
+        throw new NotSupportedException()
     }
 
     @private
     @class
-    function getName(parameterTypes:ImmutablePrimitiveArray<Type>, 
-            returnType:Type, isFunction:Bit, isImmutable:Bit):String {
+    function getName(parameterTypes:ListView<Type>, returnType:Type?, 
+            isFunction:Bit, isImmutable:Bit):String {
         var parameters := new MutableString()
         for i, p in parameterTypes {
             if i > 0
@@ -117,10 +114,12 @@ class MethodType : ClassType {
             yields := "=&>"
         if isImmutable
             yields += "*"
-        if returnType = VoidType.VOID
+        if returnType = null
             return "(" + parameters + ")" + yields + "()"
-        else
-            return "(" + parameters + ")" + yields + "(" + returnType.name + ")"
+        else {
+            return "(" + parameters + ")" + yields + "(" + returnType.name + 
+                    ")"
+        }
     }
     
     @override
@@ -146,13 +145,19 @@ class MethodType : ClassType {
             for i, p in methodParameters
                 if p != target.methodParameters[i]
                     return NO_MATCH
-            if target.returnType.isPrimitive & !returnType.isPrimitive &
-                    returnType != target.returnType
+            def targetReturn := target.returnType
+            if (targetReturn = null) != (_returnType = null)
+                return NO_MATCH 
+            if targetReturn != null {
+                assert _returnType != null
+                if targetReturn.isPrimitive & !_returnType.isPrimitive &
+                    _returnType != target.returnType
                 return NO_MATCH
-            var returnCost := returnType.implicitCastCost(target.returnType)
-            if returnCost = NO_MATCH
-                return NO_MATCH
-            result += returnCost
+                def returnCost := _returnType.implicitCastCost(targetReturn)
+                if returnCost = NO_MATCH
+                    return NO_MATCH
+                result += returnCost
+            }
             return result
         }
         return ClassType.METHOD().implicitCastCost(target)

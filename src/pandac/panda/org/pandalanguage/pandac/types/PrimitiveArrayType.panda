@@ -1,6 +1,7 @@
 package org.pandalanguage.pandac.types
 
 uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.CompilerException
 uses org.pandalanguage.pandac.compiler.PandaCompiler
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.tree.Add
@@ -23,58 +24,40 @@ uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.SymbolTable
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
 
 ================================================================================
-A tuple; there is a `TupleType` for each different combination of types. Tuples
-must have at least two values.
+A primitive array (mutable or immutable) of another type.
 ================================================================================
-class TupleType : ClassType {
-    def types:ImmutableArray<Type>
-
-    constructor(types:ListView<Type>) {
-        super.constructor(getName(types))
-        self.types := new ImmutableArray<Type>(types)
+class PrimitiveArrayType : GenericType {
+    constructor(arrayClass:ClassType, elementType:Type) {
+        super.constructor(arrayClass, FIXMEwrap(elementType))
     }
 
-    @private
-    function getName(types:ListView<Type>):String {
-        def result := "("->>(MutableString)
-        for i, t in types {
-            if i > 0
-                result.append(",")
-            result.append(t.displayName)
-        }
-        result.append(")")
-        return result->>(String)
+    -- ugh I can't wait until I have the array syntax wired up properly
+    function FIXMEwrap(t:Type):Array<Type> {
+        def a := new Array<Type>()
+        a.add(t)
+        return a
     }
 
     @override
-    function isTuple():Bit {
+    function elementType():Type {
+        return parameters[0]
+    }
+
+    @override
+    function isPrimitiveArray():Bit {
         return true
     }
 
     @override
-    function isUnspecified():Bit {
-        for t in types {
-            if t.isUnspecified
-                return true
-        }
-        return false
-    }
-
-    @override
-    function subtypes():ImmutablePrimitiveArray<Type> {
-        throw new NotSupportedException()
-    }
-
-    method typeBound():Type {
-        var bound := types[0]
-        for i in 1 .. types.length
-            bound := Type.union(bound, types[i])
-        return bound
+    function simpleName():String {
+        def base := super.simpleName
+        return base[..base.indexOf("<")] + "<" + elementType.simpleName + ">"
     }
 }

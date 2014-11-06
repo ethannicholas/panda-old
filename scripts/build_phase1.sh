@@ -18,24 +18,24 @@ CORE_FILES="src/core/panda/panda/core/*.panda\
 
 echo "Compiling core (Java)..."
 
-mkdir -p $JAVA_TARGET/core/java
-$PANDAC -XnoCoreLib -f javah -o $JAVA_TARGET/core/java $CORE_FILES
-mkdir -p $JAVA_TARGET/core/lib
-$PANDAC -XnoCoreLib -f java -o $JAVA_TARGET/core/java $CORE_FILES
-mkdir -p $JAVA_TARGET/core/classes
-cp -r $BASEDIR/src/core/java/* $JAVA_TARGET/core/java
-cd $JAVA_TARGET/core/java
-javac -J-Xmx512m -source 1.8 -d $JAVA_TARGET/core/classes `find . -name "*.java"`
-cd $BASEDIR
-mkdir -p $SHARED_TARGET/core/lib
-$PANDAC -XnoCoreLib -f plink -o $SHARED_TARGET/core/lib/PandaCoreClasses.plink $CORE_FILES
-jar cf $JAVA_TARGET/core/lib/PandaCoreClasses.jar  -C $JAVA_TARGET/core/classes .
+#mkdir -p $JAVA_TARGET/core/java
+#$PANDAC -XnoCoreLib -f javah -o $JAVA_TARGET/core/java $CORE_FILES
+#mkdir -p $JAVA_TARGET/core/lib
+#$PANDAC -XnoCoreLib -f java -o $JAVA_TARGET/core/java $CORE_FILES
+#mkdir -p $JAVA_TARGET/core/classes
+#cp -r $BASEDIR/src/core/java/* $JAVA_TARGET/core/java
+#cd $JAVA_TARGET/core/java
+#javac -J-Xmx512m -source 1.8 -d $JAVA_TARGET/core/classes `find . -name "*.java"`
+#cd $BASEDIR
+#mkdir -p $SHARED_TARGET/core/lib
+#$PANDAC -XnoCoreLib -f plink -o $SHARED_TARGET/core/lib/PandaCoreClasses.plink $CORE_FILES
+#jar cf $JAVA_TARGET/core/lib/PandaCoreClasses.jar  -C $JAVA_TARGET/core/classes .
 
-mkdir -p $JAVA_TARGET/pandac/bin
-cp $JAVA_TARGET/core/lib/PandaCoreClasses.jar $JAVA_TARGET/pandac/bin/panda.jar
+#mkdir -p $JAVA_TARGET/pandac/bin
+#cp $JAVA_TARGET/core/lib/PandaCoreClasses.jar $JAVA_TARGET/pandac/bin/panda.jar
 
 export PANDA_HOME="$BASEDIR/build"
-$BASEDIR/scripts/build_plex.sh
+#$BASEDIR/scripts/build_plex.sh
 
 echo "Compiling pandac (Java)..."
 

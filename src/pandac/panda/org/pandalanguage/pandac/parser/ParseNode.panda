@@ -3,7 +3,6 @@ package org.pandalanguage.pandac.parser
 uses org.pandalanguage.pandac.tree.Position
 
 enum ParseNodeType {
-    ROOT,
     TOKEN,
     COMPILATION_UNIT,
     BODY_ENTRY,
@@ -17,11 +16,9 @@ enum ParseNodeType {
     ENUM,
     METHOD_NAME,
     METHOD_DECLARATION,
-    PARAMETER_PROTOTYPE,
-    PARAMETER_PROTOTYPE_LIST,
+    FORMAL_PARAMETER,
+    FORMAL_PARAMETER_LIST,
     FIELD_DECLARATION,
-    CONSTANT_DECLARATION,
-    CONSTANT_FIELD_DECLARATION,
     TYPE_DECLARATION,
     VAR_DECLARATION,
     GENERIC_PARAMETERS,
@@ -82,13 +79,16 @@ enum ParseNodeType {
 ================================================================================
 Describes a single node in the parse tree, either a terminal or nonterminal.
 ================================================================================
-class ParseNode {
-    var type:ParseNodeType
-    var parent:ParseNode?
-    var children := new PrimitiveArray<ParseNode>()
+class ParseNode : Immutable (ListView<ParseNode>) {
+    def type:ParseNodeType
+    def children:ImmutableArray<ParseNode>
     
-    constructor(type:ParseNodeType) {
+    constructor(type:ParseNodeType, children:ListView<ParseNode>) {
         self.type := type
+        if children-?>(ImmutableArray<ParseNode>)
+            self.children := children->(ImmutableArray<ParseNode>)
+        else
+            self.children := new ImmutableArray<ParseNode>(children)
     }
     
     ============================================================================
@@ -96,34 +96,16 @@ class ParseNode {
     
     @param index the child to return
     ============================================================================
+    @override
     function [](index:Int):ParseNode {
         return children[index]
     }
 
-    ============================================================================
-    Sets the specified child of this node.
-    
-    @param index the index of the child to set
-    @param value the new child
-    ============================================================================
-    method []:=(index:Int, value:ParseNode) {
-        children[index] := value
-    }
-    
+    @override
     function length():Int {
         return children.length
     }
 
-    @self
-    @pre(i <= length)
-    method length:=(i:Int) {
-        children.length := i
-    }
-    
-    method add(p:ParseNode) {
-        children.append(p)
-    }
-    
     function position():Position {
         if children.length > 0
             return children[0].position

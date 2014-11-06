@@ -2,16 +2,18 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.analysis.DataFlowAnalyzer
 uses org.pandalanguage.pandac.analysis.SafetyChecker
+uses org.pandalanguage.pandac.compiler.Message
 uses org.pandalanguage.pandac.pandadoc.PandaDoc
 uses org.pandalanguage.pandac.pandadoc.HTMLFragmentGenerator
 uses org.pandalanguage.pandac.pandadoc.HTMLGenerator
 uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
+uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Position
-uses org.pandalanguage.pandac.tree.SymbolTable
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.GenericType
@@ -21,32 +23,6 @@ uses org.pandalanguage.pandac.types.UnresolvedType
 
 class PandaCompiler {
     constant PANDA_HOME := determinePandaHome()
-
-    constant ERROR_QUEUE_KEY := "PandaCompiler.errorQueue"
-
-    constant SOURCE_QUEUE_KEY := "PandaCompiler.sourceQueue"
-
-    constant SETTINGS_KEY := "PandaCompiler.settings"
-
-    constant TYPES_RESOLVED_KEY := "PandaCompiler.typesResolved"
-
-    @private
-    constant SYMBOLS_LOADED_KEY := "PandaCompiler.symbolsLoaded"
-
-    @private
-    constant PHASE_1_COMPLETE_KEY := "PandaCompiler.phase1Complete"
-
-    @thread
-    def astGenerator := new ASTGenerator()
-
-    @readonly
-    var errors:Int
-
-    @readonly
-    var warnings:Int
-    
-    @private
-    var count:Int
 
     var lastCheckpointLabel:String?
     var lastCheckpointTime:Int64
@@ -140,68 +116,26 @@ class PandaCompiler {
         }
     }
 
-    method processMessage(message:String, position:Position?, warning:Bit) {
-        var prefix:String
-        if warning {
-            warnings += 1
-            prefix := "warning: "
-        }
-        else {
-            errors += 1
-            prefix := "error: "
-        }
-        if position != null
-            prefix += position + ": "
-        Console.writeLine(prefix + message)
-    }
-
-    method processMessages() {
-        def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
-        while queue.pendingMessages() > 0 {
-            def message, position, warning := 
-                    queue.getMessage()->((String, Position?, Bit))
-            processMessage(message, position, warning)
-        }
-    }
-
     @class
     method reportError(message:String, position:Position?) {
-        def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
-        queue.post((message, position, false))
+        throw new NotSupportedException()
     }
     
     @class
     method reportError(e:CompilerException) {
-        var position := e.position
-        if e-?>(InternalCompilerException)
-            Console.writeLine(e)
-        reportError(e.message, position)
+        throw new NotSupportedException()
     }
 
     @class
     method reportWarning(msg:String, position:Position?) {
-        def queue := Thread.context[ERROR_QUEUE_KEY]->(MessageQueue)
-        queue.post((msg, position, true))
+        throw new NotSupportedException()
     }
 
-    @class
-    function symbolsLoaded():Bit {
-        return Thread.context[SYMBOLS_LOADED_KEY] = true
-    }
-    
-    @class
-    function phase1Complete():Bit {
-        return Thread.context[PHASE_1_COMPLETE_KEY] = true
-    }
-    
     method getCount():Int {
-        count += 1
-        return count
+        throw new NotSupportedException()
     }
 
     method checkpoint(label:String) {
-        if true
-            return
         var now := Panda.currentTime()
         var lastCheckpointLabel := lastCheckpointLabel
         if lastCheckpointLabel != null {
@@ -211,502 +145,159 @@ class PandaCompiler {
         self.lastCheckpointLabel := label
         lastCheckpointTime := now
     }
-    
+
     @protected
-    method loadSymbols(f:File) {
-        var parser := new PandaParser()
-        var parseNode := parser.parseCompilationUnit(f)
-        astGenerator.linkageOnly := true
-        var ast := astGenerator.convertCompilationUnit(parseNode, 
-                f.name, f)
-    }
-    
-    @protected
-    method loadSymbols(files:PrimitiveArray<File>) {
-        if CompilerSettings.loadCoreLib
-            loadSymbols(PandaCompiler.PANDA_HOME.resolve(
-                    "shared/core/lib/PandaCoreClasses.plink"))
-        for file in files
-            loadSymbols(file)
+    method getUntypedCompilationUnits(settings:CompilerSettings):
+            (CollectionView<UntypedCompilationUnitStub>, ListView<Message>?) {
+        def result := new Array<UntypedCompilationUnitStub>()
+        var messages:List<Message>? := null
+        def scanner := new Scanner()
+        def workQueue := new MessageQueue()
+        def responseQueue := new MessageQueue()
+        constant THREADS := settings.sources.length.min(
+            Thread.preferredThreadCount)
+        for f in settings.sources
+            workQueue.post(f)
+        for i in 0 .. THREADS {
+            workQueue.post(null)
+            Thread.start(method() {
+                def result := new Array<UntypedCompilationUnitStub>()
+                var messages:List<Message>? := null
+                loop {
+                    def f := workQueue.getMessage()->(File?)
+                    if f = null
+                        break
+                    def input := f.openInputStream()
+                    def parsed := new PandaParser().parseCompilationUnit(f.name,
+                            input)
+                    def stub, subMessages := scanner.convertCompilationUnit(f.name, 
+                            parsed)
+                    result.add(stub)
+                    if subMessages != null {
+                        if messages = null
+                            messages := new Array<Message>()
+                        messages.addAll(subMessages)
+                    }
+                    input.close()
+                }
+                def responseMessages:ImmutableArray<Message>?
+                if messages != null
+                    responseMessages := new ImmutableArray<Message>(messages)
+                else
+                    responseMessages := null
+                responseQueue.post(
+                        (new ImmutableArray<UntypedCompilationUnitStub>(result),
+                         responseMessages))
+            })
+        }
+        for i in 0 .. THREADS {
+            def subresult, submessages := responseQueue.getMessage()->((ImmutableArray<UntypedCompilationUnitStub>, ImmutableArray<Message>?))
+            result.addAll(subresult)
+            if submessages != null {
+                if messages = null
+                    messages := new Array<Message>()
+                messages.addAll(submessages)
+            }
+        }
+        return (result, messages)
     }
 
     @private
-    method finalizeClasses() {
-        -- have to finalize the mutable arrays first, since the immutable ones 
-        -- depend upon them
-        for cl in SymbolTable.classes {
-            def type := cl.type()
-            if !type.isImmutable | !type.isPrimitiveArray
-                type.performFinalClassInitialization()
-        }
-        for cl in SymbolTable.classes {
-            def type := cl.type()
-            if type.isPrimitiveArray {
-                if type.isImmutable
-                    type.performFinalClassInitialization()
-            }
-        }
-    }
-
-    @protected
-    method resolveType(s:SymbolTable, t:Type):Type {
-        if t-!>(UnresolvedType) | t = Type.UNRESOLVED
-            return t
-        var resolved := s.getType(t->(UnresolvedType).position, t.name)
-        if resolved-?>(UnresolvedType) {
-            reportError(new CompilerException("class '" + resolved.name + 
-                    "' not found", t->(UnresolvedType).position))
-        }
-        return resolved
-    }
-
-    @protected
-    method resolveTypes() {
-        var allClasses := SymbolTable.classes
-        var done := false
-        do {
-            for cl in allClasses {
-                if cl.getProperty(TYPES_RESOLVED_KEY) = true
-                    continue
-                def symbolTable := cl.symbolTable
-                def supertype := cl.supertype
-                if supertype != null {
-                    var t := resolveType(symbolTable, supertype)
-                    if t.isPrimitive
-                        t := t->(PrimitiveType).wrapperVersion()
-                    cl.supertype := t->(ClassType)
-                    if t.classNode.isInterface {
-                        reportError(new CompilerException(
-                                "interface '" + t.displayName + 
-                                "' cannot be subclassed by a class", 
-                                cl.position))
-                    }
-                    if t.classNode.annotations.isFinal {
-                        reportError(new CompilerException("final class " +
-                                "'\{t.displayName}' cannot be subclassed", 
-                                cl.position))
-                    }
-                }
-                for i, intf in cl.interfaces {
-                    def t := resolveType(symbolTable, intf)
-                    if t-?>(ClassType) & t->(ClassType).classNode.isInterface {
-                        cl.interfaces[i] := t->(ClassType)
-                        var rawClass := t.classNode
-                        cl.symbolTable.interfaces.add(rawClass.symbolTable)
-                    }
-                    else {
-                        reportError(new CompilerException("'" + t.displayName + 
-                                "' is not an interface", cl.position))
-                    }
-                }
-                for i, t in cl.genericParameterTypes
-                    SymbolTable.master.bounds[t] := resolveType(symbolTable, t.bound)
-                for child in cl.children {
-                    if child-?>(FieldNode) {
-                        def f := child->(FieldNode)
-                        if !cl.annotations.isUnspecified | 
-                                f.annotations.isThread |
-                                f.annotations.isClass |
-                                f.pendingValue = null
-                            f.type := resolveType(symbolTable, f.type)
-                    }
-                    else if child-?>(MethodNode) {
-                        def m := child->(MethodNode)
-                        if !cl.annotations.isUnspecified | 
-                                m.annotations.isClass {
-                            m.returnType := resolveType(symbolTable, 
-                                    m.returnType)
-                            def parameters := m.parameters
-                            for i, p in parameters
-                                parameters[i].type := resolveType(symbolTable, 
-                                        p.type)
-                        }
-                    }
-                }
-                cl.setProperty(TYPES_RESOLVED_KEY, true)
-            }
-            Thread.context[SYMBOLS_LOADED_KEY] := true
-            def newClasses := SymbolTable.classes
-            done := allClasses.length = newClasses.length
-            allClasses := newClasses
-        }
-        while !done
-    }
-
-    @private
-    function isUnspecified(m:MethodNode):Bit {
-        if m.returnType.isUnspecified
-            return true
-        for p in m.parameters {
-            if p.type.isUnspecified
+    function fatal(messages:ListView<Message>?):Bit {
+        if messages = null
+            return false
+        for m in messages {
+            if !m.warning
                 return true
         }
         return false
     }
 
-    @protected
-    method markGenericMethods() {
-        for cl in SymbolTable.classes {
-            for m in cl.methods.filter(
-                    m => m.methodType != MethodNodeType.CONSTRUCTOR) {
-                if isUnspecified(m)
-                    m.annotations.isUnspecified := true
-            }
-        }
+    @private
+    method getTypedCompilationUnits(
+            untypedCompilationUnits:CollectionView<UntypedCompilationUnitStub>):
+                (ListView<TypedCompilationUnitStub>, ListView<Message>?) {
+        return new TypeResolver(untypedCompilationUnits).resolveTypes()
     }
 
     @protected
-    method compile(f:File) {
-        try {
-            var parser := new PandaParser()
-            var parseNode := parser.parseCompilationUnit(f)
-            astGenerator.convertCompilationUnit(parseNode, f.name, f)
+    method compile(settings:CompilerSettings):ListView<Message>? {
+        var messages:List<Message>? := null
+        checkpoint("loading symbols")
+        def untypedCompilationUnits, phase1Messages := 
+                getUntypedCompilationUnits(settings)
+        if phase1Messages != null {
+            if messages = null
+                messages := new Array<Message>()
+            messages.addAll(phase1Messages)
         }
-        catch e:CompilerException {
-            reportError(e)
-        }
-    }
-    
-    @private
-    method writeErrors() {
-        Console.write(errors + " error")
-        if errors != 1
-            Console.write("s")
-    }
-    
-    @private
-    method writeWarnings() {
-        Console.write(warnings + " warning")
-        if warnings != 1
-            Console.write("s")
-    }
+        if fatal(messages)
+            return messages
 
-    -- ensure PrimitiveArray / ImmutablePrimitiveArray are created in pairs where applicable
-    @private
-    method fixPrimitiveArrays() {
-        var classes := SymbolTable.classes
-        for c in classes {
-            if c.isPrimitiveArray() {
-                var elementType := c.type().elementType
-                if c.type().isImmutable {
-                    var m := class(PrimitiveArray).name + 
-                            c.name[class(ImmutablePrimitiveArray).name.length..]
-                    SymbolTable.master.getType(c.position, m)
-                }
-                else if elementType.isImmutable {
-                    var im := class(ImmutablePrimitiveArray).name + 
-                            c.name[class(PrimitiveArray).name.length..]
-                    SymbolTable.master.getType(c.position, im)
-                }
-            }
+        checkpoint("resolving types")
+        def typedCompilationUnits, phase2Messages :=
+                getTypedCompilationUnits(untypedCompilationUnits)
+        if phase2Messages != null {
+            if messages = null
+                messages := new Array<Message>()
+            messages.addAll(phase2Messages)
         }
+        if fatal(messages)
+            return messages
+
+        checkpoint("done")
+        Console.writeLine("done")
+        return messages
     }
 
-    @private
-    -- FIXME use a set
-    method detectClassCircularity(root:ClassNode, var current:ClassNode?, 
-            visited:PrimitiveArray<ClassNode>) {
-        -- we can legitimately run into the same class twice, when an interface
-        -- is inherited via two different paths, so we only fail when we run 
-        -- into the root class again, not just *any* class we have visited
-        if root = current {
-            throw new CompilerException(root + " is its own superclass",
-                    root.position)
-        }
-        if current = null
-            current := root
-        for test in visited {
-            if test = current
-                return
-        }
-        visited.append(current)
-        var superclass := current.superclass
-        if superclass != null
-            detectClassCircularity(root, superclass, visited)
-        for intf in current.interfaces
-            detectClassCircularity(root, intf.classNode, visited)
+    function processArguments(args:PrimitiveArray<String>):CompilerSettings {
+        def sources := new Array<File>()
+        sources.add(PANDA_HOME.resolve(
+                "shared/core/lib/PandaCoreClasses.plink"))
+        for arg in args.filter(arg => arg.endsWith(".panda"))
+            sources.add(new File(arg))
+        return new CompilerSettings(sources)
     }
 
-    @private
-    method detectClassCircularity() {
-        for cl in SymbolTable.classes.filter(
-                cl => !cl.annotations.isUnspecified) {
-            var visited := new PrimitiveArray<ClassNode>()
-            detectClassCircularity(cl, null, visited)
-        }
-    }
-
-    @private
-    method checkMethodImplementations() {
-        for cl in SymbolTable.classes.filter(
-                cl => !cl.annotations.isUnspecified) {
-            var isAbstract := cl.annotations.isAbstract | 
-                    cl.isInterface
-            for m in cl.virtualMethods {
-                if m.annotations.isAbstract & !isAbstract {
-                    reportError(new CompilerException(
-                            "non-abstract class \{cl.name} does not " +
-                            "implement abstract \{m} (among \{cl.children})",
-                            cl.position))
-                }
-            }
-            for intf in cl.allInterfaces() {
-                if !intf.isInterface {
-                    reportError(new CompilerException(
-                            "\{intf.name} is not an interface", cl.position))
-                }
-                for m in cl.interfaceMethods(intf) {
-                    if m.annotations.isAbstract &
-                            !(cl.annotations.isAbstract | cl.isInterface) {
-                        reportError("non-abstract class \{cl.name} " + 
-                                "does not implement interface \{m} (among \{cl.children})",
-                                cl.position)
-                    }
-                }
-            }
-        }
-    }
-
-    @protected
-    method compile() {
-        try {
-            Thread.context[ERROR_QUEUE_KEY] := new MessageQueue()
-            checkpoint("loading symbols")
-            def symbolFiles := new PrimitiveArray<File>()
-            def sources := CompilerSettings.sources
-            if sources.length = 0
-                throw new CompilerException("no input files specified")
-            for source in sources
-                symbolFiles.append(source)
-        
-            loadSymbols(symbolFiles)
-            processMessages()
-            if errors > 0
-                return
-            for module in CompilerSettings.modules {
-                -- the exists() check is a quick way of dealing with the case
-                -- where we're in the middle of building the module itself, and
-                -- the auto-import tries to import the module plink as a result
-                if module.plink.exists()
-                    loadSymbols(module.plink)
-            }
-
-            checkpoint("resolving types")
-            resolveTypes()
-            processMessages()
-            if errors > 0
-                return
-
-            checkpoint("marking generic methods")
-            markGenericMethods()
-
-            checkpoint("finalizing classes")
-            finalizeClasses()
-
-            checkpoint("detect class circularity")
-            detectClassCircularity()
-
-            checkpoint("generating AST")
-            astGenerator.linkageOnly := false
-            astGenerator.phase1Complete()
-            Thread.context[PHASE_1_COMPLETE_KEY] := true
-            for source in sources {
-                if !source.path.endsWith(".plink")
-                    compile(source)
-            }
-            
-            processMessages()
-            if errors > 0
-                return
-
-            checkpoint("finishGenerics")
-            var types := SymbolTable.types
-            loop {
-                for type in types {
-                    if type-?>(GenericType)
-                        type->(GenericType).compilePhase2()
-                }
-                def newTypes := SymbolTable.types
-                if types.length = newTypes.length
-                    break
-                types := newTypes
-            }
-            processMessages()
-            if errors > 0
-                return
-
-            checkpoint("fixPrimitiveArrays")
-            fixPrimitiveArrays()
-            processMessages()
-            if errors > 0
-                return
-
-            checkpoint("finishGenerics2 FIXME REMOVE THIS")
-            for type in SymbolTable.types {
-                if type-?>(GenericType)
-                    type->(GenericType).compilePhase2()
-            }
-
-            checkpoint("checkMethodImplementations")
-            checkMethodImplementations()
-            processMessages()
-            if errors > 0
-                return
-
-            processMessages()
-            if errors > 0
-                return
-            checkpoint("dataflow")
-            new DataFlowAnalyzer().performAnalysis()
-            processMessages()
-            if errors > 0
-                return
-            checkpoint("optimizing")
-            new Optimizer().optimize(astGenerator)
-            processMessages()
-            if errors > 0
-                return
-        
-            checkpoint("codegen")
-            var cg:CodeGenerator
-            switch CompilerSettings.codeGenerator {
-                case "exec":  cg := new ExecutableCodeGenerator()
-                case "lib":   cg := new LibraryCodeGenerator()
-                case "plink": cg := new PLinkCodeGenerator()
-                case "llvm":  cg := new LLVMCodeGenerator()
-                case "doc":   cg := new PandaDoc()
-                case "html":  cg := new HTMLGenerator()
-                case "htmlfragment":  cg := new HTMLFragmentGenerator()
-                case "h":     cg := new HeaderCodeGenerator()
-                case "java":  cg := new JavaCodeGenerator()
-                case "javah": cg := new JavaHeaderCodeGenerator()
-                case "jar":   cg := new JARCodeGenerator()
-                case "js":    cg := new JavaScriptCodeGenerator()
-                default: throw new CompilerException("unsupported output " +
-                        "format '" + CompilerSettings.codeGenerator + "'")
-            }
-
-            var output := CompilerSettings.output
-            if output = null {
-                if sources.length = 1 {
-                    def defaultExtension := cg.defaultExtension
-                    if defaultExtension = null {
-                        throw new CompilerException("must use -o to specify " +
-                                "output path with '-f \{CompilerSettings.codeGenerator}'")
-                    }
-                    var parent := sources[0].parent()
-                    if parent = null
-                        throw new CompilerException("cannot determine parent" +
-                                "directory of " + sources[0])
-                    output := parent.resolve(sources[0].simpleName +
-                            defaultExtension)
-                }
-                else {
-                    throw new CompilerException("multiple input files " +
-                            "specified, use -o to specify output path")
-                }
-            }
- 
-            cg.generateCode(output)
-        }
-        catch e:CompilerException {
-            reportError(e)
-        }
-        catch e:Exception {
-            Console.writeLine(e)
-        }
-        processMessages()
-    }
-
-    method processArguments(arg:PrimitiveArray<String>) {
-        -- just a quick hack until I write a general argument-parsing library
-        def librarySearchPaths:PrimitiveArray<File> := [new File("/opt/local/lib")]
-        def libraries:PrimitiveArray<String> := ["panda", "gc", "icui18n", "icuuc", 
-                "icudata"]
-        def sources:PrimitiveArray<File> := []
-        def objectFiles:PrimitiveArray<File> := []
-
-        var i := 0
-        while i < arg.length {
-            if arg[i] = "-o" {
-                i += 1
-                CompilerSettings.setOutput(new File(arg[i]))
-            }
-            else if arg[i] = "-L" {
-                i += 1
-                librarySearchPaths.append(new File(arg[i]))
-            }
-            else if arg[i] = "-l" {
-                i += 1
-                libraries.append(arg[i])
-            }
-            else if arg[i] = "-S0" {
-                CompilerSettings.setAssertions(false)
-                CompilerSettings.setPreconditions(false)
-                CompilerSettings.setPostconditions(false)
-                CompilerSettings.setInvariants(false)
-                CompilerSettings.setOverflowChecking(false)
-                CompilerSettings.setBoundsChecking(false)
-                CompilerSettings.setCheckCasts(false)
-            }
-            else if arg[i] = "-f" {
-                i += 1
-                CompilerSettings.setCodeGenerator(arg[i])
-            }
-            else if arg[i] = "-XpreserveTempArtifacts"
-                CompilerSettings.setPreserveTempArtifacts(true)
-            else if arg[i] = "-Xnewbuild"
-                CompilerSettings.setNewBuild(true)
-            else if arg[i] = "-XnoCoreLib"
-                CompilerSettings.setLoadCoreLib(false)
-            else {
-                if arg[i].endsWith(".panda") | arg[i].endsWith(".plink")
-                    sources.append(new File(arg[i]))
-                else if arg[i].endsWith(".o")
-                    objectFiles.append(new File(arg[i]))
-                else {
-                    throw new CompilerException("unrecognized parameter: '" + 
-                            arg[i] + "'")
-                }
-            }
-            i += 1
-        }
-
-        librarySearchPaths.append(
-                PANDA_HOME.resolve("native/core/lib"))
-
-        CompilerSettings.setLibraries(libraries->>(ImmutablePrimitiveArray<String>))
-        CompilerSettings.setLibrarySearchPaths(librarySearchPaths)
-        CompilerSettings.setSources(sources)
-        CompilerSettings.setObjectFiles(objectFiles->>(ImmutablePrimitiveArray<File>))
+    method runWithArgs(args:PrimitiveArray<String>):ListView<Message>? {
+        def settings := processArguments(args)
+        return compile(settings)
     }
 
     @class
-    method main(arg:PrimitiveArray<String>) {
+    method main(args:PrimitiveArray<String>) {
         try {
-            if arg.length < 1 {
+            if args.length < 1 {
                 Console.writeLine("usage: pandac <input.panda>")
                 System.exit(1)
             }
-            CompilerSettings.setDefaults()
-            var pandac := new PandaCompiler()
-            SymbolTable.initMaster()
-            pandac.processArguments(arg)
-            pandac.compile()
-            if pandac.errors > 0 {
-                pandac.writeErrors()
-                if pandac.warnings > 0
-                    Console.write(", ")
-                else
+            def pandac := new PandaCompiler()
+            def result := pandac.runWithArgs(args)
+            if result != null {
+                var warnings := 0
+                var errors := 0
+                for m in result {
+                    if m.warning
+                        warnings += 1
+                    else
+                        errors += 1
+                    Console.writeLine(m)
+                }
+                if errors != 0 {
+                    Console.write(errors + " error")
+                    if errors != 1
+                        Console.write("s")
+                }
+                if warnings != 0 {
+                    if errors != 0
+                        Console.write(", ")
+                    Console.write(errors + " warning")
+                    if errors != 1
+                        Console.write("s")
+                }
+                if errors + warnings != 0
                     Console.writeLine()
             }
-            if pandac.warnings > 0 {
-                pandac.writeWarnings()
-                Console.writeLine()
-            }
-            pandac.checkpoint("finished")
-            if pandac.errors > 0
-                System.exit(2)
             System.exit(0)
         }
         catch e:Error {

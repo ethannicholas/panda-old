@@ -37,7 +37,16 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
                 Thread.$context.set(context);
                 nativeToPanda.put(java.lang.Thread.currentThread(), self);
                 pandaToNative.put(self, java.lang.Thread.currentThread());
-                self.run();
+                try {
+                    self.run();
+                }
+                catch (ThreadDeath e) {
+                    throw e;
+                }
+                catch (Throwable e) {
+                    e.printStackTrace();
+                    System.exit(1);
+                }
                 nativeToPanda.remove(java.lang.Thread.currentThread());
                 pandaToNative.remove(self);
             }
