@@ -1,11 +1,15 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.compiler.TypeMap
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.parser.ParseNodeType
 uses org.pandalanguage.pandac.parser.Token
 uses org.pandalanguage.pandac.parser.TokenNode
 uses org.pandalanguage.pandac.parser.TokenType
+uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.tree.AbstractLoop
 uses org.pandalanguage.pandac.tree.Add
 uses org.pandalanguage.pandac.tree.And
@@ -101,6 +105,7 @@ uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.VariableType
 uses org.pandalanguage.pandac.tree.While
 uses org.pandalanguage.pandac.tree.Xor
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
@@ -125,41 +130,216 @@ uses org.pandalanguage.pandac.types.UnresolvedTypeException
 uses org.pandalanguage.pandac.types.VoidType
 uses org.pandalanguage.pandac.types.WrapperType
 
+class Context : Immutable {
+    def lookupContext:LookupContext
+
+    def typeMap:TypeMap
+
+    def localVariables:ImmutableHashMap<String, Variable>
+
+    constructor(lookupContext:LookupContext, typeMap:TypeMap,
+            localVariables:ListView<Variable>) {
+        self.lookupContext := lookupContext
+        self.typeMap := typeMap
+        def localVariableMap := new HashMap<String, Variable>()
+        for v in localVariables
+            localVariableMap[v.name] := v
+        self.localVariables := new ImmutableHashMap<String, Variable>(
+                localVariableMap)
+    }
+
+    function +(variables:ListView<Variable>):Context {
+        def newVariables := new Array<Variable>(localVariables.values)
+        newVariables.addAll(variables)
+        return new Context(lookupContext, typeMap, newVariables)
+    }
+}
+
 ================================================================================
-Converts a Panda parse tree into an abstract syntax tree. This represents the
-vast majority of the compilation effort; at the end of this process, we have
-(hopefully) fully comprehended the program and have generated a ready-to-execute
-syntax tree, though one which still needs safety analysis (including insertion
-of precondition / postcondition checks) and optimization.
+Converts typed stubs into AST nodes.
 ================================================================================
-class ASTGenerator {
+class ASTGenerator : Immutable (MessageProcessor) {
+    @class
+    @pre(t.type = ParseNodeType.TYPE)
+    method convertType(context:Context, t:ParseNode):
+            (Type?, ListView<Message>?) {
+        return context.typeMap.getType(t, context.lookupContext)
+    }
+
+    @class
+    @pre(e.type = ParseNodeType.EXPRESSION)
+    method convertExpression(context:Context, e:ParseNode):
+            (Value, ListView<Message>?) {
+        throw new NotSupportedException()
+    }
+
+    ============================================================================
+    Processes a VAR_DECLARATION parse node. Returns a list of variables and
+    statements to initialize them.
+    ============================================================================
+    @class
+    @pre(v.type = ParseNodeType.VAR_DECLARATION)
+    method convertVariableDeclaration(context:Context, v:ParseNode):
+            (Statement?, Context, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        def variables := new Array<Variable>()
+        def statements := new Array<Statement>()
+        def varType:VariableType
+        switch v[0]->(TokenNode).token.type {
+            case TokenType.VAR:      varType := VariableType.VAR
+            case TokenType.DEF:      varType := VariableType.DEF
+            case TokenType.CONSTANT: varType := VariableType.CONSTANT
+            default: unreachable
+        }
+        def positions := new Array<Position>()
+        def names := new Array<String?>()
+        def types := new Array<Type?>()
+        var i := 1
+        loop {
+            positions.add(v[i].position)
+            var name:String?
+            if v[i]->(TokenNode).token.type = TokenType.UNDERSCORE
+                name := null
+            else {
+                assert v[i]->(TokenNode).token.type = TokenType.IDENTIFIER
+                name := v[i]->>(String)
+            }
+            i += 1
+            def type:Type?
+            if i < v.length & v[i].type = ParseNodeType.TYPE_DECLARATION {
+                def submessages:ListView<Message>?
+                type, submessages := convertType(context, v[i][1])
+                messages := addMessages(messages, submessages)
+                i += 1
+            }
+            else
+                type := null
+            names.add(name)
+            types.add(type)
+            if i >= v.length | v[i].type != ParseNodeType.TOKEN | 
+                    v[i]->(TokenNode).token.type != TokenType.COMMA
+                break
+            i += 1
+        }
+        def value:Value?
+        if i < v.length {
+            assert v[i]->(TokenNode).token.type = TokenType.ASSIGNMENT
+            i += 1
+            def submessages:ListView<Message>?
+            value, submessages := convertExpression(context, v[i])
+            messages := addMessages(messages, submessages)
+        }
+        else
+            value := null
+        var reusableTuple:ReusedValueDefinition? := null
+        if names.length > 1 {
+            if value != null {
+                def valueType := value.preferredVariableType
+                if !valueType.isTuple | 
+                        valueType->>(TupleType).types.length != names.length {
+                    messages := addMessage(messages, "expected a tuple with " +
+                                "length \{names.length} for multi-value " +
+                                "assignment", value.position)
+                }
+                for j, type in types {
+                    if type = null
+                        types[j] := valueType->>(TupleType).types[j].preferredVariableType
+                }
+                if value-!>(UnresolvedTuple)
+                    reusableTuple := new ReusedValueDefinition(value)
+            }
+        }
+        else if value != null & types[0] = null
+            types[0] := value.preferredVariableType
+        if names.length = 1 & names[0] = null {
+            messages := addMessage(messages, "'_' is only permitted in " +
+                    "multiple assignments from a tuple", positions[0])
+        }
+        for j, name in names {
+            if name = null
+                continue
+            def position := positions[j]
+            def type := types[j]
+            if type = null | type = NullType.NULL {
+                throw new CompilerException(
+                        "'\{name}' has neither an initial " +
+                            "value nor an explicit type", position)
+            }
+            def variable := new LocalVariable(position, name, type, varType)
+--            currentBlock.symbolTable.putVariable(variable)
+            if value != null {
+                def effectiveValue:Value
+                if reusableTuple != null {
+-*                    effectiveValue := getField(value.position, 
+                            reusableTuple.createReference(), "$field" + j).
+                                implicitCast(variable.type)*-
+                    unreachable
+                }
+                else if value-?>(UnresolvedTuple) & names.length > 1 {
+                    def element := value->(UnresolvedTuple).values[j]
+                    def submessages:ListView<Message>?
+                    effectiveValue, submessages := element.implicitCast(
+                            variable.type)
+                    messages := addMessages(messages, submessages)
+                }
+                else {
+                    def submessages:ListView<Message>?
+                    effectiveValue, submessages := value.implicitCast(
+                            variable.type)
+                    messages := addMessages(messages, submessages)
+                }
+                def va := new VariableAssignment(position, variable, 
+                        effectiveValue, true)
+                statements.add(new ValueStatement(va))
+            }
+        }
+        def newContext := context + variables
+        if statements.length = 0
+            return (null, newContext, messages)
+        if statements.length = 1
+            return (statements[0], newContext, messages)
+        return (new Block(v.position, statements), newContext, messages)
+    }
+
     ============================================================================
     Processes a SIMPLE_STATEMENT parse node.
     ============================================================================
     @class
     @pre(s.type = ParseNodeType.SIMPLE_STATEMENT)
-    function convertSimpleStatement(context:Context, s:ParseNode):
-            (Statement, Context) {
+    method convertSimpleStatement(context:Context, s:ParseNode):
+            (Statement?, Context, ListView<Message>?) {
         assert s.length = 1
         switch s[0].type {
--*            case ParseNodeType.VAR_DECLARATION: 
-                return convertVariableDeclaration(s[0])
-            case ParseNodeType.CONSTANT_DECLARATION: 
+            case ParseNodeType.VAR_DECLARATION: 
+                return convertVariableDeclaration(context, s[0])
+-*            case ParseNodeType.CONSTANT_DECLARATION: 
                 return convertConstantDeclaration(s[0])
-            case ParseNodeType.CALL_OR_ASSIGNMENT: 
-                return (convertCallOrAssignment(s[0]), context)
-            case ParseNodeType.ANY_LOOP: 
-                return (convertAnyLoop(s[0]), context)
-            case ParseNodeType.IF: 
-                return (convertIf(s[0]), context)
-            case ParseNodeType.SWITCH_STATEMENT: 
-                return (convertSwitch(s[0]), context)
-            case ParseNodeType.ASSERT_STATEMENT: 
-                return (convertAssert(s[0]), context)
-            case ParseNodeType.TRY_STATEMENT: 
-                return (convertTryStatement(s[0]), context)*-
+            case ParseNodeType.CALL_OR_ASSIGNMENT: {
+                def call, message := convertCallOrAssignment(context, s[0])
+                return (call, context, messages)
+            }
+            case ParseNodeType.ANY_LOOP:  {
+                def l, messages := convertAnyLoop(context, s[0])
+                return (l, context, messages)
+            }
+            case ParseNodeType.IF: {
+                def i, messages := convertIf(context, s[0])
+                return (i, context, messages)
+            }
+            case ParseNodeType.SWITCH_STATEMENT: {
+                def s, messages := convertSwitch(context, s[0])
+                return (convertSwitch(s[0]), context, messages)
+            }
+            case ParseNodeType.ASSERT_STATEMENT: {
+                def a, messages := convertAssert(context, s[0])
+                return (a, context, messages)
+            }
+            case ParseNodeType.TRY_STATEMENT: {
+                def t, messages := convertTryStatement(context, s[0])
+                return (t, context, messages)
+            }*-
             default: throw new InternalCompilerException(
-                    "unsupported simple statement: \{s[0].class.name}", 
+                    "unsupported simple statement: \{s[0].type}", 
                     s.position)
         }
     }
@@ -169,7 +349,7 @@ class ASTGenerator {
     ============================================================================
     @class
     @pre(t.type = ParseNodeType.THROW_STATEMENT)
-    function convertThrowStatement(context:Context, t:ParseNode):Throw {
+    method convertThrowStatement(t:ParseNode):(Throw, ListView<Message>?) {
 -*        return new Throw(t.position, implicitCast(t[1].position,
                 convertExpression(t[1]), ClassType.ERROR())))*-
         throw new NotSupportedException()
@@ -180,28 +360,29 @@ class ASTGenerator {
     ============================================================================
     @class
     @pre(t->(TokenNode).token.type = TokenType.UNREACHABLE)
-    function convertUnreachable(context:Context, t:ParseNode):Unreachable {
+    function convertUnreachable(t:ParseNode):Unreachable {
         return new Unreachable(t.position)
     }
 
     @class
     @pre(s.type = ParseNodeType.TERMINAL_STATEMENT)
-    function convertTerminalStatement(context:Context, s:ParseNode):Statement {
+    method convertTerminalStatement(context:Context, s:ParseNode):
+            (Statement, ListView<Message>?) {
         assert s.length = 1
         switch s[0].type {
             case ParseNodeType.BREAK_STATEMENT: {
                 def b := s[0]
                 if b.length > 1
-                    return new Break(b.position, b[1]->>(String))
+                    return (new Break(b.position, b[1]->>(String)), null)
                 else
-                    return new Break(b.position)
+                    return (new Break(b.position), null)
             }
             case ParseNodeType.CONTINUE_STATEMENT: {
                 def c := s[0]
                 if c.length > 1
-                    return new Continue(c.position, c[1]->>(String))
+                    return (new Continue(c.position, c[1]->>(String)), null)
                 else
-                    return new Continue(c.position)
+                    return (new Continue(c.position), null)
             }
             case ParseNodeType.RETURN_STATEMENT: {
                 def r := s[0]
@@ -214,12 +395,14 @@ class ASTGenerator {
                                     cm.returnType)))*-
                 }
                 else
-                    return new Return(r.position)
+                    return (new Return(r.position), null)
             }
-            case ParseNodeType.THROW_STATEMENT: 
-                return convertThrowStatement(context, s[0])
+-*            case ParseNodeType.THROW_STATEMENT: {
+                def t, messages := convertThrowStatement(context, s[0])
+                return (t, messages)
+            }*-
             case ParseNodeType.TOKEN: 
-                return convertUnreachable(context, s[0])
+                return (convertUnreachable(s[0]), null)
             default: {
                 throw new InternalCompilerException(
                         "unsupported terminal statement: \{s[0].class.name}", 
@@ -233,14 +416,16 @@ class ASTGenerator {
     ============================================================================
     @class
     @pre(s.type = ParseNodeType.STATEMENT)
-    function convertStatement(context:Context, s:ParseNode):
-            (Statement, Context) {
+    method convertStatement(context:Context, s:ParseNode):
+            (Statement?, Context, ListView<Message>?) {
         assert s.length = 1
         switch s[0].type {
             case ParseNodeType.SIMPLE_STATEMENT: 
                 return convertSimpleStatement(context, s[0])
-            case ParseNodeType.BLOCK: 
-                return (convertBlock(context, s[0]), context)
+            case ParseNodeType.BLOCK: {
+                def b, messages := convertBlock(context, s[0])
+                return (b, context, messages)
+            }
             default: throw new InternalCompilerException(
                     "unsupported statement: \{s[0].class.name}", s[0].position)
         }
@@ -251,16 +436,24 @@ class ASTGenerator {
     ============================================================================
     @class
     @pre(b.type = ParseNodeType.STATEMENT_OR_BLOCK)
-    function convertStatementOrBlock(context:Context, b:ParseNode):Block {
+    method convertStatementOrBlock(context:Context, b:ParseNode):
+            (Block, ListView<Message>?) {
         if b[0].type = ParseNodeType.BLOCK
             return convertBlock(context, b[0])
         else {
-            def statement:Statement
-            if b[0].type = ParseNodeType.SIMPLE_STATEMENT
-                statement := convertSimpleStatement(context, b[0])[0]
+            def statement:Statement?
+            def messages:ListView<Message>?
+            if b[0].type = ParseNodeType.SIMPLE_STATEMENT {
+                def ignored:Context
+                statement, ignored, messages := convertSimpleStatement(context,
+                        b[0])
+            }
             else
-                statement := convertTerminalStatement(context, b[0])
-            return new Block(context, b.position, [statement])
+                statement, messages := convertTerminalStatement(context, b[0])
+            def statements := new Array<Statement>()
+            if statement != null
+                statements.add(statement)
+            return (new Block(b.position, statements), messages)
         }
     }
 
@@ -269,20 +462,26 @@ class ASTGenerator {
     ============================================================================
     @class
     @pre(b.type = ParseNodeType.BLOCK)
-    function convertBlock(context:Context, b:ParseNode):Block {
+    method convertBlock(context:Context, b:ParseNode):
+            (Block, ListView<Message>?) {
+        var messages:ListView<Message>? := null
         def statements := new Array<Statement>()
         var currentContext := context
         for i in 1 ... b.length - 2 {
             switch b[i].type {
                 case ParseNodeType.STATEMENT: {
-                    def statement, newContext := convertStatement(currentContext, 
-                            b[i])
-                    statements.add(statement)
+                    def statement, newContext, submessages := 
+                            convertStatement(currentContext, b[i])
+                    if statement != null
+                        statements.add(statement)
                     currentContext := newContext
+                    messages := addMessages(messages, submessages)
                 }
                 case ParseNodeType.TERMINAL_STATEMENT: {
-                    statements.add(convertTerminalStatement(currentContext, 
-                            b[i]))
+                    def statement, submessages := convertTerminalStatement(
+                            currentContext, b[i])
+                    statements.add(statement)
+                    messages := addMessages(messages, submessages)
                 }
                 default: {
                     throw new InternalCompilerException(
@@ -291,6 +490,67 @@ class ASTGenerator {
                 }
             }
         }
-        return new Block(context, b.position, statements)
+        return (new Block(b.position, statements), messages)
+    }
+
+    method convertMethod(context:Context, m:TypedMethodStub):
+            (MethodNode, ListView<Message>?) {
+        def block:Block?
+        def messages:ListView<Message>?
+        if m.block != null
+            block, messages := convertBlock(context, m.block->(ParseNode))
+        else {
+            block := null
+            messages := null
+        }
+        def parameters := new Array<Parameter>()
+        return (new MethodNode(m.position, m.name, parameters, m.returnType,
+                m.annotations, block), messages)
+    }
+
+    method convertClass(cl:TypedClassStub, typeMap:TypeMap):
+            (ClassNode, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        def methods := new Array<MethodNode>()
+        def fields := new Array<FieldNode>()
+        for m in cl.methods {
+            def context := new Context(cl.lookupContext, typeMap, 
+                    new Array<Variable>())
+            def compiled, submessages := convertMethod(context, m)
+            methods.add(compiled)
+            messages := addMessages(messages, submessages)
+        }
+        def result := new ClassNode(cl.position, cl.name, cl.isInterface, 
+            cl.annotations, cl.lookupContext, cl.superclass, cl.interfaces, 
+            methods, fields, cl.invariants,
+            cl.genericParameters)
+        return (result, messages)
+    }
+
+    method convertCompilationUnit(compilationUnit:TypedCompilationUnitStub,
+            typeMap:TypeMap):
+            (CollectionView<ClassNode>, ListView<Message>?) {
+        def result := new Array<ClassNode>()
+        var messages:ListView<Message>? := null
+        for cl in compilationUnit.classes {
+            def classNode, submessages := convertClass(cl, typeMap)
+            result.add(classNode)
+            messages := addMessages(messages, submessages)
+        }
+        return (result, messages)
+    }
+
+    method convertCompilationUnits(
+            compilationUnits:CollectionView<TypedCompilationUnitStub>,
+            typeMap:TypeMap):
+                (CollectionView<ClassNode>, ListView<Message>?) {
+        def result := new Array<ClassNode>()
+        var messages:ListView<Message>? := null
+        for cu in compilationUnits {
+            def classes, submessages := convertCompilationUnit(cu, typeMap)
+            result.addAll(classes)
+            messages := addMessages(messages, submessages)
+        }
+        return (result, messages)
     }
 }

@@ -1,37 +1,13 @@
 package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.compiler.LookupContext
+uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
-
-enum ClassNodeState {
-    ============================================================================
-    The class name was referenced, but the class definition has not yet been
-    processed.
-    ============================================================================
-    UNKNOWN,
-
-    ============================================================================
-    The class definition has been parsed.
-    ============================================================================
-    DEFINED,
-
-    ============================================================================
-    The class was defined in a plink file.
-    ============================================================================
-    EXTERNALLY_DEFINED,
-
-    ============================================================================
-    The class is an array or generic instance which was referenced by an
-    @$instance declaration in a plink file. The class has not yet been fully
-    initialized; it will transition to EXTERNALLY_DEFINED on initialization.
-    ============================================================================
-    EXTERNAL_INSTANCE
-}
-
 
 ================================================================================
 Represents a parsed class. `ClassNode` should always be the child of a 
@@ -39,101 +15,51 @@ Represents a parsed class. `ClassNode` should always be the child of a
 `ClassNode` and `ClassType`; one will never exist without the other.
 ================================================================================
 class ClassNode : Node {
-    constant DEFAULT_IMPORTS := ["panda.core", "panda.collections", "panda.io", 
-            "panda.math", "panda.threads"]
-
-    constant CORE := "panda.core."
-
-    constant COLLECTIONS := "panda.collections."
-
-    constant OBJECT_NAME          := CORE + "Object"
-                                 
-    constant CLASS_NAME           := CORE + "Class"
-                                 
-    constant PRIMITIVE_ARRAY_NAME := COLLECTIONS + "PrimitiveArray"
-                                 
-    constant IMMUTABLE_PRIMITIVE_ARRAY_NAME := COLLECTIONS + "ImmutablePrimitiveArray"
-                                 
-    constant STRING_NAME          := CORE + "String"
-                                 
-    constant PRIMITIVE_NAME       := CORE + "Primitive"
-                                 
-    constant NUMBER_NAME          := CORE + "Number"
-                                 
-    constant PANDA_NAME           := CORE + "Panda"
-                                 
-    constant IMMUTABLE_NAME       := CORE + "Immutable"
-    
-    constant ERROR_NAME           := CORE + "Error"
-                                 
-    constant EXCEPTION_NAME       := CORE + "Exception"
-
-    constant INT8WRAPPER_NAME     := CORE + "Int8Wrapper"
-
-    constant INT16WRAPPER_NAME    := CORE + "Int16Wrapper"
-
-    constant INT32WRAPPER_NAME    := CORE + "Int32Wrapper"
-
-    constant INT64WRAPPER_NAME    := CORE + "Int64Wrapper"
-
-    constant REAL32WRAPPER_NAME   := CORE + "Real32Wrapper"
-
-    constant REAL64WRAPPER_NAME   := CORE + "Real64Wrapper"
-
-    constant BITWRAPPER_NAME      := CORE + "BitWrapper"
-
-    constant CHARWRAPPER_NAME     := CORE + "CharWrapper"
-
-    constant HASHMAP_NAME         := COLLECTIONS + "HashMap"
-
-    constant IMMUTABLE_HASHMAP_NAME := COLLECTIONS + "ImmutableHashMap"
-
-    constant TUPLE_NAME           := COLLECTIONS + "Tuple"
-
-    constant IMMUTABLE_TUPLE_NAME := COLLECTIONS + "ImmutableTuple"
-
-    ============================================================================
-    The current state of the class.
-    ============================================================================
-    var state:ClassNodeState := ClassNodeState.UNKNOWN
-
     ============================================================================
     The fully-qualified name of this class.
     ============================================================================
-    var name:String := "undefined"
+    def name:String := "undefined"
 
     ============================================================================
     The parent class. Object (and only Object) has a null superclass.
     ============================================================================
-    property supertype:ClassType?
+    def superclass:ClassType?
 
     ============================================================================
     Interfaces implemented by this class.
     ============================================================================
-    @readonly
-    var interfaces := new PrimitiveArray<ClassType>()
+    def interfaces:ImmutableArray<ClassType>
     
     ============================================================================
-    The annotations attached to this method.
+    The annotations attached to this class.
     ============================================================================
-    var annotations:Annotations -- := new Annotations()
+    def annotations:Annotations
     
-    var isInterface:Bit
+    ============================================================================
+    `true` if this is an interface, as opposed to a normal class.
+    ============================================================================
+    def isInterface:Bit
 
     ============================================================================
     The contents of the doccomment attached to the class, or `null` if none.
     ============================================================================
-    var doccomment:String?
+    def doccomment:String?
 
     ============================================================================
-    The class's symbol table, which contains all of its fields and methods. The
-    class's symbol table will have the `CompilationUnit`'s symbol table as a 
-    parent.
+    Type lookup context.
     ============================================================================
-    var symbolTable:SymbolTable
+    def lookupContext:LookupContext
 
-    var containingClass:ClassNode?
-    
+    ============================================================================
+    The class' unprocessed invariants.
+    ============================================================================
+    def invariants:ImmutableArray<ParseNode>
+
+    ============================================================================
+    The class' formal generic parameters. The class HashMap<K, V> has two 
+    ============================================================================
+    def genericParameters:ImmutableArray<GenericParameterType>
+
     ============================================================================
     Creates a new `ClassNode`.
     
@@ -142,218 +68,35 @@ class ClassNode : Node {
            this class belongs
     ============================================================================
     @pre(!name.contains(" ") & !name.endsWith("?"))
-    constructor(position:Position, name:String) {
-        super.constructor(position)
+    constructor(position:Position, name:String, isInterface:Bit, 
+            annotations:Annotations, lookupContext:LookupContext, 
+            superclass:ClassType?, interfaces:ListView<ClassType>, 
+            methods:CollectionView<MethodNode>,
+            fields:CollectionView<FieldNode>, 
+            invariants:CollectionView<ParseNode>,
+            genericParameters:ListView<GenericParameterType>) {
+        super.constructor(position, collectChildren(methods, fields))
         self.name := name
-    }
-    
-    function size():Int {
-        assert state != ClassNodeState.UNKNOWN
-        var size:Int
-        var sc := superclass
-        if sc != null
-            size := sc.size
-        else
-            size := 0
-        for child in children {
-            if child-?>(FieldNode) &
-                     !child->(FieldNode).annotations.isClass {
-                var fieldSize := child->(FieldNode).type.size
-                var align := size % fieldSize
-                if align != 0
-                    size += fieldSize - align
-                assert size % fieldSize = 0
-                size += fieldSize
-            }
-        }
-        return size
-    }
-    
-    method type():ClassType {
-        throw new NotSupportedException()
+        self.isInterface := isInterface
+        self.annotations := annotations
+        self.lookupContext := lookupContext
+        self.superclass := superclass
+        self.interfaces := new ImmutableArray<ClassType>(interfaces)
+        self.invariants := new ImmutableArray<ParseNode>(invariants)
+        self.genericParameters := 
+                new ImmutableArray<GenericParameterType>(genericParameters)
     }
 
-    function fields():PrimitiveArray<FieldNode> {
-        def result := new PrimitiveArray<FieldNode>()
-        for child in children {
-            if child-?>(FieldNode)
-                result.append(child->(FieldNode))
-        }
-        return result
-    }
-
-    function getField(name:String):FieldNode? {
-        for field in fields {
-            if field.name = name
-                return field
-        }
-        return null
-    }
-
-    @safeReturn
-    function methods():PrimitiveArray<MethodNode> {
-        def result := new PrimitiveArray<MethodNode>()
-        for child in children {
-            if child-?>(MethodNode)
-                result.append(child->(MethodNode))
-        }
-        return result
-    }
-
-    ============================================================================
-    Returns the set of all of the interfaces directly or indirectly implemented
-    by this class.
-    ============================================================================
-    -- FIXME use an actual Set
-    method allInterfaces():PrimitiveArray<ClassNode> {
-        var result:PrimitiveArray<ClassNode>
-        var sc := superclass
-        if sc != null & sc.name != type().baseName
-            result := sc.allInterfaces()
-        else
-            result := []
-        if isInterface
-            result.append(self)
-        for intf in interfaces {
-            for i in intf.classNode.allInterfaces() {
-                if !result.contains(i)
-                    result.append(i)
-            }
-        }
-        return result
-    }
-    
+    @private
     @class
-    @limited
-    method addOverrides(source:PrimitiveArray<MethodNode>, dest:PrimitiveArray<MethodNode>) {
-        outer: for s in source {
-            if !s.isDeclaredVirtual
-                continue
-            for i, d in dest {
-                if s.isOverrideOf(d) {
-                    dest[i] := s
-                    continue outer
-                }
-            }
-            dest.append(s)
-        }
-    }
-
-    ============================================================================
-    Returns an Array of all of the virtual methods in this class. Methods which
-    are inherited or overridden from parent classes appear in this array in the 
-    same index in which they were present in the parent class, and new methods
-    will appear at the end of the array.
-    ============================================================================
-    @safeReturn
-    function virtualMethods():PrimitiveArray<MethodNode> {
-        def result := new PrimitiveArray<MethodNode>()
-        for i in interfaces.length - 1 ... 0 by -1
-            addOverrides(interfaces[i].classNode.virtualMethods, result)
-        def sc := superclass
-        if sc != null
-            addOverrides(sc.virtualMethods, result)
-        addOverrides(methods, result)
+    function collectChildren(methods:CollectionView<MethodNode>,
+            fields:CollectionView<FieldNode>):ListView<Node> {
+        def result := new Array<Node>()
+        -- FIXME use addAll when that is genericized
+        for m in methods
+            result.add(m)
+        for f in fields
+            result.add(f)
         return result
-    }
-
-    ============================================================================
-    Returns a list of all of the interface methods in this class corresponding
-    to a particular interface. The order of methods in the resulting array is 
-    consistent across all classes implementing this interface.
-    ============================================================================
-    @safeReturn
-    function interfaceMethods(intf:ClassNode):PrimitiveArray<MethodNode> {
-        def result := intf.virtualMethods
-        def myMethods := virtualMethods
-        for i, m in result {
-            for m2 in myMethods {
-                if m2.isOverrideOf(m) {
-                    result[i] := m2
-                    break
-                }
-            }
-        }
-        return result
-    }
-
-    @safeReturn
-    function unifiedFields():PrimitiveArray<FieldNode> {
-        var result := new PrimitiveArray<FieldNode>()
-        var sc := superclass
-        if sc != null
-            result.appendAll(sc.unifiedFields)
-        for child in children {
-            if child-?>(FieldNode) & 
-                    !child->(FieldNode).annotations.isClass &
-                    !child->(FieldNode).annotations.isThread
-                result.append(child->(FieldNode))
-        }
-        return result
-    }
-    
-    @self
-    method supertype:=(supertype:ClassType?) {
-        self._supertype := supertype
-    }
-    
-    function packageName():String? {
-        var lt := name.indexOf("<")
-        if lt = null
-            lt := name.length - 1
-        var dot := name.lastIndexOf(".", lt)
-        if dot != null
-            return name[0 .. dot]
-        return null
-    }
-
-    function simpleName():String {
-        var lt := name.indexOf("<")
-        if lt = null
-            lt := name.length - 1
-        var dot := name.lastIndexOf(".", lt)
-        if dot != null
-            return name[dot + 1..]
-        return name
-    }
-
-    function superclass():ClassNode? {
-        var supertype := self.supertype
-        if supertype != null
-            return supertype.classNode
-        return null
-    }
-
-    method isPrimitiveArray():Bit {
-        return type().isPrimitiveArray
-    }
-
-    method isTuple():Bit {
-        return type().isTuple
-    }
-
-    function isEnumeration():Bit {
-        var sc := superclass
-        return sc != null & sc.name = class(Enumeration).name
-    }
-
-    @override
-    method markLive() {
-        if !live {
-            super.markLive()
-            var sc := superclass
-            if sc != null
-                sc.markLive()
-            for child in children {
-                if child-?>(MethodNode) & 
-                        child->(MethodNode).name = MethodNode.CLASS_INIT_NAME
-                    child.markLive()
-            }
-        }
-    }
-
-    @override
-    function format(fmt:String):String {
-        return "class " + name
     }
 }

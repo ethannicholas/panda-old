@@ -10,9 +10,6 @@ uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
 uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
 uses org.pandalanguage.pandac.tree.ClassNode
-uses org.pandalanguage.pandac.tree.FieldNode
-uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
@@ -21,7 +18,7 @@ uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
-class PandaCompiler {
+class PandaCompiler (MessageProcessor) {
     constant PANDA_HOME := determinePandaHome()
 
     var lastCheckpointLabel:String?
@@ -150,7 +147,7 @@ class PandaCompiler {
     method getUntypedCompilationUnits(settings:CompilerSettings):
             (CollectionView<UntypedCompilationUnitStub>, ListView<Message>?) {
         def result := new Array<UntypedCompilationUnitStub>()
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         def scanner := new Scanner()
         def workQueue := new MessageQueue()
         def responseQueue := new MessageQueue()
@@ -162,7 +159,7 @@ class PandaCompiler {
             workQueue.post(null)
             Thread.start(method() {
                 def result := new Array<UntypedCompilationUnitStub>()
-                var messages:List<Message>? := null
+                var messages:ListView<Message>? := null
                 loop {
                     def f := workQueue.getMessage()->(File?)
                     if f = null
@@ -170,14 +167,10 @@ class PandaCompiler {
                     def input := f.openInputStream()
                     def parsed := new PandaParser().parseCompilationUnit(f.name,
                             input)
-                    def stub, subMessages := scanner.convertCompilationUnit(f.name, 
+                    def stub, submessages := scanner.convertCompilationUnit(f.name, 
                             parsed)
                     result.add(stub)
-                    if subMessages != null {
-                        if messages = null
-                            messages := new Array<Message>()
-                        messages.addAll(subMessages)
-                    }
+                    messages := addMessages(messages, submessages)
                     input.close()
                 }
                 def responseMessages:ImmutableArray<Message>?
@@ -193,11 +186,7 @@ class PandaCompiler {
         for i in 0 .. THREADS {
             def subresult, submessages := responseQueue.getMessage()->((ImmutableArray<UntypedCompilationUnitStub>, ImmutableArray<Message>?))
             result.addAll(subresult)
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages)
-            }
+            messages := addMessages(messages, submessages)
         }
         return (result, messages)
     }
@@ -216,35 +205,43 @@ class PandaCompiler {
     @private
     method getTypedCompilationUnits(
             untypedCompilationUnits:CollectionView<UntypedCompilationUnitStub>):
-                (ListView<TypedCompilationUnitStub>, ListView<Message>?) {
-        return new TypeResolver(untypedCompilationUnits).resolveTypes()
+                (CollectionView<TypedCompilationUnitStub>, TypeMap, 
+                ListView<Message>?) {
+        return TypeResolver.resolveTypes(untypedCompilationUnits)
     }
+
+    @private
+    method getClassNodes(
+            typedCompilationUnits:CollectionView<TypedCompilationUnitStub>,
+            typeMap:TypeMap):(CollectionView<ClassNode>, ListView<Message>?) {
+        return new ASTGenerator().convertCompilationUnits(typedCompilationUnits,
+                typeMap)
+    }
+
 
     @protected
     method compile(settings:CompilerSettings):ListView<Message>? {
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         checkpoint("loading symbols")
         def untypedCompilationUnits, phase1Messages := 
                 getUntypedCompilationUnits(settings)
-        if phase1Messages != null {
-            if messages = null
-                messages := new Array<Message>()
-            messages.addAll(phase1Messages)
-        }
+        messages := addMessages(messages, phase1Messages)
         if fatal(messages)
             return messages
 
         checkpoint("resolving types")
-        def typedCompilationUnits, phase2Messages :=
+        def typedCompilationUnits, typeMap, phase2Messages :=
                 getTypedCompilationUnits(untypedCompilationUnits)
-        if phase2Messages != null {
-            if messages = null
-                messages := new Array<Message>()
-            messages.addAll(phase2Messages)
-        }
+        messages := addMessages(messages, phase2Messages)
         if fatal(messages)
             return messages
 
+        checkpoint("generating abstract syntax tree")
+        def classes, phase3Messages := getClassNodes(typedCompilationUnits, 
+                typeMap)
+        messages := addMessages(messages, phase3Messages)
+        if fatal(messages)
+            return messages
         checkpoint("done")
         Console.writeLine("done")
         return messages

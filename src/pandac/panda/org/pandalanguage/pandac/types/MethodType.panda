@@ -8,10 +8,10 @@ be `void`).
 ================================================================================
 class MethodType : ClassType {
     @private
-    def _methodParameters:ImmutableArray<Type>
+    def methodParameters:ImmutableArray<Type>
     
     @private
-    def _returnType:Type?
+    def returnType:Type?
 
     @readonly
     def isFunction:Bit
@@ -23,78 +23,10 @@ class MethodType : ClassType {
             isFunction:Bit, isImmutable:Bit) {
         super.constructor(getName(methodParameters, returnType, isFunction,
                 isImmutable))
-        self._methodParameters := new ImmutableArray<Type>(methodParameters)
-        self._returnType := returnType
+        self.methodParameters := new ImmutableArray<Type>(methodParameters)
+        self.returnType := returnType
         self.isFunction := isFunction
         self.immutableMethod := isImmutable
-    }
-
-    @override
-    function simpleName():String {
-        def result := new MutableString("(")
-        for i, p in methodParameters {
-            if i > 0
-                result.append(", ")
-            result.append(p.simpleName)
-        }
-        result.append(")=")
-        if !isFunction
-            result.append("&")
-        result.append(">")
-        if immutableMethod
-            result.append("*")
-        result.append("(")
-        if _returnType != null
-            result.append(_returnType.simpleName)
-        result.append(")")
-        return result->>(String)
-    }
-
-    @override
-    function displayName():String {
-        def result := new MutableString("(")
-        for i, p in methodParameters {
-            if i > 0
-                result.append(", ")
-            result.append(p.displayName)
-        }
-        result.append(")=")
-        if !isFunction
-            result.append("&")
-        result.append(">")
-        if immutableMethod
-            result.append("*")
-        result.append("(")
-        if _returnType != null
-            result.append(_returnType.displayName)
-        result.append(")")
-        return result->>(String)
-    }
-
-    @override
-    function isUnspecified():Bit {
-        if _returnType != null & _returnType.isUnspecified
-            return true
-        for p in _methodParameters {
-            if p.isUnspecified
-                return true
-        }
-        return false
-    }
-
-    @override
-    function methodParameters():ListView<Type> {
-        return _methodParameters
-    }
-
-    @override
-    function returnType():Type? {
-        return _returnType
-    }
-
-    @override
-    function subtypes():ImmutablePrimitiveArray<Type> {
-        throw new NotSupportedException()
     }
 
     @private
@@ -116,72 +48,49 @@ class MethodType : ClassType {
             yields += "*"
         if returnType = null
             return "(" + parameters + ")" + yields + "()"
-        else {
-            return "(" + parameters + ")" + yields + "(" + returnType.name + 
-                    ")"
-        }
-    }
-    
-    @override
-    method implicitCastCost(var target:Type):Int {
-        if !immutableMethod & target.isImmutable
-            return NO_MATCH
-        var result := 0
-        if target.isNullable {
-            target := target.unwrapNullable
-            result += NullableType.TO_NULLABLE_CAST_COST
-        }
-        if self = target
-            return result
-        if target.isMethod {
-            if target->(MethodType).isFunction & !isFunction
-                return NO_MATCH
-            else if isFunction & !target->(MethodType).isFunction
-                result += 1
-            if methodParameters.length != target.methodParameters.length
-                return NO_MATCH
-            -- for right now, require an exact match on everything but 
-            -- isFunction. This could potentially be relaxed down the road.
-            for i, p in methodParameters
-                if p != target.methodParameters[i]
-                    return NO_MATCH
-            def targetReturn := target.returnType
-            if (targetReturn = null) != (_returnType = null)
-                return NO_MATCH 
-            if targetReturn != null {
-                assert _returnType != null
-                if targetReturn.isPrimitive & !_returnType.isPrimitive &
-                    _returnType != target.returnType
-                return NO_MATCH
-                def returnCost := _returnType.implicitCastCost(targetReturn)
-                if returnCost = NO_MATCH
-                    return NO_MATCH
-                result += returnCost
-            }
-            return result
-        }
-        return ClassType.METHOD().implicitCastCost(target)
-    }
-
-    @override
-    method canExplicitCastTo(target:Type):Bit {
-        return self = target | ClassType.METHOD().canImplicitCastTo(target)
-    }
-
-    @override
-    function isMethod():Bit {
-        return true
-    }
-
-    @override
-    @unsafeFunction
-    function classNode():ClassNode {
-        var result:ClassNode?
-        if immutableMethod
-            result := ClassType.METHOD().classNode
         else
-            result := ClassType.MUTABLE_METHOD().classNode
-        assert result != null
-        return result
+            return "(" + parameters + ")" + yields + "(" + returnType.name + ")"
+    }
+
+    @override
+    function simpleName():String {
+        def result := new MutableString("(")
+        for i, p in methodParameters {
+            if i > 0
+                result.append(", ")
+            result.append(p.simpleName)
+        }
+        result.append(")=")
+        if !isFunction
+            result.append("&")
+        result.append(">")
+        if immutableMethod
+            result.append("*")
+        result.append("(")
+        if returnType != null
+            result.append(returnType.simpleName)
+        result.append(")")
+        return result->>(String)
+    }
+
+    @override
+    function displayName():String {
+        def result := new MutableString("(")
+        for i, p in methodParameters {
+            if i > 0
+                result.append(", ")
+            result.append(p.displayName)
+        }
+        result.append(")=")
+        if !isFunction
+            result.append("&")
+        result.append(">")
+        if immutableMethod
+            result.append("*")
+        result.append("(")
+        if returnType != null
+            result.append(returnType.displayName)
+        result.append(")")
+        return result->>(String)
     }
 }

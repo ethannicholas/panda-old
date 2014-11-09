@@ -1,437 +1,49 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.compiler.Message
 uses org.pandalanguage.pandac.parser.ParseNode
-uses org.pandalanguage.pandac.parser.ParseNodeType
-uses org.pandalanguage.pandac.parser.TokenNode
-uses org.pandalanguage.pandac.parser.TokenType
 uses org.pandalanguage.pandac.stubs.UntypedClassStub
-uses org.pandalanguage.pandac.types.BitType
-uses org.pandalanguage.pandac.types.CharType
-uses org.pandalanguage.pandac.types.ClassType
-uses org.pandalanguage.pandac.types.GenericType
-uses org.pandalanguage.pandac.types.IntType
-uses org.pandalanguage.pandac.types.MethodType
-uses org.pandalanguage.pandac.types.NativePointerType
-uses org.pandalanguage.pandac.types.NullableType
-uses org.pandalanguage.pandac.types.PrimitiveArrayType
-uses org.pandalanguage.pandac.types.RealType
-uses org.pandalanguage.pandac.types.TupleType
-uses org.pandalanguage.pandac.types.WrapperType
 uses org.pandalanguage.pandac.types.Type
 
-@private
-@abstract
-class TypeDescriptor : Immutable {
-    @abstract
-    method createType():Type
-}
-
-@private
-class SimpleTypeDescriptor : TypeDescriptor {
-    def name:String
-
-    constructor(name:String) {
-        self.name := name
-    }
-
-    @override
-    method createType():Type {
-        return new ClassType(name)
-    }
-
-    @override
-    function =(o:Object):Bit {
-        return o-?>(SimpleTypeDescriptor) & 
-                name = o->(SimpleTypeDescriptor).name
-    }
-
-    @override
-    function hash():Int {
-        return name.hash
-    }
-
-    @override
-    function format(fmt:String):String {
-        return name
-    }
-}
-
-@private
-class NullableTypeDescriptor : TypeDescriptor {
-    def base:Type
-
-    constructor(base:Type) {
-        self.base := base
-    }
-
-    @override
-    method createType():Type {
-        return new NullableType(base)
-    }
-
-    @override
-    function =(o:Object):Bit {
-        return o-?>(NullableTypeDescriptor) & 
-                base = o->(NullableTypeDescriptor).base
-    }
-
-    @override
-    function hash():Int {
-        return base.hash
-    }
-}
-
-@private
-class GenericTypeDescriptor : TypeDescriptor {
-    def base:ClassType
-    def parameters:ImmutableArray<Type>
-
-    constructor(base:ClassType, parameters:ListView<Type>) {
-        self.base := base
-        self.parameters := new ImmutableArray<Type>(parameters)
-    }
-
-    @override
-    method createType():Type {
-        return new GenericType(base, parameters)
-    }
-
-    @override
-    function =(o:Object):Bit {
-        if o-!>(GenericTypeDescriptor)
-            return false
-        def g := o->(GenericTypeDescriptor)
-        return base = g.base & parameters = g.parameters
-    }
-
-    @override
-    function hash():Int {
-        return base.hash ~~ parameters.hash
-    }
-}
-
-@private
-class PrimitiveArrayTypeDescriptor : TypeDescriptor {
-    def base:ClassType
-    def elementType:Type
-
-    constructor(base:ClassType, elementType:Type) {
-        self.base := base
-        self.elementType := elementType
-    }
-
-    @override
-    method createType():Type {
-        return new PrimitiveArrayType(base, elementType)
-    }
-
-    @override
-    function =(o:Object):Bit {
-        if o-!>(PrimitiveArrayTypeDescriptor)
-            return false
-        def a := o->(PrimitiveArrayTypeDescriptor)
-        return base = a.base & elementType = a.elementType
-    }
-
-    @override
-    function hash():Int {
-        return base.hash ~~ elementType.hash
-    }
-}
-
-@private
-class MethodTypeDescriptor : TypeDescriptor {
-    def parameters:ImmutableArray<Type>
-    def isFunction:Bit
-    def isImmutable:Bit
-    def returnType:Type?
-
-    constructor(parameters:ListView<Type>, returnType:Type?, isFunction:Bit, 
-            isImmutable:Bit) {
-        self.parameters := new ImmutableArray<Type>(parameters)
-        self.returnType := returnType
-        self.isFunction := isFunction
-        self.isImmutable := isImmutable
-    }
-
-    @override
-    method createType():Type {
-        return new MethodType(parameters, returnType, isFunction, isImmutable)
-    }
-
-    @override
-    function =(o:Object):Bit {
-        if o-!>(MethodTypeDescriptor)
-            return false
-        def m := o->(MethodTypeDescriptor)
-        return parameters = m.parameters & returnType = m.returnType &
-                isFunction = m.isFunction & isImmutable = m.isImmutable
-    }
-
-    @override
-    function hash():Int {
-        var result := parameters.hash
-        if returnType != null
-            result ~~= returnType.hash
-        if isFunction
-            result ~~= 126126427
-        if isImmutable
-            result ~~= 799187292
-        return result
-    }
-}
-
-@private
-class TupleTypeDescriptor : TypeDescriptor {
-    def parameters:ImmutableArray<Type>
-
-    constructor(parameters:ListView<Type>) {
-        self.parameters := new ImmutableArray<Type>(parameters)
-    }
-
-    @override
-    method createType():Type {
-        return new TupleType(parameters)
-    }
-
-    @override
-    function =(o:Object):Bit {
-        if o-!>(TupleTypeDescriptor)
-            return false
-        def t := o->(TupleTypeDescriptor)
-        return parameters = t.parameters
-    }
-
-    @override
-    function hash():Int {
-        return parameters.hash
-    }
-}
-
-================================================================================
-Resolves type names into the corresponding [Types](Type). There should only ever
-be one `TypeMap` during a given compilation.
-================================================================================
-class TypeMap {
+class TypeMap : Immutable {
     @private
-    def stubs := new HashMap<String, UntypedClassStub>()
-
-    @private
-    def types := new HashMap<TypeDescriptor, Type>()
+    def queue := new MessageQueue()
 
     constructor(stubs:CollectionView<UntypedClassStub>) {
-        for stub in stubs {
-            self.stubs[stub.name] := stub
-            if stub.name.startsWith("panda.core.") & 
-                    stub.name.endsWith("Wrapper") {
-                def baseName := stub.name[0 .. stub.name.length - "Wrapper".length]
-                self.stubs[baseName] := stub
+        def immutableStubs := new ImmutableArray<UntypedClassStub>(stubs)
+        Thread.start(method() {
+            def typeMap := new MutableTypeMap(immutableStubs)
+            loop {
+                def message := queue.getMessage()
+                if message-?>(Type) {
+                    typeMap.putType(message->(Type))
+                }
+                else {
+                    def node, context, replyTo := 
+                            message->((ParseNode, LookupContext, 
+                                MessageQueue))
+                    def type, messages := typeMap.getType(node, context)
+                    def wrappedMessages:ImmutableArray<Message>?
+                    if messages != null
+                        wrappedMessages := new ImmutableArray<Message>(messages)
+                    else
+                        wrappedMessages := null
+                    replyTo.post((type, wrappedMessages))
+                }
             }
-        }
-        putType(IntType.INT8)
-        putType(new WrapperType(IntType.INT8))
-        putType(IntType.INT16)
-        putType(new WrapperType(IntType.INT16))
-        putType(IntType.INT32)
-        putType(new WrapperType(IntType.INT32))
-        putType(IntType.INT64)
-        putType(new WrapperType(IntType.INT64))
-        putType(IntType.UINT8)
-        putType(new WrapperType(IntType.UINT8))
-        putType(IntType.UINT16)
-        putType(new WrapperType(IntType.UINT16))
-        putType(IntType.UINT32)
-        putType(new WrapperType(IntType.UINT32))
-        putType(IntType.UINT64)
-        putType(new WrapperType(IntType.UINT64))
-        putType(RealType.REAL32)
-        putType(new WrapperType(RealType.REAL32))
-        putType(RealType.REAL64)
-        putType(new WrapperType(RealType.REAL64))
-        putType(BitType.BIT)
-        putType(new WrapperType(BitType.BIT))
-        putType(CharType.CHAR)
-        putType(new WrapperType(CharType.CHAR))
-        putType(NativePointerType.NATIVE_POINTER)
+        }, false)
+    }
+
+    @self
+    method getType(node:ParseNode, lookupContext:LookupContext):(Type?, ListView<Message>?) {
+        def replyTo := Thread.currentThread().queue
+        queue.post((node, lookupContext, replyTo))
+        def type, messages := replyTo.getMessage()->((Type?, ImmutableArray<Message>?))
+        return (type, messages)
     }
 
     @self
     method putType(type:Type) {
-        types[new SimpleTypeDescriptor(type.name)] := type
+        queue.post(type)
     }
-
-    @private
-    @self
-    method getType(descriptor:TypeDescriptor):Type {
-        var result := types[descriptor]
-        if result = null {
-            result := descriptor.createType()
-            types[descriptor] := result
-        }
-        return result
-    }
-
-    @private
-    @self
-    @pre(base.type = ParseNodeType.TYPE)
-    @pre(parametersNode.type = ParseNodeType.GENERIC_PARAMETERS)
-    method resolveGenericType(base:ParseNode, parametersNode:ParseNode, 
-            packageUses:CollectionView<String>, 
-            classAliases:MapView<String, String>):(TypeDescriptor?, ListView<Message>?) {
-        def resolved, messages := getType(base, packageUses, classAliases)
-        def parameters := new Array<Type>()
-        if resolved != null {
-            for i in 1 .. parametersNode.length - 1 by 2 {
-                def parameter, pMessages := getType(parametersNode[i], 
-                        packageUses, classAliases)
-                if parameter != null
-                    parameters.add(parameter)
-                else
-                    return (null, pMessages)
-            }
-            if resolved-!>(ClassType) {
-                def error := new Array<Message>()
-                error.add(new Message("\{resolved.name} may not have " +
-                        "generic parameters", base.position))
-                return (null, error)
-            }
-            if resolved.name = "panda.collections.PrimitiveArray" |
-                    resolved.name = "panda.collections.ImmutablePrimitiveArray" {
-                if parameters.length != 1 {
-                    def error := new Array<Message>()
-                    error.add(new Message("\{resolved.name} expected exactly " +
-                            " one generic parameter", base.position))
-                    return (null, error)
-                }
-                return (new PrimitiveArrayTypeDescriptor(resolved->(ClassType), 
-                        parameters[0]), messages)
-            }
-            return (new GenericTypeDescriptor(resolved->(ClassType), 
-                    parameters), messages)
-        }
-        else
-            return (null, messages)
-    }
-    
-    @private
-    @self
-    @pre(node.type = ParseNodeType.TYPE)
-    method resolveTupleOrMethodType(node:ParseNode,  
-            packageUses:CollectionView<String>, 
-            classAliases:MapView<String, String>):(TypeDescriptor?, ListView<Message>?) {
-        def parameters := new Array<Type>()
-        var isMethodType := false
-        var isImmutable := false
-        var isFunction := false
-        var returnType:Type? := null
-        var inParameters := true
-        assert node[0]->(TokenNode).token.type = TokenType.LPAREN
-        for i in 1 .. node.length {
-            if node[i].type = ParseNodeType.TYPE {
-                def type, submessages := getType(node[i], packageUses, 
-                        classAliases)
-                if type != null {
-                    if inParameters
-                        parameters.add(type)
-                    else {
-                        assert returnType = null : "found two return types"
-                        returnType := type
-                    }
-                }
-                else
-                    return (null, submessages)
-            }
-            else {
-                def tokenType := node[i]->(TokenNode).token.type 
-                switch tokenType {
-                    case TokenType.COMMA: 
-                        { -* do nothing *- } 
-                    case TokenType.RPAREN: 
-                        inParameters := false
-                    case TokenType.YIELDS: {
-                        isMethodType := true
-                        isFunction := true
-                        isImmutable := false
-                    }
-                    case TokenType.YIELDS_METHOD: {
-                        isMethodType := true
-                        isFunction := false
-                        isImmutable := false
-                    }
-                    case TokenType.YIELDS_IMMUTABLE: {
-                        isMethodType := true
-                        isFunction := true
-                        isImmutable := true
-                    }
-                    case TokenType.YIELDS_METHOD_IMMUTABLE: {
-                        isMethodType := true
-                        isFunction := false
-                        isImmutable := true
-                    }
-                }
-            }
-        }
-        if isMethodType {
-            return (new MethodTypeDescriptor(parameters, returnType, isFunction, 
-                    isImmutable), null)
-        }
-        else {
-            assert returnType = null
-            return (new TupleTypeDescriptor(parameters), null)
-        }
-    }
-
-    @private
-    @self
-    @pre(node.type = ParseNodeType.TYPE)
-    method resolveType(node:ParseNode, packageUses:CollectionView<String>,
-            classAliases:MapView<String, String>):(TypeDescriptor?, ListView<Message>?) {
-        def last := node[node.length - 1]
-        if last-?>(TokenNode) & last->(TokenNode).token.type = TokenType.QUESTION {
-            def base := new ParseNode(ParseNodeType.TYPE, 
-                    node[..node.length - 1])
-            def result, messages := getType(base, packageUses, classAliases)
-            if result != null
-                return (new NullableTypeDescriptor(result), null)
-            else
-                return (null, messages)
-        }
-        if last.type = ParseNodeType.GENERIC_PARAMETERS {
-            def base := new ParseNode(ParseNodeType.TYPE, 
-                    node[..node.length - 1])
-            return resolveGenericType(base, last, packageUses, classAliases)
-        }
-        if node[0]->(TokenNode).token.type = TokenType.LPAREN
-            return resolveTupleOrMethodType(node, packageUses, classAliases)
-        def name := node->>(String)
-        def resolved := classAliases[name]
-        if resolved != null
-            return (new SimpleTypeDescriptor(resolved), null)
-        def rawDescriptor := new SimpleTypeDescriptor(name)
-        if types.contains(rawDescriptor)
-            return (rawDescriptor, null)
-        if stubs.contains(name)
-            return (rawDescriptor, null)
-        if !name.contains(".") & !name.contains("<") {
-            for p in packageUses {
-                def test := p + "." + name
-                if stubs.contains(test)
-                    return (new SimpleTypeDescriptor(test), null)
-            }
-        }
-        def messages := new Array<Message>()
-        messages.add(new Message("unknown identifier '\{node}'", 
-                node.position))
-        return (null, messages)
-    }
-
-    @self
-    method getType(node:ParseNode, packageUses:CollectionView<String>,
-            classAliases:MapView<String, String>):(Type?, ListView<Message>?) {
-        def descriptor, messages := resolveType(node, packageUses, classAliases)
-        if descriptor != null
-            return (getType(descriptor), messages)
-        else
-            return (null, messages)
-    }
-}
+ }

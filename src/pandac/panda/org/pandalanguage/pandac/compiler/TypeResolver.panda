@@ -1,5 +1,6 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.compiler.Message
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.TypedClassStub
@@ -14,16 +15,14 @@ uses org.pandalanguage.pandac.stubs.UnTypedFormaParameter
 uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.SpecialType
+uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.GenericParameterType
 
 ================================================================================
 Converts the various untyped stubs into their typed equivalents.
 ================================================================================
-class TypeResolver {
-    @private
-    def compilationUnits:CollectionView<UntypedCompilationUnitStub>
-
+class TypeResolver (MessageProcessor) {
     @private
     def typeMap:TypeMap
 
@@ -33,16 +32,13 @@ class TypeResolver {
     @private
     var classAliases:Map<String, String>
 
-    constructor(compilationUnits:CollectionView<UntypedCompilationUnitStub>) {
-        def classes := new Array<UntypedClassStub>()
-        for cu in compilationUnits
-            classes.addAll(cu.classes)
-        typeMap := new TypeMap(classes)
-        self.compilationUnits := compilationUnits
+    constructor(typeMap:TypeMap) {
+        self.typeMap := typeMap
         self.packageUses := new Array<String>()
         self.classAliases := new HashMap<String, String>()
     }
 
+    @private
     @self
     method ANY_TYPE():Type {
         def name := new PandaParser().parseType("panda.core.Object?",
@@ -53,39 +49,35 @@ class TypeResolver {
         return result
     }
 
+    @private
     @self
     method resolveType(type:ParseNode?):(Type?, ListView<Message>?) {
-        if type != null
-            return typeMap.getType(type, packageUses, classAliases)
+        if type != null {
+            return typeMap.getType(type, new LookupContext(packageUses, 
+                    classAliases))
+        }
         else
             return (null, null)
     }
 
+    @private
     @self
     method resolveTypes(m:UntypedMethodStub):
             (TypedMethodStub, ListView<Message>?) {
         def parameters := new Array<TypedFormalParameter>()
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         for p in m.parameters {
             def resolved, submessages := resolveType(p.type)
             if resolved != null
                 parameters.add(new TypedFormalParameter(p.position, p.name, 
                         resolved, p.isFinal, p.isConvert, p.isVarArg))
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages)
-            }
+            messages := addMessages(messages, submessages)
         }
         def returnType:Type?
         if m.returnType != null {
             def submessages:ListView<Message>?
             returnType, submessages := resolveType(m.returnType->(ParseNode))
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages)
-            }
+            messages := addMessages(messages, submessages)
         }
         else
             returnType := null
@@ -93,6 +85,7 @@ class TypeResolver {
             m.methodType, parameters, returnType, m.block), messages)
     }
 
+    @private
     @self
     method resolveTypes(f:UntypedFieldStub):
             (TypedFieldStub, ListView<Message>?) {
@@ -102,21 +95,19 @@ class TypeResolver {
             messages)
     }
 
+    @private
     @self
     method resolveTypes(cl:UntypedClassStub):
             (TypedClassStub, ListView<Message>?) {
-        self.packageUses := cl.packageUses
-        self.classAliases := new HashMap<String, String>(cl.classAliases)
-        var messages:List<Message>? := null
-        def genericParameters := new Array<Type>()
+        self.packageUses := cl.lookupContext.packageUses
+        self.classAliases := new HashMap<String, String>(
+                cl.lookupContext.classAliases)
+        var messages:ListView<Message>? := null
+        def genericParameters := new Array<GenericParameterType>()
         for param in cl.genericParameters {
             def name := "\{cl.name}.\{param.name}"
             var bound, parameterMessages := resolveType(param.bound)
-            if parameterMessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(parameterMessages) 
-            }
+            messages := addMessages(messages, parameterMessages)
             if bound = null
                 bound := ANY_TYPE()
             def parameter := new GenericParameterType(name, bound)
@@ -128,89 +119,114 @@ class TypeResolver {
         for m in cl.methods {
             def resolved, submessages := resolveTypes(m)
             methods.add(resolved)
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages) 
-            }
+            messages := addMessages(messages, submessages)
         }
         def fields := new Array<TypedFieldStub>()
         for f in cl.fields {
             def resolved, submessages := resolveTypes(f)
             fields.add(resolved)
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages) 
-            }
+            messages := addMessages(messages, submessages)
         }
-        def interfaces := new Array<Type>()
+        def interfaces := new Array<ClassType>()
         for intf in cl.interfaces {
             def resolved, submessages := resolveType(intf)
-            if resolved != null
-                interfaces.add(resolved)
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages) 
+            if resolved != null {
+                if resolved-?>(ClassType)
+                    interfaces.add(resolved->(ClassType))
+                else {
+                    messages := addMessage(messages, 
+                            "'\{intf}' is not an interface", intf.position)
+                }
             }
+            messages := addMessages(messages, submessages)
         }
-        def supertype, submessages := resolveType(cl.superclass)
-        if submessages != null {
-            if messages = null
-                messages := new Array<Message>()
-            messages.addAll(submessages) 
+        def rawSuperclass, submessages := resolveType(cl.superclass)
+        messages := addMessages(messages, submessages)
+        def superclass:ClassType?
+        if rawSuperclass-?>(ClassType)
+            superclass := rawSuperclass->(ClassType)
+        else {
+            if rawSuperclass != null {
+                def sc := cl.superclass
+                assert sc != null
+                messages := addMessage(messages, 
+                        "'\{sc}' may not be subclassed", sc.position)
+            }
+            superclass := null
         }
         return (new TypedClassStub(cl.position, cl.name, cl.isInterface, 
-                cl.annotations, cl.packageUses, self.classAliases, 
-                supertype, interfaces, methods, fields, 
-                cl.invariants, genericParameters), 
+                cl.annotations, new LookupContext(cl.lookupContext.packageUses, 
+                        self.classAliases), superclass, interfaces, methods, 
+                        fields, cl.invariants, genericParameters),
                 messages)
     }
 
-    @self
-    method resolveTypes(cu:UntypedCompilationUnitStub):
+    @class
+    method resolveTypes(cu:UntypedCompilationUnitStub, queue:MessageQueue, 
+            typeMap:TypeMap):
             (TypedCompilationUnitStub, ListView<Message>?) {
+        def list := new Array<UntypedCompilationUnitStub>()
+        list.add(cu)
+        def t := new TypeResolver(typeMap)
         def classes := new Array<TypedClassStub>()
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
+        def replyTo := Thread.currentThread.queue
         for cl in cu.classes {
-            def resolved, submessages := resolveTypes(cl)
+            queue.post((cl, replyTo))
+            def resolved, submessages := replyTo.getMessage()->
+                    ((TypedClassStub, ImmutableArray<Message>?))
             classes.add(resolved)
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages) 
-            }
+            messages := addMessages(messages, submessages)
         }
         def methods := new Array<TypedMethodStub>()
         for m in cu.methods {
-            def resolved, submessages := resolveTypes(m)
+            def resolved, submessages := t.resolveTypes(m)
             methods.add(resolved)
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages) 
-            }
+            messages := addMessages(messages, submessages)
         }
         return (new TypedCompilationUnitStub(cu.name, classes, methods, 
                 cu.statements),
                 messages)
     }
 
-    @self
-    method resolveTypes():(ListView<TypedCompilationUnitStub>,
-            ListView<Message>?) {
+    @class
+    method resolveTypes(compilationUnits:CollectionView<UntypedCompilationUnitStub>):
+            (CollectionView<TypedCompilationUnitStub>, 
+                TypeMap, ListView<Message>?) {
         def result := new Array<TypedCompilationUnitStub>()
-        var messages:List<Message>? := null
-        for cu in compilationUnits {
-            def resolved, submessages := resolveTypes(cu)
-            result.add(resolved)
-            if submessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(submessages) 
-            }
+        def classes := new Array<UntypedClassStub>()
+        for cu in compilationUnits
+            classes.addAll(cu.classes)
+        def newTypeMap := new TypeMap(classes)
+        var messages:ListView<Message>? := null
+        def threads := Thread.preferredThreadCount()
+        def queue := new MessageQueue()
+        for i in 0 .. threads {
+            Thread.start(method() {
+                def t := new TypeResolver(newTypeMap)
+                loop {
+                    def message := queue.getMessage()->((UntypedClassStub, 
+                            MessageQueue)?)
+                    if message = null
+                        break
+                    def cl, replyTo := message
+                    def result, messages := t.resolveTypes(cl)
+                    def wrapped:ImmutableArray<Message>?
+                    if messages != null
+                        wrapped := new ImmutableArray<Message>(messages)
+                    else
+                        wrapped := null
+                    replyTo.post((result, wrapped))
+                }
+            })
         }
-        return (result, messages)
+        for cu in compilationUnits {
+            def resolved, submessages := resolveTypes(cu, queue, newTypeMap)
+            result.add(resolved)
+            messages := addMessages(messages, submessages)
+        }
+        for i in 0 .. threads
+            queue.post(null)
+        return (result, newTypeMap, messages)
     }
 }

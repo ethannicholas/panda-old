@@ -22,13 +22,13 @@ uses org.pandalanguage.pandac.tree.Statement
 Converts the parse tree for a compilation unit into an 
 [UntypedCompilationUnitStub].
 ================================================================================
-class Scanner : Immutable {
+class Scanner : Immutable (MessageProcessor) {
     ============================================================================
     Processes an ANNOTATIONS parse node.
     ============================================================================
     @pre(node.type = ParseNodeType.ANNOTATIONS)
     function convertAnnotations(node:ParseNode):(Annotations, ListView<Message>?) {
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         var foundPre := false
         var foundPreOr := false
         def annotations := new Array<AnnotationType>()
@@ -87,60 +87,42 @@ class Scanner : Immutable {
         def result := new Annotations(node.position, annotations, pre, 
                 new Array<ParseNode>(), new Array<ParseNode>())
         if result.isPrivate & result.isProtected {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@private may not be used " +
-                    "together with @protected", node.position))
+            messages := addMessage(messages, "@private may not be used " +
+                    "together with @protected", node.position)
         }
         if result.isSelf & result.isClass {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@self may not be used " +
-                    "together with @class", node.position))
+            messages := addMessage(messages, "@self may not be used " +
+                    "together with @class", node.position)
         }
         if result.isOverride & result.isClass {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@override may not be used " +
-                    "together with @class", node.position))
+            messages := addMessage(messages, "@override may not be used " +
+                    "together with @class", node.position)
         }
         if result.isThread & result.isClass {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@thread may not be used " +
-                    "together with @class", node.position))
+            messages := addMessage(messages, "@thread may not be used " +
+                    "together with @class", node.position)
         }
         if result.isAbstract & result.isFinal {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@abstract may not be used " +
-                    "together with @final", node.position))
+            messages := addMessage(messages, "@abstract may not be used " +
+                    "together with @final", node.position)
         }
         if result.isAbstract & result.isExternal {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@abstract may not be used " +
-                    "together with @external", node.position))
+            messages := addMessage(messages, "@abstract may not be used " +
+                    "together with @external", node.position)
         }
         if result.isLimited & result.isSelf {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@limited may not be used " +
-                    "together with @self", node.position))
+            messages := addMessage(messages, "@limited may not be used " +
+                    "together with @self", node.position)
         }
         def override := result.isOverride
         if override & foundPre {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@pre may not be used " +
+            messages := addMessage(messages, "@pre may not be used " +
                     "together with @override; did you mean to use @preOr?", 
-                    node.position))
+                    node.position)
         }
         else if !override & foundPreOr {
-            if messages = null
-                messages := new Array<Message>()
-            messages.add(new Message("@preOr must be used " +
-                    "together with @override", node.position))
+            messages := addMessage(messages, "@preOr must be used " +
+                    "together with @override", node.position)
         }
         return (result, messages)
     }
@@ -189,15 +171,13 @@ class Scanner : Immutable {
     function convertFormalParameterList(pl:ParseNode):
             (ListView<UntypedFormalParameter>, ListView<Message>?) {
         def result := new Array<UntypedFormalParameter>()
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         for i in 1 ... pl.length - 2 by 2 {
             def p := convertFormalParameter(pl[i])
             if i < pl.length - 2 & p.isVarArg {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.add(new Message("only the last parameter of a " +
-                        "method may accept a variable number of arguments", 
-                        pl[i].position))
+                messages := addMessage(messages, "only the last parameter of " +
+                        "a method may accept a variable number of arguments", 
+                        pl[i].position)
             }
             result.add(p)
         }
@@ -211,7 +191,7 @@ class Scanner : Immutable {
     function convertMethodDeclaration(doccomment:String?,
             var annotations:Annotations,
             m:ParseNode):(UntypedMethodStub, ListView<Message>?) {
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         var i := 0
         def methodType:MethodNodeType
         switch m[i]->(TokenNode).token.type {
@@ -242,20 +222,13 @@ class Scanner : Immutable {
         if m[i].type = ParseNodeType.GENERIC_PARAMETERS_DECLARATION
             throw new NotSupportedException("generic methods")
         def formalParameters, fpMessages := convertFormalParameterList(m[i])
-        if fpMessages != null {
-            if messages = null
-                messages := new Array<Message>()
-            messages.addAll(fpMessages)
-        }
+        messages := addMessages(messages, fpMessages)
         i += 1
         var returnType:ParseNode? := null
         if m.length > i & m[i].type = ParseNodeType.TYPE_DECLARATION {
             if methodType = MethodNodeType.CONSTRUCTOR {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.add(new Message(
-                        "constructors may not have a return type", 
-                        m[i].position))
+                messages := addMessage(messages, "constructors may not have " +
+                        "a return type", m[i].position)
             }
             else
                 returnType := m[i][1]
@@ -343,7 +316,7 @@ class Scanner : Immutable {
     @pre(cm.type = ParseNodeType.CLASS_MEMBER_DECLARATION)
     function convertClassMember(cm:ParseNode):(UntypedMethodStub?, 
             ListView<UntypedFieldStub>?, ParseNode?, ListView<Message>?) {
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         if cm[0].type = ParseNodeType.INVARIANT
             return (null, null, cm[0][2], null)
         var i := 0
@@ -355,31 +328,19 @@ class Scanner : Immutable {
         }
         assert cm[i].type = ParseNodeType.ANNOTATIONS
         def annotations, annotationMessages := convertAnnotations(cm[i])
-        if annotationMessages != null {
-            if messages = null
-                messages := new Array<Message>()
-            messages.addAll(annotationMessages)
-        }
+        messages := addMessages(messages, annotationMessages)
         i += 1
         switch cm[i].type {
             case ParseNodeType.METHOD_DECLARATION: {
                 def m, methodMessages := convertMethodDeclaration(doccomment, 
                         annotations, cm[i])
-                if methodMessages != null {
-                    if messages = null
-                        messages := new Array<Message>()
-                    messages.addAll(methodMessages)
-                }
+                messages := addMessages(messages, methodMessages)
                 return (m, null, null, messages)
             }
             case ParseNodeType.FIELD_DECLARATION: {
                 def f, fieldMessages := convertFieldDeclaration(doccomment, 
                         annotations, cm[i])
-                if fieldMessages != null {
-                    if messages = null
-                        messages := new Array<Message>()
-                    messages.addAll(fieldMessages)
-                }
+                messages := addMessages(messages, fieldMessages)
                 return (null, f, null, messages)
             }
             default:
@@ -395,12 +356,11 @@ class Scanner : Immutable {
                 ParseNodeType.GENERIC_PARAMETERS_DECLARATION)
     function convertClassOrInterface(position:Position, doccomment:String?, 
             annotations:Annotations, className:String, 
-            packageUses:CollectionView<String>, 
-            classAliases:MapView<String, String>,
-            isInterface:Bit, genericParametersNode:ParseNode?, 
-            supertypeNode:ParseNode?, interfaces:ListView<ParseNode>,
+            lookupContext:LookupContext, isInterface:Bit, 
+            genericParametersNode:ParseNode?, supertypeNode:ParseNode?, 
+            interfaces:ListView<ParseNode>, 
             classMembers:ParseNode):(UntypedClassStub, ListView<Message>?) {
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         def methods := new Array<UntypedMethodStub>()
         def fields := new Array<UntypedFieldStub>()
         def invariants := new Array<ParseNode>()
@@ -413,10 +373,9 @@ class Scanner : Immutable {
                     var name := Annotations.NAMES[a]
                     if name = null
                         name := a->>(String)
-                    if messages = null
-                        messages := new Array<Message>()
-                    messages.add(new Message("annotation '\{name}' is not " +
-                            "supported on classes", position))
+                    messages := addMessage(messages,
+                            "annotation '\{name}' is not supported on classes", 
+                            position)
                 }
             }
         }
@@ -429,11 +388,7 @@ class Scanner : Immutable {
                 fields.addAll(f)
             if inv != null
                 invariants.add(inv)
-            if childMessages != null {
-                if messages = null
-                    messages := new Array<Message>()
-                messages.addAll(childMessages)
-            }
+            messages := addMessages(messages, childMessages)
         }
 
         def genericParameters := new Array<UntypedGenericParameter>()
@@ -467,9 +422,8 @@ class Scanner : Immutable {
         }
 
         return (new UntypedClassStub(position, className, isInterface, 
-                annotations, packageUses, classAliases, supertypeNode, 
-                interfaces, methods, fields, invariants, genericParameters), 
-                messages)
+                annotations, lookupContext, supertypeNode, interfaces, methods,
+                fields, invariants, genericParameters), messages)
     }
 
     ============================================================================
@@ -477,9 +431,8 @@ class Scanner : Immutable {
     ============================================================================
     @pre(cl.type = ParseNodeType.CLASS_DECLARATION)
     function convertClassDeclaration(packageName:String?, 
-            packageUses:CollectionView<String>, 
-            classAliases:MapView<String, String>,
-            doccomment:String?, var annotations:Annotations,
+            lookupContext:LookupContext, doccomment:String?, 
+            var annotations:Annotations,
             cl:ParseNode):(UntypedClassStub, ListView<Message>?) {
         assert cl[0]->(TokenNode).token.type = TokenType.CLASS
         assert cl[1]->(TokenNode).token.type = TokenType.IDENTIFIER
@@ -517,7 +470,7 @@ class Scanner : Immutable {
         assert cl[i]->(TokenNode).token.type = TokenType.LBRACE
         i += 1
         return convertClassOrInterface(cl.position, doccomment, 
-                annotations, className, packageUses, classAliases, false, 
+                annotations, className, lookupContext, false, 
                 genericParametersNode, supertypeNode, interfaces, cl[i])
     }
 
@@ -526,9 +479,8 @@ class Scanner : Immutable {
     ============================================================================
     @pre(cl.type = ParseNodeType.INTERFACE_DECLARATION)
     function convertInterfaceDeclaration(packageName:String?, 
-            packageUses:CollectionView<String>, 
-            classAliases:MapView<String, String>,
-            doccomment:String?, var annotations:Annotations, 
+            lookupContext:LookupContext, doccomment:String?, 
+            var annotations:Annotations, 
             cl:ParseNode):(UntypedClassStub, ListView<Message>?) {
         assert cl[0]->(TokenNode).token.type = TokenType.INTERFACE
         assert cl[1]->(TokenNode).token.type = TokenType.IDENTIFIER
@@ -561,8 +513,8 @@ class Scanner : Immutable {
         assert cl[i]->(TokenNode).token.type = TokenType.LBRACE
         i += 1
         return convertClassOrInterface(cl.position, doccomment, annotations, 
-                className, packageUses, classAliases, true, 
-                genericParametersNode, null, interfaces, cl[i])
+                className, lookupContext, true, genericParametersNode, null, 
+                interfaces, cl[i])
     }
 
     ============================================================================
@@ -645,7 +597,7 @@ class Scanner : Immutable {
         def classes := new Array<UntypedClassStub>()
         def methods := new Array<UntypedMethodStub>()
         def statements := new Array<ParseNode>()
-        var messages:List<Message>? := null
+        var messages:ListView<Message>? := null
         var currentPackage:String? := null
         def packageUses := new Array<String>()
         packageUses.add("panda.collections")
@@ -673,11 +625,7 @@ class Scanner : Immutable {
                         assert alias != null
                         classAliases[className] := alias
                     }
-                    if message != null {
-                        if messages = null
-                            messages := new Array<Message>()
-                        messages.add(message)
-                    }
+                    messages := addMessage(messages, message)
                 }
                 case ParseNodeType.INSTANCE_DECLARATION: {
                 }
@@ -693,35 +641,25 @@ class Scanner : Immutable {
                     assert child[i].type = ParseNodeType.ANNOTATIONS
                     def annotations, annotationMessages := 
                             convertAnnotations(child[i])
-                    if annotationMessages != null {
-                        if messages = null
-                            messages := new Array<Message>()
-                        messages.addAll(annotationMessages)
-                    }
+                    messages := addMessages(messages, annotationMessages)
                     i += 1
                     switch child[i].type {
                         case ParseNodeType.CLASS_DECLARATION: {
                             def cl, classMessages := convertClassDeclaration(
-                                    currentPackage, packageUses, classAliases, 
+                                    currentPackage, new LookupContext(
+                                        packageUses, classAliases),
                                     doccomment, annotations, child[i])
                             classes.add(cl)
-                            if classMessages != null {
-                                if messages = null
-                                    messages := new Array<Message>()
-                                messages.addAll(classMessages)
-                            }
+                            messages := addMessages(messages, classMessages)
                         }
                         case ParseNodeType.INTERFACE_DECLARATION: {
                             def intf, intfMessages := 
                                     convertInterfaceDeclaration(currentPackage,
-                                        packageUses, classAliases, doccomment,
+                                        new LookupContext(packageUses, 
+                                            classAliases), doccomment,
                                         annotations, child[i])
                             classes.add(intf)
-                            if intfMessages != null {
-                                if messages = null
-                                    messages := new Array<Message>()
-                                messages.addAll(intfMessages)
-                            }
+                            messages := addMessages(messages, intfMessages)
                         }
                         case ParseNodeType.METHOD_DECLARATION: {
                             def m, methodMessages := convertMethodDeclaration(
@@ -729,11 +667,7 @@ class Scanner : Immutable {
                                     annotations + AnnotationType.CLASS, 
                                     child[i])
                             methods.add(m)
-                            if methodMessages != null {
-                                if messages = null
-                                    messages := new Array<Message>()
-                                messages.addAll(methodMessages)
-                            }
+                            messages := addMessages(messages, methodMessages)
                         }
                         case ParseNodeType.ENUM:
                             throw new NotSupportedException("enum")
