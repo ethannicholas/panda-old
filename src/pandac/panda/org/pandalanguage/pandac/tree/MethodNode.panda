@@ -15,6 +15,11 @@ class MethodNode : Node {
     def name:String
 
     ============================================================================
+    The type of method.
+    ============================================================================
+    def methodType:MethodNodeType
+
+    ============================================================================
     The method's formal parameters.
     ============================================================================
     def parameters:ImmutableArray<Parameter>
@@ -29,10 +34,12 @@ class MethodNode : Node {
     ============================================================================
     def annotations:Annotations
 
-    constructor(position:Position, name:String, parameters:ListView<Parameter>,
-            returnType:Type?, annotations:Annotations, block:Block?) {
+    constructor(position:Position, name:String, methodType:MethodNodeType,
+            parameters:ListView<Parameter>, returnType:Type?, 
+            annotations:Annotations, block:Block?) {
         super.constructor(position, wrap(block))
         self.name := name
+        self.methodType := methodType
         self.parameters := new ImmutableArray<Parameter>(parameters)
         self.returnType := returnType
         self.annotations := annotations
@@ -51,5 +58,43 @@ class MethodNode : Node {
         if length > 0
             return self[0]->(Block)
         return null
+    }
+
+    @override
+    function format(fmt:String):String {
+        def result := new MutableString()
+        switch methodType {
+            case MethodNodeType.METHOD: result.append("method ")
+            case MethodNodeType.FUNCTION: result.append("function ")
+            case MethodNodeType.CONSTRUCTOR: result.append("constructor ")
+            default: unreachable
+        }
+        result.append(name)
+        result.append("(")
+        var start:Int
+        if annotations.isClass
+            start := 0
+        else
+            start := 1
+        for i in start .. parameters.length {
+            if i > start
+                result.append(", ")
+            result.append(parameters[i].name)
+            if parameters[i].isConvert
+                result.append("->>")
+            else
+                result.append(":")
+            result.append(parameters[i].type.name)
+        }
+        result.append(")")
+        if returnType != null {
+            result.append(":")
+            result.append(returnType.name)
+        }
+        if block != null {
+            result.append(" ")
+            result.append(block->(Node))
+        }
+        return result->>(String)
     }
 }

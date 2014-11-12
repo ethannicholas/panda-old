@@ -1,0 +1,109 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.compiler.Message
+uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.Type
+
+================================================================================
+Represents a literal integer appearing in the source code. Note that a leading
+minus sign is *not* considered to be part of the literal itself; that is a
+`UnaryMinus` operator acting on an `IntegerLiteral`. Thus all `IntegerLiterals`
+are naturally unsigned, but given Panda's bias towards signed types they will
+prefer to be treated as signed types when possible.
+================================================================================
+class IntegerLiteral : Value {
+    def value:UInt64
+    def typeForced:Bit
+    
+    constructor(position:Position, value:UInt64) {
+        constructor(position, value, getType(value), false)
+        typeForced := false
+    }
+    
+    @pre(type.isInteger | type = CharType.CHAR)
+    constructor(position:Position, value:UInt64, type:Type, typeForced:Bit) {
+        super.constructor(position, type)
+        self.value := value
+        self.typeForced := typeForced
+    }
+
+    @class
+    function getType(value:UInt64):Type {
+        if value <= Int8.MAX->(UInt64)
+            return IntType.INT8
+        if value <= Int16.MAX->(UInt64)
+            return IntType.INT16
+        if value <= Int32.MAX->(UInt64)
+            return IntType.INT32
+        if value <= Int64.MAX->(UInt64)
+            return IntType.INT64
+        return IntType.UINT64
+    }
+
+    ============================================================================
+    Returns the preferred type for this literal in a signed / unsigned context.
+    ============================================================================
+    function getType(signed:Bit):Type? {
+        if typeForced {
+            if type->(IntType).signed = signed
+                return type
+            return null
+        }
+        if signed {
+            if value <= Int8.MAX->(UInt64)
+                return IntType.INT8
+            if value <= Int16.MAX->(UInt64)
+                return IntType.INT16
+            if value <= Int32.MAX->(UInt64)
+                return IntType.INT32
+            if value <= Int64.MAX->(UInt64)
+                return IntType.INT64
+            return null
+        }
+        else {
+            if value <= UInt8.MAX
+                return IntType.UINT8
+            if value <= UInt16.MAX
+                return IntType.UINT16
+            if value <= UInt32.MAX
+                return IntType.UINT32
+            return IntType.UINT64
+        }
+    }
+
+    @override
+    function implicitCastCost(t:Type):Int? {
+        if typeForced
+            return type.implicitCastCost(t)
+        def unwrapped:Type
+        if t.isWrapper
+            unwrapped := t->>(PrimitiveType)
+        else
+            unwrapped := t
+        if unwrapped.isInteger {
+            def srcType := getType(unwrapped->(IntType).signed)
+            if srcType = null
+                return null
+            def result := srcType.implicitCastCost(t)
+            if result != null & !unwrapped->(IntType).signed
+                return result + 1
+            return result
+        }
+        return super.implicitCastCost(t)
+    }
+
+    @override
+    function implicitCast(position:Position, t:Type):
+            (Value, ListView<Message>?) {
+        if t.isInteger & implicitCastCost(t) != null
+            return (new IntegerLiteral(position, value, t, true), null)
+        return super.implicitCast(position, t)
+    }
+
+    @override
+    function format(fmt:String):String {
+        return value->>(String)
+    }
+}

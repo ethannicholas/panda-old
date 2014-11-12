@@ -54,26 +54,23 @@ class InputStream {
     }
 
     ============================================================================
-    Reads a number of `Int8`s into an array. The size of the array constrains
-    the maximum number of `Int8`s that will be read, and the read `Int8`s will
-    be inserted into the array starting at index `0`. The number of `Int8`s
-    actually read may be less than the length of the array. A `null` return
-    value signifies that the end of the stream has been reached.
-
-    The default implementation calls `readInt8()` in a loop.
+    Reads a number of `Int8`s, appending them to a [ListWriter]. This method 
+    will block until at least one byte becomes available for reading. The 
+    maximum number of bytes read is defined by `max`. 
     
-    @param bytes the array into which to read
-    @returns the number of `Int8`s actually read, or `null` if there are no more
-            `Int8`s available
+    @param bytes the read destination
+    @param max the maximum number of bytes to read
+    @returns the number of `UInt8`s actually read, or `null` if the end of the
+            stream has been reached
     ============================================================================
     @pre(!closed)
-    method read(bytes:PrimitiveArray<Int8>):Int? {
+    method read(bytes:ListWriter<Int8>, max:Int):Int? {
         var index := 0
         while index < bytes.length {
             var b:Int8? := readInt8()
             if b = null
                 break
-            bytes[index] := b
+            bytes.add(b)
             index += 1
         }
         if index > 0
@@ -82,29 +79,25 @@ class InputStream {
             return null
     }
     @post(@return = null | @return <= bytes.length)
-    @post(bytes.length = @pre(bytes.length))
-    
-    ============================================================================
-    Reads a number of `UInt8`s into an array. The size of the array constrains
-    the maximum number of `UInt8`s that will be read, and the read `UInt8`s will
-    be inserted into the array starting at index `0`. The number of `UInt8`s
-    actually read may be less than the length of the array. A `null` return
-    value signifies that the end of the stream has been reached.
-    
-    The default implementation calls `readUInt8()` in a loop.
 
-    @param bytes the array into which to read
-    @returns the number of `UInt8`s actually read, or `null` if there are no 
-            more `UInt8`s available
+    ============================================================================
+    Reads a number of `UInt8`s, appending them to a [ListWriter]. This method 
+    will block until at least one byte becomes available for reading. The 
+    maximum number of bytes read is defined by `max`. 
+    
+    @param bytes the read destination
+    @param max the maximum number of bytes to read
+    @returns the number of `UInt8`s actually read, or `null` if the end of the
+            stream has been reached
     ============================================================================
     @pre(!closed)
-    method read(bytes:PrimitiveArray<UInt8>):Int? {
+    method read(bytes:ListWriter<UInt8>, max:Int):Int? {
         var index := 0
         while index < bytes.length {
             var b:UInt8? := readUInt8()
             if b = null
                 break
-            bytes[index] := b
+            bytes.add(b)
             index += 1
         }
         if index > 0
@@ -113,7 +106,6 @@ class InputStream {
             return null
     }
     @post(@return = null | @return <= bytes.length)
-    @post(bytes.length = @pre(bytes.length))
     
     ============================================================================
     Reads a single `Char` from the stream. There is not necessarily a
@@ -135,27 +127,26 @@ class InputStream {
     }
     
     ============================================================================
-    Reads a number of `Char`s into an array. The size of the array constrains
-    the maximum number of `Char`s that will be read, and the read `Char`s will
-    be inserted into the array starting at index `0`. The number of `Char`s
-    actually read may be less than the length of the array. A `null` return
-    value signifies that the end of the stream has been reached.
+    Reads a number of `Char`s, appending them to a [ListWriter]. This method 
+    will block until at least one character becomes available for reading. The 
+    maximum number of characters read is defined by `max`. 
     
     **IMPLEMENTATION NOTE**: Unicode support isn't in yet, therefore this just
     zero-extends Int8s to Chars.
 
-    @param chars the characters to write
-    @returns the number of `Char`s actually read, or `null` if there are no more
-            `Char`s available
+    @param chars the read destination
+    @param max the maximum number of characters to read
+    @returns the number of `Char`s actually read, or `null` if the end of the
+            stream has been reached
     ============================================================================
     @pre(!closed)
-    method read(chars:PrimitiveArray<Char>):Int? {
+    method read(chars:ListWriter<Char>, max:Int):Int? {
         var index := 0
         while index < chars.length {
             var c := readChar()
             if c = null
                 break
-            chars[index] := c
+            chars.add(c)
             index += 1
         }
         if index > 0
@@ -163,7 +154,8 @@ class InputStream {
         else
             return null
     }
-    
+    @post(@return = null | @return >= 0 & @return <= max)
+
     ============================================================================
     Reads a complete line from the stream.
     
@@ -189,14 +181,14 @@ class InputStream {
     ============================================================================
     Returns the contents of the file broken up into lines.
 
-    **IMPLEMENTATION NOTE:** In the future this will return a ListView which 
-    reads the stream one line at a time. Right this second we just slurp the 
-    whole stream into memory.
+    **IMPLEMENTATION NOTE:** In the future this will return an iterator which 
+    actually reads the stream one line at a time. Right this second we just 
+    slurp the whole stream into memory.
 
     @returns the lines of the file
     ============================================================================
-    method lines():PrimitiveArray<String> {
-        return readAsString().split(#/\r?\n/#)
+    method lines():Iterator<String> {
+        return readAsString().split(#/\r?\n/#).iterator
     }
     
     ============================================================================
@@ -219,12 +211,14 @@ class InputStream {
     @final
     @pre(!closed)
     method sendTo(o:OutputStream) {
-        var buffer := new PrimitiveArray<UInt8>(BUFFER_SIZE)
+        def buffer := new Array<UInt8>()
         loop {
-            var c := read(buffer)
+            constant BUFFER_SIZE := 8192
+            def c := read(buffer, BUFFER_SIZE)
             if c = null
                 break
-            o.write(buffer, 0, c)
+            o.write(buffer)
+            buffer.clear()
         }
         close()
     }
@@ -245,27 +239,27 @@ class InputStream {
 
     ============================================================================
     Reads the entire contents of this `InputStream`, returning it as an
-    `PrimitiveArray<Int8>`. As streams can provide a very large or even infinite amount 
+    `Array<Int8>`. As streams can provide a very large or even infinite amount 
     of data, you should exercise caution when using this method.
 
     @returns the contents of this stream
     ============================================================================
-    method readAsInt8Array():PrimitiveArray<Int8> {
+    method readAsInt8Array():Array<Int8> {
         var buffer := new MemoryOutputStream()
         sendTo(buffer)
-        return buffer->>(PrimitiveArray<Int8>)
+        return buffer->>(Array<Int8>)
     }
 
     ============================================================================
     Reads the entire contents of this `InputStream`, returning it as an
-    `PrimitiveArray<UInt8>`. As streams can provide a very large or even infinite amount 
+    `Array<UInt8>`. As streams can provide a very large or even infinite amount 
     of data, you should exercise caution when using this method.
 
     @returns the contents of this stream
     ============================================================================
-    method readAsUInt8Array():PrimitiveArray<UInt8> {
+    method readAsUInt8Array():Array<UInt8> {
         var buffer := new MemoryOutputStream()
         sendTo(buffer)
-        return buffer->>(PrimitiveArray<UInt8>)
+        return buffer->>(Array<UInt8>)
     }
 }

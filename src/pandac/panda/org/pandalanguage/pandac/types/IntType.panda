@@ -45,4 +45,63 @@ class IntType : PrimitiveType {
             prefix := "UInt"
         return "panda.core." + prefix + size * 8            
     }
+
+    @override
+    function isNumeric():Bit {
+        return true
+    }
+
+    @override
+    function isNumber():Bit {
+        return true
+    }
+
+    @override
+    function isInteger():Bit {
+        return true
+    }
+
+    @override
+    function canExplicitCastTo(target:Type):Bit {
+        if target.isPrimitive
+            return target.isNumeric
+        --return wrapperVersion().canExplicitCastTo(target)
+        throw new NotSupportedException()
+    }
+
+    @override
+    function implicitCastCost(target:Type):Int? {
+        if target.isNumber {
+            if target->>(PrimitiveType).size < size
+                return null
+            var s := size
+            var result := 0
+            if target-?>(IntType) {
+                if signed & !target->(IntType).signed
+                    return null
+                if !signed & target->(IntType).signed { 
+                    if s = target->(IntType).size
+                        return null
+                    result += 1
+                }
+            }
+            while s < target->(PrimitiveType).size {
+                s *= 2
+                result += 1
+            }
+            if target.isReal
+                result += REAL_CAST_COST
+            return result
+        }
+        else if target.isWrapper {
+            var result := implicitCastCost(target->>(PrimitiveType))
+            if result != null & target.isNullable
+                result += NullableType.TO_NULLABLE_CAST_COST
+            return result
+        }
+--        if !target.unwrapWrapper.isPrimitive
+--            return wrapperVersion().implicitCastCost(target)
+--        return null
+        throw new NotSupportedException()
+    }
 }

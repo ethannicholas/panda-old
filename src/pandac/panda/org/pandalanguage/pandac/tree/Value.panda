@@ -22,7 +22,12 @@ class Value : Node {
         self.type := type
     }
     
+    @final
     function preferredVariableType():Type {
+        return preferredVariableType(false)
+    }
+
+    function preferredVariableType(preferImmutable:Bit):Type {
         return type
     }
 
@@ -31,13 +36,44 @@ class Value : Node {
     }
 
     function implicitCast(t:Type):(Value, ListView<Message>?) {
-        def result := new Cast(self, t)
+        return implicitCast(position, t)
+    }
+
+    function implicitCast(position:Position, t:Type):
+            (Value, ListView<Message>?) {
+        if t = type
+            return (self, null)
+        def result := new Cast(self, t, CastType.IMPLICIT)
         if implicitCastCost(t) != null
             return (result, null)
         else {
             def messages := new Array<Message>()
             messages.add(new Message("expected '\{t.displayName}', but " +
                     "found '\{type.displayName}'", position))
+            return (result, messages)
+        }
+    }
+    @post(@return[0].type = t)
+
+    function canExplicitCastTo(t:Type):Bit {
+        return type.canExplicitCastTo(t)
+    }
+
+    function explicitCast(t:Type):(Value, ListView<Message>?) {
+        return explicitCast(position, t)
+    }
+
+    function explicitCast(position:Position, t:Type):
+            (Value, ListView<Message>?) {
+        if t = type
+            return (self, null)
+        def result := new Cast(self, t, CastType.EXPLICIT)
+        if canExplicitCastTo(t)
+            return (result, null)
+        else {
+            def messages := new Array<Message>()
+            messages.add(new Message("'\{t.displayName}' cannot possibly be " +
+                    "an instance of '\{type.displayName}'", position))
             return (result, messages)
         }
     }

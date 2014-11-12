@@ -174,7 +174,7 @@ need work:
     quick-and-dirty implementation to begin with, and then I found out that some
     of the things I was doing didn't play right with this particular garbage 
     collector, and then I found some other problems, and... well, you know how 
-    it goes. It's a mess right now.
+    it goes. It's a bit of a mess right now.
 2. The API needs work. Creating new threads feels "heavier" than I would like it
     to; might be worth introducing a keyword or at least some kind of simpler
     syntax to spawn a new thread. There's also no way to select among multiple 
@@ -314,8 +314,9 @@ Native use of Java objects
 
 Currently, accessing Java objects from Panda requires jumping through a lot of
 hoops. I'd like to simplify this, although the resulting program will obviously
-then be JVM-only. Accessing Panda objects from Java, however, will likely
-continue to be fairly difficult.
+then be JVM-only. Accessing Panda objects from Java will likely continue to be 
+fairly difficult, but I'd still like to reduce the stupidity of how Panda 
+objects are represented in Java.
 
 JavaScript Output
 -----------------
@@ -330,14 +331,6 @@ Resources
 The compiler will be able to embed files into the executable, sort of like
 embedding resource files into a Java .jar file. (Well, exactly like that, when 
 you're compiling to a .jar file...)
-
-Proper Collection API
----------------------
-
-Obviously Panda is eventually going to feature a full-fledged collection API, 
-with `List`, `Set`, `Map`, and all the rest. This feature is blocked on 
-A) generics, and B) making sure I'm completely happy with the design before I go
-crazy and write something I don't like.
 
 Better Regular Expression Syntax
 --------------------------------
@@ -397,12 +390,7 @@ modular; much as I like the regular expression features in `String`, for
 example, I'd prefer to see them split out into a separate module (much as 
 `panda.gl` is currently broken out) so we don't absolutely have to have a 
 regular expression library in every Panda installation, and the same basic deal
-for every "big" and not-strictly-necessary module currently included. The big
-hesitation here is I'm not sure how well that can be accomplished on the JVM.
-
-I'm not saying there isn't a great (possibly even an obvious) solution, but I
-haven't spent much time thinking about it and my gut feel is that it's going to
-be difficult to do right. Maybe I'm wrong.
+for every "big" and not-strictly-necessary module currently included.
 
 Inner Classes
 -------------
@@ -445,6 +433,19 @@ Threading
 ---------
 
 As discussed above, threading is a major candidate for breaking changes.
+
+Removing '`new`'
+----------------
+
+There is no technical reason to require the `new` keyword when creating objects.
+I'm strongly considering removing it.
+
+`switch`
+--------
+
+Panda's `switch` statement is fairly... traditional. I haven't spent any time
+optimizing it (internally, it is still being lowered to a sequence of `if`
+statements) because I am very uncertain if it is going to remain this way.
 
 Interfaces
 ----------

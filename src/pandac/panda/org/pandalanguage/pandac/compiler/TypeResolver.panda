@@ -10,8 +10,8 @@ uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
 uses org.pandalanguage.pandac.stubs.UntypedClassStub
 uses org.pandalanguage.pandac.stubs.UntypedFieldStub
+uses org.pandalanguage.pandac.stubs.UntypedGenericParameter
 uses org.pandalanguage.pandac.stubs.UntypedMethodStub
-uses org.pandalanguage.pandac.stubs.UnTypedFormaParameter
 uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.SpecialType
@@ -103,18 +103,23 @@ class TypeResolver (MessageProcessor) {
         self.classAliases := new HashMap<String, String>(
                 cl.lookupContext.classAliases)
         var messages:ListView<Message>? := null
-        def genericParameters := new Array<GenericParameterType>()
-        for param in cl.genericParameters {
-            def name := "\{cl.name}.\{param.name}"
-            var bound, parameterMessages := resolveType(param.bound)
-            messages := addMessages(messages, parameterMessages)
-            if bound = null
-                bound := ANY_TYPE()
-            def parameter := new GenericParameterType(name, bound)
-            self.classAliases[param.name] := name
-            typeMap.putType(parameter)
-            genericParameters.add(parameter)
+        def genericParameters:List<GenericParameterType>?
+        if cl.genericParameters != null {
+            genericParameters := new Array<GenericParameterType>()
+            for param in cl.genericParameters->(ListView<UntypedGenericParameter>) {
+                def name := "\{cl.name}.\{param.name}"
+                var bound, parameterMessages := resolveType(param.bound)
+                messages := addMessages(messages, parameterMessages)
+                if bound = null
+                    bound := ANY_TYPE()
+                def parameter := new GenericParameterType(name, bound)
+                self.classAliases[param.name] := name
+                typeMap.putType(parameter)
+                genericParameters.add(parameter)
+            }
         }
+        else
+            genericParameters := null
         def methods := new Array<TypedMethodStub>()
         for m in cl.methods {
             def resolved, submessages := resolveTypes(m)
@@ -157,7 +162,8 @@ class TypeResolver (MessageProcessor) {
         return (new TypedClassStub(cl.position, cl.name, cl.isInterface, 
                 cl.annotations, new LookupContext(cl.lookupContext.packageUses, 
                         self.classAliases), superclass, interfaces, methods, 
-                        fields, cl.invariants, genericParameters),
+                        fields, cl.invariants, genericParameters, 
+                        cl.isExternal),
                 messages)
     }
 

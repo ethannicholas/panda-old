@@ -2,11 +2,6 @@ package panda.io;
 
 class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External {
     @Override
-    public int read(panda.io.FileInputStream self, panda.collections.PrimitiveArray$LTInt8$GT b, int offset, int length) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public java.lang.Object open(panda.core.String path, boolean read, boolean write) {
         try {
             return new java.io.FileInputStream(
@@ -40,6 +35,54 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
             throw new panda.core.PandaException(
                     panda.io.IOException.createnew$constructor(
                         panda.core.PandaCore.newString(e.getMessage())));
+        }
+    }
+
+    @Override
+    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$LTpanda$core$Int8$GT dest, int max) {
+        try {
+            byte[] buffer = new byte[max];
+            int result = ((java.io.InputStream) in.$nativeFile).read(buffer);
+            if (result <= 0)
+                return null;
+            for (int i = 0; i < result; i++)
+                dest.add(buffer[i]);
+            return panda.core.Int32Wrapper.createnew$constructor(result);
+        }
+        catch (java.io.IOException e) {
+            throw new java.lang.RuntimeException(e);
+        }
+    }
+
+    @Override
+    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$LTpanda$core$UInt8$GT dest, int max) {
+        try {
+            byte[] buffer = new byte[max];
+            int result = ((java.io.InputStream) in.$nativeFile).read(buffer);
+            if (result <= 0)
+                return null;
+            for (int i = 0; i < result; i++)
+                dest.add_UInt8(buffer[i]);
+            return panda.core.Int32Wrapper.createnew$constructor(result);
+        }
+        catch (java.io.IOException e) {
+            throw new java.lang.RuntimeException(e);
+        }
+    }
+
+    @Override
+    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$LTpanda$core$Char$GT dest, int max) {
+        try {
+            byte[] buffer = new byte[max];
+            int result = ((java.io.InputStream) in.$nativeFile).read(buffer);
+            if (result <= 0)
+                return null;
+            for (int i = 0; i < result; i++)
+                dest.add((char) buffer[i]);
+            return panda.core.Int32Wrapper.createnew$constructor(result);
+        }
+        catch (java.io.IOException e) {
+            throw new java.lang.RuntimeException(e);
         }
     }
 }

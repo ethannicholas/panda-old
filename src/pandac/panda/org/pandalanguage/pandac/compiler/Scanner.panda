@@ -359,7 +359,7 @@ class Scanner : Immutable (MessageProcessor) {
             lookupContext:LookupContext, isInterface:Bit, 
             genericParametersNode:ParseNode?, supertypeNode:ParseNode?, 
             interfaces:ListView<ParseNode>, 
-            classMembers:ParseNode):(UntypedClassStub, ListView<Message>?) {
+            classMembers:ParseNode, isExternal:Bit):(UntypedClassStub, ListView<Message>?) {
         var messages:ListView<Message>? := null
         def methods := new Array<UntypedMethodStub>()
         def fields := new Array<UntypedFieldStub>()
@@ -391,8 +391,9 @@ class Scanner : Immutable (MessageProcessor) {
             messages := addMessages(messages, childMessages)
         }
 
-        def genericParameters := new Array<UntypedGenericParameter>()
+        def genericParameters:List<UntypedGenericParameter>?
         if genericParametersNode != null {
+            genericParameters := new Array<UntypedGenericParameter>()
             var i := 1
             loop {
                 assert genericParametersNode[i]->(TokenNode).token.type = 
@@ -420,10 +421,12 @@ class Scanner : Immutable (MessageProcessor) {
                     unreachable
             }
         }
+        else
+            genericParameters := null
 
         return (new UntypedClassStub(position, className, isInterface, 
                 annotations, lookupContext, supertypeNode, interfaces, methods,
-                fields, invariants, genericParameters), messages)
+                fields, invariants, genericParameters, isExternal), messages)
     }
 
     ============================================================================
@@ -433,7 +436,7 @@ class Scanner : Immutable (MessageProcessor) {
     function convertClassDeclaration(packageName:String?, 
             lookupContext:LookupContext, doccomment:String?, 
             var annotations:Annotations,
-            cl:ParseNode):(UntypedClassStub, ListView<Message>?) {
+            cl:ParseNode, isExternal:Bit):(UntypedClassStub, ListView<Message>?) {
         assert cl[0]->(TokenNode).token.type = TokenType.CLASS
         assert cl[1]->(TokenNode).token.type = TokenType.IDENTIFIER
         def className:String
@@ -471,7 +474,8 @@ class Scanner : Immutable (MessageProcessor) {
         i += 1
         return convertClassOrInterface(cl.position, doccomment, 
                 annotations, className, lookupContext, false, 
-                genericParametersNode, supertypeNode, interfaces, cl[i])
+                genericParametersNode, supertypeNode, interfaces, cl[i],
+                isExternal)
     }
 
     ============================================================================
@@ -481,7 +485,7 @@ class Scanner : Immutable (MessageProcessor) {
     function convertInterfaceDeclaration(packageName:String?, 
             lookupContext:LookupContext, doccomment:String?, 
             var annotations:Annotations, 
-            cl:ParseNode):(UntypedClassStub, ListView<Message>?) {
+            cl:ParseNode, isExternal:Bit):(UntypedClassStub, ListView<Message>?) {
         assert cl[0]->(TokenNode).token.type = TokenType.INTERFACE
         assert cl[1]->(TokenNode).token.type = TokenType.IDENTIFIER
         def className:String
@@ -514,7 +518,7 @@ class Scanner : Immutable (MessageProcessor) {
         i += 1
         return convertClassOrInterface(cl.position, doccomment, annotations, 
                 className, lookupContext, true, genericParametersNode, null, 
-                interfaces, cl[i])
+                interfaces, cl[i], isExternal)
     }
 
     ============================================================================
@@ -599,6 +603,7 @@ class Scanner : Immutable (MessageProcessor) {
         def statements := new Array<ParseNode>()
         var messages:ListView<Message>? := null
         var currentPackage:String? := null
+        def isExternal := name.endsWith(".plink")
         def packageUses := new Array<String>()
         packageUses.add("panda.collections")
         packageUses.add("panda.core")
@@ -613,7 +618,7 @@ class Scanner : Immutable (MessageProcessor) {
             assert child.type = ParseNodeType.BODY_ENTRY
             switch child[0].type {
                 case ParseNodeType.SIMPLE_STATEMENT:
-                    throw new NotSupportedException("simple statement")
+                    statements.add(child[0])
                 case ParseNodeType.PACKAGE_DECLARATION:
                     currentPackage := child[0][1..].join("")
                 case ParseNodeType.USES_STATEMENT: {
@@ -648,7 +653,8 @@ class Scanner : Immutable (MessageProcessor) {
                             def cl, classMessages := convertClassDeclaration(
                                     currentPackage, new LookupContext(
                                         packageUses, classAliases),
-                                    doccomment, annotations, child[i])
+                                    doccomment, annotations, child[i], 
+                                    isExternal)
                             classes.add(cl)
                             messages := addMessages(messages, classMessages)
                         }
@@ -657,7 +663,7 @@ class Scanner : Immutable (MessageProcessor) {
                                     convertInterfaceDeclaration(currentPackage,
                                         new LookupContext(packageUses, 
                                             classAliases), doccomment,
-                                        annotations, child[i])
+                                        annotations, child[i], isExternal)
                             classes.add(intf)
                             messages := addMessages(messages, intfMessages)
                         }

@@ -12,13 +12,7 @@ class MemoryOutputStream : OutputStream {
     The data buffer
     ============================================================================
     @private 
-    var buffer:PrimitiveArray<Int8>
-    
-    ============================================================================
-    The current length of the data in the buffer
-    ============================================================================
-    @readonly
-    var length:Int
+    def buffer:Array<Int8>
     
     ============================================================================
     Creates a new `MemoryOutputStream`.
@@ -34,97 +28,49 @@ class MemoryOutputStream : OutputStream {
     @param size the size of the memory buffer
     ============================================================================
     constructor(size:Int32) {
-        buffer := new PrimitiveArray<Int8>(size)
+        buffer := new Array<Int8>()
     }
-    
-    ============================================================================
-    Ensures that the buffer can hold at least `minLength` bytes.
-    
-    @param minLength the minimum size of the memory buffer
-    ============================================================================
-    @private
-    method ensureCapacity(minLength:Int) {
-        if minLength > buffer.length {
-            var newLength := buffer.length.max(DEFAULT_LENGTH)
-            while newLength < minLength
-                newLength *= 2
-            var newBuffer := new PrimitiveArray<Int8>(newLength)
-            for i in 0 .. length
-                newBuffer[i] := buffer[i]
-            buffer := newBuffer
-        }
-    }
-    @post(buffer.length >= minLength)
 
+    function length():Int {
+        return buffer.length
+    }
+    
     @self
     @override
     method write(b:Int8) {
-        ensureCapacity(length + 1)
-        buffer[length] := b
-        length += 1
+        buffer.add(b)
     }
     
     @self
     @override
-    method write(b->>PrimitiveArray<Int8>, offset:Int, length:Int) {
-        ensureCapacity(self.length + length)
-        for i in 0 ... length - 1
-            buffer[self.length + i] := b[i + offset]
-        self.length += length
+    method write(bytes:ListView<Int8>, offset:Int, length:Int) {
+        for i in offset .. offset + length
+            buffer.add(bytes[i])
     }
-    
-    @self
-    @override
-    method write(b->>PrimitiveArray<Int8>) {
-        write(b, 0, b.length)
-    }
-    
     @self
     @override
     method write(b:UInt8) {
-        ensureCapacity(length + 1)
-        buffer[length] := b->>(Int8)
-        length += 1
+        buffer.add(b->>(Int8))
     }
     
     @self
     @override
-    method write(b->>PrimitiveArray<UInt8>) {
-        write(b, 0, b.length)
-    }
-    
-    @self
-    @override
-    method write(b->>PrimitiveArray<UInt8>, offset:Int, length:Int) {
-        for i in offset ... offset + length - 1
-            write(b[i])
+    method write(bytes:ListView<UInt8>, offset:Int, length:Int) {
+        for i in offset .. offset + length
+            buffer.add(bytes[i]->>(Int8))
     }
 
     @self
     @override
     method write(c:Char) {
-        write(c->>(UInt8))
+        buffer.add(c->>(Int8))
     }
     
     @self
     @override
-    method write(c->>PrimitiveArray<Char>) {
-        write(c, 0, c.length)
-    }
-    
-    @self
-    @override
-    method write(c->>PrimitiveArray<Char>, offset:Int, length:Int) {
-        var bytes := new PrimitiveArray<Int8>(length)
-        for i in offset ... offset + length - 1
-            bytes[i - offset] := c[i]->>(Int8)
-        write(bytes)
-    }
-    
-    @self
-    @override
-    method write(s->>String) {
-        write(s->>(PrimitiveArray<Char>))
+    method write(chars:ListView<Char>, offset:Int, length:Int) {
+        for i in offset .. offset + length
+            buffer.add(chars[i]->>(Int8))
     }
 
     @self
@@ -149,8 +95,11 @@ class MemoryOutputStream : OutputStream {
     
     @returns all data written to the stream
     ============================================================================
-    function ->>():PrimitiveArray<Int8> {
-        return new PrimitiveArray<Int8>(buffer, 0, length)
+    function ->>():Array<Int8> {
+        def result := new Array<Int8>()
+        for b in buffer
+            result.add(b->>(Int8))
+        return result
     }
 
     ============================================================================
@@ -158,10 +107,10 @@ class MemoryOutputStream : OutputStream {
     
     @returns all data written to the stream
     ============================================================================
-    function ->>():PrimitiveArray<UInt8> {
-        var result := new PrimitiveArray<UInt8>()
-        for i in 0 ... length - 1
-            result[i] := buffer[i]->>(UInt8)
+    function ->>():Array<UInt8> {
+        def result := new Array<UInt8>()
+        for b in buffer
+            result.add(b->>(UInt8))
         return result
     }
 
@@ -170,12 +119,13 @@ class MemoryOutputStream : OutputStream {
     
     @returns all data written to the stream
     ============================================================================
-    function ->>():PrimitiveArray<Char> {
+    function ->>():Array<Char> {
         -- FIXME obviously missing encodings here...
-        var result := new PrimitiveArray<Char>(length)
-        for i in 0 ... length - 1
-            result[i] := buffer[i]->>(Char)
+        def result := new Array<Char>()
+        for b in buffer
+            result.add(b->>(Char))
         return result
+
     }
 
     ============================================================================
@@ -186,15 +136,14 @@ class MemoryOutputStream : OutputStream {
     ============================================================================
     @override
     function format(fmt:String):String {
-        return new String(self->>(PrimitiveArray<Char>))
+        return new String(self->>(Array<Char>))
     }
 
     ============================================================================
     Discards all data written to the stream so far.
     ============================================================================
     method reset() {
-        buffer := new PrimitiveArray<Int8>(DEFAULT_LENGTH)
-        length := 0
+        buffer.clear()
     }
     @post(length = 0)
 }

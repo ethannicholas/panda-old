@@ -10,7 +10,14 @@ class String : Value (ListView<Char>) {
     The characters of the string.
     ============================================================================
     @private
-    def chars:ImmutablePrimitiveArray<Char>
+    def chars:ImmutableArray<Char>
+
+    constructor(chars:PrimitiveArray<Char>) {
+        def copy := new Array<Char>()
+        for c in chars
+            copy.add(c)
+        self.chars := new ImmutableArray<Char>(copy)
+    }
 
     ============================================================================
     Creates a new `String` initialized with characters from an immutable 
@@ -18,33 +25,19 @@ class String : Value (ListView<Char>) {
     
     @param chars the String's characters
     ============================================================================
-    constructor(chars:ImmutablePrimitiveArray<Char>) {
+    constructor(chars:ImmutableArray<Char>) {
         self.chars := chars
     }
 
     ============================================================================
-    Creates a new `String` initialized with characters from a character array.
-    The `String` and character array do not share state, and the array may
-    subsequently be modified without affecting the `String`.
+    Creates a new `String` initialized with a list of characters. The `String`
+    and list do not share state, and the list may subsequently be modified 
+    without affecting the `String`.
 
     @param chars the character array to copy from
     ============================================================================
-    constructor(chars:PrimitiveArray<Char>) {
-        constructor(chars->>(ImmutablePrimitiveArray<Char>))
-    }
-
-    ============================================================================
-    Creates a new `String` initialized with characters from a character array.
-    The `String` and character array do not share state, and the array may
-    subsequently be modified without affecting the `String`.
-
-    @param chars the character array to copy from
-    ============================================================================
-    constructor(chars:Array<Char>) {
-        def a := new PrimitiveArray<Char>()
-        for c in chars
-            a.append(c)
-        self.chars := a->>(ImmutablePrimitiveArray<Char>)
+    constructor(chars:ListView<Char>) {
+        constructor(new ImmutableArray<Char>(chars))
     }
 
     ============================================================================
@@ -81,8 +74,8 @@ class String : Value (ListView<Char>) {
     ============================================================================
     @safeReturn
     @pre(maxResults > 0)
-    function split(delimiter:String, maxResults:Int):PrimitiveArray<String> {
-        var result := new PrimitiveArray<String>()
+    function split(delimiter:String, maxResults:Int):ListView<String> {
+        var result := new Array<String>()
         var index := 0
         loop {
             var nextIndex:Int?
@@ -91,10 +84,10 @@ class String : Value (ListView<Char>) {
             else
                 nextIndex := indexOf(delimiter, index)
             if nextIndex = null | result.length = maxResults - 1 {
-                result.append(self[index..])
+                result.add(self[index..])
                 break
             }
-            result.append(self[index .. nextIndex])
+            result.add(self[index .. nextIndex])
             index := nextIndex + delimiter.length
         }
         return result
@@ -109,7 +102,7 @@ class String : Value (ListView<Char>) {
     @returns the split tokens
     ============================================================================
     @safeReturn
-    function split(delimiter:String):PrimitiveArray<String> {
+    function split(delimiter:String):ListView<String> {
         return split(delimiter, Int32.MAX)
     }
     
@@ -126,18 +119,19 @@ class String : Value (ListView<Char>) {
     ============================================================================
     @safeReturn
     @pre(maxResults > 0)
-    function split(delimiter:RegularExpression, maxResults:Int):PrimitiveArray<String> {
-        var result := new PrimitiveArray<String>()
+    function split(delimiter:RegularExpression, 
+            maxResults:Int):ListView<String> {
+        var result := new Array<String>()
         var matcher := delimiter.matcher(self)
         var index := 0
         loop {
             var found := matcher.find()
             if !found | result.length = maxResults - 1 {
-                result.append(self[index..])
+                result.add(self[index..])
                 break
             }
             var start := matcher.start
-            result.append(self[index .. start])
+            result.add(self[index .. start])
             index := start.max(matcher.end)
         }
         return result
@@ -152,7 +146,7 @@ class String : Value (ListView<Char>) {
     @returns the split tokens
     ============================================================================
     @safeReturn
-    function split(delimiter:RegularExpression):PrimitiveArray<String> {
+    function split(delimiter:RegularExpression):ListView<String> {
         -- FIXME switch this to Int32.MAX
         return split(delimiter, Int32.MAX)
     }
@@ -191,12 +185,12 @@ class String : Value (ListView<Char>) {
     @returns an array of the capture groups, or `null`
     ============================================================================
     @safeReturn
-    function parse(regex:RegularExpression):PrimitiveArray<String>? {
+    function parse(regex:RegularExpression):ListView<String>? {
         def matcher := regex.matcher(self)
         if matcher.matches() {
-            def result := new PrimitiveArray<String>()
+            def result := new Array<String>()
             for i in 1 .. matcher.groupCount
-                result.append(matcher.group(i))
+                result.add(matcher.group(i))
             return result
         }
         return null
@@ -307,15 +301,14 @@ class String : Value (ListView<Char>) {
     @returns a new string with all occurrences of the regular expression 
             replaced
     ============================================================================
-    -- FIXME change PrimitiveArray<String> to ListView<String> when ListView is ready
     function replace(search:RegularExpression, 
-            replacement:(PrimitiveArray<String>)=>(Object)):String {
+            replacement:(ListView<String>)=>(Object)):String {
         def result := new MutableString()
         def matcher := search.matcher(self)
         while matcher.find() {
-            def groups := new PrimitiveArray<String>()
+            def groups := new Array<String>()
             for i in 0 .. matcher.groupCount
-                groups.append(matcher.group(i))
+                groups.add(matcher.group(i))
             matcher.appendReplacement(result, replacement(groups)->>(String), 
                     false)
         }
@@ -341,21 +334,6 @@ class String : Value (ListView<Char>) {
             end -= 1
             
         return self[start ... end]
-    }
-    
-    ============================================================================
-    Returns a new `String` containing a reversed version of this string.
-    
-    @returns a backwards copy of this string
-    ============================================================================
-    function reverse():String {
-        def c := new PrimitiveArray<Char>(length)
-        var j := length - 1
-        for i in 0 .. length {
-            c[i] := self[j]
-            j -= 1
-        }
-        return new String(c)
     }
     
     ============================================================================
@@ -806,11 +784,11 @@ class String : Value (ListView<Char>) {
     function +(s1->>String, s2->>String):String {
         var l1 := s1.length
         var l2 := s2.length
-        var result := new PrimitiveArray<Char>(l1 + l2)
-        for i in 0 .. l1
-            result[i] := s1[i]
-        for i in 0 .. l2
-            result[i + l1] := s2[i]
+        var result := new Array<Char>()
+        for c in s1
+            result.add(c)
+        for c in s2
+            result.add(c)
         return new String(result)
     }
     @post(@return.length = s1.length + s2.length)
@@ -828,13 +806,10 @@ class String : Value (ListView<Char>) {
         -- power algorithm would do this in fewer steps, but would also require
         -- more allocations. For small n (which is what we expect here) I expect 
         -- this linear algorithm is actually faster, but I haven't tested it.
-        var result := new PrimitiveArray<Char>(length * count)
-        var index := 0
+        var result := new Array<Char>()
         for i in 0 .. count {
-            for j in 0 .. length {
-                result[index] := self[j]
-                index += 1
-            }
+            for c in self
+                result.add(c)
         }
         return new String(result)
     }
@@ -924,24 +899,11 @@ class String : Value (ListView<Char>) {
     
     @returns the UTF-8 encoded bytes
     ============================================================================
-    function ->>():PrimitiveArray<Int8> {
+    function ->>():Array<Int8> {
         -- FIXME not actually doing UTF-8 encoding, just spitting out bytes
-        var result := new PrimitiveArray<Int8>(length)
-        for i in 0 .. length
-            result[i] := self[i]->>(Int8)
-        return result
-    }
-    @post(@return.length = length)
-
-    ============================================================================
-    Converts this string to an array of characters.
-    
-    @returns the characters of the string
-    ============================================================================
-    function ->>():PrimitiveArray<Char> {
-        var result := new PrimitiveArray<Char>(length)
-        for i in 0 .. length
-            result[i] := self[i]
+        var result := new Array<Int8>()
+        for c in self
+            result.add(c->>(Int8))
         return result
     }
     @post(@return.length = length)
@@ -1398,7 +1360,7 @@ class String : Value (ListView<Char>) {
 
     ============================================================================
     Formats a string for display purposes, exactly as if by
-    [OutputStream::write(String, PrimitiveArray<Object>)].
+    [OutputStream::write(String, ListView<Object>)].
 
     @param s the format string
     @param params the format string parameters

@@ -11,19 +11,13 @@ uses org.pandalanguage.pandac.stubs.TypedClassStub
 uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
 uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.tree.AbstractLoop
-uses org.pandalanguage.pandac.tree.Add
-uses org.pandalanguage.pandac.tree.And
-uses org.pandalanguage.pandac.tree.AndLeft
 uses org.pandalanguage.pandac.tree.Annotation
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.Assert
 uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BinaryOperationType
 uses org.pandalanguage.pandac.tree.BitLiteral
-uses org.pandalanguage.pandac.tree.BitwiseAnd
-uses org.pandalanguage.pandac.tree.BitwiseNot
-uses org.pandalanguage.pandac.tree.BitwiseOr
-uses org.pandalanguage.pandac.tree.BitwiseXor
 uses org.pandalanguage.pandac.tree.Block
 uses org.pandalanguage.pandac.tree.Break
 uses org.pandalanguage.pandac.tree.Cast
@@ -61,6 +55,8 @@ uses org.pandalanguage.pandac.tree.Loop
 uses org.pandalanguage.pandac.tree.LessThanOrEqual
 uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodCallStatement
+uses org.pandalanguage.pandac.tree.MethodCallValue
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodValue
@@ -92,9 +88,10 @@ uses org.pandalanguage.pandac.compiler.SymbolTable
 uses org.pandalanguage.pandac.tree.Ternary
 uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
-uses org.pandalanguage.pandac.tree.UnaryMinus
+uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.Unreachable
-uses org.pandalanguage.pandac.tree.UnresolvedPrimitiveArray
+uses org.pandalanguage.pandac.tree.UnresolvedArray
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedLambda
 uses org.pandalanguage.pandac.tree.UnresolvedRange
@@ -131,14 +128,21 @@ uses org.pandalanguage.pandac.types.VoidType
 uses org.pandalanguage.pandac.types.WrapperType
 
 class Context : Immutable {
+    def currentClass:TypedClassStub?
+
+    def currentMethod:TypedMethodStub?
+
     def lookupContext:LookupContext
 
     def typeMap:TypeMap
 
     def localVariables:ImmutableHashMap<String, Variable>
 
-    constructor(lookupContext:LookupContext, typeMap:TypeMap,
+    constructor(currentClass:TypedClassStub?, currentMethod:TypedMethodStub?,
+            lookupContext:LookupContext, typeMap:TypeMap,
             localVariables:ListView<Variable>) {
+        self.currentClass := currentClass
+        self.currentMethod := currentMethod
         self.lookupContext := lookupContext
         self.typeMap := typeMap
         def localVariableMap := new HashMap<String, Variable>()
@@ -148,10 +152,121 @@ class Context : Immutable {
                 localVariableMap)
     }
 
+    function isInstance():Bit {
+        return currentMethod != null & !currentMethod.annotations.isClass
+    }
+
+    function getVariable(name:String):Variable? {
+        -- FIXME also search fields
+        return localVariables[name]
+    }
+
+    @pre(isInstance)
+    function getSelf(position:Position):Value {
+        def selfVar := localVariables[Parameter.SELF_NAME]
+        assert selfVar != null
+        return new VariableReference(position, selfVar)
+    }
+
+    method getRequiredType(name:String, position:Position):Type {
+        def node := new PandaParser().parseType(name, position)
+        def result, messages := typeMap.getType(node, lookupContext)
+        if result = null {
+            assert messages != null
+            throw new InternalCompilerException(messages.join("\n"), position)
+        }
+        return result
+    }
+
     function +(variables:ListView<Variable>):Context {
         def newVariables := new Array<Variable>(localVariables.values)
         newVariables.addAll(variables)
-        return new Context(lookupContext, typeMap, newVariables)
+        return new Context(currentClass, currentMethod, lookupContext, typeMap,
+                newVariables)
+    }
+}
+
+================================================================================
+A placeholder object which stands in for a `Value`, generally so we can perform
+method lookup without having to have actual correct `Value`s.
+================================================================================
+class Dummy : Value {
+    constructor(position:Position, type:Type) {
+        super.constructor(position, type)
+    }
+}
+
+================================================================================
+A reference to a field which could, depending on context, also refer to a no-arg
+function of the same name.
+================================================================================
+@private
+class AmbiguousReference : Value {
+    def contextValue:Value
+    def field:FieldNode
+
+    constructor(position:Position, contextValue:Value, field:FieldNode) {
+        super.constructor(position, field.type)
+        self.contextValue := contextValue
+        self.field := field
+    }
+}
+
+================================================================================
+Represents an element of a shared tuple, for initializing several fields from 
+the same value.
+================================================================================
+@private
+class TupleReference {
+    var tuple:ParseNode
+    var element:Int
+
+    constructor(tuple:ParseNode, element:Int) {
+        self.tuple := tuple
+        self.element := element
+    }
+}
+
+================================================================================
+Used to represent something that looks like an array index (foo[bar]) but can't
+actually be resolved into something meaningful. We do this because if the next
+token we run into is a ":=", the expression could still resolve into an indexed
+assignment.
+================================================================================
+@private
+class PossibleIndexedAssignment : Value {
+    def contextValue:Value
+    def index:Value
+
+    constructor(position:Position, contextValue:Value, index:Value) {
+        super.constructor(position, new UnresolvedType("<index>", position))
+        self.contextValue := contextValue
+        self.index := index
+    }
+}
+
+================================================================================
+Used to represent something that looks like an slice (foo[bar .. baz]) but can't
+actually be resolved into something meaningful. We do this because if the next
+token we run into is a ":=", the expression could still resolve into a slice
+assignment.
+================================================================================
+@private
+class PossibleSliceAssignment : Value {
+    def contextValue:Value
+    def left:Value
+    def right:Value
+    def step:Value
+    def endInclusive:Bit
+
+    constructor(position:Position, contextValue:Value, left:Value, right:Value,
+            step:Value, endInclusive:Bit) {
+        super.constructor(position, new UnresolvedType("<slice>", position))
+        self.contextValue := contextValue
+        self.left := left
+        self.right := right
+        self.step := step
+        self.endInclusive := endInclusive
     }
 }
 
@@ -159,25 +274,1729 @@ class Context : Immutable {
 Converts typed stubs into AST nodes.
 ================================================================================
 class ASTGenerator : Immutable (MessageProcessor) {
-    @class
+    constant STRING_GROUP := #/(?<!\\)\\\{.*?(?<!\\)\}/#
+
+    constant UNESCAPED_BRACE := #/(?<!\\)\{/#
+
+    @private
+    constructor() {
+    }
+
     @pre(t.type = ParseNodeType.TYPE)
     method convertType(context:Context, t:ParseNode):
             (Type?, ListView<Message>?) {
         return context.typeMap.getType(t, context.lookupContext)
     }
 
-    @class
-    @pre(e.type = ParseNodeType.EXPRESSION)
-    method convertExpression(context:Context, e:ParseNode):
+    method convertType(context:Context, name:String, position:Position):
+            (Type?, ListView<Message>?) {
+        def node := new PandaParser().parseType(name, position)
+        return context.typeMap.getType(node, context.lookupContext)
+    }
+
+    -- FIXME switch to built-in string parser when it exists
+    @pre(base >= 2 & base <= 36)
+    function parseInt(s:String, base:UInt):UInt64? {
+        var result:UInt64 := 0
+        constant DIGITS := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        constant DIGITS_LOWER := "0123456789abcdefghijklmnopqrstuvwxyz"
+        for i in 0 .. s.length {
+            var digit := DIGITS.indexOf(s[i])->(UInt?)
+            if digit = null
+                digit := DIGITS_LOWER.indexOf(s[i])->(UInt?)
+            if digit = null | digit >= base
+                return null
+            result := result * base + digit
+        }
+        return result
+    }
+    
+    @pre(t.type = TokenType.NUMBER)
+    method parseNumericLiteral(context:Context, t:Token):
             (Value, ListView<Message>?) {
+        def value:UInt64?
+        if t.text.startsWith("0x") | t.text.startsWith("0X")
+            value := parseInt(t.text[2..], 16)
+        else if t.text.startsWith("0b") | t.text.startsWith("0B")
+            value := parseInt(t.text[2..], 2)
+        else
+            value := t.text->>(UInt64?)
+        if value != null
+            return (new IntegerLiteral(t.position, value), null)
+        else {
+            def real := t.text->>(Real64?)
+            if real != null
+                return (new RealLiteral(t.position, real), null)
+            else {
+                return (new IntegerLiteral(t.position, 0), 
+                        wrap(new Message("invalid numeric literal", t.position)))
+            }
+        }
+    }
+
+    ============================================================================
+    Given a sequence of chars from a string literal (e.g. "Hello\n!"), returns a
+    string representing the contents of the literal (e.g. "Hello<newline>!")
+
+    If `interpolating` is true, permits the additional escape sequences `\:`,
+    `\{`, and `\}`, passing them through unmodified.
+    ============================================================================
+    method convertStringChars(position:Position, s:String, 
+            interpolating:Bit):(String?, ListView<Message>?) {
+        var result := new MutableString()
+        var i := 0
+        loop {
+            var next := s.indexOf("\\", i)
+            if next = null {
+                result.append(s[i..])
+                break
+            }
+            result.append(s[i .. next])
+            var c := s[next + 1]
+            switch c {
+                case "n":  result.append("\n")
+                case "r":  result.append("\r")
+                case "t":  result.append("\t")
+                case '"':  result.append('"')
+                case "\\": {
+                    result.append("\\")
+                    if interpolating
+                        result.append("\\")
+                }
+                case "'":  result.append("'")
+                case ":", "{", "}": {
+                    if interpolating {
+                        result.append("\\")
+                        result.append(c)
+                    }
+                    else {
+                        return (null, wrap(new Message("invalid string escape " +
+                                "'\\" + c + "'", 
+                                new Position(position.compilationUnit, 
+                                    position.line, position.column + i))))
+                    }
+                }
+                default: 
+                    return (null, wrap(new Message("invalid string escape '\\" + c + 
+                            "'", new Position(position.compilationUnit, 
+                                position.line, position.column + i))))
+            }
+            i := next + 2
+        }
+        return (result->>(String), null)
+    }
+
+    @pre(t.type = TokenType.STRING)
+    method parseStringLiteral(context:Context, t:Token):
+            (Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var s := t.text[1 .. t.text.length - 1]
+        def result := new MutableString()
+        def matcher := STRING_GROUP.matcher(s)
+        def values := new Array<Value>()
+        var lastEnd := 0
+        while matcher.find() {
+            var chars, submessages := convertStringChars(t.position,
+                    s[lastEnd .. matcher.start], false)
+            messages := addMessages(messages, submessages)
+            if chars != null {
+                result.append(chars.replace(UNESCAPED_BRACE, 
+                        "\\{"))
+            }
+            def text := s[matcher.start + 2 .. matcher.end - 1]
+            var expr, remaining := new PandaParser().parseExpressionWithExtraText(
+                    text, t.position)
+            def value:Value?
+            value, submessages := convertExpression(context, expr)
+            messages := addMessages(messages, submessages)
+            if value = null
+                return (null, messages)
+            values.add(value)
+            result.append("{" + 
+                    convertStringChars(t.position, remaining, true) + "}")
+            lastEnd := matcher.end()
+        }
+        if lastEnd > 0 {
+            def chars, submessages := convertStringChars(t.position,
+                    s[lastEnd .. matcher.start], false)
+            messages := addMessages(messages, submessages)
+            if chars != null
+                result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
+            s := result->>(String)
+            values.insert(0, new StringLiteral(t.position, s))
+--            return call(t.position, new ClassLiteral(ClassType.STRING()), 
+--                    "format", values)
+            throw new NotSupportedException()
+        }
+        else {
+            def chars, submessages := convertStringChars(t.position, s, false)
+            messages := addMessages(messages, submessages)
+            if chars = null
+                return (null, messages)
+            return (new StringLiteral(t.position, chars), messages)
+        }
+    }
+
+    @pre(e.type = ParseNodeType.TERM)
+    method convertTerm(context:Context, e:ParseNode):(Value?, ListView<Message>?) {
+        switch e[0].type {
+            case ParseNodeType.TOKEN: {
+                switch e[0]->(TokenNode).token.type {
+                    case TokenType.STRING: {
+                        return parseStringLiteral(context, 
+                                e[0]->(TokenNode).token)
+                    }
+                    case TokenType.NUMBER: {
+                        def value, messages := parseNumericLiteral(context, 
+                                e[0]->(TokenNode).token)
+                        return (value, messages)
+                    }
+                    case TokenType.TRUE:
+                        return (new BitLiteral(e[0].position, 
+                                e[0]->(TokenNode).token->>(String)->>(Bit)), 
+                                null)
+                    case TokenType.FALSE:
+                        return (new BitLiteral(e[0].position, 
+                                e[0]->(TokenNode).token->>(String)->>(Bit)),
+                                null)
+                    case TokenType.NULL:
+                        return (new NullLiteral(e[0].position), null)
+                    case TokenType.IDENTIFIER, TokenType.SELF:
+                        if e.length = 1
+                            return parseBareIdentifier(context, e[0])
+                        else
+--                            return convertLambda(context, e)
+                            throw new NotSupportedException()
+                    case TokenType.CLASS:
+                        return parseBareIdentifier(context, e[0])
+                    case TokenType.LPAREN: {
+                        if e[2]->(TokenNode).token.type = TokenType.COMMA
+--                            return convertTuple(e)
+                            throw new NotSupportedException()
+                        assert e[2]->(TokenNode).token.type = TokenType.RPAREN
+                        return convertExpression(context, e[1])
+                    }
+                    case TokenType.PLUGIN: 
+                        --return convertPlugin(context, e[0].position, e[0]->>(String))
+                        throw new NotSupportedException()
+                    case TokenType.SUPER: 
+                        return (new Super(e[0].position), null)
+                    case TokenType.ATRETURN: {
+-*                        def returnValue := self.returnValue
+                        if returnValue != null
+                            return returnValue.createReference()
+                        else {
+                            return (null, wrap(new Message("@return may only " +
+                                    "appear within @post(...) in methods " +
+                                    "which return a value", e[0].position)))
+                        } *-
+                        throw new NotSupportedException()
+                    }
+                    case TokenType.PRE: {
+-*                        if !inPostcondition {
+                            return (null, wrap(new Message("@pre(...) " +
+                                    "expressions may only appear " +
+                                    "within @post(...)", e.position)))
+                        }
+                        assert e[1]->(TokenNode).token.type = TokenType.LPAREN
+                        var expr := convertExpression(context, e[2])
+                        var cm := currentMethod
+                        assert cm != null
+                        var mainBlock := cm.block
+                        -- add a dummy object, will replace it as we slide other
+                        -- nodes down
+                        mainBlock.children.append(new Dummy(VoidType.VOID))
+                        for i in mainBlock.length - 1 ... 1 by -1
+                            mainBlock[i] := mainBlock[i - 1]
+                        var statement := new ValueStatement(e.position, expr)
+                        mainBlock[0] := statement
+                        statement.parent := mainBlock
+                        assert e[3]->(TokenNode).token.type = TokenType.RPAREN
+                        def reused := makeReusable(expr)
+                        return reused.createReference() *-
+                        throw new NotSupportedException()
+                    }
+                    default: throw new CompilerException(
+                                "unsupported term: '\{e[0]->(TokenNode).token}'", 
+                                e[0].position)
+                }
+            }
+            case ParseNodeType.CLASS_LITERAL: {
+                def literal := e[0]
+                assert literal[0]->(TokenNode).token.type = TokenType.CLASS
+                assert literal[1]->(TokenNode).token.type = TokenType.LPAREN
+                assert literal[2].type = ParseNodeType.TYPE
+                assert literal[3]->(TokenNode).token.type = TokenType.RPAREN
+                def type, messages := convertType(context, literal[2])
+                if type != null {
+                    return (new ClassObjectLiteral(context, literal.position, 
+                            type), messages)
+                }
+                else
+                    return (null, messages)
+            }
+--            case ParseNodeType.CONSTRUCT:
+--                return convertConstruct(context, e[0])
+--            case ParseNodeType.ARRAY_LITERAL:
+--                return convertPrimitiveArrayLiteral(context, e[0])
+--            case ParseNodeType.METHOD_VALUE:
+--                return convertMethodValue(context, e[0])
+-*            case ParseNodeType.TYPE: {
+                var typeName := e[0]->>(String).replace(#/\s+/#, "")
+                var type := getType(e[0].position, typeName)
+                return new UnresolvedClassLiteral(e[0].position, type)
+            }*-
+--            case ParseNodeType.LAMBDA:
+--                return convertLambda(context, e[0])
+            default: throw new CompilerException(
+                    "unsupported term: '\{e[0].type}'", 
+                    e.position)
+        }
+    }
+
+    @pre(e.type = ParseNodeType.CALL_EXPRESSION)
+    method convertCallExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var value, submessages := convertTerm(context, e[0])
+        messages := addMessages(messages, submessages)
+        if value = null
+            return (null, messages)
+        if e.length > 1 {
+            value, submessages := processCallOrAssignment(context, value, e)
+            messages := addMessages(messages, submessages)
+            if value = null
+                return (null, submessages)
+        }
+        return resolve(context, value)
+    }
+
+    @pre(e.type = ParseNodeType.EXPONENT_EXPRESSION)
+    method convertExponentExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var left, leftMessages := convertCallExpression(context, e[0])
+        messages := addMessages(messages, leftMessages)
+        if left = null
+            return (null, messages)
+        for i in 1 ... e.length - 1 by 2 {
+            assert e[i]->(TokenNode).token.type = TokenType.POW
+            def right, rightMessages := convertCallExpression(context, e[i + 1])
+            messages := addMessages(messages, rightMessages)
+            if right = null
+                return (null, messages)
+            left, leftMessages := getBinaryValue(context, e[i].position, left, 
+                    e[i]->(TokenNode).token.type, right)
+            messages := addMessages(messages, leftMessages)
+            if left = null
+                return (null, messages)
+        }
+        return (left, messages)
+    }
+
+    @pre(e.type = ParseNodeType.UNARY_EXPRESSION)
+    method convertUnaryExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var exp, submessages := convertExponentExpression(context, 
+                e[e.length - 1])
+        messages := addMessages(messages, submessages)
+        if exp = null
+            return (null, messages)
+        if e[0].type = ParseNodeType.UNARY_OPERATOR {
+            def op := e[0][0]->(TokenNode).token.type
+            switch op {
+                case TokenType.SUB: {
+                    if exp-?>(RealLiteral) {
+                        exp := new RealLiteral(exp.position, 
+                                -(exp->(RealLiteral).value))
+                    }
+                    else {
+                        if exp.type.isWrapper {
+                            exp, submessages := exp.implicitCast(exp.type->>(PrimitiveType))
+                            messages := addMessages(messages, submessages)
+                        }
+                        if exp.type.isNumber {
+                            exp := new UnaryOperation(e.position, 
+                                    UnaryOperationType.MINUS, exp)
+                        }
+                        else {
+                            return (null, wrap(new Message("expected a number, " +
+                                    "but found '\{exp.type.displayName}'", e.position)))
+                        }
+                    }
+                }
+                case TokenType.NOT: {
+                    exp, submessages := exp.implicitCast(BitType.BIT)
+                    messages := addMessages(messages, submessages)
+                    exp := new UnaryOperation(e.position, UnaryOperationType.NOT,
+                            exp)
+                }
+                case TokenType.BITWISENOT: {
+                    if exp.type.isWrapper {
+                        exp, submessages := exp.implicitCast(exp.type->>(PrimitiveType))
+                        messages := addMessages(messages, submessages)
+                    }
+                    if exp.type.isInteger {
+                        if exp.type.size < 4 {
+                            if exp.type->(IntType).signed {
+                                exp, submessages := 
+                                        exp.implicitCast(IntType.INT32)
+                            }
+                            else {
+                                exp, submessages := 
+                                        exp.implicitCast(IntType.UINT32)
+                            }
+                            messages := addMessages(messages, submessages)
+                        }
+                        exp := new UnaryOperation(e.position, 
+                                UnaryOperationType.BITWISE_NOT, exp)
+                    }
+                    else {
+                        return (null, wrap(new Message("expected an integer, " +
+                                "but found '\{exp.type.displayName}'", 
+                                e.position)))
+                    }
+                }
+                default: {
+                    throw new InternalCompilerException("unknown unary " +
+                            "operator: '\{op}'", e.position)
+                }
+            }
+        }
+        return (exp, messages)
+    }
+
+    ============================================================================
+    As implicitCast, but with the ability to toggle whether we care about 
+    signedness. If `signMatters` is false, the signedness is not considered
+    important and will not stop a cast that would normally not be allowed.
+
+    Note that the source and destination types are not necessarily integers; if
+    not, we ignore the signMatters flag altogether and just perform a normal
+    implicitCast.
+    ============================================================================
+    @private
+    method signMattersCast(position:Position, v:Value, t:Type, 
+            signMatters:Bit):(Value, ListView<Message>?) {
+        if !signMatters {
+            def srcType := v.type->>(PrimitiveType)
+            if srcType.isInteger & t.isInteger & 
+                    srcType->(IntType).signed != t->(IntType).signed & 
+                    srcType.size <= t.size {
+                return v.explicitCast(t)
+            }
+        }
+        return v.implicitCast(t)
+    }
+    
+    ============================================================================
+    Looks for an overloaded version of `name` (which could be `"="`, `"+"`, 
+    etc.) and returns a call to it, or `null` if no such overloaded operator was
+    found.
+    
+    @param position the position of the call in the source code
+    @param name the name of the method to call
+    @param left the left argument
+    @param right the right argument
+    @returns a method call, or `null`
+    ============================================================================
+    method callOverloadedOperator(position:Position, var name:String, 
+            var left:Value, var right:Value):Value? {
+-*        left := resolveUnresolvedConstructs(left)
+        right := resolveUnresolvedConstructs(right)
+        -- avoid calling the various "fake" operators we define in the wrapper
+        -- classes
+        if name = "=" | name = "!=" {
+            if left.type.isPrimitive & right.type.isPrimitive
+                return null
+        }
+        else if !name.startsWith("[") & (left.type.isNumber | 
+                left.type.isWrapper) & (right.type.isNumber | 
+                right.type.isWrapper)
+            return null
+        if left.type = NullType.NULL | right.type = NullType.NULL
+            return null -- force this to be compiled as ==, which is quicker 
+                        -- than calling nullableEquals.
+        if name != "=" {
+            if left.type = StringOrCharType.STRING_OR_CHAR
+                return callOverloadedOperator(position, name, 
+                    implicitCast(left.position, left, ClassType.STRING()), 
+                    right)
+            if right.type = StringOrCharType.STRING_OR_CHAR
+                return callOverloadedOperator(position, name, 
+                    left, implicitCast(right.position, right, 
+                    ClassType.STRING()))
+        }
+
+        var rawName := name
+        -- map != and !== to = and ==. We'll invert the answer on return.
+        if name.startsWith("!")
+            name := name[1..]
+        var result:Value? := null
+        var parameters := new PrimitiveArray<Value>(left, right)
+        if name = "=" & (left.type.isNullable | right.type.isNullable) {
+            -- for equality, if one or both parameters are null, we need to
+            -- funnel this through Panda.nullableEquals
+            var panda := ClassType.PANDA().classNode
+            var op := panda.symbolTable.getMethod(position, "nullableEquals", 
+                    parameters, true)
+            assert op != null
+            result := call(position, op, false, parameters)
+        }
+        if result = null {
+            -- check for overload on left (both instance & static)
+            var c:ClassNode? := null
+            if !left.type.isPrimitive
+                c := left.type.classNode
+            if c = null & name != "="
+                c := left.type.unwrapRealLiteral.wrapperVersion().classNode
+            if c != null {
+                var op := c.symbolTable.getMethod(position, name, parameters, 
+                        true)
+                if op != null
+                    result := call(position, op, false, parameters)
+                op := c.symbolTable.getMethod(position, name, parameters, false)
+                if op != null & !op.annotations.isClass
+                    result := call(position, op, true, parameters)
+            }
+        }
+        if result = null {
+            -- check for overload on right (static only)
+            var c:ClassNode? := null
+            if !right.type.isPrimitive
+                c := right.type.classNode
+            if c = null & name != "="
+                c := right.type.unwrapRealLiteral.wrapperVersion().classNode
+            if c != null {
+                var op := c.symbolTable.getMethod(position, name, parameters, 
+                        true)
+                if op != null
+                    result := call(position, op, false, parameters)
+            }
+        }
+        if rawName.startsWith("!") & result != null
+            result := new Not(position, result)
+        return result*-
+        return null
+    }
+
+    ============================================================================
+    Returns `<left> <op> <right>`, where `op` is the type of a token 
+    representing a binary operator.
+    
+    @param node the position, for error reporting purposes
+    @param left the left operand
+    @param op the token type of a binary operator
+    @param right the right operand
+    ============================================================================
+    method getBinaryValue(context:Context, position:Position, var left:Value, 
+            op:TokenType, var right:Value):(Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var methodName:String
+        switch op {
+            case TokenType.ADD:                  methodName := "+"
+            case TokenType.SUB:                  methodName := "-"
+            case TokenType.MUL:                  methodName := "*"
+            case TokenType.DIV:                  methodName := "/"
+            case TokenType.INTDIV:               methodName := "//"
+            case TokenType.REM:                  methodName := "%"
+            case TokenType.SHIFTLEFT:            methodName := "<<"
+            case TokenType.SHIFTRIGHT:           methodName := ">>"
+            case TokenType.AND:                  methodName := "&"
+            case TokenType.OR:                   methodName := "|"
+            case TokenType.XOR:                  methodName := "~"
+            case TokenType.BITWISEAND:           methodName := "&&"
+            case TokenType.BITWISEOR:            methodName := "||"
+            case TokenType.BITWISEXOR:           methodName := "~~"
+            case TokenType.POW:                  methodName := "^"
+            case TokenType.EQ:                   methodName := "="
+            case TokenType.NEQ:                  methodName := "!="
+            case TokenType.IDENTITY:             methodName := "=="
+            case TokenType.NIDENTITY:            methodName := "!=="
+            case TokenType.LT:                   methodName := "<"
+            case TokenType.GT:                   methodName := ">"
+            case TokenType.LTEQ:                 methodName := "<="
+            case TokenType.GTEQ:                 methodName := ">="
+            default: throw new CompilerException(
+                    "unsupported binary operator '\{op}'",
+                    position)
+        }
+        var submessages:ListView<Message>?
+        left, submessages := resolveUnresolvedConstructs(context, left)
+        messages := addMessages(messages, submessages)
+        right, submessages := resolveUnresolvedConstructs(context, right)
+        messages := addMessages(messages, submessages)
+        var value := callOverloadedOperator(position, methodName, left, right)
+        if value = null {
+            def opType:BinaryOperationType
+            switch op {
+                case TokenType.ADD:        opType := BinaryOperationType.ADD
+                case TokenType.SUB:        opType := BinaryOperationType.SUBTRACT
+                case TokenType.MUL:        opType := BinaryOperationType.MULTIPLY
+                case TokenType.DIV:        opType := BinaryOperationType.DIVIDE
+                case TokenType.INTDIV:     opType := BinaryOperationType.INT_DIVIDE
+                case TokenType.REM:        opType := BinaryOperationType.REMAINDER
+                case TokenType.AND:        opType := BinaryOperationType.AND
+                case TokenType.OR:         opType := BinaryOperationType.OR
+                case TokenType.XOR:        opType := BinaryOperationType.XOR
+                case TokenType.BITWISEAND: opType := BinaryOperationType.BITWISE_AND
+                case TokenType.BITWISEOR:  opType := BinaryOperationType.BITWISE_OR
+                case TokenType.BITWISEXOR: opType := BinaryOperationType.BITWISE_XOR
+                case TokenType.EQ:         opType := BinaryOperationType.EQUAL
+                case TokenType.NEQ:        opType := BinaryOperationType.NOT_EQUAL
+                case TokenType.IDENTITY:   opType := BinaryOperationType.IDENTITY
+                case TokenType.NIDENTITY:  opType := BinaryOperationType.NOT_IDENTITY
+                case TokenType.LT:         opType := BinaryOperationType.LESS_THAN
+                case TokenType.GT:         opType := BinaryOperationType.GREATER_THAN
+                case TokenType.LTEQ:       opType := BinaryOperationType.LESS_THAN_OR_EQUAL
+                case TokenType.GTEQ:       opType := BinaryOperationType.GREATER_THAN_OR_EQUAL
+                case TokenType.SHIFTLEFT:  opType := BinaryOperationType.SHIFT_LEFT
+                case TokenType.SHIFTRIGHT: opType := BinaryOperationType.SHIFT_RIGHT
+-*                case TokenType.POW: {
+                    def panda := ClassType.PANDA().classNode
+                    def params := new PrimitiveArray<Value>(left, right)
+                    def exp := panda.symbolTable.getMethod(position, "pow", 
+                            params, true)
+                    if exp = null {
+                        throw new CompilerException(
+                                "'^' cannot operate on '\{left.type.displayName}', " +
+                                "'\{right.type.displayName}'", position)
+                    }
+                    return call(position, exp, true, params)
+                }*-
+                default: throw new InternalCompilerException(position)
+            }
+            def operandType := BinaryOperation.operandType(opType, left, 
+                    right)
+            if operandType = null {
+                return (null, wrap(new Message("'\{methodName}' cannot operate on " +
+                        "'\{left.type.displayName}', " +
+                        "'\{right.type.displayName}'", position)))
+            }
+            left, submessages := signMattersCast(position, left, operandType, 
+                    BinaryOperation.signMatters(opType))
+            messages := addMessages(messages, submessages)
+            right, submessages := signMattersCast(position, right, operandType,
+                    BinaryOperation.signMatters(opType))
+            messages := addMessages(messages, submessages)
+            value := new BinaryOperation(position, opType, left, right)
+        }
+        return (value, null)
+    }
+
+    @pre(e.type = ParseNodeType.MULTIPLICATIVE_EXPRESSION)
+    method convertMultiplicativeExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var left, submessages := convertUnaryExpression(context, e[0])
+        messages := addMessages(messages, submessages)
+        if left = null
+            return (null, messages)
+        for i in 1 ... e.length - 1 by 2 {
+            assert e[i].type = ParseNodeType.TOKEN
+            var right:Value?
+            right, submessages := convertUnaryExpression(context, e[i + 1])
+            messages := addMessages(messages, submessages)
+            if right = null
+                return (null, messages)
+            left, submessages := getBinaryValue(context, e[i].position, left, 
+                    e[i]->(TokenNode).token.type, right)
+            messages := addMessages(messages, submessages)
+            if left = null
+                return (null, messages)
+        }
+        return (left, messages)
+    }
+
+    @pre(e.type = ParseNodeType.ADDITIVE_EXPRESSION)
+    method convertAdditiveExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var left, submessages := convertMultiplicativeExpression(context, e[0])
+        messages := addMessages(messages, submessages)
+        if left = null
+            return (null, messages)
+        for i in 1 ... e.length - 1 by 2 {
+            assert e[i].type = ParseNodeType.TOKEN
+            def right:Value?
+            right, submessages := convertMultiplicativeExpression(context, 
+                    e[i + 1])
+            messages := addMessages(messages, submessages)
+            if right = null
+                return (null, messages)
+            left, submessages := getBinaryValue(context, e[i].position, left, 
+                    e[i]->(TokenNode).token.type, right)
+            messages := addMessages(messages, submessages)
+            if left = null
+                return (null, messages)
+        }
+        return (left, messages)
+    }
+
+    @pre(e.type = ParseNodeType.RANGE_EXPRESSION)
+    method convertRangeExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var result, submessages := convertAdditiveExpression(context, e[0])
+        messages := addMessages(messages, submessages)
+        if e.length > 1 {
+            def type := e[1]->(TokenNode).token.type
+            var right:Value? := null
+            var step:Value?  := null
+            if e.length > 2 {
+                var i := 2
+                if e[i].type = ParseNodeType.ADDITIVE_EXPRESSION {
+                    right, submessages := convertAdditiveExpression(context, 
+                            e[2])
+                    messages := addMessages(messages, submessages)
+                    if right = null
+                        return (null, messages)
+                    i += 1
+                }
+                if e.length > i {
+                    assert e[i]->(TokenNode).token.type = TokenType.BY
+                    i += 1
+                    step, submessages := convertAdditiveExpression(context, 
+                            e[i])
+                    messages := addMessages(messages, submessages)
+                    if right = null
+                        return (null, messages)
+                }
+            }
+            result := new UnresolvedRange(e.position, result, right, step, 
+                    type = TokenType.ELLIPSIS)
+        }
+        return (result, messages)
+    }
+
+    @pre(e.type = ParseNodeType.COMPARISON_EXPRESSION)
+    method convertComparisonExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var left, messages := convertRangeExpression(context, e[0])
+        if left = null
+            return (null, messages)
+        for i in 1 ... e.length - 1 by 2 {
+            assert e[i].type = ParseNodeType.TOKEN
+            var right, submessages := convertRangeExpression(context, e[i + 1])
+            messages := addMessages(messages, submessages)
+            if right = null
+                return (null, messages)
+            left, submessages := getBinaryValue(context, e[i].position, left, 
+                    e[i]->(TokenNode).token.type, right)
+            messages := addMessages(messages, submessages)
+            if left = null
+                return (null, messages)
+        }
+        return (left, messages)
+    }
+
+    @pre(e.type = ParseNodeType.AND_EXPRESSION)
+    method convertAndExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var left, messages := convertComparisonExpression(context, e[0])
+        if left = null
+            return (null, messages)
+        for i in 1 ... e.length - 1 by 2 {
+            assert e[i].type = ParseNodeType.TOKEN
+            var right, submessages := convertComparisonExpression(context, 
+                    e[i + 1])
+            messages := addMessages(messages, submessages)
+            if right = null
+                return (null, messages)
+            left, submessages := getBinaryValue(context, e[i].position, left, 
+                    e[i]->(TokenNode).token.type, right)
+            messages := addMessages(messages, submessages)
+            if left = null
+                return (null, messages)
+        }
+        return (left, messages)
+    }
+    
+    @pre(e.type = ParseNodeType.OR_EXPRESSION)
+    method convertOrExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        var left, messages := convertAndExpression(context, e[0])
+        if left = null
+            return (null, messages)
+        for i in 1 ... e.length - 1 by 2 {
+            assert e[i].type = ParseNodeType.TOKEN
+            var right, submessages := convertAndExpression(context, e[i + 1])
+            messages := addMessages(messages, submessages)
+            if right = null
+                return (null, messages)
+            left, submessages := getBinaryValue(context, e[i].position, left, 
+                    e[i]->(TokenNode).token.type, right)
+            messages := addMessages(messages, submessages)
+            if left = null
+                return (null, messages)
+        }
+        return (left, messages)
+    }
+    
+    method convertExpression(context:Context, e:ParseNode):
+            (Value?, ListView<Message>?) {
+        assert e.type = ParseNodeType.EXPRESSION: 
+                "expected expression, but found \{e} (\{e.type}): \{e.position}"
+        return convertOrExpression(context, e[0])
+    }
+
+    function resolveUnresolvedConstructs(context:Context, v:Value):
+            (Value, ListView<Message>?) {
+        if v-?>(UnresolvedArray) | v-?>(UnresolvedTuple)-- | v-?>(UnresolvedRange)
+            return v.implicitCast(v.preferredVariableType)
+        return (v, null)
+    }
+
+    -- Returns null if the method was not found. We don't return error messages
+    -- from here because they are relatively expensive to assemble and we often
+    -- do not want to actually report them.
+    method call(context:Context, position:Position, var contextValue:Value?, 
+                methodName:String, var params:ListView<Value>):MethodCall? {
         throw new NotSupportedException()
+-*        if contextValue = null {
+            if context.isInstance {
+                -- bare identifier, could be either instance or class
+                var result := cc.symbolTable.getMethod(position, methodName, 
+                        params, null)
+                if result != null {
+                    if result.annotations.isClass {
+                        -- class method, update the contextValue
+                        contextValue := new ClassLiteral(position, 
+                                context.typeMap, result.owner.type())
+                    }
+                }
+                if contextValue = null
+                    contextValue := getSelf(context)
+            }
+            else {
+                -- in a class context
+                contextValue := new ClassLiteral(position, context.typeMap,
+                        cc.type())
+            }
+        }
+        var type:Type
+        var symbolTable:SymbolTable
+        var classMethod:Bit
+        var supercall:Bit
+        if contextValue-?>(UnresolvedClassLiteral)
+            contextValue := contextValue->(UnresolvedClassLiteral)->>(ClassLiteral)
+        if contextValue-?>(ClassLiteral) {
+            classMethod := true
+            supercall := false
+            type := contextValue->(ClassLiteral).value
+            symbolTable := type.classNode.symbolTable
+        }
+        else if contextValue-?>(ClassObjectLiteral) {
+            classMethod := false
+            supercall := false
+            type := ClassType.CLASS()
+            symbolTable := type.classNode.symbolTable
+        }
+        else {
+            classMethod := false
+            var oldParams := params
+            params := new PrimitiveArray<Value>()
+            if contextValue-?>(Super) {
+                var cl := currentClass
+                assert cl != null
+                var superclass := cl.superclass
+                if superclass = null {
+                    throw new CompilerException(
+                            "class '\{cl}' has no superclass", contextValue.position)
+                }
+                params.append(implicitCast(position, getSelf(), 
+                        superclass.type()))
+                supercall := true
+                type := superclass.type()
+            }
+            else {
+                type := contextValue.type
+                params.append(contextValue)
+                supercall := false
+            }
+            for param in oldParams
+                params.append(param)
+            var cl := type.classNode
+            symbolTable := cl.symbolTable
+        }
+        var methodNode := symbolTable.getMethod(position, methodName, params, 
+                classMethod)
+        if methodNode = null {
+            if classMethod {
+                -- check for a constructor, which is called like a class method
+                -- but implemented as an instance method
+                if type.isPrimitiveArray & methodName = "new" {
+                    -- FIXME: hardcoded yuck
+                    if params.length = 1 & 
+                            params[0].canImplicitCastTo(Type.INDEX_TYPE) {
+                        var elementType := type->(PrimitiveArrayType).elementType
+                        return new NewPrimitiveArrayWithLength(position, type, 
+                                implicitCast(position, params[0], 
+                                Type.INDEX_TYPE))
+                    }
+                    else if params.length = 3 & params[0].type.isPrimitiveArray &
+                            (params[0].type.elementType = type.elementType |
+                                params[0].type.elementType.canImplicitCastTo(
+                                    type.elementType) & 
+                                    !params[0].type.elementType.isPrimitive &
+                                    !type.elementType.isPrimitive) &
+                            params[1].canImplicitCastTo(Type.INDEX_TYPE) &
+                            params[2].canImplicitCastTo(Type.INDEX_TYPE) {
+                        if params[0].type.elementType.isNullable & 
+                                !type.elementType.isNullable
+                            PandaCompiler.reportError("cannot create array " +
+                                    "with possibly-null values", position)
+                        return new NewPrimitiveArrayWithRange(position, type, 
+                                params[0], 
+                                implicitCast(params[1].position, params[1], 
+                                    Type.INDEX_TYPE),
+                                implicitCast(params[2].position, params[2], 
+                                    Type.INDEX_TYPE))
+                    }
+                    else {
+                        var finalParams := new PrimitiveArray<Value>()
+                        for param in params {
+                            finalParams.append(implicitCast(position, param,
+                                    type.elementType))
+                        }
+                        return new NewPrimitiveArrayWithValues(position, type, 
+                                finalParams)
+                    }
+                }
+                var oldParams := params
+                params := new PrimitiveArray<Value>()
+                params.append(new Dummy(contextValue.position,
+                        contextValue->(ClassLiteral).value))
+                for param in oldParams
+                    params.append(param)
+                methodNode := symbolTable.getMethod(position, methodName, 
+                        params, false)
+                if methodNode != null & 
+                        methodNode.methodType != MethodNodeType.CONSTRUCTOR {
+                    error("instance method '\{methodNode.name}' cannot be " +
+                            "accessed from a class contextValue", 
+                            position)
+                }
+                params := oldParams
+            }
+        }
+        if methodNode != null {
+            var isSelf := contextValue = null | (contextValue-?>(VariableReference) &
+                contextValue->(VariableReference).variable.name = Parameter.SELF_NAME)
+                
+            if isSelf & methodNode.methodType = MethodNodeType.CONSTRUCTOR &
+                    cm != null & cm.methodType != MethodNodeType.CONSTRUCTOR
+                error("constructors may only be directly called as the " +
+                        "first statement in a constructor", position)
+            
+            if methodNode.methodType = MethodNodeType.CONSTRUCTOR & 
+                    (!supercall & !isSelf) {
+                return construct(position, methodNode, params)
+            }
+            else {
+                var virtual := methodNode.isDeclaredVirtual() & !supercall
+                var result := call(position, methodNode, virtual, supercall,
+                        params)
+                return result
+            }
+        }
+        else
+            return null*-
+    }
+    
+    method getMethodNotFoundMessage(position:Position, contextValue:Value?, 
+            methodName:String, params:ListView<Value>):Message {
+-*        def cl := currentClass->(ClassNode)
+        def msg := "no match found for method "->>(MutableString)
+        msg.append(methodName)
+        msg.append("(")
+        for i, p in params {
+            if i != 0
+                 msg.append(", ")
+            msg.append(p.type.displayName)
+        }
+        msg.append(")")
+        if contextValue != null {
+            if contextValue-?>(Super)
+                msg.append(" in \{currentMethod->(MethodNode).owner.supertype->(Type).displayName}")
+            else if contextValue-?>(ClassLiteral)
+                msg.append(" in \{contextValue}")
+            else
+                msg.append(" in \{contextValue.type.displayName}")
+        }
+        for p in params {
+            if p-?>(UnresolvedLambda) {
+                def lambda := p->(UnresolvedLambda)
+                if lambda.errors.length > 0 {
+                    msg.append("\n    possible error in lambda at " +
+                            "\{lambda.position}:")
+                    def entries := new PrimitiveArray<Object>()
+                    for e in lambda.errors
+                        entries.append(e)
+                    Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
+                        def e1 := eo1->((Object?, Object?))[0]->(PrimitiveArray<Type>)
+                        def e2 := eo2->((Object?, Object?))[0]->(PrimitiveArray<Type>)
+                        assert e1.length = e2.length
+                        for i in 0 .. e1.length {
+                            def n1 := e1[i].name
+                            def n2 := e2[i].name
+                            if n1 > n2
+                                return true
+                            if n2 > n1
+                                return false
+                        }
+                        return false
+                    })
+                    for raw in entries {
+                        def e := raw->((Object?, Object?))
+                        def types := e[0]->(PrimitiveArray<Type>)
+                        def typeString := new MutableString()
+                        typeString.append("(")
+                        for i, type in types {
+                            if i > 0
+                                typeString.append(",")
+                            typeString.append(type.displayName)
+                        }
+                        typeString.append(")=>(...)")
+                        var error, errorPos := e[1]->((String, Position?))
+                        if errorPos = null
+                            errorPos := Position.INTERNAL
+                        msg.append("\n        when interpreted as \{typeString}:\n")
+                        msg.append("            \{error}")
+                        if errorPos != lambda.position
+                            msg.append(" at \{errorPos}")
+                    }
+                }
+            }
+        }
+        throw new CompilerException(msg->>(String), position)*-
+        throw new NotSupportedException()
+    }
+
+    method resolveNoArgFunction(context:Context, u:Unresolved):MethodCallValue? {
+        def result := call(context, u.position, u.contextValue, 
+                u.name, new Array<Value>())
+        if result-?>(MethodCall) & 
+                result->(MethodCall).methodStub.methodType = 
+                    MethodNodeType.FUNCTION
+            return new MethodCallValue(result)
+        return null
+    }
+    
+    ============================================================================
+    Resolves a possibly-unresolved value. During the code analysis phase, we
+    often end up with partial sequences of tokens: for instance, the sequence
+    `panda.core.String` could potentially represent a type name (`panda`) having
+    a class function (`core`) called upon it, resulting in an object which we 
+    are going to extract a field (`String`) from. Or it could (as it obviously
+    does in this case) represent the name of a class (`panda.core.String`). But
+    as we are parsing it, and have so far just seen the "panda.core" part, we
+    don't yet know we have a type name until we reach the "String", and the
+    partial value will be represented by objects that are not fully resolved.
+
+    This method means "we have all the information about this value we are ever
+    going to get, so either give me the value it's describing or raise an 
+    error". Note that a resolved construct may still have an unresolved type,
+    such as `UnresolvedArray` or `UnresolvedRange`; those are legal returns from
+    this method.
+    ============================================================================
+    method resolve(context:Context, raw:Value):(Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var result:Value? := raw
+        if result.type = RealType.REAL64 {
+            def submessages:ListView<Message>?
+            result, submessages := result.implicitCast(RealType.REAL64)
+            messages := addMessages(messages, submessages)
+        }
+        else if result-?>(Unresolved) {
+            def type, submessages := convertType(context, raw->>(String), 
+                    raw.position)
+            if type != null {
+                messages := addMessages(messages, submessages)
+                return (new ClassLiteral(raw.position, context.typeMap, 
+                        type), messages)
+            }
+            if !result->(Unresolved).name.contains(".")
+                result := resolveNoArgFunction(context, result->(Unresolved))
+            else
+                result := null
+            messages := addMessage(messages, new Message("unknown identifier",
+                    raw.position))
+            return (new Unresolved(raw.position, null, raw->>(String)), 
+                    messages)
+        }
+        else if result-?>(AmbiguousReference) {
+            def a := result->(AmbiguousReference)
+            def name := a.field.name
+            throw new CompilerException("reference to '\{name}' is " +
+                    "ambiguous, both field \{name} (of type " +
+                    "\{a.field.type.displayName}) and function " +
+                    "\{name}() match", a.position)
+        }
+        else if result-?>(PossibleIndexedAssignment) {
+            def pia := result->(PossibleIndexedAssignment)
+            messages := addMessage(messages, 
+                    pia.contextValue.type.displayName +
+                    "does not define the index ([]) operator for " +
+                    "'\{pia.index.type.displayName}'", pia.position)
+        }
+        else if result-?>(PossibleSliceAssignment) {
+            def psa := result->(PossibleSliceAssignment)
+            var name:String
+            if psa.endInclusive
+                name := "inclusive slice ([...])"
+            else
+                name := "exclusive slice ([..])"
+            messages := addMessage(messages, 
+                    psa.contextValue.type.displayName +
+                    "does not define the \{name} operator for these types", 
+                    psa.position)
+        }
+        return (result, messages)
+    }
+
+    method convert(context:Context, position:Position, var v:Value, 
+            var t:Type):Value {
+        throw new NotSupportedException()
+    }
+
+    method convertInstanceOf(position:Position, var object:Value, 
+            var type:Type):Value {
+-*        if object.type = StringOrCharType.STRING_OR_CHAR {
+            -- hardcode STRING_OR_CHAR-?>(Char) and STRING_OR_CHAR-?>(String)
+            -- as true
+            if type = CharType.CHAR | ClassType.STRING().canImplicitCastTo(type)
+                return new BitLiteral(position, true)
+        }
+        var primitiveTarget := type.isPrimitive | type.isWrapper
+        if primitiveTarget {
+            if object.type = StringOrCharType.STRING_OR_CHAR
+                object := implicitCast(position, object, CharType.CHAR)
+            if object.type = CharType.CHAR & type.isNumber
+                object := explicitCast(position, object, IntType.INT32)
+        }
+        var primitiveSource := object.type.isPrimitive | 
+                object.type.isWrapper
+
+        if object.type.isNumber & type.isReal
+            return new BitLiteral(position, true)
+
+        if !primitiveSource & type.isPrimitive
+            type := type.unwrapRealLiteral.wrapperVersion()
+
+        if !object.canExplicitCastTo(type) {
+            error("'\{object}' (\{object.type.displayName}) cannot possibly " +
+                    "be an instance of '\{type.displayName}'", position)
+        }
+
+        def panda := ClassType.PANDA().classNode
+        var parameters := new PrimitiveArray<Value>(object)
+        if !primitiveTarget
+            parameters.append(new ClassObjectLiteral(position, type.unwrapNullable))
+        
+        var methodName := "instanceOf"
+        if primitiveTarget {
+            var target := type.unwrapNullable
+            var name := target.name
+            assert name.startsWith(ClassNode.CORE)
+            name := name[ClassNode.CORE.length..]
+            if target.isWrapper {
+                name := name.replace("Wrapper", "")
+            }
+            methodName += name
+        }
+        var instanceOf:MethodNode? := null
+        if !object.type.isNullable {
+            instanceOf := panda.symbolTable.getMethod(position, methodName, 
+                    parameters, true)
+        }
+        if instanceOf = null {
+            parameters.append(new BitLiteral(position, type.isNullable))
+            instanceOf := panda.symbolTable.getMethod(position, methodName, 
+                    parameters, true)
+        }
+        assert instanceOf != null
+        return call(position, instanceOf, false, parameters)*-
+        throw new NotSupportedException()
+    }
+
+    @pre(c.type = ParseNodeType.CONSTRUCT)
+    method convertConstruct(c:ParseNode):Value {
+-*        assert c[0]->(TokenNode).token.type = TokenType.NEW
+        def type := convertType(c[1])
+        def params := convertParameters(c[2])
+        def classLiteral := new ClassLiteral(c[1].position, type)
+        captureTree(classLiteral, c[1], null)
+        def result := call(c.position, classLiteral, "new", 
+                params)
+        captureNode(result, c[1].position)
+        return result *-
+        throw new NotSupportedException()
+    }
+
+    method parseBareIdentifier(context:Context, id:ParseNode):
+            (Value?, ListView<Message>?) {
+        Console.writeLine("parsing bare identifier: " + id + ":" + id.position)
+        var messages:ListView<Message>? := null
+        var name := id->>(String)
+        if name = "class"
+            name := "$class"
+        def variable := context.getVariable(name)
+        if variable != null {
+            if variable-?>(FieldNode) {
+                def classField := variable->(FieldNode).annotations.isClass | 
+                        variable->(FieldNode).annotations.isThread
+                if !context.isInstance & !classField {
+                    messages := addMessage(messages, 
+                            "instance field '\{name}' cannot be accessed " +
+                            "from a class context", id.position)
+                }
+                def contextValue:Value
+                if classField {
+                    def cc := context.currentClass
+                    assert cc != null
+                    def type, submessages := convertType(context, cc.name, 
+                            id.position)
+                    messages := addMessages(messages, submessages)
+                    if type = null
+                        return (null, messages)
+                    contextValue := new ClassLiteral(id.position, 
+                            context.typeMap, type)
+                }
+                else
+                    contextValue := context.getSelf(id.position)
+-*                if isAccessible(variable->(FieldNode)) {
+                    return createFieldReference(id.position, context, 
+                            variable->(FieldNode), true)
+                }*-
+                throw new NotSupportedException()
+            }
+            else {
+                def result := new VariableReference(id.position, variable)
+                return (result, messages)
+            }
+        }
+-*        if id->(TokenNode).token.type = TokenType.IDENTIFIER {
+            def type := currentBlock.symbolTable.getType(id.position, name)
+            if type-!>(UnresolvedType)
+                return new UnresolvedClassLiteral(id.position, type)
+        }
+        return new Unresolved(id.position, null, name) *-
+        throw new NotSupportedException()
+    }
+
+    @pre(params.type = ParseNodeType.PARAMETERS)
+    method convertParameters(context:Context, 
+            params:ParseNode):(ListView<Value>?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        assert params[0]->(TokenNode).token.type = TokenType.LPAREN
+        def result := new Array<Value>()
+        for i in 1 .. params.length - 1 by 2 {
+            var expr, submessages := convertExpression(context, params[i])
+            messages := addMessages(messages, submessages)
+            if expr = null
+                return (null, messages)
+            if i = params.length - 2 & expr-?>(UnresolvedRange) {
+                def r := expr->(UnresolvedRange)
+                def left := r.left
+                if left != null & left.preferredVariableType.isPrimitiveArray & 
+                        r.right = null & r.step = null & r.endInclusive
+                    expr := new Unwrap(left)
+            }
+            result.add(expr)
+        }
+        return (result, messages)
+    }
+
+    -- FIXME remove this when array syntax is wired up to generic arrays
+    function wrap(message:Message):ListView<Message> {
+        def result := new Array<Message>()
+        result.add(message)
+        return result
+    }
+
+    ============================================================================
+    Handles the nodes following the context in a CALL_OR_ASSIGNMENT. If it is a
+    call, returns the call's value, otherwise returns null.
+    ============================================================================
+    method processCallOrAssignment(context:Context, var contextValue:Value?, 
+            c:ParseNode):(Value?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var i := 1
+        def lvalues := new Array<Value?>()
+        while i < c.length {
+            if c[i].type = ParseNodeType.TOKEN {
+                switch c[i]->(TokenNode).token.type {
+                    case TokenType.DOT: {
+                        def name := c[i + 1]->>(String)
+                        assert contextValue != null
+                        var submessages:ListView<Message>?
+                        contextValue, submessages := resolve(context, 
+                                contextValue)
+                        messages := addMessages(messages, submessages)
+                        if contextValue = null
+                            return (null, messages)
+                        contextValue, submessages := 
+                                resolveUnresolvedConstructs(context,
+                                    contextValue)
+                        messages := addMessages(messages, submessages)
+-*                        def field := getField(context, c[i + 1].position,
+                                contextValue, name)
+                        if field != null 
+                            contextValue := field
+                        else {
+                            if contextValue-!>(Unresolved) {
+                                return (null, new Message("unknown identifier",
+                                        contextValue.position))
+                            }
+                            contextValue := new Unresolved(c[i + 1].position, 
+                                    contextValue->(Unresolved).contextValue, 
+                                    contextValue + "." + name)
+                        }
+                        i += 2 *-
+                        throw new NotSupportedException()
+                    }
+                    case TokenType.LBRACKET: {
+-*                        assert contextValue != null
+                        contextValue := resolve(contextValue)
+                        contextValue := resolveUnresolvedConstructs(context,
+                                contextValue)
+                        i += 1
+                        var slice := false
+                        var endInclusive := false
+                        var left:Value?
+                        var right:Value?
+                        var step:Value? := null
+                        if c[i]-?>(TokenNode) & 
+                                c[i]->(TokenNode).token.type = TokenType.DOTDOT {
+                            left := null
+                            slice := true
+                        }
+                        else if c[i]-?>(TokenNode) & 
+                                c[i]->(TokenNode).token.type = TokenType.ELLIPSIS {
+                            left := null
+                            slice := true
+                            endInclusive := true
+                        }
+                        else {
+                            left := convertExpression(context, c[i])
+                            i += 1
+                        }
+                        if c[i]-?>(TokenNode) & 
+                                (c[i]->(TokenNode).token.type = TokenType.DOTDOT |
+                                c[i]->(TokenNode).token.type = TokenType.ELLIPSIS) {
+                            slice := true
+                            endInclusive := c[i]->(TokenNode).token.type = TokenType.ELLIPSIS
+                            i += 1
+                            if c[i]-?>(TokenNode) & 
+                                    (c[i]->(TokenNode).token.type = 
+                                        TokenType.RBRACKET | 
+                                    c[i]->(TokenNode).token.type = 
+                                        TokenType.BY)
+                                right := null
+                            else {
+                                right := convertExpression(context, c[i])
+                                i += 1
+                            }
+                            if c[i]->(TokenNode).token.type = TokenType.BY {
+                                i += 1
+                                step := convertExpression(context, c[i])
+                                i += 1
+                            }
+                        }
+                        else
+                            right := null
+                        if left != null & right = null & step = null {
+                            if left-?>(UnresolvedRange) {
+                                def range := left->(UnresolvedRange)
+                                left := range.left
+                                right := range.right
+                                step := range.step
+                                slice := true
+                                endInclusive := range.endInclusive
+                            }
+                        }
+                        if !slice {
+                            assert left != null
+                            if contextValue.type.isPrimitiveArray {
+                                if contextValue.type.isNullable
+                                    contextValue := implicitCast(c.position, contextValue,
+                                            contextValue.type.unwrapNullable)
+                                contextValue := new IndexValue(c.position, contextValue, 
+                                        implicitCast(c.position, left, 
+                                            Type.INDEX_TYPE))
+                            }
+                            else if contextValue.type.isTuple & 
+                                    left-?>(IntegerLiteral) {
+                                contextValue := getField(contextValue.position, contextValue,
+                                        "$field" + left->(IntegerLiteral).value)
+                            }
+                            else {
+                                -- look for overloaded [] operator
+                                if contextValue-?>(UnresolvedClassLiteral)
+                                    contextValue := contextValue->
+                                            (UnresolvedClassLiteral)->>
+                                            (ClassLiteral)
+                                if contextValue.type.isPrimitive {
+                                    def wrapper := contextValue.type->
+                                            (PrimitiveType).wrapperVersion()
+                                    contextValue := implicitCast(contextValue.position, 
+                                            contextValue, wrapper, CastType.IMPLICIT)
+                                }
+                                def cl := contextValue.type.classNode
+                                def params := new Array<Value>(contextValue, left)
+                                def op := cl.symbolTable.getMethod(c.position, 
+                                        "[]", params, false)
+                                if op = null & contextValue-?>(ClassLiteral) {
+                                    def targetType := 
+                                            contextValue->(ClassLiteral).value
+                                    def targetClass := targetType.classNode
+                                    params := [left]
+                                    op := targetClass.symbolTable.getMethod(
+                                            c.position, "[]", params, true)
+                                }
+                                if op != null {
+                                    contextValue := call(c[i].position, op, true, 
+                                            params)
+                                }
+                                else
+                                    contextValue := new PossibleIndexedAssignment(
+                                            c.position, contextValue, left)
+                            }
+                        }
+                        else {
+                            -- slice
+                            if contextValue-?>(UnresolvedClassLiteral)
+                                contextValue := contextValue->
+                                        (UnresolvedClassLiteral)->>
+                                        (ClassLiteral)
+                            if contextValue.type.isPrimitive {
+                                def wrapper := contextValue.type->
+                                                (PrimitiveType).wrapperVersion()
+                                contextValue := implicitCast(contextValue.position, 
+                                        contextValue, wrapper, CastType.IMPLICIT)
+                            }
+                            def cl := contextValue.type.classNode
+                            if left = null
+                                left := new NullLiteral(contextValue.position)
+                            if right = null
+                                right := new NullLiteral(contextValue.position)
+                            if step = null
+                                step := new IntegerLiteral(contextValue.position, 1)
+                            def match := findSliceMethod(contextValue, endInclusive,
+                                    [left, right, step])
+                            if match != null {
+                                contextValue := call(c[i].position, match.methodNode, 
+                                        true, match.params)
+                            }
+                            else {
+                                contextValue := new PossibleSliceAssignment(
+                                        c.position, contextValue, left, right, 
+                                        step, endInclusive)
+                            }
+                        }
+                        assert c[i].type = ParseNodeType.TOKEN &
+                                c[i]->(TokenNode).token.type = TokenType.RBRACKET
+                        i += 1*-
+                        throw new NotSupportedException()
+                    }
+                    case TokenType.MEMBER: {-*
+                        assert contextValue != null
+                        contextValue := resolve(contextValue)
+                        contextValue := resolveUnresolvedConstructs(context,
+                                contextValue)
+                        if contextValue-?>(UnresolvedClassLiteral)
+                            contextValue := contextValue->(UnresolvedClassLiteral)->>(ClassLiteral)
+                        def type := contextValue->(ClassLiteral).value
+                        i += 1
+                        def name := c[i]->>(String)
+                        i += 1
+                        var types:Array<Type>?
+                        if i < c.length & c[i].type = ParseNodeType.TYPES {
+                            types := convertTypes(c[i])
+                            i += 1
+                        }
+                        else
+                            types := null
+                        var found := false
+                        outer: for child in type.classNode.children {
+                            if child-?>(MethodNode) & 
+                                    child->(MethodNode).name = name {
+                                def m := child->(MethodNode)
+                                if types != null {
+                                    var start:Int
+                                    if m.annotations.isClass
+                                        start := 0
+                                    else
+                                        start := 1
+                                    def parameters := m.parameters[start..]
+                                    if parameters.length != types.length
+                                        continue
+                                    for j, p in parameters {
+                                        if p.type != types[j]
+                                            continue outer
+                                    }
+                                }
+                                if found {
+                                    throw new CompilerException(
+                                            "'\{type.displayName}' has more " +
+                                            "than one method named " +
+                                            "'\{name}', specify parameter " +
+                                            "types to disambiguate", 
+                                            contextValue.position)
+                                }
+                                if m.annotations.isAbstract {
+                                    PandaCompiler.reportError(
+                                            "'\{type.displayName}.\{name}' is " +
+                                            "abstract", contextValue.position)
+                                }
+                                found := true
+                                contextValue := methodReference(contextValue.position, m)
+                            }
+                        }
+                        if !found {
+                            throw new CompilerException("method not found",
+                                    contextValue.position)
+                        }*-
+                        throw new NotSupportedException()
+                    }
+                    case TokenType.CONVERT: {
+                        assert contextValue != null
+                        var submessages:ListView<Message>?
+                        contextValue, submessages := resolve(context, 
+                                contextValue)
+                        messages := addMessages(messages, submessages)
+                        if contextValue = null
+                            return (null, messages)
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.LPAREN
+                        i += 1
+                        def type:Type?
+                        type, submessages := convertType(context, c[i])
+                        messages := addMessages(messages, submessages)
+                        if type != null {
+                            contextValue := convert(context, c[i].position, 
+                                    contextValue, type)
+                        }
+                        else
+                            return (null, messages)
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.RPAREN
+                        i += 1
+                    }
+                    case TokenType.CAST: {
+                        assert contextValue != null
+                        var submessages:ListView<Message>?
+                        contextValue, submessages := resolve(context, 
+                                contextValue)
+                        messages := addMessages(messages, submessages)
+                        if contextValue = null
+                            return (null, messages)
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.LPAREN
+                        i += 1
+                        def type:Type?
+                        type, submessages := convertType(context, c[i])
+                        messages := addMessages(messages, submessages)
+                        if type != null {
+                            contextValue, submessages := 
+                                    contextValue.explicitCast(c[i].position, 
+                                        type)
+                            messages := addMessages(messages, submessages)
+                        }
+                        else
+                            return (null, messages)
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.RPAREN
+                        i += 1
+                    }
+                    case TokenType.INSTANCEOF: {
+                        assert contextValue != null
+                        var submessages:ListView<Message>?
+                        contextValue, submessages := resolve(context, 
+                                contextValue)
+                        messages := addMessages(messages, submessages)
+                        if contextValue = null
+                            return (null, messages)
+                        def position := c[i].position
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.LPAREN
+                        i += 1
+                        def type:Type?
+                        type, submessages := convertType(context, c[i])
+                        messages := addMessages(messages, submessages)
+                        if type != null {
+                            contextValue := convertInstanceOf(position, 
+                                contextValue, type)
+                        }
+                        else
+                            return (null, messages)
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.RPAREN
+                        i += 1
+                    }
+                    case TokenType.NINSTANCEOF: {
+                        assert contextValue != null
+                        var submessages:ListView<Message>?
+                        contextValue, submessages := resolve(context, 
+                                contextValue)
+                        messages := addMessages(messages, submessages)
+                        if contextValue = null
+                            return (null, messages)
+                        def position := c[i].position
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.LPAREN
+                        i += 1
+                        def type:Type?
+                        type, submessages := convertType(context, c[i])
+                        messages := addMessages(messages, submessages)
+                        if type != null {
+                            def instanceof := convertInstanceOf(position, 
+                                    contextValue, type)
+                            contextValue := new UnaryOperation(position, 
+                                    UnaryOperationType.NOT, instanceof)
+                        }
+                        else
+                            return (null, messages)
+                        i += 1
+                        assert c[i]->(TokenNode).token.type = TokenType.RPAREN
+                        i += 1
+                    }
+                    case TokenType.COMMA: {
+                        assert contextValue != null
+                        lvalues.add(contextValue)
+                        i += 1
+                        if c[i].type = ParseNodeType.CONSTRUCT
+                            contextValue := convertConstruct(c[i])
+                        else {
+                            def id := c[i]->>(String)
+                            if id = "super"
+                                contextValue := new Super(c.position)
+                            else {
+                                def submessages:ListView<Message>?
+                                contextValue, submessages := 
+                                        parseBareIdentifier(context, c[i])
+                                messages := addMessages(messages, submessages)
+                                if contextValue = null
+                                    return (null, messages)
+                            }
+                        }
+                        i += 1
+                    }
+                    case TokenType.UNDERSCORE: {
+                        lvalues.add(contextValue)
+                        contextValue := null
+                    }
+                    default: throw new InternalCompilerException(
+                            "unsupported token '\{c[i]->(TokenNode).token.type}'", 
+                                c[i].position)
+                }
+            }
+            else if c[i].type = ParseNodeType.PARAMETERS {
+                def params, submessages := convertParameters(context, c[i])
+                messages := addMessages(messages, submessages)
+                if params = null
+                    return (null, messages)
+                i += 1
+                if contextValue-?>(Unresolved) {
+                    def call := call(context, contextValue.position, 
+                            contextValue->(Unresolved).contextValue, 
+                            contextValue->(Unresolved).name, params)
+                    if call = null {
+                        messages := addMessage(messages, 
+                                getMethodNotFoundMessage(contextValue.position, 
+                                    contextValue->(Unresolved).contextValue, 
+                                    contextValue->(Unresolved).name, params))
+                        return (null, messages)
+                    }
+                    if call.methodStub.returnType != null
+                        contextValue := new MethodCallValue(call)
+                    else {
+                        return (null, wrap(new Message(call.methodStub +
+                                "does not return a value", 
+                                contextValue.position)))
+                    }
+                }
+                else if contextValue-?>(Super) {
+                    return (null, wrap(new Message("'super' is not a method", 
+                            contextValue.position)))
+                }
+                else if contextValue-?>(Value) {
+                    def v := contextValue->(Value)
+                    if v.type.isMethod {
+                        -- parentheses after a value of method type, need to
+                        -- call the method
+-*                        prepareMethodParameters(v, params)
+                        contextValue := new DynamicCall(v.position, v, params)*-
+                        throw new NotSupportedException()
+                    }
+                    else {
+                        return (null, wrap(new Message("value of type '" + 
+                                v.type.displayName + "' is not a method", 
+                                contextValue.position)))
+                    }
+                }
+                else {
+                    assert contextValue != null
+                    return (null, wrap(new Message("cannot call method on '" +
+                            contextValue + "'", contextValue.position)))
+                }
+            }
+            else {
+                assert contextValue != null
+                assert c[i].type = ParseNodeType.ASSIGNMENT_OPERATOR
+                lvalues.add(contextValue)
+--                processAssignment(lvalues, c[i], convertExpression(context, 
+--                        c[i + 1]))
+--                return null
+                throw new NotSupportedException()
+            }
+        }
+        assert contextValue != null
+        assert lvalues.length = 0
+        return resolve(context, contextValue)
+    }
+
+    ============================================================================
+    Processes a CALL_OR_ASSIGNMENT parse node.
+    ============================================================================
+    @pre(c.type = ParseNodeType.CALL_OR_ASSIGNMENT)
+    method convertCallOrAssignment(context:Context, c:ParseNode):
+            (Statement?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        var contextValue:Value? := null
+        if c[0].type = ParseNodeType.CONSTRUCT
+            contextValue := convertConstruct(c[0])
+        else if c[0].type = ParseNodeType.CALL_EXPRESSION {
+--            contextValue := convertCallExpression(c[0])
+            throw new NotSupportedException()
+        }
+        else {
+            def id := c[0]->>(String)
+            if id = "super"
+                contextValue := new Super(c.position)
+            else {
+                def submessages:ListView<Message>?
+                contextValue, submessages := parseBareIdentifier(context, c[0])
+                messages := addMessages(messages, submessages)
+                if contextValue = null
+                    return (null, messages)
+            }
+        }
+        def call, submessages := processCallOrAssignment(context, contextValue,
+                c)
+        messages := addMessages(messages, submessages)
+        if call != null
+            return (new ValueStatement(call), messages)
+        else
+            return (null, messages)
     }
 
     ============================================================================
     Processes a VAR_DECLARATION parse node. Returns a list of variables and
     statements to initialize them.
     ============================================================================
-    @class
     @pre(v.type = ParseNodeType.VAR_DECLARATION)
     method convertVariableDeclaration(context:Context, v:ParseNode):
             (Statement?, Context, ListView<Message>?) {
@@ -304,7 +2123,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
     ============================================================================
     Processes a SIMPLE_STATEMENT parse node.
     ============================================================================
-    @class
     @pre(s.type = ParseNodeType.SIMPLE_STATEMENT)
     method convertSimpleStatement(context:Context, s:ParseNode):
             (Statement?, Context, ListView<Message>?) {
@@ -312,13 +2130,13 @@ class ASTGenerator : Immutable (MessageProcessor) {
         switch s[0].type {
             case ParseNodeType.VAR_DECLARATION: 
                 return convertVariableDeclaration(context, s[0])
--*            case ParseNodeType.CONSTANT_DECLARATION: 
-                return convertConstantDeclaration(s[0])
+--            case ParseNodeType.CONSTANT_DECLARATION: 
+--                return convertConstantDeclaration(s[0])
             case ParseNodeType.CALL_OR_ASSIGNMENT: {
-                def call, message := convertCallOrAssignment(context, s[0])
+                def call, messages := convertCallOrAssignment(context, s[0])
                 return (call, context, messages)
             }
-            case ParseNodeType.ANY_LOOP:  {
+-*            case ParseNodeType.ANY_LOOP:  {
                 def l, messages := convertAnyLoop(context, s[0])
                 return (l, context, messages)
             }
@@ -347,7 +2165,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
     ============================================================================
     Processes a THROW_STATEMENT parse node.
     ============================================================================
-    @class
     @pre(t.type = ParseNodeType.THROW_STATEMENT)
     method convertThrowStatement(t:ParseNode):(Throw, ListView<Message>?) {
 -*        return new Throw(t.position, implicitCast(t[1].position,
@@ -358,13 +2175,11 @@ class ASTGenerator : Immutable (MessageProcessor) {
     ============================================================================
     Processes an UNREACHABLE token.
     ============================================================================
-    @class
     @pre(t->(TokenNode).token.type = TokenType.UNREACHABLE)
     function convertUnreachable(t:ParseNode):Unreachable {
         return new Unreachable(t.position)
     }
 
-    @class
     @pre(s.type = ParseNodeType.TERMINAL_STATEMENT)
     method convertTerminalStatement(context:Context, s:ParseNode):
             (Statement, ListView<Message>?) {
@@ -414,7 +2229,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
     ============================================================================
     Processes a STATEMENT parse node.
     ============================================================================
-    @class
     @pre(s.type = ParseNodeType.STATEMENT)
     method convertStatement(context:Context, s:ParseNode):
             (Statement?, Context, ListView<Message>?) {
@@ -434,7 +2248,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
     ============================================================================
     Processes a STATEMENT_OR_BLOCK parse node.
     ============================================================================
-    @class
     @pre(b.type = ParseNodeType.STATEMENT_OR_BLOCK)
     method convertStatementOrBlock(context:Context, b:ParseNode):
             (Block, ListView<Message>?) {
@@ -460,7 +2273,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
     ============================================================================
     Processes a BLOCK parse node.
     ============================================================================
-    @class
     @pre(b.type = ParseNodeType.BLOCK)
     method convertBlock(context:Context, b:ParseNode):
             (Block, ListView<Message>?) {
@@ -504,8 +2316,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
             messages := null
         }
         def parameters := new Array<Parameter>()
-        return (new MethodNode(m.position, m.name, parameters, m.returnType,
-                m.annotations, block), messages)
+        return (new MethodNode(m.position, m.name, m.methodType, parameters, 
+                m.returnType, m.annotations, block), messages)
     }
 
     method convertClass(cl:TypedClassStub, typeMap:TypeMap):
@@ -514,7 +2326,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def methods := new Array<MethodNode>()
         def fields := new Array<FieldNode>()
         for m in cl.methods {
-            def context := new Context(cl.lookupContext, typeMap, 
+            def context := new Context(cl, null, cl.lookupContext, typeMap, 
                     new Array<Variable>())
             def compiled, submessages := convertMethod(context, m)
             methods.add(compiled)
@@ -533,9 +2345,11 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def result := new Array<ClassNode>()
         var messages:ListView<Message>? := null
         for cl in compilationUnit.classes {
-            def classNode, submessages := convertClass(cl, typeMap)
-            result.add(classNode)
-            messages := addMessages(messages, submessages)
+            if cl.genericParameters = null & !cl.isExternal {
+                def classNode, submessages := convertClass(cl, typeMap)
+                result.add(classNode)
+                messages := addMessages(messages, submessages)
+            }
         }
         return (result, messages)
     }
