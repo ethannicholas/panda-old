@@ -1,8 +1,10 @@
 package org.pandalanguage.pandac.stubs
 
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
@@ -18,7 +20,7 @@ class TypedClassStub : ClassStub {
 
     def methods:ImmutableArray<TypedMethodStub>
 
-    def fields:ImmutableArray<TypedFieldStub>
+    def fields:ImmutableArray<FieldNode>
 
     def genericParameters:ImmutableArray<GenericParameterType>?
 
@@ -28,7 +30,7 @@ class TypedClassStub : ClassStub {
     constructor(position:Position, name:String, isInterface:Bit, 
             annotations:Annotations, lookupContext:LookupContext, 
             superclass:ClassType?, interfaces:ListView<ClassType>, 
-            methods:ListView<TypedMethodStub>, fields:ListView<TypedFieldStub>, 
+            methods:ListView<TypedMethodStub>, fields:ListView<FieldNode>, 
             invariants:ListView<ParseNode>,
             genericParameters:ListView<GenericParameterType>?, isExternal:Bit) {
         super.constructor(position, name, isInterface, annotations, 
@@ -36,11 +38,35 @@ class TypedClassStub : ClassStub {
         self.superclass := superclass
         self.interfaces := new ImmutableArray<ClassType>(interfaces)
         self.methods := new ImmutableArray<TypedMethodStub>(methods)
-        self.fields := new ImmutableArray<TypedFieldStub>(fields)
+        self.fields := new ImmutableArray<FieldNode>(fields)
         if genericParameters != null {
             self.genericParameters := new ImmutableArray<GenericParameterType>(
                     genericParameters)
         }
+    }
+
+    function getField(context:Context, name:String):FieldNode? {
+        for f in fields {
+            if f.name = name
+                return f
+        }
+        if superclass != null {
+            def superField := context.getStub(superclass).getField(context, 
+                    name)
+            if superField != null
+                return superField
+        }
+        for intf in interfaces {
+            def intfField := context.getStub(intf).getField(context, name)
+            if intfField != null
+                return intfField
+        }
+        return null
+    }
+
+    function instanceFields():ListView<FieldNode> {
+        Panda.log("instanceFields is not implemented")
+        return fields
     }
 
     @override

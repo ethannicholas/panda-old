@@ -132,6 +132,8 @@ class Context : Immutable {
 
     def currentMethod:TypedMethodStub?
 
+    def stubs:ImmutableHashMap<String, TypedClassStub>
+
     def lookupContext:LookupContext
 
     def typeMap:TypeMap
@@ -139,17 +141,15 @@ class Context : Immutable {
     def localVariables:ImmutableHashMap<String, Variable>
 
     constructor(currentClass:TypedClassStub?, currentMethod:TypedMethodStub?,
-            lookupContext:LookupContext, typeMap:TypeMap,
-            localVariables:ListView<Variable>) {
+            lookupContext:LookupContext, typeMap:TypeMap, 
+            stubs:ImmutableHashMap<String, TypedClassStub>,
+            localVariables:ImmutableHashMap<String, Variable>) {
         self.currentClass := currentClass
         self.currentMethod := currentMethod
         self.lookupContext := lookupContext
         self.typeMap := typeMap
-        def localVariableMap := new HashMap<String, Variable>()
-        for v in localVariables
-            localVariableMap[v.name] := v
-        self.localVariables := new ImmutableHashMap<String, Variable>(
-                localVariableMap)
+        self.stubs := stubs
+        self.localVariables := localVariables
     }
 
     function isInstance():Bit {
@@ -157,8 +157,12 @@ class Context : Immutable {
     }
 
     function getVariable(name:String):Variable? {
-        -- FIXME also search fields
-        return localVariables[name]
+        var result := localVariables[name]
+        if result != null
+            return result
+        if currentClass != null 
+            return currentClass.getField(self, name)
+        return null
     }
 
     @pre(isInstance)
@@ -168,21 +172,43 @@ class Context : Immutable {
         return new VariableReference(position, selfVar)
     }
 
-    method getRequiredType(name:String, position:Position):Type {
+    method getWrapper(t:PrimitiveType):WrapperType {
+        return getRequiredType(t.name + "Wrapper")->(WrapperType)
+    }
+
+    function getStub(t:ClassType):TypedClassStub {
+        def result := stubs[t.name]
+        assert result != null : "missing stub for \{t}"
+        return result
+    }
+
+    @pre(t.type = ParseNodeType.TYPE)
+    method getType(t:ParseNode):(Type?, ListView<Message>?) {
+        return typeMap.getType(t, lookupContext)
+    }
+
+    method getType(name:String, position:Position):
+            (Type?, ListView<Message>?) {
         def node := new PandaParser().parseType(name, position)
+        return typeMap.getType(node, lookupContext)
+    }
+
+    method getRequiredType(name:String):Type {
+        def node := new PandaParser().parseType(name, Position.INTERNAL)
         def result, messages := typeMap.getType(node, lookupContext)
         if result = null {
             assert messages != null
-            throw new InternalCompilerException(messages.join("\n"), position)
+            throw new InternalCompilerException(messages.join("\n"))
         }
         return result
     }
 
     function +(variables:ListView<Variable>):Context {
-        def newVariables := new Array<Variable>(localVariables.values)
-        newVariables.addAll(variables)
+        def newVariables := new HashMap<String, Variable>(localVariables)
+        for v in variables
+            newVariables[v.name] := v
         return new Context(currentClass, currentMethod, lookupContext, typeMap,
-                newVariables)
+                stubs, new ImmutableHashMap<String, Variable>(newVariables))
     }
 }
 
@@ -206,7 +232,7 @@ class AmbiguousReference : Value {
     def field:FieldNode
 
     constructor(position:Position, contextValue:Value, field:FieldNode) {
-        super.constructor(position, field.type)
+        super.constructor(position, new UnresolvedType(field.name, position))
         self.contextValue := contextValue
         self.field := field
     }
@@ -280,18 +306,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
 
     @private
     constructor() {
-    }
-
-    @pre(t.type = ParseNodeType.TYPE)
-    method convertType(context:Context, t:ParseNode):
-            (Type?, ListView<Message>?) {
-        return context.typeMap.getType(t, context.lookupContext)
-    }
-
-    method convertType(context:Context, name:String, position:Position):
-            (Type?, ListView<Message>?) {
-        def node := new PandaParser().parseType(name, position)
-        return context.typeMap.getType(node, context.lookupContext)
     }
 
     -- FIXME switch to built-in string parser when it exists
@@ -437,6 +451,142 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
     }
 
+    method isAccessible(context:Context, f:FieldNode):Bit {
+        return true
+    -*
+        var cl := currentClass
+        assert cl != null
+        if cl.type()-?>(GenericType) {
+            -- we've already performed access checks for the unspecified version
+            -- of this class, and the specified version could be (legally) 
+            -- accessing private members of the unspecified version
+            return true
+        }
+        def a := f.annotations
+        if a.isPrivate {
+            while cl.containingClass != null
+                cl := cl.containingClass->(ClassNode)
+            def targetClass := f.owner
+            def c1 := cl.parent
+            def c2 := targetClass.parent
+            return c1 = c2
+        }
+        else if a.isProtected {
+            def cm := currentMethod
+            assert cm != null
+            var caller := cm.parent->(ClassNode?)
+            while caller != null & caller.containingClass != null
+                caller := caller.containingClass
+            var callee := f.parent->(ClassNode)
+            while caller != null {
+                if caller = callee
+                    return true
+                caller := caller.superclass
+            }
+            return false
+        }
+        return true*-
+    }
+
+    @private
+    method createFieldReference(context:Context, position:Position, 
+            var contextValue:Value, f:FieldNode, 
+            allowNoArgFunctions:Bit):Value {
+        def annotations := f.annotations
+        if allowNoArgFunctions {
+            def name := f.name
+            def m := context.currentMethod
+            assert m != null
+            def unresolved := new Unresolved(position, contextValue, name)
+            def noArg := resolveNoArgFunction(context, unresolved)
+            if noArg != null
+                return new AmbiguousReference(position, contextValue, f)
+        }
+        def result := new FieldReference(position, contextValue, f)
+        return result
+    }
+
+    method getField(context:Context, position:Position, var contextValue:Value,
+            var name:String):(Value?, ListView<Message>?) {
+        return getField(context, position, contextValue, name, true)
+    }
+
+    method getField(context:Context, position:Position, var contextValue:Value,
+            var name:String, allowNoArgFunctions:Bit):(Value?, ListView<Message>?) {
+        Console.writeLine("looking for \{name} in \{contextValue}")
+        var messages:ListView<Message>? := null
+        if name = "class"
+            name := "$class"
+        var cl:TypedClassStub
+        if contextValue.type = StringOrCharType.STRING_OR_CHAR {
+            def submessages:ListView<Message>?
+            contextValue, submessages := contextValue.implicitCast(position, CharType.CHAR)
+        }
+        if contextValue-!>(Super) {
+            var submessages:ListView<Message>?
+            contextValue, submessages := resolveUnresolvedConstructs(context, 
+                    contextValue)
+            messages := addMessages(messages, submessages)
+            if contextValue.type.isPrimitive {
+                def casted:Value?
+                casted, submessages := contextValue.implicitCast(position, 
+                            context.getWrapper(contextValue.type->>(PrimitiveType)))
+                messages := addMessages(messages, submessages)
+                if casted = null
+                    return (null, messages)
+                return getField(context, position, casted, name, 
+                        allowNoArgFunctions)
+            }
+            else {
+                var contextValueClass := context.getStub(
+                        contextValue.type->>(ClassType))
+                cl := contextValueClass
+            }
+            if contextValue-!>(ClassLiteral) {
+                def fields := cl.instanceFields
+                -- need to search backwards since ancestor classes are at the
+                -- beginning of the array, and we may be shadowing fields
+                for i in fields.length - 1  ... 0 by -1 {
+                    def f := fields[i]
+                    if f.name = name & !f.annotations.isClass &
+                            !f.annotations.isThread & isAccessible(context, f) {
+                        if contextValue-?>(UnresolvedClassLiteral) {
+                            contextValue := new ClassObjectLiteral(context,
+                                    contextValue.position,
+                                    contextValue->(UnresolvedClassLiteral).value)
+                        }
+                        return (createFieldReference(context, position, 
+                                contextValue, f, allowNoArgFunctions), messages)
+                    }
+                }
+            }
+            if contextValue-?>(UnresolvedClassLiteral) {
+                contextValue := new ClassLiteral(context,
+                        contextValue.position,
+                        contextValue->(UnresolvedClassLiteral).value)
+            }
+            Console.writeLine("contextValue: \{contextValue}")
+            if contextValue-?>(ClassLiteral) {
+                var type := contextValue->(ClassLiteral).value
+                if type.isPrimitive
+                    type := context.getWrapper(type->>(PrimitiveType))
+                cl := context.getStub(type->>(ClassType))
+                Console.writeLine("looking at \{cl.fields} in \{cl}")
+                for f in cl.fields {
+                    if f.name = name & (f.annotations.isClass |
+                            f.annotations.isThread) &
+                            isAccessible(context, f) {
+                        Console.writeLine("Match!")
+                        return (createFieldReference(context, position, 
+                                contextValue, f, allowNoArgFunctions), messages)
+                    }
+                    Console.writeLine("\{f} failed against \{name}: \{f.annotations}")
+                }
+            }
+        }
+        return (new Unresolved(position, contextValue, name), messages)
+    }
+
     @pre(e.type = ParseNodeType.TERM)
     method convertTerm(context:Context, e:ParseNode):(Value?, ListView<Message>?) {
         switch e[0].type {
@@ -527,7 +677,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 assert literal[1]->(TokenNode).token.type = TokenType.LPAREN
                 assert literal[2].type = ParseNodeType.TYPE
                 assert literal[3]->(TokenNode).token.type = TokenType.RPAREN
-                def type, messages := convertType(context, literal[2])
+                def type, messages := context.getType(literal[2])
                 if type != null {
                     return (new ClassObjectLiteral(context, literal.position, 
                             type), messages)
@@ -1053,7 +1203,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
     -- do not want to actually report them.
     method call(context:Context, position:Position, var contextValue:Value?, 
                 methodName:String, var params:ListView<Value>):MethodCall? {
-        throw new NotSupportedException()
+                    return null
+--        throw new NotSupportedException()
 -*        if contextValue = null {
             if context.isInstance {
                 -- bare identifier, could be either instance or class
@@ -1310,12 +1461,11 @@ class ASTGenerator : Immutable (MessageProcessor) {
             messages := addMessages(messages, submessages)
         }
         else if result-?>(Unresolved) {
-            def type, submessages := convertType(context, raw->>(String), 
+            def type, submessages := context.getType(raw->>(String), 
                     raw.position)
             if type != null {
                 messages := addMessages(messages, submessages)
-                return (new ClassLiteral(raw.position, context.typeMap, 
-                        type), messages)
+                return (new ClassLiteral(context, raw.position, type), messages)
             }
             if !result->(Unresolved).name.contains(".")
                 result := resolveNoArgFunction(context, result->(Unresolved))
@@ -1330,8 +1480,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
             def a := result->(AmbiguousReference)
             def name := a.field.name
             throw new CompilerException("reference to '\{name}' is " +
-                    "ambiguous, both field \{name} (of type " +
-                    "\{a.field.type.displayName}) and function " +
+                    "ambiguous, both field '\{name}' and function " +
                     "\{name}() match", a.position)
         }
         else if result-?>(PossibleIndexedAssignment) {
@@ -1456,34 +1605,34 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 if classField {
                     def cc := context.currentClass
                     assert cc != null
-                    def type, submessages := convertType(context, cc.name, 
+                    def type, submessages := context.getType(cc.name, 
                             id.position)
                     messages := addMessages(messages, submessages)
                     if type = null
                         return (null, messages)
-                    contextValue := new ClassLiteral(id.position, 
-                            context.typeMap, type)
+                    contextValue := new ClassLiteral(context, id.position, type)
                 }
                 else
                     contextValue := context.getSelf(id.position)
--*                if isAccessible(variable->(FieldNode)) {
-                    return createFieldReference(id.position, context, 
-                            variable->(FieldNode), true)
-                }*-
-                throw new NotSupportedException()
+                if isAccessible(context, variable->(FieldNode)) {
+                    return (createFieldReference(context, id.position, 
+                            contextValue, variable->(FieldNode), true), 
+                            messages)
+                }
             }
             else {
                 def result := new VariableReference(id.position, variable)
                 return (result, messages)
             }
         }
--*        if id->(TokenNode).token.type = TokenType.IDENTIFIER {
-            def type := currentBlock.symbolTable.getType(id.position, name)
-            if type-!>(UnresolvedType)
-                return new UnresolvedClassLiteral(id.position, type)
+        if id->(TokenNode).token.type = TokenType.IDENTIFIER {
+            def type, _ := context.getType(name, id.position)
+            if type != null {
+                return (new UnresolvedClassLiteral(context, id.position, type),
+                        null)
+            }
         }
-        return new Unresolved(id.position, null, name) *-
-        throw new NotSupportedException()
+        return (new Unresolved(id.position, null, name), null)
     }
 
     @pre(params.type = ParseNodeType.PARAMETERS)
@@ -1541,21 +1690,23 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 resolveUnresolvedConstructs(context,
                                     contextValue)
                         messages := addMessages(messages, submessages)
--*                        def field := getField(context, c[i + 1].position,
-                                contextValue, name)
+                        def field:Value?
+                        field, submessages := getField(context, 
+                                c[i + 1].position, contextValue, name)
+                        messages := addMessages(messages, submessages)
                         if field != null 
                             contextValue := field
                         else {
                             if contextValue-!>(Unresolved) {
-                                return (null, new Message("unknown identifier",
-                                        contextValue.position))
+                                return (null, wrap(new Message(
+                                        "unknown identifier",
+                                        contextValue.position)))
                             }
                             contextValue := new Unresolved(c[i + 1].position, 
                                     contextValue->(Unresolved).contextValue, 
                                     contextValue + "." + name)
                         }
-                        i += 2 *-
-                        throw new NotSupportedException()
+                        i += 2
                     }
                     case TokenType.LBRACKET: {
 -*                        assert contextValue != null
@@ -1773,7 +1924,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
                         i += 1
                         def type:Type?
-                        type, submessages := convertType(context, c[i])
+                        type, submessages := context.getType(c[i])
                         messages := addMessages(messages, submessages)
                         if type != null {
                             contextValue := convert(context, c[i].position, 
@@ -1797,7 +1948,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
                         i += 1
                         def type:Type?
-                        type, submessages := convertType(context, c[i])
+                        type, submessages := context.getType(c[i])
                         messages := addMessages(messages, submessages)
                         if type != null {
                             contextValue, submessages := 
@@ -1824,7 +1975,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
                         i += 1
                         def type:Type?
-                        type, submessages := convertType(context, c[i])
+                        type, submessages := context.getType(c[i])
                         messages := addMessages(messages, submessages)
                         if type != null {
                             contextValue := convertInstanceOf(position, 
@@ -1849,7 +2000,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
                         i += 1
                         def type:Type?
-                        type, submessages := convertType(context, c[i])
+                        type, submessages := context.getType(c[i])
                         messages := addMessages(messages, submessages)
                         if type != null {
                             def instanceof := convertInstanceOf(position, 
@@ -2027,7 +2178,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
             def type:Type?
             if i < v.length & v[i].type = ParseNodeType.TYPE_DECLARATION {
                 def submessages:ListView<Message>?
-                type, submessages := convertType(context, v[i][1])
+                type, submessages := context.getType(v[i][1])
                 messages := addMessages(messages, submessages)
                 i += 1
             }
@@ -2309,8 +2460,12 @@ class ASTGenerator : Immutable (MessageProcessor) {
             (MethodNode, ListView<Message>?) {
         def block:Block?
         def messages:ListView<Message>?
-        if m.block != null
-            block, messages := convertBlock(context, m.block->(ParseNode))
+        if m.block != null {
+            def newContext := new Context(context.currentClass, m, 
+                    context.lookupContext, context.typeMap, context.stubs,
+                    context.localVariables)
+            block, messages := convertBlock(newContext, m.block->(ParseNode))
+        }
         else {
             block := null
             messages := null
@@ -2320,14 +2475,16 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 m.returnType, m.annotations, block), messages)
     }
 
-    method convertClass(cl:TypedClassStub, typeMap:TypeMap):
+    method convertClass(cl:TypedClassStub, typeMap:TypeMap, 
+            stubs:ImmutableHashMap<String, TypedClassStub>):
             (ClassNode, ListView<Message>?) {
         var messages:ListView<Message>? := null
         def methods := new Array<MethodNode>()
         def fields := new Array<FieldNode>()
         for m in cl.methods {
             def context := new Context(cl, null, cl.lookupContext, typeMap, 
-                    new Array<Variable>())
+                    stubs, new ImmutableHashMap<String, Variable>(
+                        new HashMap<String, Variable>()))
             def compiled, submessages := convertMethod(context, m)
             methods.add(compiled)
             messages := addMessages(messages, submessages)
@@ -2340,13 +2497,13 @@ class ASTGenerator : Immutable (MessageProcessor) {
     }
 
     method convertCompilationUnit(compilationUnit:TypedCompilationUnitStub,
-            typeMap:TypeMap):
+            typeMap:TypeMap, stubs:ImmutableHashMap<String, TypedClassStub>):
             (CollectionView<ClassNode>, ListView<Message>?) {
         def result := new Array<ClassNode>()
         var messages:ListView<Message>? := null
         for cl in compilationUnit.classes {
             if cl.genericParameters = null & !cl.isExternal {
-                def classNode, submessages := convertClass(cl, typeMap)
+                def classNode, submessages := convertClass(cl, typeMap, stubs)
                 result.add(classNode)
                 messages := addMessages(messages, submessages)
             }
@@ -2359,9 +2516,16 @@ class ASTGenerator : Immutable (MessageProcessor) {
             typeMap:TypeMap):
                 (CollectionView<ClassNode>, ListView<Message>?) {
         def result := new Array<ClassNode>()
+        def stubs := new HashMap<String, TypedClassStub>()
+        for cu in compilationUnits {
+            for cl in cu.classes
+                stubs[cl.name] := cl
+        }
+        def immutableStubs := new ImmutableHashMap<String, TypedClassStub>(stubs)
         var messages:ListView<Message>? := null
         for cu in compilationUnits {
-            def classes, submessages := convertCompilationUnit(cu, typeMap)
+            def classes, submessages := convertCompilationUnit(cu, typeMap, 
+                    immutableStubs)
             result.addAll(classes)
             messages := addMessages(messages, submessages)
         }

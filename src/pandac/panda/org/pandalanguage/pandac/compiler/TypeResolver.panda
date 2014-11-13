@@ -4,19 +4,21 @@ uses org.pandalanguage.pandac.compiler.Message
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.TypedClassStub
-uses org.pandalanguage.pandac.stubs.TypedFieldStub
 uses org.pandalanguage.pandac.stubs.TypedFormalParameter
 uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
 uses org.pandalanguage.pandac.stubs.UntypedClassStub
-uses org.pandalanguage.pandac.stubs.UntypedFieldStub
+uses org.pandalanguage.pandac.stubs.UntypedFieldNode
 uses org.pandalanguage.pandac.stubs.UntypedGenericParameter
 uses org.pandalanguage.pandac.stubs.UntypedMethodStub
 uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
+uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.types.SpecialType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.GenericParameterType
 
 ================================================================================
@@ -25,6 +27,12 @@ Converts the various untyped stubs into their typed equivalents.
 class TypeResolver (MessageProcessor) {
     @private
     def typeMap:TypeMap
+
+    @private
+    var currentClass:TypedClassStub?
+
+    @private
+    def stubs:Map<String, TypedClassStub>
 
     @private
     var packageUses:CollectionView<String>
@@ -36,6 +44,7 @@ class TypeResolver (MessageProcessor) {
         self.typeMap := typeMap
         self.packageUses := new Array<String>()
         self.classAliases := new HashMap<String, String>()
+        self.stubs := new HashMap<String, TypedClassStub>()
     }
 
     @private
@@ -87,10 +96,12 @@ class TypeResolver (MessageProcessor) {
 
     @private
     @self
-    method resolveTypes(f:UntypedFieldStub):
-            (TypedFieldStub, ListView<Message>?) {
-        def resolved, messages := resolveType(f.type)
-        return (new TypedFieldStub(f.position, f.name, f.annotations,
+    method resolveTypes(f:UntypedFieldNode):
+            (FieldNode, ListView<Message>?) {
+        var resolved, messages := resolveType(f.type)
+        if resolved = null
+            resolved := new UnresolvedType(f->>(String), f.position)
+        return (new FieldNode(f.position, f.name, f.annotations,
             f.fieldType, resolved, f.initialValue, f.tuplePosition), 
             messages)
     }
@@ -126,7 +137,7 @@ class TypeResolver (MessageProcessor) {
             methods.add(resolved)
             messages := addMessages(messages, submessages)
         }
-        def fields := new Array<TypedFieldStub>()
+        def fields := new Array<FieldNode>()
         for f in cl.fields {
             def resolved, submessages := resolveTypes(f)
             fields.add(resolved)
@@ -159,17 +170,16 @@ class TypeResolver (MessageProcessor) {
             }
             superclass := null
         }
-        return (new TypedClassStub(cl.position, cl.name, cl.isInterface, 
+        def stub := new TypedClassStub(cl.position, cl.name, cl.isInterface, 
                 cl.annotations, new LookupContext(cl.lookupContext.packageUses, 
                         self.classAliases), superclass, interfaces, methods, 
                         fields, cl.invariants, genericParameters, 
-                        cl.isExternal),
-                messages)
+                        cl.isExternal)
+        stubs[stub.name] := stub
+        return (stub, messages)
     }
 
-    @class
-    method resolveTypes(cu:UntypedCompilationUnitStub, queue:MessageQueue, 
-            typeMap:TypeMap):
+    method resolveTypes(cu:UntypedCompilationUnitStub, typeMap:TypeMap):
             (TypedCompilationUnitStub, ListView<Message>?) {
         def list := new Array<UntypedCompilationUnitStub>()
         list.add(cu)
@@ -178,9 +188,7 @@ class TypeResolver (MessageProcessor) {
         var messages:ListView<Message>? := null
         def replyTo := Thread.currentThread.queue
         for cl in cu.classes {
-            queue.post((cl, replyTo))
-            def resolved, submessages := replyTo.getMessage()->
-                    ((TypedClassStub, ImmutableArray<Message>?))
+            def resolved, submessages := resolveTypes(cl)
             classes.add(resolved)
             messages := addMessages(messages, submessages)
         }
@@ -195,6 +203,89 @@ class TypeResolver (MessageProcessor) {
                 messages)
     }
 
+    method inferFieldTypes(cl:TypedClassStub):
+            (TypedClassStub, Bit, Bit, ListView<Message>?) {
+        currentClass := cl
+        var updated := false
+        var remaining := false
+        def fields := new Array<FieldNode>()
+        for f in cl.fields {
+            if f.type-?>(UnresolvedType) {
+                def initialValue := f.initialValue
+                assert initialValue != null
+                def context := new Context(currentClass, null, 
+                        currentClass.lookupContext, typeMap, 
+                        new ImmutableHashMap<String, TypedClassStub>(stubs),
+                        new ImmutableHashMap<String, Variable>(
+                            new HashMap<String, Variable>()))
+                def expr, messages := new ASTGenerator().convertExpression(
+                        context, initialValue)
+                if expr != null {
+                    fields.add(new FieldNode(f.position, f.name, 
+                            f.annotations, f.varType, 
+                            expr.type.preferredVariableType, 
+                            f.initialValue, f.tuplePosition))
+                    updated := true
+                }
+                else {
+                    fields.add(f)
+                    remaining := true
+                }
+            }
+            else
+                fields.add(f)
+        }
+        if updated {
+            return (new TypedClassStub(cl.position, cl.name, cl.isInterface, 
+                cl.annotations, cl.lookupContext, cl.superclass, cl.interfaces,
+                        cl.methods, fields, cl.invariants, cl.genericParameters, 
+                        cl.isExternal), true, remaining, null)
+        }
+        return (cl, false, remaining, null)
+    }
+
+    method inferFieldTypes(cu:TypedCompilationUnitStub):
+            (TypedCompilationUnitStub, Bit, Bit, ListView<Message>?) {
+        var updated := false
+        var remaining := false
+        def classes := new Array<TypedClassStub>()
+        for cl in cu.classes {
+            if cl.genericParameters != null
+                classes.add(cl)
+            else {
+                def newCl, newUpdated, newRemaining, messages := 
+                        inferFieldTypes(cl)
+                classes.add(newCl)
+                updated |= newUpdated
+                remaining |= newRemaining
+            }
+        }
+        return (new TypedCompilationUnitStub(cu.name, classes, cu.methods, 
+                cu.statements), updated, remaining, null)
+    }
+
+    method inferFieldTypes(var compilationUnits:CollectionView<TypedCompilationUnitStub>):
+            (CollectionView<TypedCompilationUnitStub>, ListView<Message>?) {
+        loop {
+            var updated := false
+            var remaining := false
+            def newCompilationUnits := new Array<TypedCompilationUnitStub>()
+            for cu in compilationUnits {
+                def newCompilationUnit, newUpdated, newRemaining, messages :=
+                        inferFieldTypes(cu)
+                newCompilationUnits.add(newCompilationUnit)
+                updated |= newUpdated
+                remaining |= newRemaining
+            }
+            compilationUnits := newCompilationUnits
+            if !updated {
+                if remaining
+                    Console.writeLine("cound not infer field types")
+                return (compilationUnits, null)
+            }
+        }
+    }
+
     @class
     method resolveTypes(compilationUnits:CollectionView<UntypedCompilationUnitStub>):
             (CollectionView<TypedCompilationUnitStub>, 
@@ -204,35 +295,15 @@ class TypeResolver (MessageProcessor) {
         for cu in compilationUnits
             classes.addAll(cu.classes)
         def newTypeMap := new TypeMap(classes)
+        def t := new TypeResolver(newTypeMap)
         var messages:ListView<Message>? := null
-        def threads := Thread.preferredThreadCount()
-        def queue := new MessageQueue()
-        for i in 0 .. threads {
-            Thread.start(method() {
-                def t := new TypeResolver(newTypeMap)
-                loop {
-                    def message := queue.getMessage()->((UntypedClassStub, 
-                            MessageQueue)?)
-                    if message = null
-                        break
-                    def cl, replyTo := message
-                    def result, messages := t.resolveTypes(cl)
-                    def wrapped:ImmutableArray<Message>?
-                    if messages != null
-                        wrapped := new ImmutableArray<Message>(messages)
-                    else
-                        wrapped := null
-                    replyTo.post((result, wrapped))
-                }
-            })
-        }
         for cu in compilationUnits {
-            def resolved, submessages := resolveTypes(cu, queue, newTypeMap)
+            def resolved, submessages := t.resolveTypes(cu, newTypeMap)
             result.add(resolved)
             messages := addMessages(messages, submessages)
         }
-        for i in 0 .. threads
-            queue.post(null)
-        return (result, newTypeMap, messages)
+        def finished, submessages := t.inferFieldTypes(result)
+        messages := addMessages(messages, submessages)
+        return (finished, t.typeMap, messages)
     }
 }
