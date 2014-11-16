@@ -4,28 +4,62 @@ uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
 
 ================================================================================
 Represents a parsed but not-yet-compiled method after symbol resolution.
 ================================================================================
 class TypedMethodStub : MethodStub {
+    def owner:ClassType
+
     def parameters:ImmutableArray<TypedFormalParameter>
 
-    def returnType:Type?
+    def returnType:Type
 
     constructor(position:Position, name:String, annotations:Annotations,
             methodType:MethodNodeType, 
-            parameters:ListView<TypedFormalParameter>, returnType:Type?,
-            block:ParseNode?) {
+            parameters:ListView<TypedFormalParameter>, returnType:Type,
+            block:ParseNode?, owner:ClassType) {
         super.constructor(position, name, annotations, methodType, block)
         self.parameters := new ImmutableArray<TypedFormalParameter>(
                 parameters)
         self.returnType := returnType
+        self.owner := owner
     }
 
     @override
     function format(fmt:String):String {
-        return "\{name}(\{parameters.join(', ')})"
+        def result := new MutableString()
+        switch methodType {
+            case MethodNodeType.METHOD: result.append("method ")
+            case MethodNodeType.FUNCTION: result.append("function ")
+            case MethodNodeType.CONSTRUCTOR: result.append("constructor ")
+            default: unreachable
+        }
+        result.append(name)
+        result.append("(")
+        var start:Int
+        if annotations.isClass
+            start := 0
+        else
+            start := 1
+        for i in start .. parameters.length {
+            if i > start
+                result.append(", ")
+            result.append(parameters[i].name)
+            if parameters[i].isConvert
+                result.append("->>")
+            else
+                result.append(":")
+            result.append(parameters[i].type.name)
+        }
+        result.append(")")
+        if returnType != VoidType.VOID {
+            result.append(":")
+            result.append(returnType.name)
+        }
+        return result->>(String)
     }
 }

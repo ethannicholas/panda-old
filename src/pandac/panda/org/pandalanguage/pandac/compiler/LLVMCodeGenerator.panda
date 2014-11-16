@@ -1,0 +1,767 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.CompilerSettings
+uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.stubs.TypedClassStub 
+uses org.pandalanguage.pandac.stubs.TypedMethodStub 
+uses org.pandalanguage.pandac.tree.AbstractLoop
+uses org.pandalanguage.pandac.tree.Annotation
+uses org.pandalanguage.pandac.tree.Assert
+uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BitLiteral
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
+uses org.pandalanguage.pandac.tree.Catch
+uses org.pandalanguage.pandac.tree.CatchExit
+uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.ClassNodeState
+uses org.pandalanguage.pandac.tree.ClassObjectLiteral
+uses org.pandalanguage.pandac.tree.CompilationUnit
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.Continue
+uses org.pandalanguage.pandac.tree.Do
+uses org.pandalanguage.pandac.tree.DynamicCall
+uses org.pandalanguage.pandac.tree.ExpressionAnnotation
+uses org.pandalanguage.pandac.tree.FieldAssignment
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.For
+uses org.pandalanguage.pandac.tree.Identity
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.IndexedAssignment
+uses org.pandalanguage.pandac.tree.IndexValue
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.Finally
+uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.Loop
+uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodValue
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.NullLiteral
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.RealLiteral
+uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.ReusedValue
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.Statement
+uses org.pandalanguage.pandac.tree.StringLiteral
+uses org.pandalanguage.pandac.tree.Super
+uses org.pandalanguage.pandac.tree.SymbolTable
+uses org.pandalanguage.pandac.tree.Ternary
+uses org.pandalanguage.pandac.tree.Throw
+uses org.pandalanguage.pandac.tree.Try
+uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.Unreachable
+uses org.pandalanguage.pandac.tree.UnresolvedType
+uses org.pandalanguage.pandac.tree.Unwrap
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.Variable
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.While
+uses org.pandalanguage.pandac.types.BitType
+uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.MethodType
+uses org.pandalanguage.pandac.types.NativePointerType
+uses org.pandalanguage.pandac.types.NullableType
+uses org.pandalanguage.pandac.types.RealType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
+
+class LLVMCodeGenerator (CodeGenerator) {
+    def debug := false
+
+    var tempVariable := 0
+
+    var currentBlockLabel := "0"
+
+    def compilerSettings:CompilerSettings
+
+    def stubs:MapView<String, TypedClassStub>
+
+    def classes:MapView<String, ClassNode>
+
+    def types:MapView<String, Type>
+
+    def headerBuffer := new MemoryOutputStream()
+
+    def header := new IndentedOutputStream(headerBuffer)
+
+    def bodyBuffer := new MemoryOutputStream()
+
+    def body := new IndentedOutputStream(bodyBuffer)
+
+    constructor(p:Program) {
+        self.compilerSettings := p.compilerSettings
+        self.stubs := p.stubs
+        self.classes := p.classes
+        self.types := p.types
+    }
+
+    @protected
+    method writeBody(text:String, comment:String) {
+        body.write(text)
+        if debug {
+            body.write("; ")
+            body.write(comment)
+        }
+        body.writeLine()
+    }
+    
+    @override
+    function defaultExtension():String {
+        return ".ll"
+    }
+
+    ============================================================================
+    Returns the LLVM name for a type. Note that method types are a bit 
+    complicated: sometimes we want a method type identified as an instance of 
+    class Method, and sometimes we want a method type identified as an actual
+    function pointer. This method always returns the Method class, and the
+    getLLVMMethodType() method may be used to get the function pointer type
+    corresponding to a method.
+    ============================================================================
+    method getLLVMType(t:Type):String {
+        switch t {
+            case IntType.INT8:  return "i8"
+            case IntType.INT16: return "i16"
+            case IntType.INT32: return "i32"
+            case IntType.INT64: return "i64"
+            case IntType.UINT8:  return "i8"
+            case IntType.UINT16: return "i16"
+            case IntType.UINT32: return "i32"
+            case IntType.UINT64: return "i64"
+            case RealType.REAL32: return "float"
+            case RealType.REAL64: return "double"
+            case BitType.BIT: return "i1"
+            case CharType.CHAR: return "i16"
+            case VoidType.VOID: return "void"
+            case NativePointerType.NATIVE_POINTER: return "i8*"
+        }
+        return "%" + getName(getStub(t->>(ClassType)))
+    }
+
+    method getLLVMMethodType(t:TypedMethodStub):String {
+        def result := new MutableString()
+        def returnType := t.returnType
+        result.append(getLLVMType(returnType))
+        result.append(" (")
+        def parameters := t.parameters
+        for i, p in parameters {
+            if i > 0
+                result.append(", ")
+            result.append(getLLVMType(p.type))
+        }
+        result.append(")*")
+        return result->>(String)
+    }
+
+    method getLLVMMethodType(t:MethodType):String {
+-*        def result := new MutableString()
+        def returnType := t.returnType
+        result.append(getLLVMType(returnType))
+        result.append(" (")
+        def parameters := t.methodParameters
+        for i, p in parameters {
+            if i > 0
+                result.append(", ")
+            result.append(getLLVMType(p))
+        }
+        result.append(")*")
+        return result->>(String)*-
+        throw new NotSupportedException()
+    }
+
+    @protected
+    method getTempVariable():String {
+        def result := "%" + tempVariable
+        tempVariable += 1
+        return result
+    }
+
+    @private
+    method getName(cl:TypedClassStub):String {
+        return '"' + cl.name + '"'
+    }
+
+    @private
+    function getName(m:MethodNode):String {
+        return m.name
+    }
+
+    @private
+    function getName(m:TypedMethodStub):String {
+        return m.name
+    }
+
+    @private
+    function getName(v:Variable):String {
+        return v.name
+    }
+
+    @private
+    function getType(cl:TypedClassStub):ClassType {
+        return types[cl.name]->(ClassType)
+    }
+
+
+    @private
+    function getClass(cl:ClassType):ClassNode {
+        return classes[cl.name]->(ClassNode)
+    }
+
+    @private
+    function getStub(cl:ClassType):TypedClassStub {
+        def result := stubs[cl.name]
+        if result = null
+            return stubs["panda.core.Object"]->(TypedClassStub)
+        return result
+    }
+
+    @private
+    function instanceFields(cl:TypedClassStub):ListView<FieldNode> {
+        def result:List<FieldNode>
+        if cl.superclass != null {
+            result := new Array<FieldNode>(instanceFields(getStub(
+                    cl.superclass->(ClassType))))
+        }
+        else
+            result := new Array<FieldNode>()
+        result.addAll(cl.fields.filter(f => !f.annotations.isClass & 
+                !f.annotations.isThread))
+        return result
+    }
+
+    @private
+    function isImmutable(t:Type):Bit {
+        return t.isPrimitive
+    }
+
+    @protected
+    method writeTypeDescriptor(cl:TypedClassStub) {
+        if debug
+            header.writeLine("; " + cl.name)
+        header.write("%" + getName(cl) + " = type { ")
+        def fields := instanceFields(cl)
+        for i, f in fields {
+            if i != 0
+                header.write(", ")
+            if f.name = FieldNode.ELEMENTS_NAME
+                header.write(getLLVMType(f.type) + "*")
+            else
+                header.write(getLLVMType(f.type))
+        }
+        if cl.name = class(Class).name {
+            -- Class is special, write out the VTABLE entry at the end of its fields
+            header.write(", %$itable*, [0 x i8*]")
+        }
+        header.writeLine(" }")
+    }
+
+    @protected
+    method createCallReference(codeString:String, comment:String):String {
+        def result := getTempVariable()
+        call(codeString, result, comment)
+        return result
+    }
+
+    @protected
+    method call(invocation:String, result:String?, comment:String?) {
+        if result != null
+            body.write(result + " = ")
+        body.write("call " + invocation)
+        if debug & comment != null
+            body.writeLine("; " + comment)
+        else
+            body.writeLine()
+    }
+
+    @protected
+    method call(invocation:String) {
+        call(invocation, null, null)
+    }
+
+    @protected
+    method createMethodCallReference(mc:MethodCall):String? {
+        def m := mc.methodStub
+        def methodRef:String
+-*        if m.isEffectivelyVirtual & mc.isVirtual {
+            assert !m.annotations.isClass : "expected method not to be @class"
+            assert mc.parameters.length >= 1 : "expected method to have a self parameter"
+            def target := mc.parameters[0]
+            def classNode := target.type.classNode
+            if classNode.isInterface
+                methodRef := getInterfaceMethodReference(mc)
+            else
+                methodRef := getVirtualMethodReference(mc)
+        }
+        else *-
+            methodRef := "@" + getName(m)
+        def text := new MutableString("fastcc \{getLLVMMethodType(m)} \{methodRef}(")
+        def parameters := mc.parameters
+        for i, p in parameters {
+            if i > 0
+                text.append(", ")
+            text.append(getTypedReference(p))
+        }
+        text.append(")")
+        if mc.type = VoidType.VOID {
+            call(text->>(String))
+            return null
+        }
+        else
+            return createCallReference(text->>(String), mc->>(String))
+    }
+
+    @protected
+    method createVariableAssignmentReference(va:VariableAssignment):String {
+        def variable := va.variable
+        def lref := getLLVMType(variable.type) + "* %" + getName(variable)
+        def result := createReference(va.value)
+        assert result != null : 
+                "expected non-null result in createVariableAssignmentReference"
+        writeBody("store " + getLLVMType(variable.type) + " " + result + ", " + 
+                lref, va->>(String))
+        return result
+    }
+    
+-*    @protected
+    method getClassConstant(cl:ClassNode):ClassConstant {
+        var cc := cl.getProperty(CLASS_CONSTANT)->(ClassConstant?)
+        if cc = null {
+            def methods := cl.virtualMethods
+            cc := new ClassConstant(
+                    getName(cl.type()) + "_class",
+                    "{ " + getLLVMType(ClassType.CLASS()) + ", " + 
+                    getLLVMType(ClassType.STRING()) +  ", " + 
+                    getLLVMType(ClassType.CLASS()) + ", i1, i1, %$itable*, [" + 
+                    methods.length + " x i8*] }", methods)
+            cl.setProperty(CLASS_CONSTANT, cc)
+            var name := cl.name
+            if cl.type().isWrapper {
+                assert name.endsWith("Wrapper") : "invalid wrapper class name"
+                name := name[0 .. name.length - "Wrapper".length]
+            }
+            -- go ahead and get other class constants here, before we've written
+            -- anything -- this could cause other class definitions to be
+            -- printed, and we don't want to be in the middle of output when
+            -- that happens
+            var nameRef := "<error>"
+            if cl.state != ClassNodeState.EXTERNALLY_DEFINED
+                nameRef := getStringConstantReference(name)
+            getClassConstant(ClassNode.CLASS_NAME)
+
+            for m in methods {
+                -- create declarations for dead methods so we can include them 
+                -- in the vtable
+                if !m.live & m.owner = cl {
+                    var oldBody := body
+                    var oldTemp := tempVariable
+                    body := header
+                    generateMethodCode(m)
+                    body := oldBody
+                    tempVariable := oldTemp
+                }
+            }
+
+            var superclassConstant:ClassConstant?
+            def superclass := cl.superclass
+            if superclass != null
+                superclassConstant := getClassConstant(superclass)
+            else
+                superclassConstant := null
+            if cl.state = ClassNodeState.EXTERNALLY_DEFINED {
+                header.write("@" + cc.name + " = ")
+                header.writeLine("external global " + cc.type)
+                return cc
+            }
+            var intf := getITable(cl)
+            header.write("@" + cc.name + " = ")
+            header.write(SHARED_LINKAGE + " ")
+            var superclassRef:String
+            if superclassConstant != null
+                superclassRef := "bitcast(" + superclassConstant.type + "* @" + 
+                        superclassConstant.name + " to " + 
+                        getLLVMType(ClassType.CLASS()) + ")"
+            else
+                superclassRef := "null"
+            -- class constant includes vtable. Doesn't include statics, as 
+            -- those are just globals.
+            var overridesFinalize := false
+            for child in cl.children {
+                if child-?>(MethodNode) {
+                    var m := child->(MethodNode)
+                    if m.name = MethodNode.FINALIZE_NAME & 
+                            !m.annotations.isClass & 
+                            m.parameters.length = 1
+                        overridesFinalize := true
+                }
+            }
+            def classClass := ClassType.CLASS().classNode
+            def classClassConstant := getClassConstant(classClass)
+            header.write("constant " + cc.type + 
+                    " { " + getLLVMType(ClassType.CLASS()) + " bitcast(" + 
+                    classClassConstant.type + "* @" + classClassConstant.name + 
+                    " to " + getLLVMType(ClassType.CLASS()) + "), " + 
+                    getLLVMType(ClassType.STRING()) + " " + nameRef + ", " + 
+                    getLLVMType(ClassType.CLASS()) + " " + superclassRef + 
+                    ", i1 1, i1 " + overridesFinalize + ", " + intf + ", [" + 
+                    methods.length + " x i8*] [ ")
+            for i, rawM in methods {
+                def m := rawM.unwrap()
+                if i > 0
+                    header.write(", ")
+                if m.annotations.isAbstract
+                    header.write("i8* null")
+                else {
+                    header.write("i8* bitcast(" + getLLVMMethodType(m) + 
+                            " @" + getName(m) + " to i8*)")
+                }
+            }
+            header.writeLine(" ] }")
+        }
+        return cc
+        throw new NotSupportedException()
+    }
+*-
+    @private
+    method getCharPrimitiveArrayConstantReference(chars:PrimitiveArray<Char>):String {
+-*        var charPrimitiveArrayType := SymbolTable.master.getType(Position.INTERNAL,
+                ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME + "<panda.core.Char>")
+        var charPrimitiveArrayClass := charPrimitiveArrayType.classNode
+        var cc := getClassConstant(charPrimitiveArrayClass)
+        var charsType := "[" + chars.length + " x " + 
+                getLLVMType(CharType.CHAR) + "]"
+        var type := "{ " + cc.type + "*, " +
+                getLLVMType(Type.INDEX_TYPE) + ", " + 
+                getLLVMType(Type.INDEX_TYPE) + ", " + 
+                charsType + "* }"
+        var result := "ca" + bytePrimitiveArrayCount
+        bytePrimitiveArrayCount += 1
+        var charsName := "@" + result + "_chars"
+        header.write(charsName + " = private unnamed_addr constant " + 
+                charsType + " [")
+        for i in 0 ... chars.length - 1 {
+            if i != 0
+                header.write(", ")
+            header.write(getLLVMType(CharType.CHAR) + " " + chars[i]->(Int))
+        }
+        header.writeLine("]")
+
+        header.writeLine("@" + result + " = private unnamed_addr constant " + 
+                type + " { " + cc.type + "* @" + cc.name + ", " + 
+                getLLVMType(Type.INDEX_TYPE) + " " + chars.length + ", " +
+                getLLVMType(Type.INDEX_TYPE) + " " + chars.length + ", " + 
+                charsType + "* " + charsName + " }, align " +
+                NativePointerType.NATIVE_POINTER.size)
+        return "bitcast(" + type + "* @" + result + " to " + 
+                getLLVMType(charPrimitiveArrayType) + ")"*-
+        throw new NotSupportedException()
+    }
+
+    @private
+    method getStringConstantReference(s:String):String {
+-*        var result := stringConstants[s]
+        if result = null {
+            def string := ClassType.STRING().classNode
+            def chars := getCharPrimitiveArrayConstantReference(s->>(PrimitiveArray<Char>))
+            result := "@s" + stringConstants.length
+            stringConstants[s] := result
+            var charPrimitiveArrayType := SymbolTable.master.getType(Position.INTERNAL,
+                    ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME + 
+                    "<panda.core.Char>")
+            def cc := getClassConstant(string)
+            if debug
+                header.writeLine("; " + StringLiteral.escape(s))
+            header.writeLine(result + " = private unnamed_addr constant " + 
+                    "%" + getName(string.type()) + " { " + 
+                    getLLVMType(ClassType.CLASS()) + " bitcast(" + cc.type + 
+                    "* @" + cc.name + " to " + getLLVMType(ClassType.CLASS()) + 
+                    "), " + getLLVMType(charPrimitiveArrayType) + " " + chars + " }," +
+                    " align " + NativePointerType.NATIVE_POINTER.size)
+            stringConstants[s] := result
+        }
+        return result*-
+        throw new NotSupportedException()
+    }
+
+    -- return value is nullable so void expressions (method calls) can return
+    -- null
+    @protected
+    method createReference(v:Value):String? {
+        switch v.class {
+            case class(VariableAssignment): return createVariableAssignmentReference(v->(VariableAssignment))
+-*            case class(Add): return createBinaryOperationReference(v->(BinaryOperation), "add", "fadd")
+            case class(Subtract): return createBinaryOperationReference(v->(BinaryOperation), "sub", "fsub")
+            case class(Multiply): return createBinaryOperationReference(v->(BinaryOperation), "mul", "fmul")
+            case class(Divide): return createBinaryOperationReference(v->(BinaryOperation), null, "fdiv")
+            case class(IntDivide): {
+                var op:String
+                if v.type->(IntType).signed
+                    op := "sdiv"
+                else
+                    op := "udiv"
+                return createBinaryOperationReference(v->(BinaryOperation), op, null)
+            }
+            case class(Remainder): return createBinaryOperationReference(v->(BinaryOperation), "srem", "urem", null)
+            case class(ShiftLeft): return createBinaryOperationReference(v->(BinaryOperation), "shl", null)
+            case class(ShiftRight): {
+                if v.type->(IntType).signed
+                    return createBinaryOperationReference(v->(BinaryOperation), "ashr", null)
+                else
+                    return createBinaryOperationReference(v->(BinaryOperation), "lshr", null)
+            }
+            case class(And): return createAndReference(v->(And))
+            case class(Or): return createOrReference(v->(Or))
+            case class(Xor): return createBinaryOperationReference(v->(BinaryOperation), "xor", null)
+            case class(BitwiseAnd): return createBinaryOperationReference(v->(BinaryOperation), "and", null)
+            case class(BitwiseOr): return createBinaryOperationReference(v->(BinaryOperation), "or", null)
+            case class(BitwiseXor): return createBinaryOperationReference(v->(BinaryOperation), "xor", null)
+            case class(Construct): return createConstructReference(v->(Construct))
+*-
+            case class(MethodCall): return createMethodCallReference(v->(MethodCall))
+            case class(StringLiteral): return getStringConstantReference(v->(StringLiteral).value)
+            case class(IntegerLiteral): return v->(IntegerLiteral).value->>(String)
+-*            case class(RealLiteral): return createRealLiteralReference(v->(RealLiteral))
+            case class(VariableReference): return createVariableReference(v->(VariableReference))
+            case class(FieldReference): return createFieldReference(v->(FieldReference))
+            case class(Cast): return createCastReference(v->(Cast))
+            case class(Equal): return createBinaryOperationReference(v->(BinaryOperation), "icmp eq", "fcmp oeq")
+            case class(Identity): return createBinaryOperationReference(v->(BinaryOperation), "icmp eq")
+            case class(LessThan): return createBinaryOperationReference(v->(BinaryOperation), "icmp slt", "icmp ult", "fcmp olt")
+            case class(GreaterThan): return createBinaryOperationReference(v->(BinaryOperation), "icmp sgt", "icmp ugt", "fcmp ogt")
+            case class(LessThanOrEqual): return createBinaryOperationReference(v->(BinaryOperation), "icmp sle", "icmp ule", "fcmp ole")
+            case class(GreaterThanOrEqual): return createBinaryOperationReference(v->(BinaryOperation), "icmp sge", "icmp uge", "fcmp oge")
+            case class(NotEqual): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne", "fcmp one")
+            case class(NotIdentity): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne")
+            case class(BitLiteral): return v->(BitLiteral).value->>(String)
+            case class(IndexValue): return createIndexValueReference(v->(IndexValue))
+            case class(NewPrimitiveArrayWithLength): return createNewPrimitiveArrayWithLengthReference(v->(NewPrimitiveArrayWithLength))
+            case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
+            case class(NewPrimitiveArrayWithRange): return createNewPrimitiveArrayWithRangeReference(v->(NewPrimitiveArrayWithRange))
+            case class(Not): return createNotReference(v->(Not))
+            case class(BitwiseNot): return createBitwiseNotReference(v->(BitwiseNot))
+            case class(UnaryMinus): return createUnaryMinusReference(v->(UnaryMinus))
+            case class(NullLiteral): return "null"
+            case class(ClassObjectLiteral): return createClassObjectLiteralReference(v->(ClassObjectLiteral))
+            case class(Ternary): return createTernaryReference(v->(Ternary))
+            case class(Unwrap): return createReference(v->(Unwrap).value)
+            case class(AndLeft): return createReference(v->(AndLeft).value)
+            case class(OrLeft): return createReference(v->(OrLeft).value)
+            case class(MethodValue): return createMethodValueReference(v->(MethodValue))
+            case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
+            case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
+            case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) *-
+            default: {
+                throw new CompilerException("unsupported value class: " + 
+                        v.class.name, v.position)
+            }
+        }
+    }
+
+    @protected
+    method getTypedReference(v:Value):String {
+        def ref := createReference(v)
+        assert ref != null : "expected non-null ref in getTypedReference"
+        return getLLVMType(v.type) + " " + ref
+    }
+    
+    @protected
+    method generateValueStatementCode(v:ValueStatement) {
+        createReference(v.value)
+    }
+
+    @protected
+    method generateStatementCode(s:Statement) {
+        if debug
+            body.writeLine("; " + s)
+        switch s.class {
+-*            case class(IndexedAssignment): 
+                    generateIndexedAssignmentCode(s->(IndexedAssignment))
+            case class(FieldAssignment): 
+                    generateFieldAssignmentCode(s->(FieldAssignment)) *-
+            case class(ValueStatement):
+                    generateValueStatementCode(s->(ValueStatement))
+-*            case class(If): generateIfCode(s->(If))
+            case class(While): generateWhileCode(s->(While))
+            case class(Do): generateDoCode(s->(Do))
+            case class(Loop): generateLoopCode(s->(Loop))
+            case class(LoopWithContinueBlock): 
+                    generateLoopWithContinueBlockCode(s->(LoopWithContinueBlock))
+            case class(Block): generateBlockCode(s->(Block))
+            case class(Return): generateReturnCode(s->(Return))
+            case class(Break): generateBreakCode(s->(Break))
+            case class(Continue): generateContinueCode(s->(Continue))
+            case class(Assert): generateAssertCode(s->(Assert))
+            case class(Throw): generateThrowCode(s->(Throw))
+            case class(Try): generateTryCode(s->(Try))
+            case class(CatchExit): { }
+            case class(Unreachable): generateUnreachableCode(s->(Unreachable)) *-
+            default: 
+                throw new InternalCompilerException("unsupported statement: " + 
+                        s, s.position)
+        }
+    }
+
+    @protected
+    method generateBlockCode(b:Block) {
+        for s in b.statements
+            generateStatementCode(s)
+    }
+
+    @protected
+    method generateMethodCode(m:MethodNode) {
+        if m.annotations.isAbstract
+            return
+        tempVariable := 1
+        def private := m.annotations.isPrivate
+        def external := m.annotations.isExternal
+        body.writeLine()
+        if debug
+            body.writeLine("; " + m)
+        if external
+            body.write("declare ")
+        else
+            body.write("define ")
+        if !external
+            body.write("fastcc ")
+        body.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
+        for i, p in m.parameters {
+            if i > 0
+                body.write(", ")
+            body.write(getLLVMType(p.type))
+            if !external {
+                body.write(" %") 
+                body.write(getName(p))
+            }
+        }
+        body.write(")")
+        if m.methodType = MethodNodeType.FUNCTION & isImmutable(m.returnType)
+            body.write(" readonly")
+        if external
+            body.writeLine()
+        else {
+            body.writeLine(" {")
+            body.level += 1
+            currentBlockLabel := "0"
+            for v in m.localVariables
+                body.writeLine("%\{getName(v)} = alloca \{getLLVMType(v.type)}")
+-*            for (source, promoted) in promotedParameters {
+                body.writeLine("%" + getName(promoted) + " = alloca " + 
+                        getLLVMType(promoted.type))
+                body.writeLine("store " + getLLVMType(promoted.type) +
+                        " %" + getName(source) + ", " + 
+                        getLLVMType(promoted.type) + "* %" + getName(promoted))
+            } *-
+            
+            def block := m.block
+            assert block != null
+            generateBlockCode(block)
+            if !block.endsInBranch {
+                if m.returnType = VoidType.VOID
+                    body.writeLine("ret void")
+                else
+                    body.writeLine("unreachable")
+            }
+            body.level -= 1
+            body.writeLine("}")
+        }
+    }
+
+    method generateClassCode(cl:ClassNode) {
+        for m in cl.methods
+            generateMethodCode(m)
+    }
+
+    @override
+    method generateCode(target:File) {
+        if debug
+            Console.writeLine("llvm debug output is enabled")
+        header.writeLine('target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128"')
+        header.writeLine('target triple = "' + StaticSettings.TARGET_TRIPLE + 
+                '"')
+        header.writeLine('%$itable = type { %"panda.core.Class"*, %$itable*, ' +
+                "[0 x i8*] }")
+        for (_, cl) in stubs {
+            if cl.genericParameters = null
+                writeTypeDescriptor(cl)
+        }
+-*        for (_, cl) in stubs {
+            if cl.live & !cl.annotations.isUnspecified()
+                getClassConstant(cl)
+        }*-
+        for (_, cl) in classes
+            generateClassCode(cl)
+
+        body.writeLine("declare void @pandaInit()")
+        body.writeLine("declare void @pandaCheckLibVersion(i32)")
+        body.writeLine("declare void @pandaCheckOverflow(i1)")
+        body.writeLine("declare {i8, i1}  @llvm.sadd.with.overflow.i8(i8 %a, i8 %b)")
+        body.writeLine("declare {i16, i1} @llvm.sadd.with.overflow.i16(i16 %a, i16 %b)")
+        body.writeLine("declare {i32, i1} @llvm.sadd.with.overflow.i32(i32 %a, i32 %b)")
+        body.writeLine("declare {i64, i1} @llvm.sadd.with.overflow.i64(i64 %a, i64 %b)")
+
+        body.writeLine("declare {i8, i1}  @llvm.uadd.with.overflow.i8(i8 %a, i8 %b)")
+        body.writeLine("declare {i16, i1} @llvm.uadd.with.overflow.i16(i16 %a, i16 %b)")
+        body.writeLine("declare {i32, i1} @llvm.uadd.with.overflow.i32(i32 %a, i32 %b)")
+        body.writeLine("declare {i64, i1} @llvm.uadd.with.overflow.i64(i64 %a, i64 %b)")
+
+        body.writeLine("declare {i8, i1}  @llvm.ssub.with.overflow.i8(i8 %a, i8 %b)")
+        body.writeLine("declare {i16, i1} @llvm.ssub.with.overflow.i16(i16 %a, i16 %b)")
+        body.writeLine("declare {i32, i1} @llvm.ssub.with.overflow.i32(i32 %a, i32 %b)")
+        body.writeLine("declare {i64, i1} @llvm.ssub.with.overflow.i64(i64 %a, i64 %b)")
+
+        body.writeLine("declare {i8, i1}  @llvm.usub.with.overflow.i8(i8 %a, i8 %b)")
+        body.writeLine("declare {i16, i1} @llvm.usub.with.overflow.i16(i16 %a, i16 %b)")
+        body.writeLine("declare {i32, i1} @llvm.usub.with.overflow.i32(i32 %a, i32 %b)")
+        body.writeLine("declare {i64, i1} @llvm.usub.with.overflow.i64(i64 %a, i64 %b)")
+
+        body.writeLine("declare {i8, i1}  @llvm.smul.with.overflow.i8(i8 %a, i8 %b)")
+        body.writeLine("declare {i16, i1} @llvm.smul.with.overflow.i16(i16 %a, i16 %b)")
+        body.writeLine("declare {i32, i1} @llvm.smul.with.overflow.i32(i32 %a, i32 %b)")
+        body.writeLine("declare {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 %b)")
+
+        body.writeLine("declare {i8, i1}  @llvm.umul.with.overflow.i8(i8 %a, i8 %b)")
+        body.writeLine("declare {i16, i1} @llvm.umul.with.overflow.i16(i16 %a, i16 %b)")
+        body.writeLine("declare {i32, i1} @llvm.umul.with.overflow.i32(i32 %a, i32 %b)")
+        body.writeLine("declare {i64, i1} @llvm.umul.with.overflow.i64(i64 %a, i64 %b)")
+
+        body.writeLine("declare void @llvm.trap() noreturn nounwind")
+        body.writeLine("declare void @pandaCheckSignCasti8(i8)")
+        body.writeLine("declare void @pandaCheckSignCasti16(i16)")
+        body.writeLine("declare void @pandaCheckSignCasti32(i32)")
+        body.writeLine("declare void @pandaCheckSignCasti64(i64)")
+
+        def parent := target.parent()
+        if parent = null {
+            throw new CompilerException("could not determine parent " +
+                    "directory of " + target.path)
+        }
+        def unoptTarget := parent.resolve(target.name + ".unopt")
+        def out := new BufferedOutputStream(unoptTarget.openOutputStream())
+        out.write(headerBuffer->>(String))
+        out.write(bodyBuffer->>(String))
+        out.close()
+
+        def opt := PandaCompiler.getLLVMHome().resolve("opt")
+        System.exec(opt, unoptTarget.path, "-o", target.path, "-O3",
+                "-q", "-f", "-S", "-std-compile-opts")
+        if !compilerSettings.preserveTempArtifacts
+            unoptTarget.delete()
+    }
+}

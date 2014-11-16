@@ -84,7 +84,6 @@ uses org.pandalanguage.pandac.tree.Statement
 uses org.pandalanguage.pandac.tree.StringLiteral
 uses org.pandalanguage.pandac.tree.Subtract
 uses org.pandalanguage.pandac.tree.Super
-uses org.pandalanguage.pandac.compiler.SymbolTable
 uses org.pandalanguage.pandac.tree.Ternary
 uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
@@ -138,18 +137,22 @@ class Context : Immutable {
 
     def typeMap:TypeMap
 
-    def localVariables:ImmutableHashMap<String, Variable>
+    def localVariables:ImmutableArray<LocalVariable>
+
+    def visibleVariables:ImmutableHashMap<String, Variable>
 
     constructor(currentClass:TypedClassStub?, currentMethod:TypedMethodStub?,
             lookupContext:LookupContext, typeMap:TypeMap, 
             stubs:ImmutableHashMap<String, TypedClassStub>,
-            localVariables:ImmutableHashMap<String, Variable>) {
+            localVariables:ImmutableArray<LocalVariable>,
+            visibleVariables:ImmutableHashMap<String, Variable>) {
         self.currentClass := currentClass
         self.currentMethod := currentMethod
         self.lookupContext := lookupContext
         self.typeMap := typeMap
         self.stubs := stubs
         self.localVariables := localVariables
+        self.visibleVariables := visibleVariables
     }
 
     function isInstance():Bit {
@@ -157,7 +160,7 @@ class Context : Immutable {
     }
 
     function getVariable(name:String):Variable? {
-        var result := localVariables[name]
+        var result := visibleVariables[name]
         if result != null
             return result
         if currentClass != null 
@@ -165,9 +168,23 @@ class Context : Immutable {
         return null
     }
 
+    method getMethod(contextValue:Value?, name:String, 
+            params:ListView<Value>):TypedMethodStub? {
+        def stub := getStub(getRequiredType("panda.io.Console")->(ClassType))
+        for m in stub.methods
+            if m.name = "writeLine" & m.parameters.length = 1
+                return m
+        return null
+    }
+
+    @pre(currentClass != null)
+    method currentClassType():ClassType {
+        return getType(currentClass->(TypedClassStub))
+    }
+
     @pre(isInstance)
     function getSelf(position:Position):Value {
-        def selfVar := localVariables[Parameter.SELF_NAME]
+        def selfVar := visibleVariables[Parameter.SELF_NAME]
         assert selfVar != null
         return new VariableReference(position, selfVar)
     }
@@ -180,6 +197,11 @@ class Context : Immutable {
         def result := stubs[t.name]
         assert result != null : "missing stub for \{t}"
         return result
+    }
+
+    @pre(currentClass != null)
+    method getType(cl:TypedClassStub):ClassType {
+        return getRequiredType(cl.name)->(ClassType)
     }
 
     @pre(t.type = ParseNodeType.TYPE)
@@ -203,12 +225,44 @@ class Context : Immutable {
         return result
     }
 
-    function +(variables:ListView<Variable>):Context {
-        def newVariables := new HashMap<String, Variable>(localVariables)
-        for v in variables
-            newVariables[v.name] := v
+    function +(v:Variable):Context {
+        def newVisibleVariables := new HashMap<String, Variable>(
+                visibleVariables)
+        newVisibleVariables[v.name] := v
+        def newLocalVariables:ImmutableArray<LocalVariable>
+        if v-?>(LocalVariable) {
+            def temp := new Array<LocalVariable>(localVariables)
+            temp.add(v->(LocalVariable))
+            newLocalVariables := new ImmutableArray<LocalVariable>(temp)
+        }
+        else
+            newLocalVariables := localVariables
         return new Context(currentClass, currentMethod, lookupContext, typeMap,
-                stubs, new ImmutableHashMap<String, Variable>(newVariables))
+                stubs, newLocalVariables, 
+                new ImmutableHashMap<String, Variable>(newVisibleVariables))
+    }
+
+    function +(variables:ListView<Variable>):Context {
+        def newVisibleVariables := new HashMap<String, Variable>(
+                visibleVariables)
+        for v in variables
+            newVisibleVariables[v.name] := v
+        def newLocalVariables := new Array<LocalVariable>(localVariables)
+        for v in variables {
+            if v-?>(LocalVariable)
+                newLocalVariables.add(v->(LocalVariable))
+        }
+        return new Context(currentClass, currentMethod, lookupContext, typeMap,
+                stubs, new ImmutableArray<LocalVariable>(newLocalVariables), 
+                new ImmutableHashMap<String, Variable>(newVisibleVariables))
+    }
+
+    function addLocalsFrom(other:Context):Context {
+        def newLocals := new Array<LocalVariable>(localVariables)
+        newLocals.addAll(other.localVariables)
+        return new Context(currentClass, currentMethod, lookupContext, typeMap,
+                stubs, new ImmutableArray<LocalVariable>(newLocals), 
+                visibleVariables)
     }
 }
 
@@ -438,9 +492,9 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
             s := result->>(String)
             values.insert(0, new StringLiteral(t.position, s))
---            return call(t.position, new ClassLiteral(ClassType.STRING()), 
---                    "format", values)
-            throw new NotSupportedException()
+            def string := context.getRequiredType(class(String).name)
+            return call(context, t.position, new ClassLiteral(context, 
+                    t.position, string->(ClassType)), "format", values)
         }
         else {
             def chars, submessages := convertStringChars(t.position, s, false)
@@ -1198,86 +1252,143 @@ class ASTGenerator : Immutable (MessageProcessor) {
         return (v, null)
     }
 
-    -- Returns null if the method was not found. We don't return error messages
-    -- from here because they are relatively expensive to assemble and we often
-    -- do not want to actually report them.
+    method call(position:Position, var m:TypedMethodStub, isSuper:Bit,
+            params:ListView<Value>):(Value?, ListView<Message>?) {
+        Console.writeLine("call \{m} with \{params}")
+        var messages:ListView<Message>? := null
+        def methodParams := m.parameters
+        var isVarArg := methodParams.length > 0 &
+                methodParams[methodParams.length - 1].isVarArg
+        for i, p in params {
+            if p-?>(Unwrap) {
+                if !isVarArg {
+                    return (null, wrap(new Message("'...' may not be used " +
+                            "with non-variadic \{m}", position)))
+                }
+                if i < params.length - 1 {
+                    return (null, wrap(new Message("'...' may only be used " +
+                            "with the last parameter of a call", position)))
+                }
+            }
+        }
+        if isVarArg & params.length > 0 & params[params.length - 1]-?>(Unwrap)
+            isVarArg := false
+        def count:Int
+        if isVarArg
+            count := methodParams.length - 1
+        else
+            count := methodParams.length
+        Console.writeLine(1)
+        def finalParams := new Array<Value>()
+        Console.writeLine(m.parameters + " - " + params)
+        for i in 0 .. count {
+        Console.writeLine("2 - " + i)
+            def target := m.parameters[i].type
+            if params[i].canImplicitCastTo(target) {
+                def cast, submessages := params[i].implicitCast(target)
+                messages := addMessages(messages, submessages)
+                finalParams.add(cast)
+            }
+-*            else if m.parameters[i].isConvert & 
+                    params[i].canConvertTo(target) {
+                finalParams.append(convert(params[i].position, params[i], 
+                        target))
+            }*-
+            else {
+                messages := addMessage(messages, "expected value of type " +
+                        "'\{target.displayName}', but found " +
+                        "'\{params[i].type.displayName}'", params[i].position)
+            }
+        }
+        if isVarArg {
+            def values := new Array<Value>()
+            def isConvert := methodParams[methodParams.length - 1].isConvert
+-*            def type := methodParams[methodParams.length - 1].type->(PrimitiveArrayType).elementType
+            for i in count ... params.length - 1 {
+                if isConvert
+                    values.append(convert(params[i].position, params[i], type))
+                else {
+                    values.append(implicitCast(params[i].position, params[i], 
+                            type))
+                }
+            }
+            finalParams.append(new NewPrimitiveArrayWithValues(position,
+                methodParams[methodParams.length - 1].type, values))*-
+            throw new NotSupportedException()
+        }
+        Console.writeLine("3 - \{m.parameters} - \{finalParams}")
+        return (new MethodCall(position, m, isSuper, finalParams), messages)
+    }
+
     method call(context:Context, position:Position, var contextValue:Value?, 
-                methodName:String, var params:ListView<Value>):MethodCall? {
-                    return null
---        throw new NotSupportedException()
--*        if contextValue = null {
+            methodName:String, var params:ListView<Value>):
+            (Value?, ListView<Message>?) {
+        Console.writeLine("call with parameters: " + params)
+        var messages:ListView<Message>? := null            
+        if contextValue = null {
             if context.isInstance {
                 -- bare identifier, could be either instance or class
-                var result := cc.symbolTable.getMethod(position, methodName, 
-                        params, null)
+                var result := context.getMethod(null, methodName, params)
                 if result != null {
                     if result.annotations.isClass {
                         -- class method, update the contextValue
-                        contextValue := new ClassLiteral(position, 
-                                context.typeMap, result.owner.type())
+                        contextValue := new ClassLiteral(context, position, 
+                                context.currentClassType())
                     }
                 }
                 if contextValue = null
-                    contextValue := getSelf(context)
+                    contextValue := context.getSelf(position)
             }
             else {
                 -- in a class context
-                contextValue := new ClassLiteral(position, context.typeMap,
-                        cc.type())
+                contextValue := new ClassLiteral(context, position,
+                        context.currentClassType())
             }
         }
-        var type:Type
-        var symbolTable:SymbolTable
         var classMethod:Bit
         var supercall:Bit
-        if contextValue-?>(UnresolvedClassLiteral)
-            contextValue := contextValue->(UnresolvedClassLiteral)->>(ClassLiteral)
+        if contextValue-?>(UnresolvedClassLiteral) {
+            contextValue := new ClassLiteral(context, position, 
+                    contextValue->(UnresolvedClassLiteral).value)
+        }
         if contextValue-?>(ClassLiteral) {
             classMethod := true
             supercall := false
-            type := contextValue->(ClassLiteral).value
-            symbolTable := type.classNode.symbolTable
         }
         else if contextValue-?>(ClassObjectLiteral) {
             classMethod := false
             supercall := false
-            type := ClassType.CLASS()
-            symbolTable := type.classNode.symbolTable
         }
         else {
             classMethod := false
-            var oldParams := params
-            params := new PrimitiveArray<Value>()
+            var newParams := new Array<Value>()
             if contextValue-?>(Super) {
-                var cl := currentClass
+                def cl := context.currentClass
                 assert cl != null
-                var superclass := cl.superclass
+                def superclass := cl.superclass
                 if superclass = null {
-                    throw new CompilerException(
-                            "class '\{cl}' has no superclass", contextValue.position)
+                    return (null, wrap(new Message("class '\{cl}' has no " +
+                            "superclass", contextValue.position)))
                 }
-                params.append(implicitCast(position, getSelf(), 
-                        superclass.type()))
+                def cast, submessages := context.getSelf(position).implicitCast(
+                        superclass)
+                assert messages = null : "failed to cast to superclass: \{messages}"
+                newParams.add(cast)
                 supercall := true
-                type := superclass.type()
             }
             else {
-                type := contextValue.type
-                params.append(contextValue)
+                newParams.add(contextValue)
                 supercall := false
             }
-            for param in oldParams
-                params.append(param)
-            var cl := type.classNode
-            symbolTable := cl.symbolTable
+            newParams.addAll(params)
+            params := newParams
         }
-        var methodNode := symbolTable.getMethod(position, methodName, params, 
-                classMethod)
-        if methodNode = null {
+        var methodStub := context.getMethod(contextValue, methodName, params)
+        if methodStub = null {
             if classMethod {
-                -- check for a constructor, which is called like a class method
+ -*               -- check for a constructor, which is called like a class method
                 -- but implemented as an instance method
-                if type.isPrimitiveArray & methodName = "new" {
+                if type.isPrimitiveArray & methodName = "constructor" {
                     -- FIXME: hardcoded yuck
                     if params.length = 1 & 
                             params[0].canImplicitCastTo(Type.INDEX_TYPE) {
@@ -1306,56 +1417,56 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                     Type.INDEX_TYPE))
                     }
                     else {
-                        var finalParams := new PrimitiveArray<Value>()
+                        var finalParams := new Array<Value>()
                         for param in params {
-                            finalParams.append(implicitCast(position, param,
+                            finalParams.add(param.implicitCast(
                                     type.elementType))
                         }
-                        return new NewPrimitiveArrayWithValues(position, type, 
-                                finalParams)
+                        throw new NotSupportedException()
+--                        return new NewPrimitiveArrayWithValues(position, type, 
+--                                finalParams)
                     }
                 }
-                var oldParams := params
-                params := new PrimitiveArray<Value>()
-                params.append(new Dummy(contextValue.position,
+                def newParams := new Array<Value>()
+                newParams.add(new Dummy(contextValue.position,
                         contextValue->(ClassLiteral).value))
-                for param in oldParams
-                    params.append(param)
-                methodNode := symbolTable.getMethod(position, methodName, 
-                        params, false)
-                if methodNode != null & 
-                        methodNode.methodType != MethodNodeType.CONSTRUCTOR {
-                    error("instance method '\{methodNode.name}' cannot be " +
-                            "accessed from a class contextValue", 
-                            position)
-                }
-                params := oldParams
+                newParams.addAll(params)
+                params := newParams
+                def methodCall := testCall(context, position, contextValue, 
+                        methodName, params)
+                if methodCall != null {
+                    if methodCall.methodStub.methodType != 
+                            MethodNodeType.CONSTRUCTOR {
+                        return (null, wrap(new Message(
+                                "instance method '\{methodNode.name}' cannot be " +
+                                "accessed from a class contextValue", position)))
+                }*-
             }
         }
-        if methodNode != null {
-            var isSelf := contextValue = null | (contextValue-?>(VariableReference) &
-                contextValue->(VariableReference).variable.name = Parameter.SELF_NAME)
-                
-            if isSelf & methodNode.methodType = MethodNodeType.CONSTRUCTOR &
-                    cm != null & cm.methodType != MethodNodeType.CONSTRUCTOR
-                error("constructors may only be directly called as the " +
-                        "first statement in a constructor", position)
-            
-            if methodNode.methodType = MethodNodeType.CONSTRUCTOR & 
+        if methodStub != null {
+            def isSelf := contextValue = null | 
+                    (contextValue-?>(VariableReference) &
+                    contextValue->(VariableReference).variable.name = 
+                        Parameter.SELF_NAME)
+            def cm := context.currentMethod
+            if methodStub.methodType = MethodNodeType.CONSTRUCTOR & 
                     (!supercall & !isSelf) {
-                return construct(position, methodNode, params)
+--                return construct(position, methodStub, params)
+                throw new NotSupportedException()
             }
             else {
-                var virtual := methodNode.isDeclaredVirtual() & !supercall
-                var result := call(position, methodNode, virtual, supercall,
-                        params)
-                return result
+                if messages != null
+                Console.writeLine("have messages: " + messages)
+                return call(position, methodStub, supercall, params)
             }
         }
-        else
-            return null*-
+        else {
+            return (null, wrap(getMethodNotFoundMessage(position, contextValue,
+                    methodName, params)))
+        }
     }
     
+    @private
     method getMethodNotFoundMessage(position:Position, contextValue:Value?, 
             methodName:String, params:ListView<Value>):Message {
 -*        def cl := currentClass->(ClassNode)
@@ -1425,13 +1536,15 @@ class ASTGenerator : Immutable (MessageProcessor) {
         throw new NotSupportedException()
     }
 
-    method resolveNoArgFunction(context:Context, u:Unresolved):MethodCallValue? {
-        def result := call(context, u.position, u.contextValue, 
+    method resolveNoArgFunction(context:Context, u:Unresolved):Value? {
+        if !u->>(String).endsWith("writeLine")
+            return null
+        def result, messages := call(context, u.position, u.contextValue, 
                 u.name, new Array<Value>())
         if result-?>(MethodCall) & 
                 result->(MethodCall).methodStub.methodType = 
                     MethodNodeType.FUNCTION
-            return new MethodCallValue(result)
+            return result
         return null
     }
     
@@ -2045,29 +2158,19 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 }
             }
             else if c[i].type = ParseNodeType.PARAMETERS {
-                def params, submessages := convertParameters(context, c[i])
+                var params, submessages := convertParameters(context, c[i])
                 messages := addMessages(messages, submessages)
                 if params = null
                     return (null, messages)
                 i += 1
                 if contextValue-?>(Unresolved) {
-                    def call := call(context, contextValue.position, 
+                    contextValue, submessages := call(context, 
+                            contextValue.position, 
                             contextValue->(Unresolved).contextValue, 
                             contextValue->(Unresolved).name, params)
-                    if call = null {
-                        messages := addMessage(messages, 
-                                getMethodNotFoundMessage(contextValue.position, 
-                                    contextValue->(Unresolved).contextValue, 
-                                    contextValue->(Unresolved).name, params))
+                    messages := addMessages(messages, submessages)
+                    if contextValue = null
                         return (null, messages)
-                    }
-                    if call.methodStub.returnType != null
-                        contextValue := new MethodCallValue(call)
-                    else {
-                        return (null, wrap(new Message(call.methodStub +
-                                "does not return a value", 
-                                contextValue.position)))
-                    }
                 }
                 else if contextValue-?>(Super) {
                     return (null, wrap(new Message("'super' is not a method", 
@@ -2138,6 +2241,14 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def call, submessages := processCallOrAssignment(context, contextValue,
                 c)
         messages := addMessages(messages, submessages)
+        if call = null
+            Console.writeLine("null call at \{c}:\{c.position}")
+        else
+            Console.writeLine("call \{call} at \{c}:\{c.position}")
+        if messages = null
+            Console.writeLine("null messages!")
+        else
+            Console.writeLine("messages: \{messages}")
         if call != null
             return (new ValueStatement(call), messages)
         else
@@ -2149,7 +2260,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
     statements to initialize them.
     ============================================================================
     @pre(v.type = ParseNodeType.VAR_DECLARATION)
-    method convertVariableDeclaration(context:Context, v:ParseNode):
+    method convertVariableDeclaration(var context:Context, v:ParseNode):
             (Statement?, Context, ListView<Message>?) {
         var messages:ListView<Message>? := null
         def variables := new Array<Variable>()
@@ -2236,7 +2347,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             "value nor an explicit type", position)
             }
             def variable := new LocalVariable(position, name, type, varType)
---            currentBlock.symbolTable.putVariable(variable)
+            context += variable
             if value != null {
                 def effectiveValue:Value
                 if reusableTuple != null {
@@ -2388,8 +2499,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
             case ParseNodeType.SIMPLE_STATEMENT: 
                 return convertSimpleStatement(context, s[0])
             case ParseNodeType.BLOCK: {
-                def b, messages := convertBlock(context, s[0])
-                return (b, context, messages)
+                def b, newContext, messages := convertBlock(context, s[0])
+                return (b, context.addLocalsFrom(newContext), messages)
             }
             default: throw new InternalCompilerException(
                     "unsupported statement: \{s[0].class.name}", s[0].position)
@@ -2402,8 +2513,10 @@ class ASTGenerator : Immutable (MessageProcessor) {
     @pre(b.type = ParseNodeType.STATEMENT_OR_BLOCK)
     method convertStatementOrBlock(context:Context, b:ParseNode):
             (Block, ListView<Message>?) {
-        if b[0].type = ParseNodeType.BLOCK
-            return convertBlock(context, b[0])
+        if b[0].type = ParseNodeType.BLOCK {
+            def result, _, messages := convertBlock(context, b[0])
+            return (result, messages)
+        }
         else {
             def statement:Statement?
             def messages:ListView<Message>?
@@ -2426,7 +2539,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
     ============================================================================
     @pre(b.type = ParseNodeType.BLOCK)
     method convertBlock(context:Context, b:ParseNode):
-            (Block, ListView<Message>?) {
+            (Block, Context, ListView<Message>?) {
         var messages:ListView<Message>? := null
         def statements := new Array<Statement>()
         var currentContext := context
@@ -2453,18 +2566,20 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 }
             }
         }
-        return (new Block(b.position, statements), messages)
+        return (new Block(b.position, statements), currentContext, messages)
     }
 
-    method convertMethod(context:Context, m:TypedMethodStub):
+    method convertMethod(var context:Context, m:TypedMethodStub):
             (MethodNode, ListView<Message>?) {
         def block:Block?
         def messages:ListView<Message>?
         if m.block != null {
             def newContext := new Context(context.currentClass, m, 
                     context.lookupContext, context.typeMap, context.stubs,
-                    context.localVariables)
-            block, messages := convertBlock(newContext, m.block->(ParseNode))
+                    new ImmutableArray<LocalVariable>(),
+                    context.visibleVariables)
+            block, context, messages := convertBlock(newContext, 
+                    m.block->(ParseNode))
         }
         else {
             block := null
@@ -2472,7 +2587,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
         def parameters := new Array<Parameter>()
         return (new MethodNode(m.position, m.name, m.methodType, parameters, 
-                m.returnType, m.annotations, block), messages)
+                m.returnType, m.annotations, block, context.localVariables), 
+                messages)
     }
 
     method convertClass(cl:TypedClassStub, typeMap:TypeMap, 
@@ -2483,7 +2599,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def fields := new Array<FieldNode>()
         for m in cl.methods {
             def context := new Context(cl, null, cl.lookupContext, typeMap, 
-                    stubs, new ImmutableHashMap<String, Variable>(
+                    stubs, new ImmutableArray<LocalVariable>(),
+                    new ImmutableHashMap<String, Variable>(
                         new HashMap<String, Variable>()))
             def compiled, submessages := convertMethod(context, m)
             methods.add(compiled)

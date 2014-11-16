@@ -1,0 +1,81 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.types.Type
+
+class ExecutableCodeGenerator (CodeGenerator) {
+    var libpanda:String?
+
+    def program:Program
+
+    constructor(program:Program) {
+        self.program := program
+    }
+
+    @override
+    function defaultExtension():String {
+        return ""
+    }
+    
+    @override
+    method generateCode(target:File) {
+        def compilerSettings := program.compilerSettings
+
+        -- compile ll file to asm using llc
+        var parent := target.parent()
+        if parent = null {
+            throw new CompilerException("could not determine parent " +
+                    "directory of '\{target}'")
+        }
+        var ll := parent.resolve(target.simpleName + ".ll")
+        new LLVMCodeGenerator(program).generateCode(ll)
+        parent := ll.parent()
+        if parent = null {
+            throw new CompilerException("could not determine parent " +
+                    "directory of '\{ll}'")
+        }
+        def asm := parent.resolve(ll.simpleName + ".s")
+        def llcArgs := new PrimitiveArray<String>()
+        for arg in StaticSettings.LLC_EXE_ARGS
+            llcArgs.append(arg)
+        llcArgs.append("-o")
+        llcArgs.append(asm.path)
+        llcArgs.append(ll.path)
+        System.exec(PandaCompiler.getLLVMHome().resolve("llc"), llcArgs...)
+        if !asm.exists()
+            throw new CompilerException("llc failure")
+        if !compilerSettings.preserveTempArtifacts
+            ll.delete()
+
+        -- compile asm file
+        def cppArgs := new PrimitiveArray<String>("-o", target.path, asm.path)
+        def searchPaths := compilerSettings.librarySearchPaths
+        for searchPath in searchPaths
+            cppArgs.append("-L" + searchPath.path)
+        def libraries := compilerSettings.libraries
+        for lib in libraries {
+            if lib.endsWith(".o")
+                cppArgs.append(lib)
+            else
+                cppArgs.append("-l" + lib)
+        }
+        for arg in StaticSettings.GCC_EXE_ARGS
+            cppArgs.append(arg)
+        def objects := compilerSettings.objectFiles
+        for obj in objects
+            cppArgs.append(obj.path)
+        def modules := compilerSettings.modules
+        for module in modules {
+            for arg in module.gccExeArgs {
+                cppArgs.append(arg.replace("$PANDA_HOME", 
+                        PandaCompiler.PANDA_HOME.path))
+            }
+        }
+
+        -- almost everything is C, but we do have a bit of C++ stuff, so we use
+        -- a C++ compiler to get default linkage with the C++ libraries
+        System.exec(PandaCompiler.getCPPCompiler(), cppArgs...)
+        if !compilerSettings.preserveTempArtifacts
+            asm.delete()
+    }
+}

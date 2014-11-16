@@ -13,13 +13,15 @@ uses org.pandalanguage.pandac.stubs.UntypedGenericParameter
 uses org.pandalanguage.pandac.stubs.UntypedMethodStub
 uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
 uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.Variable
-uses org.pandalanguage.pandac.types.SpecialType
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.SpecialType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
-uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.VoidType
 
 ================================================================================
 Converts the various untyped stubs into their typed equivalents.
@@ -71,7 +73,7 @@ class TypeResolver (MessageProcessor) {
 
     @private
     @self
-    method resolveTypes(m:UntypedMethodStub):
+    method resolveTypes(cl:ClassType, m:UntypedMethodStub):
             (TypedMethodStub, ListView<Message>?) {
         def parameters := new Array<TypedFormalParameter>()
         var messages:ListView<Message>? := null
@@ -82,16 +84,18 @@ class TypeResolver (MessageProcessor) {
                         resolved, p.isFinal, p.isConvert, p.isVarArg))
             messages := addMessages(messages, submessages)
         }
-        def returnType:Type?
+        var returnType:Type?
         if m.returnType != null {
             def submessages:ListView<Message>?
             returnType, submessages := resolveType(m.returnType->(ParseNode))
             messages := addMessages(messages, submessages)
         }
         else
-            returnType := null
+            returnType := VoidType.VOID
+        if returnType = null
+            returnType := ANY_TYPE()
         return (new TypedMethodStub(m.position, m.name, m.annotations,
-            m.methodType, parameters, returnType, m.block), messages)
+            m.methodType, parameters, returnType, m.block, cl), messages)
     }
 
     @private
@@ -114,6 +118,10 @@ class TypeResolver (MessageProcessor) {
         self.classAliases := new HashMap<String, String>(
                 cl.lookupContext.classAliases)
         var messages:ListView<Message>? := null
+        def classType, _ := typeMap.getType(
+                new PandaParser().parseType(cl.name, cl.position), 
+                cl.lookupContext)
+        assert classType != null
         def genericParameters:List<GenericParameterType>?
         if cl.genericParameters != null {
             genericParameters := new Array<GenericParameterType>()
@@ -133,7 +141,7 @@ class TypeResolver (MessageProcessor) {
             genericParameters := null
         def methods := new Array<TypedMethodStub>()
         for m in cl.methods {
-            def resolved, submessages := resolveTypes(m)
+            def resolved, submessages := resolveTypes(classType->(ClassType), m)
             methods.add(resolved)
             messages := addMessages(messages, submessages)
         }
@@ -193,13 +201,12 @@ class TypeResolver (MessageProcessor) {
             messages := addMessages(messages, submessages)
         }
         def methods := new Array<TypedMethodStub>()
-        for m in cu.methods {
+-*        for m in cu.methods {
             def resolved, submessages := t.resolveTypes(m)
             methods.add(resolved)
             messages := addMessages(messages, submessages)
-        }
-        return (new TypedCompilationUnitStub(cu.name, classes, methods, 
-                cu.statements),
+        }*-
+        return (new TypedCompilationUnitStub(cu.name, classes, cu.statements),
                 messages)
     }
 
@@ -216,8 +223,8 @@ class TypeResolver (MessageProcessor) {
                 def context := new Context(currentClass, null, 
                         currentClass.lookupContext, typeMap, 
                         new ImmutableHashMap<String, TypedClassStub>(stubs),
-                        new ImmutableHashMap<String, Variable>(
-                            new HashMap<String, Variable>()))
+                        new ImmutableArray<LocalVariable>(),
+                        new ImmutableHashMap<String, Variable>())
                 def expr, messages := new ASTGenerator().convertExpression(
                         context, initialValue)
                 if expr != null {
@@ -260,8 +267,8 @@ class TypeResolver (MessageProcessor) {
                 remaining |= newRemaining
             }
         }
-        return (new TypedCompilationUnitStub(cu.name, classes, cu.methods, 
-                cu.statements), updated, remaining, null)
+        return (new TypedCompilationUnitStub(cu.name, classes, cu.statements), 
+                updated, remaining, null)
     }
 
     method inferFieldTypes(var compilationUnits:CollectionView<TypedCompilationUnitStub>):
