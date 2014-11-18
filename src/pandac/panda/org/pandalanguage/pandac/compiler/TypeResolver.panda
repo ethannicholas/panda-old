@@ -51,6 +51,17 @@ class TypeResolver (MessageProcessor) {
 
     @private
     @self
+    method OBJECT():ClassType {
+        def name := new PandaParser().parseType("panda.core.Object",
+                Position.INTERNAL)
+        def result, messages := resolveType(name)
+        assert messages = null : messages->>(String)
+        assert result != null
+        return result->(ClassType)
+    }
+
+    @private
+    @self
     method ANY_TYPE():Type {
         def name := new PandaParser().parseType("panda.core.Object?",
                 Position.INTERNAL)
@@ -78,7 +89,15 @@ class TypeResolver (MessageProcessor) {
         def parameters := new Array<TypedFormalParameter>()
         var messages:ListView<Message>? := null
         for p in m.parameters {
-            def resolved, submessages := resolveType(p.type)
+            def finalType:ParseNode
+            if p.isVarArg {
+                finalType := new PandaParser().parseType(
+                        "panda.collections.PrimitiveArray<\{p.type}>",
+                        p.type.position)
+            }
+            else
+                finalType := p.type
+            def resolved, submessages := resolveType(finalType)
             if resolved != null
                 parameters.add(new TypedFormalParameter(p.position, p.name, 
                         resolved, p.isFinal, p.isConvert, p.isVarArg))
@@ -104,7 +123,7 @@ class TypeResolver (MessageProcessor) {
             (FieldNode, ListView<Message>?) {
         var resolved, messages := resolveType(f.type)
         if resolved = null
-            resolved := new UnresolvedType(f->>(String), f.position)
+            resolved := new UnresolvedType(f.name, f.position)
         return (new FieldNode(f.position, f.name, f.annotations,
             f.fieldType, resolved, f.initialValue, f.tuplePosition), 
             messages)
@@ -176,7 +195,10 @@ class TypeResolver (MessageProcessor) {
                 messages := addMessage(messages, 
                         "'\{sc}' may not be subclassed", sc.position)
             }
-            superclass := null
+            if cl.name = class(Object).name
+                superclass := null
+            else
+                superclass := OBJECT()
         }
         def stub := new TypedClassStub(cl.position, cl.name, cl.isInterface, 
                 cl.annotations, new LookupContext(cl.lookupContext.packageUses, 

@@ -47,7 +47,7 @@ class Panda_ExternalImpl implements panda.core.Panda_External {
     }
 
     @Override
-    public panda.collections.HashMap$LTpanda$core$Int32$Cpanda$core$Object$GT getThreadLocals(panda.threads.Thread t) {
+    public panda.collections.HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT getThreadLocals(panda.threads.Thread t) {
         throw new UnsupportedOperationException();
     }
 

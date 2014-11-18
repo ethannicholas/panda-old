@@ -2,7 +2,9 @@ package org.pandalanguage.pandac.stubs
 
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.Type
@@ -18,6 +20,8 @@ class TypedMethodStub : MethodStub {
 
     def returnType:Type
 
+    @pre(annotations.isClass | methodType = MethodNodeType.CONSTRUCTOR |
+            (parameters.length > 0 & parameters[0].name = Parameter.SELF_NAME))
     constructor(position:Position, name:String, annotations:Annotations,
             methodType:MethodNodeType, 
             parameters:ListView<TypedFormalParameter>, returnType:Type,
@@ -29,13 +33,55 @@ class TypedMethodStub : MethodStub {
         self.owner := owner
     }
 
+    ============================================================================
+    Returns true if this method overrides `parent`.
+    ============================================================================
+    function isOverrideOf(parent:TypedMethodStub):Bit {
+        if parent.name != name
+            return false
+        def isClass := parent.annotations.isClass
+        if isClass != annotations.isClass
+            return false
+        if parent.name = MethodNode.CONVERT_NAME & 
+                parent.returnType != returnType
+            return false
+        def parentParams := parent.parameters
+        if parentParams.length != parameters.length
+            return false
+        def start:Int
+        if isClass
+            start := 0
+        else {
+            -- skip 0; self will not match because we are looking at two
+            -- different classes
+            start := 1
+            assert parentParams[0].name = Parameter.SELF_NAME
+            assert parameters[0].name = Parameter.SELF_NAME
+        }
+        for i in start .. parentParams.length {
+            if parentParams[i].type != parameters[i].type
+                return false
+        }
+        return true
+    }
+
+    ============================================================================
+    True if the method is declared virtual (in other words, it needs to appear 
+    in the class' VTABLE). This is false for class methods, final methods, and
+    constructors.
+    ============================================================================
+    function isDeclaredVirtual():Bit {
+        return !annotations.isClass & !annotations.isFinal & 
+                methodType != MethodNodeType.CONSTRUCTOR
+    }
+
     @override
     function format(fmt:String):String {
         def result := new MutableString()
         switch methodType {
             case MethodNodeType.METHOD: result.append("method ")
             case MethodNodeType.FUNCTION: result.append("function ")
-            case MethodNodeType.CONSTRUCTOR: result.append("constructor ")
+            case MethodNodeType.CONSTRUCTOR: { -* do nothing *- }
             default: unreachable
         }
         result.append(name)
@@ -54,6 +100,8 @@ class TypedMethodStub : MethodStub {
             else
                 result.append(":")
             result.append(parameters[i].type.name)
+            if parameters[i].isVarArg
+                result.append("...")
         }
         result.append(")")
         if returnType != VoidType.VOID {

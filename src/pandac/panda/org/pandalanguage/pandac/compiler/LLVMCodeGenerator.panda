@@ -79,11 +79,32 @@ uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
 uses org.pandalanguage.pandac.types.NullableType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
+uses org.pandalanguage.pandac.types.WrapperType
+
+@private 
+class ClassConstant : Immutable {
+    def name:String
+    def type:String
+    def methods:ImmutableArray<TypedMethodStub>
+    
+    constructor(name:String, type:String, methods:ListView<TypedMethodStub>) {
+        self.name := name
+        self.type := type
+        self.methods := new ImmutableArray<TypedMethodStub>(methods)
+    }
+}
 
 class LLVMCodeGenerator (CodeGenerator) {
+    constant POINTER_SIZE := 8
+
+    @private
+    constant SHARED_LINKAGE := "weak_odr"
+    
     def debug := false
 
     var tempVariable := 0
@@ -95,6 +116,14 @@ class LLVMCodeGenerator (CodeGenerator) {
     def stubs:MapView<String, TypedClassStub>
 
     def classes:MapView<String, ClassNode>
+
+    def classConstants := new HashMap<String, ClassConstant>()
+
+    def methodNames:MapView<TypedMethodStub, String>
+
+    var charArrayCount := 0
+
+    def stringConstants := new HashMap<String, String>()
 
     def types:MapView<String, Type>
 
@@ -111,6 +140,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         self.stubs := p.stubs
         self.classes := p.classes
         self.types := p.types
+        self.methodNames := new MethodNamer().nameMethods(stubs, 
+                new CMethodNamingStrategy())
     }
 
     @protected
@@ -153,7 +184,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case VoidType.VOID: return "void"
             case NativePointerType.NATIVE_POINTER: return "i8*"
         }
-        return "%" + getName(getStub(t->>(ClassType)))
+        return "%" + getName(getStub(t->>(ClassType))) + "*"
     }
 
     method getLLVMMethodType(t:TypedMethodStub):String {
@@ -196,17 +227,19 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     method getName(cl:TypedClassStub):String {
-        return '"' + cl.name + '"'
+        return MethodNamer.escapeTypeName(cl.name)
     }
 
     @private
     function getName(m:MethodNode):String {
-        return m.name
+        return getName(m.stub)
     }
 
     @private
     function getName(m:TypedMethodStub):String {
-        return m.name
+        def result := methodNames[m]
+        assert result != null : "no method name for \{m}"
+        return result
     }
 
     @private
@@ -219,7 +252,6 @@ class LLVMCodeGenerator (CodeGenerator) {
         return types[cl.name]->(ClassType)
     }
 
-
     @private
     function getClass(cl:ClassType):ClassNode {
         return classes[cl.name]->(ClassNode)
@@ -227,24 +259,40 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     function getStub(cl:ClassType):TypedClassStub {
-        def result := stubs[cl.name]
+        return getStub(cl.name)
+    }
+
+    @private
+    function getStub(s:String):TypedClassStub {
+        def result := stubs[s]
+        -- FIXME TEMP
         if result = null
             return stubs["panda.core.Object"]->(TypedClassStub)
         return result
     }
 
     @private
-    function instanceFields(cl:TypedClassStub):ListView<FieldNode> {
-        def result:List<FieldNode>
-        if cl.superclass != null {
-            result := new Array<FieldNode>(instanceFields(getStub(
-                    cl.superclass->(ClassType))))
+    function size(t:Type):Int {
+        if t.isPrimitive
+            return t->>(PrimitiveType).size
+        def stub := getStub(t->>(ClassType))
+        var total := 0
+        def sc := stub.superclass
+        if sc != null
+            total += size(sc)
+        for field in stub.instanceFields(stubs) {
+            def fieldSize:Int
+            if field.type.isPrimitive
+                fieldSize := size(field.type)
+            else
+                fieldSize := POINTER_SIZE
+            def align := total % fieldSize
+            if align != 0
+                total += fieldSize - align
+            assert total % fieldSize = 0
+            total += fieldSize
         }
-        else
-            result := new Array<FieldNode>()
-        result.addAll(cl.fields.filter(f => !f.annotations.isClass & 
-                !f.annotations.isThread))
-        return result
+        return total
     }
 
     @private
@@ -257,7 +305,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if debug
             header.writeLine("; " + cl.name)
         header.write("%" + getName(cl) + " = type { ")
-        def fields := instanceFields(cl)
+        def fields := cl.instanceFields(stubs)
         for i, f in fields {
             if i != 0
                 header.write(", ")
@@ -266,7 +314,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             else
                 header.write(getLLVMType(f.type))
         }
-        if cl.name = class(Class).name {
+        if cl.name = ClassType.CLASS.name {
             -- Class is special, write out the VTABLE entry at the end of its fields
             header.write(", %$itable*, [0 x i8*]")
         }
@@ -294,6 +342,51 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method call(invocation:String) {
         call(invocation, null, null)
+    }
+
+    @private
+    function isConstant(expr:String):Bit {
+        return expr.startsWith("%") | expr.matches(#/\d+/#)
+    }
+
+    @protected
+    method createCommandReference(codeString:String, comment:String):String {
+        if isConstant(codeString)
+            return codeString
+        def result := getTempVariable()
+        writeBody(result + " = " + codeString, comment)
+        return result
+    }
+
+    @protected
+    method createConstructReference(construct:Construct):String {
+        def targetType := construct.type
+        def target := getStub(targetType)
+        def cc := getClassConstant(target)
+        def cast := getTempVariable()
+        def classType := getLLVMType(ClassType.CLASS)
+        writeBody(cast + " = bitcast " + cc.type + "* @" + cc.name +
+                " to " + classType, "convert class pointer")
+        def alloc := createCallReference("i8* @_pandaNew(" + classType + " " + 
+                cast + ", i32 " + size(targetType) + ")", 
+                "allocate " + targetType.name)
+    
+        def result := createCommandReference("bitcast i8* " + alloc + " to " + 
+                getLLVMType(targetType), "convert pointer to " + 
+                targetType.name)
+
+        def parameters := construct.constructorCall.parameters
+        def m := construct.constructorCall.methodStub
+        def methodRef := "@" + getName(m)
+        def text := new MutableString("fastcc void \{methodRef}(")
+        text.append(getLLVMType(targetType) + " " + result)
+        for i, p in parameters[1..] {
+            text.append(", ")
+            text.append(getTypedReference(p))
+        }
+        text.append(")")
+        call(text->>(String))
+        return result
     }
 
     @protected
@@ -340,20 +433,58 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
     
--*    @protected
-    method getClassConstant(cl:ClassNode):ClassConstant {
-        var cc := cl.getProperty(CLASS_CONSTANT)->(ClassConstant?)
+    @private
+    method getITable(cl:TypedClassStub):String {
+        def visited := new HashSet<TypedClassStub>()
+        def interfaces := cl.allInterfaces(stubs)
+        var previous := "%$itable* null"
+        for intf in interfaces {
+            if visited.contains(intf)
+                continue
+            visited.add(intf)
+            def intfCC := getClassConstant(intf)
+            def methods := cl.interfaceMethods(intf, stubs)
+            def name := "@" + getName(cl) + "$." + getName(intf)
+            def type := "{ " + getLLVMType(ClassType.CLASS) + 
+                    ", %$itable*, [" + methods.length + " x i8*] }"
+            header.write(name + " = " + SHARED_LINKAGE + " constant ")
+            header.write(type + " { " + 
+                    getLLVMType(ClassType.CLASS) + " bitcast(" + intfCC.type + 
+                    "* @" + intfCC.name + " to " + 
+                    getLLVMType(ClassType.CLASS) + "), " + previous + ", [" + 
+                    methods.length + " x i8*][")
+            for i, m in methods {
+                if i > 0
+                    header.write(", ")
+                if m.annotations.isAbstract
+                    header.write("i8* null")
+                else {
+                    header.write("i8* bitcast(" + getLLVMMethodType(m) + 
+                            " @" + getName(m) + " to i8*)")
+                }
+            }
+            header.writeLine("] }")
+            previous := "%$itable* bitcast(" + type + "* " + name + 
+                    " to %$itable*)" 
+        }
+        return previous
+    }
+
+    @protected
+    method getClassConstant(cl:TypedClassStub):ClassConstant {
+        var name := cl.name
+        var cc := classConstants[name]
         if cc = null {
-            def methods := cl.virtualMethods
+            def methods := cl.virtualMethods(stubs)
+            def className := getName(cl)
             cc := new ClassConstant(
-                    getName(cl.type()) + "_class",
-                    "{ " + getLLVMType(ClassType.CLASS()) + ", " + 
-                    getLLVMType(ClassType.STRING()) +  ", " + 
-                    getLLVMType(ClassType.CLASS()) + ", i1, i1, %$itable*, [" + 
+                    className + "_class",
+                    "{ " + getLLVMType(ClassType.CLASS) + ", " + 
+                    getLLVMType(ClassType.STRING) +  ", " + 
+                    getLLVMType(ClassType.CLASS) + ", i1, i1, %$itable*, [" + 
                     methods.length + " x i8*] }", methods)
-            cl.setProperty(CLASS_CONSTANT, cc)
-            var name := cl.name
-            if cl.type().isWrapper {
+            classConstants[name] := cc
+            if types[name]-?>(WrapperType) {
                 assert name.endsWith("Wrapper") : "invalid wrapper class name"
                 name := name[0 .. name.length - "Wrapper".length]
             }
@@ -362,68 +493,51 @@ class LLVMCodeGenerator (CodeGenerator) {
             -- printed, and we don't want to be in the middle of output when
             -- that happens
             var nameRef := "<error>"
-            if cl.state != ClassNodeState.EXTERNALLY_DEFINED
+            if !cl.isExternal
                 nameRef := getStringConstantReference(name)
-            getClassConstant(ClassNode.CLASS_NAME)
+            getClassConstant(getStub(ClassType.CLASS.name))
 
-            for m in methods {
-                -- create declarations for dead methods so we can include them 
-                -- in the vtable
-                if !m.live & m.owner = cl {
-                    var oldBody := body
-                    var oldTemp := tempVariable
-                    body := header
-                    generateMethodCode(m)
-                    body := oldBody
-                    tempVariable := oldTemp
-                }
-            }
-
-            var superclassConstant:ClassConstant?
+            def superclassConstant:ClassConstant?
             def superclass := cl.superclass
             if superclass != null
-                superclassConstant := getClassConstant(superclass)
+                superclassConstant := getClassConstant(getStub(superclass))
             else
                 superclassConstant := null
-            if cl.state = ClassNodeState.EXTERNALLY_DEFINED {
+            if cl.isExternal {
                 header.write("@" + cc.name + " = ")
                 header.writeLine("external global " + cc.type)
                 return cc
             }
-            var intf := getITable(cl)
+            def intf := getITable(cl)
             header.write("@" + cc.name + " = ")
             header.write(SHARED_LINKAGE + " ")
-            var superclassRef:String
+            def superclassRef:String
             if superclassConstant != null
                 superclassRef := "bitcast(" + superclassConstant.type + "* @" + 
                         superclassConstant.name + " to " + 
-                        getLLVMType(ClassType.CLASS()) + ")"
+                        getLLVMType(ClassType.CLASS) + ")"
             else
                 superclassRef := "null"
             -- class constant includes vtable. Doesn't include statics, as 
             -- those are just globals.
             var overridesFinalize := false
-            for child in cl.children {
-                if child-?>(MethodNode) {
-                    var m := child->(MethodNode)
-                    if m.name = MethodNode.FINALIZE_NAME & 
-                            !m.annotations.isClass & 
-                            m.parameters.length = 1
-                        overridesFinalize := true
-                }
+            for m in cl.methods {
+                if m.name = MethodNode.FINALIZE_NAME & 
+                        !m.annotations.isClass & 
+                        m.parameters.length = 1
+                    overridesFinalize := true
             }
-            def classClass := ClassType.CLASS().classNode
+            def classClass := getStub(ClassType.CLASS)
             def classClassConstant := getClassConstant(classClass)
             header.write("constant " + cc.type + 
-                    " { " + getLLVMType(ClassType.CLASS()) + " bitcast(" + 
+                    " { " + getLLVMType(ClassType.CLASS) + " bitcast(" + 
                     classClassConstant.type + "* @" + classClassConstant.name + 
-                    " to " + getLLVMType(ClassType.CLASS()) + "), " + 
-                    getLLVMType(ClassType.STRING()) + " " + nameRef + ", " + 
-                    getLLVMType(ClassType.CLASS()) + " " + superclassRef + 
+                    " to " + getLLVMType(ClassType.CLASS) + "), " + 
+                    getLLVMType(ClassType.STRING) + " " + nameRef + ", " + 
+                    getLLVMType(ClassType.CLASS) + " " + superclassRef + 
                     ", i1 1, i1 " + overridesFinalize + ", " + intf + ", [" + 
                     methods.length + " x i8*] [ ")
-            for i, rawM in methods {
-                def m := rawM.unwrap()
+            for i, m in methods {
                 if i > 0
                     header.write(", ")
                 if m.annotations.isAbstract
@@ -436,68 +550,64 @@ class LLVMCodeGenerator (CodeGenerator) {
             header.writeLine(" ] }")
         }
         return cc
-        throw new NotSupportedException()
     }
-*-
+
     @private
     method getCharPrimitiveArrayConstantReference(chars:PrimitiveArray<Char>):String {
--*        var charPrimitiveArrayType := SymbolTable.master.getType(Position.INTERNAL,
-                ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME + "<panda.core.Char>")
-        var charPrimitiveArrayClass := charPrimitiveArrayType.classNode
-        var cc := getClassConstant(charPrimitiveArrayClass)
-        var charsType := "[" + chars.length + " x " + 
-                getLLVMType(CharType.CHAR) + "]"
-        var type := "{ " + cc.type + "*, " +
-                getLLVMType(Type.INDEX_TYPE) + ", " + 
-                getLLVMType(Type.INDEX_TYPE) + ", " + 
+        def charPrimitiveArrayClass := getStub(
+                PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
+        def cc := getClassConstant(charPrimitiveArrayClass)
+        def charsType := "[\{chars.length} x \{getLLVMType(CharType.CHAR)}]"
+        def type := "{ " + cc.type + "*, " +
+                getLLVMType(IntType.INT32) + ", " + 
+                getLLVMType(IntType.INT32) + ", " + 
                 charsType + "* }"
-        var result := "ca" + bytePrimitiveArrayCount
-        bytePrimitiveArrayCount += 1
-        var charsName := "@" + result + "_chars"
+        def result := "ca" + charArrayCount
+        charArrayCount += 1
+        def charsName := "@\{result}_chars"
         header.write(charsName + " = private unnamed_addr constant " + 
                 charsType + " [")
-        for i in 0 ... chars.length - 1 {
+        for i, c in chars {
             if i != 0
                 header.write(", ")
-            header.write(getLLVMType(CharType.CHAR) + " " + chars[i]->(Int))
+            header.write(getLLVMType(CharType.CHAR) + " " + c->(Int))
         }
         header.writeLine("]")
 
         header.writeLine("@" + result + " = private unnamed_addr constant " + 
                 type + " { " + cc.type + "* @" + cc.name + ", " + 
-                getLLVMType(Type.INDEX_TYPE) + " " + chars.length + ", " +
-                getLLVMType(Type.INDEX_TYPE) + " " + chars.length + ", " + 
+                getLLVMType(IntType.INT32) + " " + chars.length + ", " +
+                getLLVMType(IntType.INT32) + " " + chars.length + ", " + 
                 charsType + "* " + charsName + " }, align " +
-                NativePointerType.NATIVE_POINTER.size)
+                POINTER_SIZE)
         return "bitcast(" + type + "* @" + result + " to " + 
-                getLLVMType(charPrimitiveArrayType) + ")"*-
-        throw new NotSupportedException()
+                getLLVMType(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY) + ")"
     }
 
     @private
     method getStringConstantReference(s:String):String {
--*        var result := stringConstants[s]
+        var result := stringConstants[s]
         if result = null {
-            def string := ClassType.STRING().classNode
-            def chars := getCharPrimitiveArrayConstantReference(s->>(PrimitiveArray<Char>))
+            def string := getStub(ClassType.STRING)
+            def primitiveChars := new PrimitiveArray<Char>()
+            for c in s
+                primitiveChars.append(c)
+            def chars := getCharPrimitiveArrayConstantReference(primitiveChars)
             result := "@s" + stringConstants.length
             stringConstants[s] := result
-            var charPrimitiveArrayType := SymbolTable.master.getType(Position.INTERNAL,
-                    ClassNode.IMMUTABLE_PRIMITIVE_ARRAY_NAME + 
-                    "<panda.core.Char>")
+            def charPrimitiveArrayType := PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY
             def cc := getClassConstant(string)
             if debug
                 header.writeLine("; " + StringLiteral.escape(s))
             header.writeLine(result + " = private unnamed_addr constant " + 
-                    "%" + getName(string.type()) + " { " + 
-                    getLLVMType(ClassType.CLASS()) + " bitcast(" + cc.type + 
-                    "* @" + cc.name + " to " + getLLVMType(ClassType.CLASS()) + 
+                    '%panda$core$String { ' + 
+                    getLLVMType(ClassType.CLASS) + " bitcast(" + cc.type + 
+                    "* @" + cc.name + " to " + getLLVMType(ClassType.CLASS) + 
                     "), " + getLLVMType(charPrimitiveArrayType) + " " + chars + " }," +
-                    " align " + NativePointerType.NATIVE_POINTER.size)
+                    " align " + POINTER_SIZE)
             stringConstants[s] := result
         }
-        return result*-
-        throw new NotSupportedException()
+        return result
     }
 
     -- return value is nullable so void expressions (method calls) can return
@@ -532,12 +642,13 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(BitwiseAnd): return createBinaryOperationReference(v->(BinaryOperation), "and", null)
             case class(BitwiseOr): return createBinaryOperationReference(v->(BinaryOperation), "or", null)
             case class(BitwiseXor): return createBinaryOperationReference(v->(BinaryOperation), "xor", null)
-            case class(Construct): return createConstructReference(v->(Construct))
 *-
+            case class(Construct): return createConstructReference(v->(Construct))
             case class(MethodCall): return createMethodCallReference(v->(MethodCall))
             case class(StringLiteral): return getStringConstantReference(v->(StringLiteral).value)
             case class(IntegerLiteral): return v->(IntegerLiteral).value->>(String)
--*            case class(RealLiteral): return createRealLiteralReference(v->(RealLiteral))
+-*
+            case class(RealLiteral): return createRealLiteralReference(v->(RealLiteral))
             case class(VariableReference): return createVariableReference(v->(VariableReference))
             case class(FieldReference): return createFieldReference(v->(FieldReference))
             case class(Cast): return createCastReference(v->(Cast))
@@ -625,6 +736,30 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    method writeMethodDeclaration(m:TypedMethodStub) {
+        if m.annotations.isAbstract
+            return
+        def private := m.annotations.isPrivate
+        def external := m.annotations.isExternal
+        body.writeLine()
+        if debug
+            body.writeLine("; " + m)
+        body.write("declare ")
+        if !external
+            body.write("fastcc ")
+        body.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
+        for i, p in m.parameters {
+            if i > 0
+                body.write(", ")
+            body.write(getLLVMType(p.type))
+        }
+        body.write(")")
+        if m.methodType = MethodNodeType.FUNCTION & isImmutable(m.returnType)
+            body.write(" readonly")
+        body.writeLine()
+    }
+
+    @protected
     method generateMethodCode(m:MethodNode) {
         if m.annotations.isAbstract
             return
@@ -695,11 +830,17 @@ class LLVMCodeGenerator (CodeGenerator) {
         header.writeLine('target datalayout = "e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-s0:64:64-f80:128:128-n8:16:32:64-S128"')
         header.writeLine('target triple = "' + StaticSettings.TARGET_TRIPLE + 
                 '"')
-        header.writeLine('%$itable = type { %"panda.core.Class"*, %$itable*, ' +
+        header.writeLine('%$itable = type { %panda$core$Class*, %$itable*, ' +
                 "[0 x i8*] }")
         for (_, cl) in stubs {
             if cl.genericParameters = null
                 writeTypeDescriptor(cl)
+        }
+        for (_, cl) in stubs {
+            if classes[cl.name] = null & cl.genericParameters = null {
+                for m in cl.methods
+                    writeMethodDeclaration(m)
+            }
         }
 -*        for (_, cl) in stubs {
             if cl.live & !cl.annotations.isUnspecified()
@@ -746,6 +887,9 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("declare void @pandaCheckSignCasti16(i16)")
         body.writeLine("declare void @pandaCheckSignCasti32(i32)")
         body.writeLine("declare void @pandaCheckSignCasti64(i64)")
+
+        body.writeLine("declare i8* @_pandaNew(%panda$core$Class*, " +
+                getLLVMType(IntType.INT32) + ")")
 
         def parent := target.parent()
         if parent = null {

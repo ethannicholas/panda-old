@@ -1,5 +1,6 @@
 package org.pandalanguage.pandac.tree
 
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
@@ -10,6 +11,18 @@ enum MethodNodeType {
 }
 
 class MethodNode : Node {
+    constant MAIN_NAME       := "main"
+
+    constant START_NAME      := "start"
+
+    constant CONVERT_NAME    := "->>"
+
+    constant FINALIZE_NAME   := "finalize"
+
+    constant CLASS_INIT_NAME := "$classInit"
+
+    def stub:TypedMethodStub
+
     ============================================================================
     The method's name.
     ============================================================================
@@ -40,11 +53,14 @@ class MethodNode : Node {
     ============================================================================
     def localVariables:ImmutableArray<LocalVariable>
 
-    constructor(position:Position, name:String, methodType:MethodNodeType,
-            parameters:ListView<Parameter>, returnType:Type, 
-            annotations:Annotations, block:Block?, 
+    @pre(annotations.isClass | methodType = MethodNodeType.CONSTRUCTOR |
+            (parameters.length > 0 & parameters[0].name = Parameter.SELF_NAME))
+    constructor(position:Position, stub:TypedMethodStub, name:String, 
+            methodType:MethodNodeType, parameters:ListView<Parameter>, 
+            returnType:Type, annotations:Annotations, block:Block?, 
             localVariables:ListView<LocalVariable>) {
         super.constructor(position, wrap(block))
+        self.stub := stub
         self.name := name
         self.methodType := methodType
         self.parameters := new ImmutableArray<Parameter>(parameters)
@@ -93,6 +109,8 @@ class MethodNode : Node {
             else
                 result.append(":")
             result.append(parameters[i].type.name)
+            if parameters[i].isVarArg
+                result.append("...")
         }
         result.append(")")
         if returnType != VoidType.VOID {

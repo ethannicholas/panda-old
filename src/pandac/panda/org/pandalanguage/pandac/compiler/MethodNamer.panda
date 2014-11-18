@@ -1,0 +1,102 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.types.Type
+
+================================================================================
+Applies a pluggable naming strategy to all of the methods in a class, in order
+to name methods in a fashion which is compatible with and unambiguous in the
+target language.
+================================================================================
+class MethodNamer {
+    @private
+    def named := new HashSet<TypedClassStub>()
+
+    @class
+    function escapeTypeName(name:String):String {
+        return name.replace(".", "$").replace("<", "$LT").
+                replace(">", "$GT").replace("?", "$Z").
+                replace("*", "$p").replace("(", "$LP").
+                replace(")", "$RP").replace("=", "$EQ").
+                replace(",", "$C").replace("&", "$AM")
+    }
+
+    method nameMethods(stubs:MapView<String, TypedClassStub>,
+            strategy:MethodNamingStrategy):
+            MapView<TypedMethodStub, String> {
+        def result := new HashMap<TypedMethodStub, String>()
+        for cl in stubs.values
+            nameMethods(cl, stubs, strategy, result)
+        return result
+    }
+
+    @private
+    @limited
+    method nameMethods(cl:TypedClassStub, stubs:MapView<String, TypedClassStub>,
+            strategy:MethodNamingStrategy, result:Map<TypedMethodStub, String>) {
+        if named.contains(cl) | cl.genericParameters != null
+            return
+        named.add(cl)
+        def getStub := function(type:Type):TypedClassStub {
+            def result := stubs[type.name]
+            if result != null { -- FIXME remove this test when compiler is finished
+                assert result != null : "no stub for \{type.name}"
+                return result
+            }
+            else
+                return stubs["panda.core.Object"]->(TypedClassStub)
+        }
+        def sc := cl.superclass
+        if sc != null
+            nameMethods(getStub(sc), stubs, strategy, result)
+        for intf in cl.interfaces
+            nameMethods(getStub(intf), stubs, strategy, result)
+        def disambiguationBuckets:Map<String, List<TypedMethodStub>> := 
+                new HashMap<String, List<TypedMethodStub>>()
+        for m in cl.methods {
+            if !cl.annotations.isUnspecified | m.annotations.isClass {
+                addToBucket(disambiguationBuckets, strategy.disambiguation(m), 
+                        m)
+            }
+        }
+        for (_, bucket) in disambiguationBuckets {
+            def shortBuckets:Map<String, List<TypedMethodStub>> := 
+                    new HashMap<String, List<TypedMethodStub>>()
+            for m in bucket
+                addToBucket(shortBuckets, strategy.shortName(cl, m), m)
+            for (key, shortBucket) in shortBuckets {
+                if shortBucket.length = 1
+                    result[shortBucket[0]] := key
+                else {
+                    def mediumBuckets:Map<String, List<TypedMethodStub>> := 
+                            new HashMap<String, List<TypedMethodStub>>()
+                    for m in shortBucket {
+                        addToBucket(mediumBuckets, strategy.mediumName(cl, m),
+                                m)
+                    }
+                    for (mKey, mediumBucket) in mediumBuckets {
+                        if mediumBucket.length = 1
+                            result[mediumBucket[0]] := mKey
+                        else {
+                            for m in mediumBucket
+                                result[m] := strategy.longName(cl, m)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @private
+    @class
+    method addToBucket(buckets:Map<String, List<TypedMethodStub>>, name:String, 
+            m:TypedMethodStub) {
+        var bucket := buckets[name]
+        if bucket = null {
+            bucket := new Array<TypedMethodStub>()
+            buckets[name] := bucket
+        }
+        bucket.add(m)
+    }
+}

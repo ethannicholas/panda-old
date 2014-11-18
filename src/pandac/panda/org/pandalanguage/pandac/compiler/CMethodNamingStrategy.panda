@@ -1,0 +1,113 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.types.Type
+
+class CMethodNamingStrategy (MethodNamingStrategy) {
+    constant MAPPED_NAMES := new ImmutableHashMap<String, String>(
+            new HashMap<String, String>(["+", "-", "*", "/", "//", "^", "[]", 
+            "[]:=", "[..]", "[..]:=", "[...]", "[...]:=", "=", ">", "<", ">=", 
+            "<=", "|", "||", "&", "&&", "~", "~~", "!", "!!", "<<", ">>"],
+            ["$ADD", "$SUB", "$MUL", "$DIV", "$INTDIV", "$POW", "$ARR", "$ARREQ", 
+            "$SLE", "$SLEEQ", "$SLI", "$SLIEQ", "$EQ", "$GT", "$LT", "$GE", 
+            "$LE", "$OR", "$BOR", "$AND", "$BAND", "$XOR", "$BXOR", "$NOT",
+            "$BNOT", "$SHL", "$SHR"]))
+
+    constant PANDAMAIN_NAME := "pandaMain"
+    
+    @private
+    constant PANDASTART_NAME := "pandaStart"
+
+    @private
+    method determineShortName(rawName:String, owner:TypedClassStub, 
+            returnType:Type):String {
+        if rawName.startsWith(ASTGenerator.SHIM_PREFIX) {
+            return ASTGenerator.SHIM_PREFIX + determineShortName(
+                    rawName[ASTGenerator.SHIM_PREFIX.length..], owner, 
+                        returnType)
+        }
+        if rawName = MethodNode.MAIN_NAME
+            return PANDAMAIN_NAME
+        else if rawName = MethodNode.START_NAME & 
+                owner.name = class(Panda).name
+            return PANDASTART_NAME
+        def result := new MutableString()
+        result.append(MethodNamer.escapeTypeName(owner.name))
+        result.append("$")
+        def mapped := MAPPED_NAMES[rawName]->(String?)
+        if mapped != null
+            result.append(mapped)
+        else if rawName = "->>" {
+            result.append("$CNV")
+            result.append(MethodNamer.escapeTypeName(returnType.name))
+        }
+        else if rawName.endsWith(":=") {
+            result.append(rawName[0 .. rawName.length() - 2])
+            result.append("$SET")
+        }
+        else
+            result.append(rawName)
+        return result->>(String)
+    }
+
+    @override
+    method shortName(cl:TypedClassStub, m:TypedMethodStub):String {
+        return determineShortName(m.name, cl, m.returnType)
+    }
+    @postAnd(!@return.contains(" "))
+
+    @override
+    method mediumName(cl:TypedClassStub, m:TypedMethodStub):String {
+        def result := shortName(cl, m)->>(MutableString)
+        for i, p in m.parameters {
+            if i = 0 & !m.annotations.isClass
+                continue
+            def t := p.type
+            result.append("_")
+            if t.isPrimitive {
+                def index := t.name.lastIndexOf(".")
+                if index != null
+                    result.append(t.name[index + 1..])
+                else
+                    result.append(t.name)
+            }
+            else {
+                result.append(MethodNamer.escapeTypeName(
+                        t.simpleName))
+            }
+        }
+        return result->>(String)
+    }
+    @postAnd(!@return.contains(" "))
+
+    @override
+    method longName(cl:TypedClassStub, m:TypedMethodStub):String {
+        def result := shortName(cl, m)->>(MutableString)
+        if m.annotations.isClass
+            result.append("_class")
+        for i, p in m.parameters {
+            if i = 0 & !m.annotations.isClass
+                continue
+            def t := p.type
+            result.append("_")
+            if t.isPrimitive {
+                def index := t.name.lastIndexOf(".")
+                if index != null
+                    result.append(t.name[index + 1..])
+                else
+                    result.append(t.name)
+            }
+            else
+                result.append(MethodNamer.escapeTypeName(t.name))
+        }
+        return result->>(String)
+    }
+    @postAnd(!@return.contains(" "))
+
+    @override
+    function disambiguation(m:TypedMethodStub):String {
+        return ""
+    }
+}
