@@ -1633,8 +1633,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
     }
 
     method resolveNoArgFunction(context:Context, u:Unresolved):Value? {
-        if !u->>(String).endsWith("writeLine")
-            return null
         def result, messages := call(context, u.position, u.contextValue, 
                 u.name, new Array<Value>())
         if result-?>(MethodCall) & 
@@ -1682,8 +1680,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 result := null
             messages := addMessage(messages, new Message("unknown identifier",
                     raw.position))
-            return (new Unresolved(raw.position, null, raw->>(String)), 
-                    messages)
         }
         else if result-?>(AmbiguousReference) {
             def a := result->(AmbiguousReference)
@@ -2315,7 +2311,9 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
         assert contextValue != null
         assert lvalues.length = 0
-        return resolve(context, contextValue)
+        def result, submessages := resolve(context, contextValue)
+        messages := addMessages(messages, submessages)
+        return (result, messages)
     }
 
     ============================================================================
@@ -2565,12 +2563,17 @@ class ASTGenerator : Immutable (MessageProcessor) {
             case ParseNodeType.RETURN_STATEMENT: {
                 def r := s[0]
                 if r.length > 1 {
-                    throw new NotSupportedException()
--*                    def cm := currentMethod
+                    def cm := context.currentMethod
                     assert cm != null
-                    return new Return(r.position, 
-                            implicitCast(r[1].position, convertExpression(r[1]), 
-                                    cm.returnType)))*-
+                    var value, messages := convertExpression(context, r[1])
+                    if value != null {
+                        def cast, submessages := value.implicitCast(
+                                cm.returnType)
+                        messages := addMessages(messages, submessages)
+                        return (new Return(r.position, cast), messages)
+                    }
+                    return (new Return(r.position, new Dummy(r.position,
+                            cm.returnType)), messages)
                 }
                 else
                     return (new Return(r.position), null)

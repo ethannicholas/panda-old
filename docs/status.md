@@ -356,6 +356,32 @@ grammar, with their own tokens, which basically requires me to be able to
 The good news is that it shouldn't be all that hard to do, and then we've got 
 the general ability to embed other languages within Panda without too much fuss.
 
+Compile-Time Safety Errors
+--------------------------
+
+Violation of an assert, precondition or postcondition is a runtime error. When
+the dataflow analysis is sufficiently finished, these will also become 
+compile-time errors if the compiler can prove that a safety error always occurs.
+For instance, the following code:
+
+    def stack := new Stack<Int>()
+    stack.push(1)
+    stack.push(2)
+    stack.pop()
+    stack.pop()
+    stack.pop()
+
+should result in a compiler exception. Stack's constructor has a postcondition
+of length = 0, stack.push has a postcondition that it increases the stack length
+by one, and stack.pop has a precondition that length is greater than zero and
+a postcondition that it reduces the stack length by one. Given these conditions,
+a sufficiently-smart analyzer could easily prove that the last call to 
+stack.pop() happens when the stack length is zero and therefore generate a 
+compile-time error.
+
+Obviously, such clear-cut errors won't be incredibly common, but they do happen
+and it would be nice to have the compiler detect them. 
+
 Potential Features Which Might Happen Eventually
 ================================================
 
@@ -418,6 +444,65 @@ implementation in an afternoon. The hesitation mainly comes from open questions
 about interaction with other language features, such as the slice syntax.
 Keeping slicing single-valued as it is now, forcing you to use tuples to specify
 multi-dimensional slices, is a potential answer.
+
+Proofs
+------
+
+It isn't always easy to work out why the compiler is claiming the things it's
+claiming. Most of us have at some point said "What do you mean, I didn't 
+initialize that variable?" while carefully tracing execution paths to find the
+path we missed. To the basic uninitialized / double-initialized errors that many
+languages report, Panda adds complaints about improper uses of null, mutation of
+externally-visible objects, mutable vs. immutable methods, (eventually) 
+compile-time safety errors... in other words, there are a lot of things the
+compiler can complain about which won't necessarily be immediately obvious.
+
+I would like to eventually add the ability to construct a *proof* of a given
+situation. The basic idea (subject to change, of course) is that the output for
+compiling:
+
+    def stack := new Stack<Int>()
+    stack.push(1)
+    stack.push(2)
+    stack.pop()
+    stack.pop()
+    stack.pop()
+
+would look something like:
+
+    error: Test.panda:6:6: precondition 'length > 0' of 'panda.core.Stack::pop()'
+    is always violated. Compile with -proof for proof.
+
+And then if you recompiled with the -proof argument, you would get output 
+similar to:
+
+    error: Test.panda:6:6: precondition 'length > 0' of 'panda.core.Stack::pop()'
+    is always violated. Proof:
+        1. Test.panda:1:14: 'length' must be equal to 0, by 
+                'panda.core.Stack::constructor' postcondition 'length = 0'
+        2. Test.panda:1:6: 'stack' is set equal to 'panda.core.Stack' value from
+                step 1
+        3. Test.panda:2:6: 'stack.length' must be equal to 1, by
+                'panda.core.Stack::push' postcondition 'length = @pre(length) + 1'
+        4. Test.panda:3:6: 'stack.length' must be equal to 2, by
+                'panda.core.Stack::push' postcondition 'length = @pre(length) + 1'
+        5. Test.panda:4:6: 'stack.length' must be equal to 1, by
+                'panda.core.Stack::pop' postcondition 'length = @pre(length) - 1'
+        6. Test.panda:5:6: 'stack.length' must be equal to 0, by
+                'panda.core.Stack::pop' postcondition 'length = @pre(length) - 1'
+        7. Test.panda:6:6: precondition 'length > 0' violated
+
+It remains to be seen if the dataflow analysis information can be turned into
+sufficiently-sensible English, and if this presentation is actually useful. It 
+will be very difficult to strike the right balance of information; for instance,
+we might be certain that these 100 lines of the function didn't end up altering
+a particular value from its first assignment, but actually explaining that could
+involve convoluted proofs of how a particular value isn't visible to the outside
+world and how none of the methods we call on it could have affected it, for
+*every single such call*. So we probably want to give enough information to 
+establish our case, but be smart enough not to have page after page of "and this
+call didn't do anything either, because...". Maybe a -pedantic option for
+when you really need *all* of the details?
 
 Potential Breaking Changes
 ==========================
