@@ -130,6 +130,10 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def types:MapView<String, Type>
 
+    def nextLabels := new HashMap<AbstractLoop, String>()
+
+    def endLabels := new HashMap<AbstractLoop, String>()
+
     def headerBuffer := new MemoryOutputStream()
 
     def header := new IndentedOutputStream(headerBuffer)
@@ -1047,6 +1051,97 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    method generateIfCode(i:If) {
+        if debug
+            body.writeLine("; " + i)
+        def ifLabel := createLabel()
+        def elseLabel := createLabel()
+        def endLabel:String
+        if i.elseBlock != null
+            endLabel := createLabel()
+        else
+            endLabel := elseLabel
+        writeBody("br " + getTypedReference(i.test) + 
+                ", label %" + ifLabel + ", label %" + elseLabel, 
+                "if test: " + i.test)
+        body.writeLine()
+        createBlock(ifLabel, "then: " + i)
+        generateBlockCode(i.ifBlock)
+        if !i.ifBlock.endsInBranch
+            writeBody("br label %" + endLabel, "then -> end")
+        body.writeLine()
+        def elseBlock := i.elseBlock
+        if elseBlock != null {
+            createBlock(elseLabel, "else: " + i)
+            generateBlockCode(elseBlock)
+            if !elseBlock.endsInBranch
+                writeBody("br label %" + endLabel, "else -> end")
+            body.writeLine()
+        }
+        createBlock(endLabel, "end: " + i)
+    }
+
+    @protected
+    method generateWhileCode(w:While) {
+        def bodyLabel := createLabel()
+        def nextLabel := createLabel()
+        def endLabel := createLabel()
+        nextLabels[w] := nextLabel
+        endLabels[w] := endLabel
+        body.writeLine("br label %" + nextLabel)
+        body.writeLine()
+        createBlock(nextLabel, "next: " + w)
+        writeBody("br " + getTypedReference(w.test) + 
+                ", label %" + bodyLabel + ", label %" + endLabel,
+                "while test: " + w.test)
+        body.writeLine()
+        createBlock(bodyLabel, "body: " + w)
+        generateBlockCode(w.block())
+        if !w.block.endsInBranch
+            body.writeLine("br label %" + nextLabel)
+        body.writeLine()
+        createBlock(endLabel, "end: " + w)
+    }
+
+    @protected
+    method generateDoCode(d:Do) {
+        def bodyLabel := createLabel()
+        def nextLabel := createLabel()
+        def endLabel := createLabel()
+        nextLabels[d] := nextLabel
+        endLabels[d] := endLabel
+        body.writeLine("br label %" + bodyLabel)
+        body.writeLine()
+        createBlock(bodyLabel, "body: " + d)
+        generateBlockCode(d.block)
+        if !d.block.endsInBranch
+            body.writeLine("br label %" + nextLabel)
+        body.writeLine()
+        createBlock(nextLabel, "next: " + d)
+        writeBody("br " + getTypedReference(d.test) + 
+                ", label %" + bodyLabel + ", label %" + endLabel,
+                "do test: " + d.test)
+        body.writeLine()
+        createBlock(endLabel, "end: " + d)
+    }
+
+    @protected
+    method generateLoopCode(l:Loop) {
+        def nextLabel := createLabel()
+        def endLabel := createLabel()
+        nextLabels[l] := nextLabel
+        endLabels[l] := endLabel
+        body.writeLine("br label %" + nextLabel)
+        body.writeLine()
+        createBlock(nextLabel, "next: " + l)
+        generateBlockCode(l.block)
+        if !l.block.endsInBranch
+            body.writeLine("br label %" + nextLabel)
+        body.writeLine()
+        createBlock(endLabel, "end: " + l)
+    }
+
+    @protected
     method generateReturnCode(ret:Return) {
         def value := ret.value
         if value = null
@@ -1066,11 +1161,11 @@ class LLVMCodeGenerator (CodeGenerator) {
                     generateFieldAssignmentCode(s->(FieldAssignment)) *-
             case class(ValueStatement):
                     generateValueStatementCode(s->(ValueStatement))
--*            case class(If): generateIfCode(s->(If))
+            case class(If): generateIfCode(s->(If))
             case class(While): generateWhileCode(s->(While))
             case class(Do): generateDoCode(s->(Do))
             case class(Loop): generateLoopCode(s->(Loop))
-            case class(LoopWithContinueBlock): 
+-*            case class(LoopWithContinueBlock): 
                     generateLoopWithContinueBlockCode(s->(LoopWithContinueBlock))
 *-
             case class(Block): generateBlockCode(s->(Block))

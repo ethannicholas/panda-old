@@ -1,8 +1,16 @@
 package org.pandalanguage.pandac.tree
 
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.InternalCompilerException
 uses org.pandalanguage.pandac.compiler.Message
+uses org.pandalanguage.pandac.compiler.TypeMap
+uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.NativePointerType
+uses org.pandalanguage.pandac.types.NullType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.RealLiteralType
+uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.Type
 
 enum BinaryOperationType {
@@ -44,15 +52,174 @@ class BinaryOperation : Value {
         self.operation := operation
     }
 
+    @private
     @class
     function getType(operation:BinaryOperationType, operandType:Type):Type {
-        return operandType
+        switch operation {
+            case BinaryOperationType.EQUAL, BinaryOperationType.NOT_EQUAL,
+                    BinaryOperationType.IDENTITY, 
+                    BinaryOperationType.NOT_IDENTITY,
+                    BinaryOperationType.GREATER_THAN,
+                    BinaryOperationType.GREATER_THAN_OR_EQUAL,
+                    BinaryOperationType.LESS_THAN,
+                    BinaryOperationType.LESS_THAN_OR_EQUAL:
+                return BitType.BIT
+            default:
+                return operandType
+        }
     }
 
     @class
-    function operandType(operation:BinaryOperationType, left:Value, 
-            right:Value):Type? {
-        return IntType.INT32
+    function mathOperandType(context:Context, leftValue:Value, rightValue:Value, 
+            signMatters:Bit):Type? {
+        var left := leftValue.type
+        var right := rightValue.type
+        -- deal with autosizing of real literals
+        if left = RealLiteralType.REAL_LITERAL & right.isReal
+            return right
+        if right = RealLiteralType.REAL_LITERAL & left.isReal
+            return left
+
+        -- if both operands are ints, use Int32, UInt32, Int64, or UInt64
+        if left.isInteger & right.isInteger {
+            -- IntegerLiterals could be resolved as either signed or unsigned,
+            -- depending on context
+            if leftValue-?>(IntegerLiteral) {
+                if right->(IntType).signed {
+                    var newLeft := leftValue->(IntegerLiteral).getType(true)
+                    if newLeft != null 
+                        left := newLeft
+                }
+                else {
+                    var newLeft := leftValue->(IntegerLiteral).getType(false)
+                    if newLeft != null 
+                        left := newLeft
+                }
+            }
+            else if rightValue-?>(IntegerLiteral) {
+                if left->(IntType).signed {
+                    var newRight := rightValue->(IntegerLiteral).getType(true)
+                    if newRight != null 
+                        right := newRight
+                }
+                else {
+                    var newRight := rightValue->(IntegerLiteral).getType(false)
+                    if newRight != null
+                        right := newRight
+                }
+            }
+            def leftSize := left->(IntType).size
+            def rightSize := right->(IntType).size
+            if leftSize < 4 & rightSize < 4
+                return IntType.INT32
+            if left = right
+                return left
+            if leftSize = 8 & rightSize = 8 {
+                if signMatters
+                    return null -- can't operate on Int64 & UInt64
+                else
+                    return IntType.INT64
+            }
+            if leftSize = 8 {
+                assert rightSize < 8
+                return left
+            }
+            if rightSize = 8 {
+                assert leftSize < 8
+                return right
+            }
+            if leftSize = 4 & rightSize < 4 {
+                if !left->(IntType).signed {
+                    if right->(IntType).signed
+                        return IntType.INT64
+                    else
+                        return IntType.UINT32
+                }
+                else
+                    return IntType.INT32
+            }
+            if rightSize = 4 & leftSize < 4 {
+                if !right->(IntType).signed {
+                    if left->(IntType).signed
+                        return IntType.INT64
+                    else
+                        return IntType.UINT32
+                }
+                else
+                    return IntType.INT32
+            }
+            assert leftSize = 4 & rightSize = 4
+            assert left->(IntType).signed != right->(IntType).signed
+            if signMatters
+                return IntType.INT64
+            else
+                return IntType.INT32
+        }
+        
+        -- if both operands are numbers, use a 32 or 64 bit real
+        if left.isNumber & right.isNumber {
+            if left->(PrimitiveType).size <= 4 & right->(PrimitiveType).size <= 4
+                return RealType.REAL32
+            else
+                return RealType.REAL64
+        }
+        return null
+    }
+
+    @class
+    method logicalOperandType(context:Context, leftValue:Value, 
+            rightValue:Value):Type? {
+        var left := leftValue.type
+        var right := rightValue.type
+        if left = NativePointerType.NATIVE_POINTER | 
+                right = NativePointerType.NATIVE_POINTER
+            return NativePointerType.NATIVE_POINTER
+        if left = NullType.NULL
+            return right.nullableVersion(context)
+        if right = NullType.NULL
+            return left.nullableVersion(context)
+        if left.isWrapper
+            left := left->>(PrimitiveType)
+        if right.isWrapper
+            right := right->>(PrimitiveType)
+        if left = BitType.BIT & right = BitType.BIT
+            return BitType.BIT
+        var result := mathOperandType(context, leftValue, rightValue, true)
+        if result = RealLiteralType.REAL_LITERAL
+            result := RealType.REAL64
+        return result
+    }
+
+
+    @class
+    method operandType(context:Context, operation:BinaryOperationType, 
+            left:Value, right:Value):Type? {
+        switch operation {
+            case BinaryOperationType.ADD, BinaryOperationType.SUBTRACT, 
+                    BinaryOperationType.MULTIPLY, BinaryOperationType.DIVIDE,
+                    BinaryOperationType.GREATER_THAN,
+                    BinaryOperationType.GREATER_THAN_OR_EQUAL,
+                    BinaryOperationType.LESS_THAN,
+                    BinaryOperationType.LESS_THAN_OR_EQUAL:
+                return mathOperandType(context, left, right, true)
+            case BinaryOperationType.BITWISE_AND,
+                    BinaryOperationType.BITWISE_OR,
+                    BinaryOperationType.BITWISE_XOR:
+                return mathOperandType(context, left, right, false)
+            case BinaryOperationType.AND, BinaryOperationType.OR,
+                    BinaryOperationType.XOR:
+                return BitType.BIT
+            case BinaryOperationType.EQUAL, BinaryOperationType.NOT_EQUAL,
+                    BinaryOperationType.IDENTITY, 
+                    BinaryOperationType.NOT_IDENTITY:
+                return logicalOperandType(context, left, right)
+            default:
+                unreachable
+-*    
+    SHIFT_LEFT,
+    SHIFT_RIGHT
+*-
+        }
     }
 
     @class

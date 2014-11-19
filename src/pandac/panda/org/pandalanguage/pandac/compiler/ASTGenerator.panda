@@ -594,7 +594,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
         if lastEnd > 0 {
             def chars, submessages := convertStringChars(t.position,
-                    s[lastEnd .. matcher.start], false)
+                    s[lastEnd..], false)
             messages := addMessages(messages, submessages)
             if chars != null
                 result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
@@ -870,7 +870,10 @@ class ASTGenerator : Immutable (MessageProcessor) {
         if value = null
             return (null, messages)
         if e.length > 1 {
-            value, submessages := processCallOrAssignment(context, value, e)
+            def statement:Statement?
+            value, statement, submessages := processCallOrAssignment(context, 
+                    value, e)
+            assert statement = null
             messages := addMessages(messages, submessages)
             if value = null
                 return (null, submessages)
@@ -1174,8 +1177,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 }*-
                 default: throw new InternalCompilerException(position)
             }
-            def operandType := BinaryOperation.operandType(opType, left, 
-                    right)
+            def operandType := BinaryOperation.operandType(context,
+                    opType, left, right)
             if operandType = null {
                 return (null, wrap(new Message("'\{methodName}' cannot operate on " +
                         "'\{left.type.displayName}', " +
@@ -1877,12 +1880,439 @@ class ASTGenerator : Immutable (MessageProcessor) {
         return result
     }
 
+    -- FIXME refactoring required! I did this all wrong and dumb. When I first
+    -- started working on Panda, all lvalues were also rvalues. Then one
+    -- situation crept in where the two weren't exactly the same, so I hacked it
+    -- a bit to get it working. Then another cropped up, and another, and slowly
+    -- this nice simple method turned into this hellish monstrosity. It needs to
+    -- be killed with extreme prejudice, and I apologize to anyone reading this
+    -- code. It just built up a bit at a time until it was completely out of
+    -- control.
+    --
+    -- The basic idea is that (due to the original simplicity) the processing
+    -- originally just figured out the rvalue on the left side of the assignment
+    -- operator, ran into an assignment operator, made sure the rvalue worked as
+    -- an lvalue, and continued on its merry way. Since then, this has gotten so 
+    -- hellishly complicated that it absolutely needs to be rewritten so as to 
+    -- know up front to be looking for an lvalue, so we can eliminate all of 
+    -- these special cases and cut this at least in half.
+    --
+    -- UPDATE:
+    -- Oh god I made it even worse. It's so awful. Please don't judge me by this
+    -- method, I'm better than this, I swear :-(
+    --
+    -- FURTHER UPDATE:
+    -- Actually, I don't think the refactoring is as simple as I outlined. I 
+    -- hadn't considered the complexities introduced by compound assignment. We
+    -- can't just process the assignment target twice (once in "lvalue mode" and
+    -- once in "rvalue mode"), because that would involve duplicate evaluations
+    -- of things that are only supposed to be evaluated once. It can certainly
+    -- be done simpler than it's being done, but I don't think it's possible to
+    -- eliminate quite as much complexity as I had hoped.
+    method processSingleAssignment(context:Context, var left:Value, 
+            assignmentOp:ParseNode, right:Value, reuse:Bit):
+            (ListView<Statement>?, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        def resolved, resolveMessages := resolve(context, left)
+        if resolved != null
+            left := resolved
+        if left-?>(Unresolved) {
+            -- could be an assignment method
+            var contextValue := left->(Unresolved).contextValue
+            def name := left->(Unresolved).name
+            if contextValue = null {
+                if context.isInstance
+                    contextValue := context.getSelf(assignmentOp.position)
+                else {
+                    -- we're in a class context, so there can't possibly be an
+                    -- assignment method. Go ahead and report the error.
+                    return (null, resolveMessages)
+                }
+            }
+            assert contextValue != null
+-*            def call := callAssignmentMethod(contextValue, name, 
+                    new PrimitiveArray<Value>(right))
+            if call != null
+                currentNode.add(call)
+            else {
+                -- no assignment method, trigger the exception
+                resolve(left)
+            }*-
+            throw new NotSupportedException()
+        }
+-*        else if left-?>(AmbiguousReference) {
+            var a := left->(AmbiguousReference)
+            var object := a.context
+            if reuse {
+                def reusable := makeReusable(object)
+                reusable.replace(reusable.createReference())
+                currentNode.add(new ValueStatement(reusable))
+                object := reusable.createReference()
+            }
+            checkAssignment(a.field, a.position)
+            open(new FieldAssignment(assignmentOp.position, object, a.field))
+            currentNode.add(implicitCast(right.position, right, a.type))
+            close(class(FieldAssignment))
+        } *-
+        else if left-?>(VariableReference) {
+            def variable := left->(VariableReference).variable
+            def cast, submessages := right.implicitCast(variable.type)
+            messages := addMessages(messages, submessages)
+            def assignment := new VariableAssignment(assignmentOp.position,
+                    variable, cast)
+            def result := new Array<Statement>()
+            result.add(new ValueStatement(assignment))
+            return (result, messages)
+        }
+-*        else if left-?>(FieldReference) {
+            var fv := left->(FieldReference)
+            var object:Value
+            if reuse {
+                cm.add(right)
+                if fv.object-!>(ClassLiteral) {
+                    def reusable := makeReusable(fv.object)
+                    reusable.replace(reusable.createReference())
+                    currentNode.add(new ValueStatement(reusable))
+                    object := reusable.createReference()
+                }
+                else
+                    object := fv.object
+            }
+            else {
+                object := fv.object
+                cm.add(fv)
+            }
+            if reuse
+                right.removeFromParent()
+            else {
+                fv.removeFromParent()
+                object.removeFromParent()
+            }
+            var name := fv.field.name
+            var call := callAssignmentMethod(object, name, 
+                    new PrimitiveArray<Value>(right))
+            if call != null {
+                if currentClass != fv.field.parent & 
+                        !fv.field.annotations.isReadOnly &
+                        !fv.field.annotations.isFinal {
+                    throw new CompilerException("reference to '\{name}' is " +
+                            "ambiguous, both field \{name} (of type " +
+                            "\{fv.field.type.displayName}) and method " +
+                            "\{name}:=() match", fv.position)
+                }
+                currentNode.add(call)
+            }
+            else {
+                if reuse & object-?>(ClassLiteral) {
+                    object.replace(
+                            new ClassLiteral(object->(ClassLiteral).value))
+                }
+                checkAssignment(fv.field, fv.position)
+                open(new FieldAssignment(assignmentOp.position, object, 
+                        fv.field))
+                currentNode.add(implicitCast(right.position, right, fv.type))
+                close(class(FieldAssignment))
+            }
+        }
+        else if left-?>(IndexValue) {
+            if left->(IndexValue).array.type.isImmutable
+                error("cannot modify immutable array", assignmentOp.position)
+            -- handle increasing array length when index = array length
+            var iv := left->(IndexValue)
+            if reuse {
+                cm.add(right)
+                def array := makeReusable(iv.array)
+                def index := makeReusable(iv.index)
+                index.removeFromParent()
+                array.removeFromParent()
+                iv.add(array.createReference())
+                iv.add(index.createReference())
+                right.removeFromParent()
+                currentNode.add(new ValueStatement(array))
+                currentNode.add(new ValueStatement(index))
+                open(new IndexedAssignment(assignmentOp.position,
+                        array.createReference(),
+                        index.createReference()))
+                currentNode.add(implicitCast(right.position, right, iv.type))
+            }
+            else {
+                var array := iv.array
+                var index := iv.index
+                array.removeFromParent()
+                index.removeFromParent()
+                open(new IndexedAssignment(assignmentOp.position, array, index))
+                currentNode.add(implicitCast(right.position, right, iv.type))
+            }
+            close(class(IndexedAssignment))
+        }
+        else if left-?>(PossibleIndexedAssignment) {
+            var pia := left->(PossibleIndexedAssignment)
+            var params := [pia.index, right]
+            var call := callAssignmentMethod(pia.context, "[]", params)
+            if call != null
+                currentNode.add(call)
+            else {
+                -- FIXME use map
+                var types := new PrimitiveArray<String>()
+                for p in params
+                    types.append(p.type.displayName)
+                throw new CompilerException("'\{pia.context.type.displayName}' does " + 
+                        "not define the indexed assignment ([]:=) operator " +
+                        "for \{types}", pia.position)
+            }
+        }
+        else if left-?>(PossibleSliceAssignment) {
+            var psa := left->(PossibleSliceAssignment)
+            var params := [psa.left, psa.right, psa.step, right]
+            var name:String
+            if psa.endInclusive
+                name := "[...]"
+            else
+                name := "[..]"
+            var call := callAssignmentMethod(psa.context, name, params)
+            if call != null
+                currentNode.add(call)
+            else {
+                var types := new PrimitiveArray<String>()
+                for p in params
+                    types.append(p.type.displayName)
+                if psa.endInclusive
+                    name := "inclusive slice assignment ([...]:=)"
+                else
+                    name := "exclusive slice assignment ([..]:=)"
+                throw new CompilerException("\{psa.context.type.displayName} does " +
+                        "not define the \{name} operator for \{types}", 
+                        psa.position)
+            }
+        }
+        else if left-?>(MethodCall) {
+            -- assigning to a method call. We need to look for a corresponding
+            -- assignment method / field.
+            var mc := left->(MethodCall)
+            var methodNode := mc.methodNode
+            if !methodNode.annotations.isClass & (mc.parameters.length = 1 | 
+                    methodNode.name = "[]" | methodNode.name = "[..]" |
+                    methodNode.name = "[...]") {
+                var cl := mc.methodNode.parent->(ClassNode)
+                var oldParams := mc.parameters
+                var testParams := oldParams[1..]
+                -- undo implicit casts that happened as part of setting up the
+                -- original method call
+                for i, p in testParams {
+                    testParams[i] := unwrapImplicitCast(p)
+                }
+                if methodNode.name = "[..]" | methodNode.name = "[...]" {
+                    -- restore parameters that might have been stripped when we
+                    -- matched the initial slice. Such a hack, I'm so sorry.
+                    if testParams.length = 0
+                        testParams.append(new NullLiteral(left.position))
+                    if testParams.length = 1
+                        testParams.append(new NullLiteral(left.position))
+                    if testParams.length = 2
+                        testParams.append(new IntegerLiteral(left.position, 1))
+                }
+                testParams.append(right)
+                def src := unwrapImplicitCast(oldParams[0])
+                def m := findAssignmentMethod(src, methodNode.name, 
+                        testParams, mc.isSuper)
+                if m != null {
+                    -- found assignment method
+                    -- promote our parameters, call it and we're done
+                    var params := new PrimitiveArray<Value>()
+                    if reuse
+                        cm.add(right)
+                    else
+                        cm.add(mc)
+                    for i, p in m.params {
+                        if i = m.params.length - 1
+                            break
+                        if reuse {
+                            def getMethod := left->(MethodCall).methodNode
+                            var reusable := makeReusable(p)
+                            reusable.replace(implicitCast(p.position,
+                                    reusable.createReference(),
+                                    getMethod.parameters[i].type))
+                            params.append(reusable)
+                        }
+                        else
+                            params.append(p)
+                        if params[i].parent != null
+                            params[i].removeFromParent()
+                    }
+                    if reuse
+                        right.removeFromParent()
+                    else
+                        mc.removeFromParent()
+                    params.append(right)
+                    currentNode.add(new ValueStatement(call(
+                            assignmentOp.position, m.methodNode, 
+                            m.methodNode.isDeclaredVirtual() & !mc.isSuper, 
+                            params)))
+                }
+                else {
+                    -- no assignment method
+                    if methodNode.name = "[]" {
+                        var types := new PrimitiveArray<String>()
+                        for p in testParams
+                            types.append(p.type.displayName)
+                        throw new CompilerException("'\{src.type.displayName}' " +
+                                "does not define the indexed assignment ([]:=) " +
+                                "operator for \{types}", mc.position)
+                    }
+                    else if methodNode.name = "[..]" {
+                        throw new CompilerException("'\{src.type.displayName}' " +
+                                "does not define the exclusive slice assignment ([..]:=) " +
+                                "operator for these types", mc.position)
+                    }
+                    else if methodNode.name = "[...]" {
+                        throw new CompilerException("'\{src.type.displayName}' " +
+                                "does not define the inclusive slice assignment ([...]:=) " +
+                                "operator for these types", mc.position)
+                    }
+                    else {
+                        -- check for a field by this name
+                        if oldParams.length = 1 {
+                            var object := oldParams[0]
+                            def field := getField(left.position, 
+                                    new Dummy(object.type), 
+                                    mc.methodNode.name, false)
+                            if field-?>(FieldReference) {
+                                if reuse {
+                                    cm.add(right)
+                                    def reusable := makeReusable(object)
+                                    reusable.replace(reusable.createReference())
+                                    object := reusable
+                                    right.removeFromParent()
+                                }
+                                else
+                                    object.removeFromParent()
+                                checkAssignment(field->(FieldReference).field,
+                                        field.position)
+                                open(new FieldAssignment(assignmentOp.position, 
+                                        object, field->(FieldReference).field))
+                                currentNode.add(implicitCast(right.position, 
+                                        right, field.type))
+                                close(class(FieldAssignment))
+                                return
+                            }
+                        }
+                        error("cannot assign to '\{left}'", assignmentOp)
+                    }
+                }
+            }
+            else
+                error("cannot assign to '\{left}'", assignmentOp)
+        }
+        else
+            error("cannot assign to '\{left}'", assignmentOp)*-
+        throw new NotSupportedException()
+    }
+
+    @pre(assignmentOp.type = ParseNodeType.ASSIGNMENT_OPERATOR)
+    method processAssignment(context:Context, var left:ListView<Value?>, 
+            assignmentOp:ParseNode, var right:Value):
+            (ListView<Statement>?, ListView<Message>?) {
+        def cm := context.currentMethod
+        assert cm != null
+        def reuse:Bit
+        def assignmentType := assignmentOp[0]->(TokenNode).token.type
+        if assignmentType = TokenType.ASSIGNMENT
+            reuse := false
+        else {
+            reuse := true
+            def op:TokenType
+            switch assignmentType {
+                case TokenType.ADDEQ:        op := TokenType.ADD
+                case TokenType.SUBEQ:        op := TokenType.SUB
+                case TokenType.MULEQ:        op := TokenType.MUL
+                case TokenType.DIVEQ:        op := TokenType.DIV
+                case TokenType.INTDIVEQ:     op := TokenType.INTDIV
+                case TokenType.POWEQ:        op := TokenType.POW
+                case TokenType.REMEQ:        op := TokenType.REM
+                case TokenType.SHIFTLEFTEQ:  op := TokenType.SHIFTLEFT
+                case TokenType.SHIFTRIGHTEQ: op := TokenType.SHIFTRIGHT
+                case TokenType.BITWISEANDEQ: op := TokenType.BITWISEAND
+                case TokenType.BITWISEOREQ:  op := TokenType.BITWISEOR
+                case TokenType.BITWISEXOREQ: op := TokenType.BITWISEXOR
+                case TokenType.ANDEQ:        op := TokenType.AND
+                case TokenType.OREQ:         op := TokenType.OR
+                case TokenType.XOREQ:        op := TokenType.XOR
+                default: throw new InternalCompilerException(
+                        "unsupported assignment operator: " +
+                        "'\{assignmentType}'", assignmentOp.position)
+            }
+            if left.length > 1
+                return (null, wrap(new Message("compound assignment cannot " +
+                        " assign to multiple values at once", 
+                        assignmentOp.position)))
+            var lvalue := left[0]
+            if lvalue = null {
+                return (null, wrap(new Message("'_' is only permitted in " +
+                        "multiple assignments from a tuple", 
+                        assignmentOp.position)))
+            }
+            var messages:ListView<Message>?
+            lvalue, messages := resolve(context, lvalue)
+            if lvalue = null
+                return (null, messages)
+            var submessages:ListView<Message>?
+            def finalRight:Value?
+            finalRight, submessages := getBinaryValue(context, 
+                    assignmentOp.position, lvalue, op, right)
+            messages := addMessages(messages, submessages)
+            if finalRight != null
+                right := finalRight
+            -- deal with situations like int8 += 1 (which resolves into
+            -- int8 := int8 + 1, and the right side promotes to an Int32, so we
+            -- need to downcast)
+            if right.type.isInteger & lvalue.type.isInteger {
+                right, submessages := right.explicitCast(lvalue.type)
+                messages := addMessages(messages, submessages)
+            }
+            def newLeft := new Array<Value?>()
+            newLeft.add(lvalue)
+            left := newLeft
+        }
+
+        var result := new Array<Statement>()
+        if left.length > 1 {
+            def reused := new ReusedValueDefinition(right)
+            result.add(new ValueStatement(reused))
+            var messages:ListView<Message>? := null
+            for i, lvalue in left {
+                if lvalue != null {
+                    var tupleValue, submessages := getField(context, 
+                            right.position, reused.createReference(), 
+                            "$field" + i)
+                    messages := addMessages(messages, submessages)
+                    assert tupleValue != null : "can't-happen tuple failure: " +
+                            submessages
+                    var assignments:ListView<Statement>?
+                    assignments, submessages := processSingleAssignment(
+                            context, lvalue, assignmentOp, tupleValue, reuse)
+                    messages := addMessages(messages, submessages)
+                    if assignments != null
+                        result.addAll(assignments)
+                }
+            }
+            return (result, messages)
+        }
+        else {
+            def lvalue := left[0]
+            assert lvalue != null
+            return processSingleAssignment(context, lvalue, assignmentOp, right,
+                    reuse)
+        }
+    }
+
     ============================================================================
     Handles the nodes following the context in a CALL_OR_ASSIGNMENT. If it is a
     call, returns the call's value, otherwise returns null.
+
     ============================================================================
+    -- FIXME Dear god this has gotten long and unwieldy, needs to be split apart
     method processCallOrAssignment(context:Context, var contextValue:Value?, 
-            c:ParseNode):(Value?, ListView<Message>?) {
+            c:ParseNode):(Value?, Statement?, ListView<Message>?) {
         var messages:ListView<Message>? := null
         var i := 1
         def lvalues := new Array<Value?>()
@@ -1897,7 +2327,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 contextValue)
                         messages := addMessages(messages, submessages)
                         if contextValue = null
-                            return (null, messages)
+                            return (null, null, messages)
                         contextValue, submessages := 
                                 resolveUnresolvedConstructs(context,
                                     contextValue)
@@ -1910,7 +2340,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             contextValue := field
                         else {
                             if contextValue-!>(Unresolved) {
-                                return (null, wrap(new Message(
+                                return (null, null, wrap(new Message(
                                         "unknown identifier",
                                         contextValue.position)))
                             }
@@ -2062,7 +2492,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         assert c[i].type = ParseNodeType.TOKEN &
                                 c[i]->(TokenNode).token.type = TokenType.RBRACKET
                         i += 1*-
-                        throw new NotSupportedException()
+                        throw new NotSupportedException("lbracket")
                     }
                     case TokenType.MEMBER: {-*
                         assert contextValue != null
@@ -2122,7 +2552,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             throw new CompilerException("method not found",
                                     contextValue.position)
                         }*-
-                        throw new NotSupportedException()
+                        throw new NotSupportedException("member")
                     }
                     case TokenType.CONVERT: {
                         assert contextValue != null
@@ -2131,7 +2561,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 contextValue)
                         messages := addMessages(messages, submessages)
                         if contextValue = null
-                            return (null, messages)
+                            return (null, null, messages)
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
                         i += 1
@@ -2143,7 +2573,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                     contextValue, type)
                         }
                         else
-                            return (null, messages)
+                            return (null, null, messages)
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -2155,7 +2585,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 contextValue)
                         messages := addMessages(messages, submessages)
                         if contextValue = null
-                            return (null, messages)
+                            return (null, null, messages)
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
                         i += 1
@@ -2169,7 +2599,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             messages := addMessages(messages, submessages)
                         }
                         else
-                            return (null, messages)
+                            return (null, null, messages)
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -2181,7 +2611,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 contextValue)
                         messages := addMessages(messages, submessages)
                         if contextValue = null
-                            return (null, messages)
+                            return (null, null, messages)
                         def position := c[i].position
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
@@ -2194,7 +2624,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 contextValue, type)
                         }
                         else
-                            return (null, messages)
+                            return (null, null, messages)
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -2206,7 +2636,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 contextValue)
                         messages := addMessages(messages, submessages)
                         if contextValue = null
-                            return (null, messages)
+                            return (null, null, messages)
                         def position := c[i].position
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.LPAREN
@@ -2221,7 +2651,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                     UnaryOperationType.NOT, instanceof)
                         }
                         else
-                            return (null, messages)
+                            return (null, null, messages)
                         i += 1
                         assert c[i]->(TokenNode).token.type = TokenType.RPAREN
                         i += 1
@@ -2245,7 +2675,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                         parseBareIdentifier(context, c[i])
                                 messages := addMessages(messages, submessages)
                                 if contextValue = null
-                                    return (null, messages)
+                                    return (null, null, messages)
                             }
                         }
                         i += 1
@@ -2263,7 +2693,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 var params, submessages := convertParameters(context, c[i])
                 messages := addMessages(messages, submessages)
                 if params = null
-                    return (null, messages)
+                    return (null, null, messages)
                 i += 1
                 if contextValue-?>(Unresolved) {
                     contextValue, submessages := call(context, 
@@ -2272,11 +2702,11 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             contextValue->(Unresolved).name, params)
                     messages := addMessages(messages, submessages)
                     if contextValue = null
-                        return (null, messages)
+                        return (null, null, messages)
                 }
                 else if contextValue-?>(Super) {
-                    return (null, wrap(new Message("'super' is not a method", 
-                            contextValue.position)))
+                    return (null, null, wrap(new Message(
+                            "'super' is not a method", contextValue.position)))
                 }
                 else if contextValue-?>(Value) {
                     def v := contextValue->(Value)
@@ -2285,36 +2715,46 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         -- call the method
 -*                        prepareMethodParameters(v, params)
                         contextValue := new DynamicCall(v.position, v, params)*-
-                        throw new NotSupportedException()
+                        throw new NotSupportedException("dynamic call")
                     }
                     else {
-                        return (null, wrap(new Message("value of type '" + 
+                        return (null, null, wrap(new Message("value of type '" + 
                                 v.type.displayName + "' is not a method", 
                                 contextValue.position)))
                     }
                 }
                 else {
                     assert contextValue != null
-                    return (null, wrap(new Message("cannot call method on '" +
-                            contextValue + "'", contextValue.position)))
+                    return (null, null, wrap(new Message(
+                            "cannot call method on '\{contextValue}'", 
+                            contextValue.position)))
                 }
             }
             else {
                 assert contextValue != null
                 assert c[i].type = ParseNodeType.ASSIGNMENT_OPERATOR
                 lvalues.add(contextValue)
---                processAssignment(lvalues, c[i], convertExpression(context, 
---                        c[i + 1]))
---                return null
-                throw new NotSupportedException()
+                var expr, submessages := convertExpression(context, c[i + 1])
+                messages := addMessages(messages, submessages)
+                def result := new Array<Statement>()
+                if expr != null {
+                    def assignments:ListView<Statement>?
+                    assignments, submessages := processAssignment(context, 
+                            lvalues, c[i], expr)
+                    if assignments != null
+                        result.addAll(assignments)
+                    messages := addMessages(messages, submessages)
+                }
+                return (null, new Block(c.position, result), messages)
             }
         }
         assert contextValue != null
         assert lvalues.length = 0
         def result, submessages := resolve(context, contextValue)
         messages := addMessages(messages, submessages)
-        return (result, messages)
+        return (result, null, messages)
     }
+    @post(@return[0] = null | @return[1] = null)
 
     ============================================================================
     Processes a CALL_OR_ASSIGNMENT parse node.
@@ -2342,15 +2782,116 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     return (null, messages)
             }
         }
-        def call, submessages := processCallOrAssignment(context, contextValue,
-                c)
+        def call, statement, submessages := processCallOrAssignment(context, 
+                contextValue, c)
         messages := addMessages(messages, submessages)
         if call != null
             return (new ValueStatement(call), messages)
+        else if statement != null
+            return (statement, messages)
         else
             return (null, messages)
     }
 
+    ============================================================================
+    Processes an IF parse node.
+    ============================================================================
+    @pre(i.type = ParseNodeType.IF)
+    method convertIf(context:Context, i:ParseNode):(If, ListView<Message>?) {
+        assert i[0]->(TokenNode).token.type = TokenType.IF
+        var messages:ListView<Message>? := null
+        var test, submessages := convertExpression(context, i[1])
+        messages := addMessages(messages, submessages)
+        def cast:Value?
+        if test != null {
+            cast, submessages := test.implicitCast(BitType.BIT)
+            messages := addMessages(messages, submessages)
+        }
+        else
+            cast := new Dummy(i[1].position, BitType.BIT)
+        assert i[2].type = ParseNodeType.STATEMENT_OR_BLOCK
+        def ifBlock:Block
+        ifBlock, submessages := convertStatementOrBlock(context, i[2])
+        messages := addMessages(messages, submessages)
+        def elseBlock:Block?
+        if i.length > 3 {
+            assert i[3]->(TokenNode).token.type = TokenType.ELSE
+            elseBlock, submessages := convertStatementOrBlock(context, i[4])
+            messages := addMessages(messages, submessages)
+        }
+        else
+            elseBlock := null
+        return (new If(i.position, cast, ifBlock, elseBlock), messages)
+    }
+    
+    ============================================================================
+    Processes an ANY_LOOP parse node.
+    ============================================================================
+    @pre(l.type = ParseNodeType.ANY_LOOP)
+    method convertAnyLoop(context:Context, l:ParseNode):
+            (AbstractLoop, ListView<Message>?) {
+        def label:String?
+        var i := 0
+        if l[i]->(TokenNode).token.type = TokenType.IDENTIFIER {
+            label := l[i]->>(String)
+            assert l[i + 1].type = ParseNodeType.TOKEN &
+                    l[i + 1]->(TokenNode).token.type = TokenType.COLON
+            i += 2
+        }
+        else 
+            label := null
+        switch l[i]->(TokenNode).token.type {
+--            case TokenType.FOR:
+--                result := convertForLoop(l, i, label)
+            case TokenType.DO: {
+                i += 1
+                var messages:ListView<Message>? := null
+                assert l[i + 1].type = ParseNodeType.TOKEN &
+                        l[i + 1]->(TokenNode).token.type = TokenType.WHILE
+                var test, submessages := convertExpression(context, l[i + 2])
+                messages := addMessages(messages, submessages)
+                def cast:Value?
+                if test != null {
+                    cast, submessages := test.implicitCast(BitType.BIT)
+                    messages := addMessages(messages, submessages)
+                }
+                else
+                    cast := new Dummy(l[i + 2].position, BitType.BIT)
+                def block:Block
+                block, submessages := convertStatementOrBlock(context, l[i])
+                messages := addMessages(messages, submessages)
+                return (new Do(l.position, label, cast, block), messages)
+            }
+            case TokenType.LOOP: {
+                i += 1
+                var block, messages := convertStatementOrBlock(context, l[i])
+                return (new Loop(l.position, label, block), messages)
+            }
+            case TokenType.WHILE: {
+                i += 1
+                var messages:ListView<Message>? := null
+                var test, submessages := convertExpression(context, l[i])
+                messages := addMessages(messages, submessages)
+                def cast:Value?
+                if test != null {
+                    cast, submessages := test.implicitCast(BitType.BIT)
+                    messages := addMessages(messages, submessages)
+                }
+                else
+                    cast := new Dummy(l[i].position, BitType.BIT)
+                i += 1
+                def block:Block?
+                block, submessages := convertStatementOrBlock(context, l[i])
+                messages := addMessages(messages, submessages)
+                return (new While(l.position, label, cast, block), messages)
+            }
+            default: {
+                throw new InternalCompilerException("unsupported loop type", 
+                        l.position)
+            }
+        }
+    }
+    
     ============================================================================
     Processes a VAR_DECLARATION parse node. Returns a list of variables and
     statements to initialize them.
@@ -2497,7 +3038,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 def call, messages := convertCallOrAssignment(context, s[0])
                 return (call, context, messages)
             }
--*            case ParseNodeType.ANY_LOOP:  {
+            case ParseNodeType.ANY_LOOP:  {
                 def l, messages := convertAnyLoop(context, s[0])
                 return (l, context, messages)
             }
@@ -2505,6 +3046,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 def i, messages := convertIf(context, s[0])
                 return (i, context, messages)
             }
+-*
             case ParseNodeType.SWITCH_STATEMENT: {
                 def s, messages := convertSwitch(context, s[0])
                 return (convertSwitch(s[0]), context, messages)
