@@ -1,5 +1,7 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.compiler.Context
+
 ================================================================================
 The four `Int` types.
 ================================================================================
@@ -62,15 +64,14 @@ class IntType : PrimitiveType {
     }
 
     @override
-    function canExplicitCastTo(target:Type):Bit {
+    function canExplicitCastTo(context:Context, target:Type):Bit {
         if target.isPrimitive
             return target.isNumeric
-        --return wrapperVersion().canExplicitCastTo(target)
-        throw new NotSupportedException()
+        return self->>(WrapperType).canExplicitCastTo(context, target)
     }
 
     @override
-    function implicitCastCost(target:Type):Int? {
+    function implicitCastCost(context:Context, target:Type):Int? {
         if target.isNumber {
             if target->>(PrimitiveType).size < size
                 return null
@@ -94,14 +95,31 @@ class IntType : PrimitiveType {
             return result
         }
         else if target.isWrapper {
-            var result := implicitCastCost(target->>(PrimitiveType))
+            var result := implicitCastCost(context, target->>(PrimitiveType))
             if result != null & target.isNullable
                 result += NullableType.TO_NULLABLE_CAST_COST
             return result
         }
-        if !target.isWrapper & !target.isPrimitive
-            return WrapperType.wrapperFor(self).implicitCastCost(target)
+        if !target.isWrapper & !target.isPrimitive {
+            return self->>(WrapperType).implicitCastCost(context, 
+                    target)
+        }
         return null
+    }
+
+    @override
+    function ->>():WrapperType {
+        switch self {
+            case INT8:   return WrapperType.INT8_WRAPPER
+            case INT16:  return WrapperType.INT16_WRAPPER
+            case INT32:  return WrapperType.INT32_WRAPPER
+            case INT64:  return WrapperType.INT64_WRAPPER
+            case UINT8:  return WrapperType.UINT8_WRAPPER
+            case UINT16: return WrapperType.UINT16_WRAPPER
+            case UINT32: return WrapperType.UINT32_WRAPPER
+            case UINT64: return WrapperType.UINT64_WRAPPER
+            default: unreachable
+        }
     }
 
     @override

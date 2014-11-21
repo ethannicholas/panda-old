@@ -1,5 +1,6 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.InternalCompilerException
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Position
@@ -50,27 +51,35 @@ class WrapperType : ClassType {
         return true
     }
 
-    @class
-    function wrapperFor(type:PrimitiveType):Type {
-        switch type {
-            case IntType.INT8: return INT8_WRAPPER
-            case IntType.INT16: return INT16_WRAPPER
-            case IntType.INT32: return INT32_WRAPPER
-            case IntType.INT64: return INT64_WRAPPER
-            case IntType.UINT8: return UINT8_WRAPPER
-            case IntType.UINT16: return UINT16_WRAPPER
-            case IntType.UINT32: return UINT32_WRAPPER
-            case IntType.UINT64: return UINT64_WRAPPER
-            case RealType.REAL32: return REAL32_WRAPPER
-            case RealType.REAL64: return REAL64_WRAPPER
-            case BitType.BIT: return BIT_WRAPPER
-            case CharType.CHAR: return CHAR_WRAPPER
-            default: unreachable
+    @override
+    function implicitCastCost(context:Context, target:Type):Int? {
+        if target.isNullable {
+            def result := implicitCastCost(context, target.unwrapNullable)
+            if result != null
+                return result + NullableType.TO_NULLABLE_CAST_COST
+            return null
         }
-    }    
+        if target.isWrapper | target.isPrimitive {
+            return self->>(PrimitiveType).implicitCastCost(context,
+                    target->>(PrimitiveType))
+        }
+        return super.implicitCastCost(context, target)
+    }
+
+    @override
+    function canExplicitCastTo(context:Context, target:Type):Bit {
+        if self->>(PrimitiveType).canExplicitCastTo(context, target)
+            return true
+        return super.canExplicitCastTo(context, target)
+    }
 
     @override
     function ->>():PrimitiveType {
         return base
+    }
+
+    @override
+    function ->>():WrapperType {
+        return self
     }
 }

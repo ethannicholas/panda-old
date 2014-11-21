@@ -2,8 +2,12 @@ package org.pandalanguage.pandac.types
 
 uses org.pandalanguage.pandac.compiler.ASTGenerator
 uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.LookupContext
 uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.tree.Add
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
@@ -29,14 +33,19 @@ uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.VariableType
 
 ================================================================================
 A primitive array (mutable or immutable) of another type.
 ================================================================================
 class PrimitiveArrayType : GenericType {
+    -- all statically-allocated types must be added to the MutableTypeMap 
+    -- constructor
     constant IMMUTABLE_CHAR_ARRAY := new PrimitiveArrayType(
             ClassType.IMMUTABLE_PRIMITIVE_ARRAY, CharType.CHAR)
 
+    @pre(arrayClass = ClassType.PRIMITIVE_ARRAY | 
+            arrayClass = ClassType.IMMUTABLE_PRIMITIVE_ARRAY)
     constructor(arrayClass:ClassType, elementType:Type) {
         super.constructor(arrayClass, FIXMEwrap(elementType))
     }
@@ -50,8 +59,9 @@ class PrimitiveArrayType : GenericType {
 
     @override
     function simpleName():String {
-        def base := super.simpleName
-        return base[..base.indexOf("<")] + "<" + elementType.simpleName + ">"
+        -- FIXME we should be using elementType.simpleName here, but leaving it
+        -- as-is for backwards compatibility until new compiler is finished
+        return base.simpleName + "<" + elementType.name + ">"
     }
 
     function elementType():Type {
@@ -61,6 +71,32 @@ class PrimitiveArrayType : GenericType {
     @override
     function isPrimitiveArray():Bit {
         return true
+    }
+
+    function createStub(isExternal:Bit):TypedClassStub {
+        def position := new Position(name, -1, -1)
+        def final := new Array<AnnotationType>()
+        final.add(AnnotationType.FINAL)
+        def length := new FieldNode(position, self, "length", 
+                new Annotations(position, final), VariableType.DEF, 
+                IntType.INT32, null, null)
+        def maxLength := new FieldNode(position, self, "$maxLength", 
+                new Annotations(position, final), VariableType.DEF, 
+                IntType.INT32, null, null)
+        def elements := new FieldNode(position, self, FieldNode.ELEMENTS_NAME, 
+                new Annotations(position, final), VariableType.DEF,
+                elementType, null, null)
+        def fields := new Array<FieldNode>()
+        fields.add(length)
+        fields.add(maxLength)
+        fields.add(elements)
+        return new TypedClassStub(position, name, false, 
+                new Annotations(position, new Array<AnnotationType>()), 
+                new LookupContext(new Array<String>(), 
+                    new HashMap<String, String>()), 
+                ClassType.OBJECT, new Array<ClassType>(), 
+                new Array<TypedMethodStub>(), fields, 
+                new Array<ParseNode>(), null, isExternal)
     }
 
     @override

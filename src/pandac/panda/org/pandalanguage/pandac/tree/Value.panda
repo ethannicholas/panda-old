@@ -1,7 +1,15 @@
 package org.pandalanguage.pandac.tree
 
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.compiler.Message
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.NullableType
+uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.WrapperType
 
 @abstract
 class Value : Node {
@@ -32,24 +40,119 @@ class Value : Node {
     }
 
     @final
-    function canImplicitCastTo(t:Type):Bit {
-        return implicitCastCost(t) != null
+    function canImplicitCastTo(context:Context, t:Type):Bit {
+        return implicitCastCost(context, t) != null
     }
 
-    function implicitCastCost(t:Type):Int? {
-        return type.implicitCastCost(t)
+    function implicitCastCost(context:Context, t:Type):Int? {
+        return type.implicitCastCost(context, t)
     }
 
-    function implicitCast(t:Type):(Value, ListView<Message>?) {
-        return implicitCast(position, t)
+    @final
+    function implicitCast(context:Context, t:Type):(Value, ListView<Message>?) {
+        return implicitCast(position, context, t)
     }
 
-    function implicitCast(position:Position, t:Type):
+    @protected
+    function findConverter(context:Context, t:Type):TypedMethodStub? {
+        def stub := context.getStub(type->>(ClassType))
+        for m in stub.instanceMethods(context.stubs) {
+            if m.name = MethodNode.CONVERT_NAME & m.returnType = t
+                return m
+        }
+        def targetStub := context.getStub(t->>(ClassType))
+        var best := Int.MAX
+        var bestMatch:TypedMethodStub? := null
+        def params := new Array<Value>()
+        params.add(self)
+        for m in targetStub.methods {
+            if m.annotations.isClass & canImplicitCastTo(context, 
+                    m.parameters[0].type) {
+                def score := context.matchCost(m, params)
+                if score != null & score < best {
+                    best := score
+                    bestMatch := m
+                }
+            }
+        }
+        return bestMatch
+    }
+    @post(@return = null | @return.returnType = t)
+
+    function canConvertTo(context:Context, t:Type):Bit {
+        return findConverter(context, t) != null
+    }
+
+    function convert(context:Context, t:Type):(Value, ListView<Message>?) {
+        def converter := findConverter(context, t)
+        if converter != null {
+            def params := new Array<Value>()
+            def cast, messages := implicitCast(context, 
+                    converter.parameters[0].type)
+            params.add(cast)
+            return (new MethodCall(position, converter, false, params), 
+                    messages)
+        }
+        return (new Dummy(position, t), ASTGenerator.wrap(new Message(
+                "cannot convert '\{type.displayName}' to \{t.displayName}",
+                position)))
+    }
+
+    @private
+    @pre(type.isPrimitive)
+    function wrapped(context:Context, t:Type):(Value, ListView<Message>?) {
+        def wrapper:WrapperType
+        if t.isWrapper
+            wrapper := t->>(WrapperType)
+        else
+            wrapper := type->>(WrapperType)
+        def params := new Array<Value>()
+        params.add(new Dummy(position, wrapper))
+        def cast, messages := implicitCast(context, wrapper->>(PrimitiveType))
+        assert messages = null :
+                "wrapper cast failure \{messages}"
+        params.add(cast)
+        def constructorStub := context.getMethod(new ClassLiteral(position, 
+                wrapper), MethodNode.CONSTRUCTOR_NAME, params)
+        assert constructorStub != null : "could not find \{wrapper} " +
+                "constructor for \{type}"
+        def wrapperObject := new Construct(wrapper, new MethodCall(position, 
+                constructorStub, false, params))
+        return wrapperObject.implicitCast(position, context, t)
+    }
+
+    @private
+    @pre(type.isWrapper)
+    function unwrap(context:Context):Value {
+        def wrapper, messages := 
+                implicitCast(position, context, type->>(WrapperType))
+        assert messages = null : messages->>(String)
+        def wrapperStub := context.getStub(wrapper.type->(ClassType))
+        def fields := wrapperStub.fields.filter(f => f.name = 'value')
+        assert fields.length = 1 : 
+                "expected exactly one field named 'value' in \{wrapperStub}"
+        return new FieldReference(position, wrapper, fields.iterator.next())
+    }
+
+    function implicitCast(position:Position, context:Context, t:Type):
             (Value, ListView<Message>?) {
         if t = type
             return (self, null)
+        if type.isPrimitive & !t.isPrimitive
+            return wrapped(context, t)
+        if type.isWrapper & t.isPrimitive
+            return unwrap(context).implicitCast(position, context, t)
+        if type.isNullable & !t.isNullable {
+            def base := type->(NullableType).base
+            if base != t {
+                def nonNull, messages := implicitCast(position, context, base)
+                assert messages = null : 
+                        "couldn't remove nullability from \{type}: \{messages}"
+                return nonNull.implicitCast(position, context, t)
+            }
+        }
         def result := new Cast(self, t, CastType.IMPLICIT)
-        if implicitCastCost(t) != null
+        if implicitCastCost(context, t) != null
             return (result, null)
         else {
             def messages := new Array<Message>()
@@ -60,20 +163,25 @@ class Value : Node {
     }
     @post(@return[0].type = t)
 
-    function canExplicitCastTo(t:Type):Bit {
-        return type.canExplicitCastTo(t)
+    function canExplicitCastTo(context:Context, t:Type):Bit {
+        return type.canExplicitCastTo(context, t)
     }
 
-    function explicitCast(t:Type):(Value, ListView<Message>?) {
-        return explicitCast(position, t)
+    function explicitCast(context:Context, t:Type):(Value, ListView<Message>?) {
+        return explicitCast(position, context, t)
     }
 
-    function explicitCast(position:Position, t:Type):
+    function explicitCast(position:Position, context:Context, t:Type):
             (Value, ListView<Message>?) {
+        Panda.log("casting from \{type} to \{t}")
         if t = type
             return (self, null)
+        if canImplicitCastTo(context, t) {
+            def cast, messages := implicitCast(position, context, t)
+            return (ASTGenerator.makeExplicit(cast), messages)
+        }
         def result := new Cast(self, t, CastType.EXPLICIT)
-        if canExplicitCastTo(t)
+        if canExplicitCastTo(context, t)
             return (result, null)
         else {
             def messages := new Array<Message>()

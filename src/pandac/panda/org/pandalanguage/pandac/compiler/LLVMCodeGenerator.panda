@@ -33,8 +33,6 @@ uses org.pandalanguage.pandac.tree.FieldReference
 uses org.pandalanguage.pandac.tree.For
 uses org.pandalanguage.pandac.tree.Identity
 uses org.pandalanguage.pandac.tree.If
-uses org.pandalanguage.pandac.tree.IndexedAssignment
-uses org.pandalanguage.pandac.tree.IndexValue
 uses org.pandalanguage.pandac.tree.IntegerLiteral
 uses org.pandalanguage.pandac.tree.Finally
 uses org.pandalanguage.pandac.tree.LocalVariable
@@ -44,13 +42,14 @@ uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodValue
-uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
-uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArray
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NullLiteral
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexAssignment
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexValue
 uses org.pandalanguage.pandac.tree.RealLiteral
 uses org.pandalanguage.pandac.tree.Return
 uses org.pandalanguage.pandac.tree.ReusedValue
@@ -106,6 +105,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     @private
     constant SHARED_LINKAGE := "weak_odr"
     
+    @private 
+    constant ARRAY_CONTENTS_INDEX := 3
+
     def debug := false
 
     var tempVariable := 0
@@ -128,7 +130,11 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def stringConstants := new HashMap<String, String>()
 
+    def references := new HashMap<ReusedValueDefinition, String>()
+
     def types:MapView<String, Type>
+
+    def loops := new Stack<AbstractLoop>()
 
     def nextLabels := new HashMap<AbstractLoop, String>()
 
@@ -275,8 +281,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     function getStub(s:String):TypedClassStub {
         def result := stubs[s]
         -- FIXME TEMP
-        if result = null
+        if result = null {
+            Panda.log("no stub for " + s)
             return stubs["panda.core.Object"]->(TypedClassStub)
+        }
         return result
     }
 
@@ -700,6 +708,12 @@ class LLVMCodeGenerator (CodeGenerator) {
         return createBinaryOperationReference(b, iop, iop, fop)
     }
 
+    method createPrimitiveArrayIndexValueReference(iv:PrimitiveArrayIndexValue):String {
+        def ep := getPrimitiveArrayElementPointer(iv.array, iv.index)
+        return createCommandReference("load \{getLLVMType(iv.type)}* \{ep}", 
+                iv->>(String))
+    }
+    
     @pre(and.operation = BinaryOperationType.AND)
     method createAndReference(and:BinaryOperation):String {
         def left := createReference(and.left)
@@ -707,20 +721,19 @@ class LLVMCodeGenerator (CodeGenerator) {
         def leftFromLabel := currentBlockLabel
         def rightLabel := createLabel()
         def endLabel := createLabel()
-        writeBody("br i1 " + left + ", label %" + rightLabel + 
-                ", label %" + endLabel,
-                "and test: " + and)
+        writeBody("br i1 \{left}, label %\{rightLabel}, label %\{endLabel}",
+                "and test: \{and}")
         body.writeLine()
-        createBlock(rightLabel, "right: " + and)
+        createBlock(rightLabel, "right: \{and}")
         def right := createReference(and.right)
         assert right != null : "expected non-null right in createAndReference"
         def rightFromLabel := currentBlockLabel
-        body.writeLine("br label %" + endLabel)
+        body.writeLine("br label %\{endLabel}")
         body.writeLine()
-        createBlock(endLabel, "end: " + and)
+        createBlock(endLabel, "end: \{and}")
         def result := getTempVariable()
-        body.writeLine(result + " = phi i1 [false, %" + leftFromLabel + 
-                "], [" + right + ", %" + rightFromLabel + "]")
+        body.writeLine("\{result} = phi i1 [false, %\{leftFromLabel}], " +
+                "[\{right}, %\{rightFromLabel}]")
         return result
     }
     
@@ -731,19 +744,19 @@ class LLVMCodeGenerator (CodeGenerator) {
         def leftFromLabel := currentBlockLabel
         def rightLabel := createLabel()
         def endLabel := createLabel()
-        writeBody("br i1 " + left + ", label %" + endLabel + 
-                ", label %" + rightLabel, "or test: " + or)
+        writeBody("br i1 \{left}, label %\{endLabel}, label %\{rightLabel}", 
+                "or test: \{or}")
         body.writeLine()
-        createBlock(rightLabel, "right: " + or)
+        createBlock(rightLabel, "right: \{or}")
         def right := createReference(or.right)
         assert right != null : "expected non-null right in createOrReference"
         def rightFromLabel := currentBlockLabel
-        body.writeLine("br label %" + endLabel)
+        body.writeLine("br label %\{endLabel}")
         body.writeLine()
-        createBlock(endLabel, "end: " + or)
+        createBlock(endLabel, "end: \{or}")
         def result := getTempVariable()
-        body.writeLine(result + " = phi i1 [true, %" + leftFromLabel + 
-                "], [" + right + ", %" + rightFromLabel + "]")
+        body.writeLine("\{result} = phi i1 [true, %\{leftFromLabel}], " +
+                "[\{right}, %\{rightFromLabel}]")
         return result
     }
 -*
@@ -777,6 +790,91 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
 *-
+    method createNewPrimitiveArrayReference(na:NewPrimitiveArray):String {
+        def arrayClass := getStub(na.type->(ClassType))
+        def cc := getClassConstant(arrayClass)
+        def cast := getTempVariable()
+        def elementType := na.type->>(PrimitiveArrayType).elementType
+        def classType := getLLVMType(ClassType.CLASS)
+        writeBody("\{cast} = bitcast \{cc.type}* @\{cc.name} to \{classType}",
+                "convert class pointer")
+        def ref := createReference(na.arrayLength)
+        assert ref != null : "expected non-null ref in createNewPrimitiveArrayWithLengthReference"
+        def alloc := createCallReference(
+                "i8* @pandaNewPrimitiveArrayWithLength(\{classType} \{cast}, " + 
+                "i32 \{ref}, i32 \{size(elementType)}, i1 " +
+                !elementType.isPrimitive + ")", "allocate " + na.type.name)
+        def result := createCommandReference("bitcast i8* \{alloc} to " + 
+                getLLVMType(na.type), "cast array to final type")
+        return result
+    }
+    
+   
+    method createNewPrimitiveArrayWithValuesReference(na:NewPrimitiveArrayWithValues):String {
+        def elementType := na.type->(PrimitiveArrayType).elementType
+        def arrayClass := getStub(na.type->(PrimitiveArrayType))
+        def cc := getClassConstant(arrayClass)
+        def cast := getTempVariable()
+        def classType := getLLVMType(ClassType.CLASS)
+        writeBody(cast + " = bitcast " + cc.type + "* @" + cc.name +
+                " to " + classType, "convert class pointer")
+        def type:Int
+        constant ARRAY_INT8   := 0
+        constant ARRAY_INT16  := 1
+        constant ARRAY_INT32  := 2
+        constant ARRAY_INT64  := 3
+        constant ARRAY_REAL32 := 4
+        constant ARRAY_REAL64 := 5
+        constant ARRAY_PTR    := 6
+        switch elementType {
+            case IntType.INT8, IntType.UINT8, BitType.BIT: 
+                type := ARRAY_INT8
+
+            case IntType.INT16, IntType.UINT16, CharType.CHAR: 
+                type := ARRAY_INT16
+
+            case IntType.INT32, IntType.UINT32: 
+                type := ARRAY_INT32
+
+            case IntType.INT64, IntType.UINT64: 
+                type := ARRAY_INT64
+
+            case RealType.REAL32: 
+                type := ARRAY_REAL32
+
+            case RealType.REAL64: 
+                type := ARRAY_REAL64
+
+            default:
+                type := ARRAY_PTR
+        }
+        def references := new Array<String>()
+        for v in na.values {
+            var raw := getTypedReference(v)
+            if type = ARRAY_REAL32 {
+                -- varargs requires promotion of float to double, and evidently
+                -- we have to do it ourselves
+                references.add("double " + createCommandReference("fpext " + 
+                        raw + " to double", "varargs promotion"))
+            }
+            else
+                references.add(raw)
+        }
+        def code := ("i8* (\{classType}, i32, i32, ...)* " +
+                "@pandaNewPrimitiveArrayWithValues(\{classType} \{cast}, i32 " + 
+                "\{na.values.length}, i32 \{type}")->>(MutableString)
+        for r in references {
+            code.append(", ")
+            code.append(r)
+        }
+        code.append(")")
+        def alloc := createCallReference(code->>(String), "allocate " + 
+                na.type.name)
+        def result := createCommandReference("bitcast i8* \{alloc} to " + 
+                getLLVMType(na.type), "cast array to final type")
+        return result
+    }
+
     @protected
     method createBinaryOperationReference(b:BinaryOperation):String {
         switch b.operation {
@@ -845,6 +943,84 @@ class LLVMCodeGenerator (CodeGenerator) {
             default:
                 unreachable
         }
+    }
+
+    @private
+    method callClassInit(cl:TypedClassStub) {
+        throw new NotSupportedException("classinit")
+    }
+    
+    @protected
+    @pre(!object.type.isPrimitive)
+    @pre(!field.annotations.isThread)
+    method getFieldPointer(object:Value, field:FieldNode):String {
+        if field.annotations.isClass {
+            if field.name != FieldNode.CLASS_INITED_NAME
+                callClassInit(getStub(field.owner))
+            return "@" + getName(field)
+        }
+        else {
+            def cl := getStub(object.type->>(ClassType))
+            def fields := cl.instanceFields(stubs)
+            for i in 0 .. fields.length {
+                if fields[i] = field {
+                    return createCommandReference("getelementptr inbounds " + 
+                        getTypedReference(object) + 
+                        ", i32 0, i32 " + i, "field pointer: " + object + "." +
+                        field.name)
+                }
+            }
+            unreachable
+        } 
+    }
+
+    @protected
+    method createFieldReference(fr:FieldReference):String {
+        if fr.field.annotations.isThread {
+-*            var owner := fr.field.parent->(ClassNode)
+            callClassInit(owner)
+            var type := fr.type
+            var suffix:String
+            if type.isPrimitive
+                suffix := fr.type.name[ClassNode.CORE.length..]
+            else {
+                suffix := "Object"
+                type := ClassType.OBJECT
+            }
+            var threadLocalId := getTempVariable()
+            var indexField := owner.symbolTable.getVariable(fr.field.name + 
+                    ASTGenerator.INDEX_SUFFIX)
+            assert indexField != null : "expected non-null indexField"
+            body.writeLine("load i32* @" + getName(indexField))
+            var callString := ("fastcc " + getLLVMType(type) + 
+                    " @panda$core$Panda$getThreadLocal" + suffix + 
+                    "(i32 " + threadLocalId + ", ")->>(MutableString)
+            var initializer := owner.symbolTable.getMethod(fr.position,
+                        ASTGenerator.getThreadLocalInitializerName(fr.field),
+                        new PrimitiveArray<Value>(), true)
+            if initializer != null {
+                callString.append(
+                        getLLVMType(NativePointerType.NATIVE_POINTER) + 
+                        " bitcast(" + getLLVMType(fr.type) + "()* @" + 
+                        getName(initializer->(MethodNode)) + " to " + 
+                        getLLVMType(NativePointerType.NATIVE_POINTER) + "))")
+            }
+            else
+                callString.append("i8* null)") -- no initializer function
+            var ref := createCallReference(callString->>(String), fr->>(String))
+            if !fr.type.isPrimitive & fr.type != ClassType.OBJECT() {
+                var cast := getTempVariable()
+                writeBody(cast + " = bitcast " + 
+                    getLLVMType(type) + " " + ref + " to " + 
+                    getLLVMType(fr.type), "cast Object to threadlocal")
+                ref := cast
+            }
+            return ref*-
+            throw new NotSupportedException("@thread field")
+        }
+        def ep := getFieldPointer(fr.object, fr.field)
+        return createCommandReference(
+                "load \{getLLVMType(fr.field.type)}* \{ep}", fr->>(String))
     }
 
     @protected
@@ -984,6 +1160,21 @@ class LLVMCodeGenerator (CodeGenerator) {
                 getName(variable), vr->>(String))
     }
         
+    @protected
+    method createReusedValueDefinitionReference(rvd:ReusedValueDefinition):String {
+        def result := createReference(rvd.value)
+        assert result != null : "null reference for ReusedValueDefinition " + rvd
+        references[rvd] := result
+        return result
+    }
+
+    @protected
+    method createReusedValueReference(rv:ReusedValue):String {
+        def result := references[rv.owner]
+        assert result != null : "null reference for ReusedValue owner " + rv
+        return result
+    }
+
     -- return value is nullable so void expressions (method calls) can return
     -- null
     @protected
@@ -999,9 +1190,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(RealLiteral): return createRealLiteralReference(v->(RealLiteral))
 *-
             case class(VariableReference): return createVariableReference(v->(VariableReference))
--*
             case class(FieldReference): return createFieldReference(v->(FieldReference))
-*-
             case class(Cast): return createCastReference(v->(Cast))
 -*
             case class(Equal): return createBinaryOperationReference(v->(BinaryOperation), "icmp eq", "fcmp oeq")
@@ -1013,22 +1202,25 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(NotEqual): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne", "fcmp one")
             case class(NotIdentity): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne")
             case class(BitLiteral): return v->(BitLiteral).value->>(String)
-            case class(IndexValue): return createIndexValueReference(v->(IndexValue))
-            case class(NewPrimitiveArrayWithLength): return createNewPrimitiveArrayWithLengthReference(v->(NewPrimitiveArrayWithLength))
+    *-
+            case class(NewPrimitiveArray): return createNewPrimitiveArrayReference(v->(NewPrimitiveArray))
             case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
-            case class(NewPrimitiveArrayWithRange): return createNewPrimitiveArrayWithRangeReference(v->(NewPrimitiveArrayWithRange))
+            case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->(PrimitiveArrayIndexValue))
+    -*
             case class(Not): return createNotReference(v->(Not))
             case class(BitwiseNot): return createBitwiseNotReference(v->(BitwiseNot))
             case class(UnaryMinus): return createUnaryMinusReference(v->(UnaryMinus))
+    *-
             case class(NullLiteral): return "null"
+    -*
             case class(ClassObjectLiteral): return createClassObjectLiteralReference(v->(ClassObjectLiteral))
             case class(Ternary): return createTernaryReference(v->(Ternary))
             case class(Unwrap): return createReference(v->(Unwrap).value)
             case class(MethodValue): return createMethodValueReference(v->(MethodValue))
             case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
+    *-
             case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
             case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) 
-    *-
             case class(Unresolved): throw new InternalCompilerException(
                     "unresolved value \{v}", v.position)
             default: {
@@ -1050,6 +1242,41 @@ class LLVMCodeGenerator (CodeGenerator) {
         createReference(v.value)
     }
 
+    @pre(array.type.isPrimitiveArray)
+    @pre(index.type = IntType.INT32)
+    method getPrimitiveArrayElementPointer(array:Value, index:Value):String {
+        def arrayRef := getTypedReference(array)
+        def indexRef := getTypedReference(index)
+        if compilerSettings.boundsChecking {
+            def cast := getTempVariable()
+            def arrayType := getLLVMType(ClassType.PRIMITIVE_ARRAY)
+            body.writeLine("\{cast} = bitcast \{arrayRef} to \{arrayType}")
+            call("void @pandaCheckBounds(\{arrayType} \{cast}, \{indexRef})")
+        }
+        def arrayContentsPointer := createCommandReference("getelementptr " +
+                "inbounds \{arrayRef}, i32 0, i32 \{ARRAY_CONTENTS_INDEX}", 
+                "get pointer to pointer to array contents")
+        def elementType := array.type->>(PrimitiveArrayType).elementType
+        def arrayContents := createCommandReference("load " + 
+                getLLVMType(elementType) + 
+                "** " + arrayContentsPointer, 
+                "get pointer to array contents")
+        return createCommandReference("getelementptr inbounds " + 
+                "\{getLLVMType(elementType)}* \{arrayContents}, \{indexRef}", 
+                "get pointer to " + array + "[" + index + "]")
+    }
+
+    @protected
+    method generatePrimitiveArrayIndexAssignmentCode(ia:PrimitiveArrayIndexAssignment) {
+        def ep := getPrimitiveArrayElementPointer(ia.array, ia.index)
+        def elementType := ia.array.type->>(PrimitiveArrayType).elementType
+        def lref := getLLVMType(elementType) + "* " + ep
+        def ref := createReference(ia.value) 
+        assert ref != null : "expected non-null ref in generateIndexAssignmentCode"
+        writeBody("store \{getLLVMType(elementType)} \{ref}, \{lref}", 
+                ia->>(String))
+    }
+    
     @protected
     method generateIfCode(i:If) {
         if debug
@@ -1082,7 +1309,17 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    method generateReturnCode(ret:Return) {
+        def value := ret.value
+        if value = null
+            body.writeLine("ret void ; " + ret)
+        else
+            writeBody("ret " + getTypedReference(value), ret->>(String))
+    }
+    
+    @protected
     method generateWhileCode(w:While) {
+        loops.push(w)
         def bodyLabel := createLabel()
         def nextLabel := createLabel()
         def endLabel := createLabel()
@@ -1101,10 +1338,13 @@ class LLVMCodeGenerator (CodeGenerator) {
             body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + w)
+        assert loops.pop() = w
     }
+    @post(loops.length = @pre(loops.length))
 
     @protected
     method generateDoCode(d:Do) {
+        loops.push(d)
         def bodyLabel := createLabel()
         def nextLabel := createLabel()
         def endLabel := createLabel()
@@ -1123,10 +1363,13 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "do test: " + d.test)
         body.writeLine()
         createBlock(endLabel, "end: " + d)
+        assert loops.pop() = d
     }
+    @post(loops.length = @pre(loops.length))
 
     @protected
     method generateLoopCode(l:Loop) {
+        loops.push(l)
         def nextLabel := createLabel()
         def endLabel := createLabel()
         nextLabels[l] := nextLabel
@@ -1139,25 +1382,44 @@ class LLVMCodeGenerator (CodeGenerator) {
             body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + l)
+        assert loops.pop() = l
+    }
+    @post(loops.length = @pre(loops.length))
+
+    function findLoop(label:String?):AbstractLoop {
+        if label = null
+            return loops.peek
+        for i in 0 .. loops.length {
+            if loops.peek(i).label = label
+                return loops.peek(i)
+        }
+        unreachable
     }
 
     @protected
-    method generateReturnCode(ret:Return) {
-        def value := ret.value
-        if value = null
-            body.writeLine("ret void ; " + ret)
-        else
-            writeBody("ret " + getTypedReference(value), ret->>(String))
+    method generateBreakCode(br:Break) {
+        def loopNode := findLoop(br.label)
+        def endLabel := endLabels[loopNode]
+        assert endLabel != null : "expected non-null endLabel in generateBreakCode"
+        writeBody("br label %" + endLabel, br->>(String))
     }
-    
+
+    @protected
+    method generateContinueCode(c:Continue) {
+        def loopNode := findLoop(c.label)
+        def nextLabel := nextLabels[loopNode]
+        assert nextLabel != null : "expected non-null nextLabel in generateContinueCode"
+        writeBody("br label %" + nextLabel, c->>(String))
+    }
+
     @protected
     method generateStatementCode(s:Statement) {
         if debug
             body.writeLine("; " + s)
         switch s.class {
--*            case class(IndexedAssignment): 
-                    generateIndexedAssignmentCode(s->(IndexedAssignment))
-            case class(FieldAssignment): 
+            case class(PrimitiveArrayIndexAssignment): 
+                    generatePrimitiveArrayIndexAssignmentCode(s->(PrimitiveArrayIndexAssignment))
+-*            case class(FieldAssignment): 
                     generateFieldAssignmentCode(s->(FieldAssignment)) *-
             case class(ValueStatement):
                     generateValueStatementCode(s->(ValueStatement))
@@ -1170,9 +1432,9 @@ class LLVMCodeGenerator (CodeGenerator) {
 *-
             case class(Block): generateBlockCode(s->(Block))
             case class(Return): generateReturnCode(s->(Return))
--*
             case class(Break): generateBreakCode(s->(Break))
             case class(Continue): generateContinueCode(s->(Continue))
+-*
             case class(Assert): generateAssertCode(s->(Assert))
             case class(Throw): generateThrowCode(s->(Throw))
             case class(Try): generateTryCode(s->(Try))
@@ -1344,8 +1606,19 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("declare void @pandaCheckSignCasti32(i32)")
         body.writeLine("declare void @pandaCheckSignCasti64(i64)")
 
-        body.writeLine("declare i8* @_pandaNew(%panda$core$Class*, " +
-                getLLVMType(IntType.INT32) + ")")
+        body.writeLine("declare i8* @_pandaNew(%panda$core$Class*, i32)")
+
+        body.writeLine("declare i8* @pandaNewPrimitiveArrayWithLength(" + 
+                getLLVMType(ClassType.CLASS) + ", " + 
+                getLLVMType(IntType.INT32) + ", " +
+                getLLVMType(IntType.INT32) + ", " +
+                getLLVMType(BitType.BIT) + ")")
+        body.writeLine("declare i8* @pandaNewPrimitiveArrayWithValues(" + 
+                getLLVMType(ClassType.CLASS) + ", " + 
+                getLLVMType(IntType.INT32) + ", " + 
+                getLLVMType(IntType.INT32) + ", ...)")
+        def array := getLLVMType(ClassType.PRIMITIVE_ARRAY)
+        body.writeLine("declare void @pandaCheckBounds(\{array}, i32)")
 
         def parent := target.parent()
         if parent = null {

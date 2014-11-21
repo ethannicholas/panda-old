@@ -19,6 +19,33 @@ uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
+================================================================================
+Main entry point for the Panda compiler.
+
+The overall design of the compiler is:
+
+1. [PandaParser] is run on each compilation unit, resulting in a [ParseNode] of
+   type `COMPILATION_UNIT`.
+2. The [Scanner] class takes these `ParseNode`s and converts them into a tree of
+   [UntypedCompilationUnitStub], [UntypedClassStub], etc. At this point we know
+   all of the symbols but have not resolved them yet.
+3. The [TypeResolver] class takes the various untyped stubs and resolves all of
+   the [Type]s (with the assistance of [TypeMap]), producing 
+   [TypedCompilationUnitStub], [TypedClassStub], etc. These stubs are fully
+   resolved, but any code associated with them is still just raw `ParseNode`s.
+4. For stubs loaded from plink files, their journey has already ended: they will
+   never be anything more than stubs. Classes found in .panda files now go 
+   through [ASTGenerator], which takes `TypedClassStub`, `TypedMethodStub`, etc.
+   and turns then into [ClassNode], [MethodNode], and the rest of the nodes in
+   the `org.pandalanguage.pandac.tree` package.
+5. The `ClassNode`s are analyzed by [CFGGenerator] and then [DataFlowAnalyzer].
+6. The classes and analysis information go to [SafetyChecker], which inserts
+   checks for preconditions, postconditions, and invariants (among other 
+   things).
+7. The classes are passed to [Optimizer] to be optimized.
+8. Finally, a [CodeGenerator] produces the actual, finished output code from the
+   processed `ClassNode`s. 
+================================================================================
 class PandaCompiler (MessageProcessor) {
     constant PANDA_HOME := determinePandaHome()
 
@@ -214,7 +241,8 @@ class PandaCompiler (MessageProcessor) {
     @private
     method getClassNodes(
             typedCompilationUnits:CollectionView<TypedCompilationUnitStub>,
-            typeMap:TypeMap):(CollectionView<ClassNode>, ListView<Message>?) {
+            typeMap:TypeMap):
+            (CollectionView<ClassNode>, MapView<String, TypedClassStub>, ListView<Message>?) {
         return new ASTGenerator().convertCompilationUnits(typedCompilationUnits,
                 typeMap)
     }
@@ -238,26 +266,18 @@ class PandaCompiler (MessageProcessor) {
             return messages
 
         checkpoint("generating abstract syntax tree")
-        def classes, phase3Messages := getClassNodes(typedCompilationUnits, 
-                typeMap)
+        def classes, stubs, phase3Messages := getClassNodes(
+                typedCompilationUnits, typeMap)
         messages := addMessages(messages, phase3Messages)
         if fatal(messages)
             return messages
 
         checkpoint("codegen")
-        def stubs := new Array<TypedClassStub>()
-        for cu in typedCompilationUnits
-            stubs.addAll(cu.classes)
         def program := new Program(settings, stubs, classes, 
                 typeMap.allTypes().values)
         new ExecutableCodeGenerator(program).generateCode(new File("/tmp/foo"))
         checkpoint("done")
         Console.writeLine("done")
-        for cl in classes {
-            Console.writeLine(cl)
-            for m in cl
-                Console.writeLine("    " + m)
-        }
         return messages
     }
 

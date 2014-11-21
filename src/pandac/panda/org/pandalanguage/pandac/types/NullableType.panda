@@ -1,23 +1,34 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.Position
-uses org.pandalanguage.pandac.compiler.SymbolTable
 
 ================================================================================
 A nullable version of a `ClassType`.
 ================================================================================
 class NullableType : Type {
     constant TO_NULLABLE_CAST_COST := 1
+
     constant FROM_NULLABLE_CAST_COST := 2
 
-    @private
     def base:Type
 
+    @pre(!base.isPrimitive)
     constructor(base:Type) {
         super.constructor(base.name + "?")
         self.base := base
+    }
+
+    @override
+    function displayName():String {
+        return base.displayName + "?"
+    }
+
+    @override
+    function simpleName():String {
+        return base.simpleName + "?"
     }
 
     @override
@@ -26,8 +37,13 @@ class NullableType : Type {
     }
 
     @override
-    function ->>():TupleType {
-        return base->>(TupleType)
+    function isWrapper():Bit {
+        return base.isWrapper
+    }
+
+    @override
+    function isPrimitiveArray():Bit {
+        return base.isPrimitiveArray
     }
 
     @override
@@ -41,8 +57,40 @@ class NullableType : Type {
     }
 
     @override
+    function implicitCastCost(context:Context, target:Type):Int? {
+        if target.isNullable {
+            return unwrapNullable.implicitCastCost(context,
+                    target.unwrapNullable)
+        }
+        var result := unwrapNullable.implicitCastCost(context, target)
+        if result != null
+            result += FROM_NULLABLE_CAST_COST
+        return result
+    }
+
+    @override
+    function canExplicitCastTo(context:Context, target:Type):Bit {
+        return base.canExplicitCastTo(context, target)
+    }
+
+    @override
+    function ->>():TupleType {
+        return base->>(TupleType)
+    }
+
+    @override
     function ->>():ClassType {
         return base->>(ClassType)
+    }
+
+    @override
+    function ->>():PrimitiveType {
+        return base->>(PrimitiveType)
+    }
+
+    @override
+    function ->>():WrapperType {
+        return base->>(WrapperType)
     }
 
     @override

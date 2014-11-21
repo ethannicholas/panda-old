@@ -1,9 +1,10 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.stubs.TypedClassStub
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.Position
-uses org.pandalanguage.pandac.compiler.SymbolTable
 
 ================================================================================
 A type representing a class, such as `panda.lang.String`. `ClassType`s are 
@@ -13,11 +14,15 @@ but a name which hasn't actually been encountered yet, will be handled as an
 `UnresolvedTypeException` is thrown.
 ================================================================================
 class ClassType : Type {
+    -- all statically-allocated types must be added to the MutableTypeMap 
+    -- constructor
     constant CLASS := new ClassType(class(Class).name)
     constant OBJECT := new ClassType(class(Object).name)
     constant STRING := new ClassType(class(String).name)
+    constant PRIMITIVE_ARRAY := new ClassType(class(PrimitiveArray).name)
     constant IMMUTABLE_PRIMITIVE_ARRAY := new ClassType(
             class(ImmutablePrimitiveArray).name)
+    constant PANDA := new ClassType(class(Panda).name)
 
     constructor(name:String) {
         super.constructor(name)
@@ -29,6 +34,59 @@ class ClassType : Type {
         if index != null
             return name[index + 1..]
         return name
+    }
+
+    @override
+    function implicitCastCost(context:Context, target:Type):Int? {
+        if self = target
+            return 0
+        if self-?>(GenericType) | target-?>(GenericType) {
+            Panda.log("skipping GenericType check")
+            return null
+        }
+        if target = NativePointerType.NATIVE_POINTER
+            return null
+--        if target-?>(GenericParameterType)
+--            return implicitCastCost(context, target.unwrapGenerics())
+        if target.isNullable {
+            var result := implicitCastCost(context, target.unwrapNullable)
+            if result != null
+                result += NullableType.TO_NULLABLE_CAST_COST
+            return result
+        }
+        assert !target.isNullable
+        var targetClass:TypedClassStub
+        if target.isPrimitive
+            targetClass := context.getStub(target->>(WrapperType))
+        else {
+            if target-!>(ClassType)
+                return null
+            targetClass := context.getStub(target->(ClassType))
+        }
+        def myClass := context.getStub(self)
+        def parent:ClassType? := myClass.superclass
+        var best:Int? := null
+        if parent != null {
+            var result := parent.implicitCastCost(context, target)
+            if result != null {
+                result += 1
+                if best != null
+                    best := best.min(result)
+                else
+                    best := result
+            }
+        }
+        for intf in myClass.interfaces {
+            var result := intf.implicitCastCost(context, target)
+            if result != null {
+                result += 1
+                if best != null
+                    best := best.min(result)
+                else
+                    best := result
+            }
+        }
+        return best
     }
 
     @override

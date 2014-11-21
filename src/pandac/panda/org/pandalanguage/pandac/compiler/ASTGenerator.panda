@@ -47,8 +47,6 @@ uses org.pandalanguage.pandac.tree.GreaterThan
 uses org.pandalanguage.pandac.tree.GreaterThanOrEqual
 uses org.pandalanguage.pandac.tree.Identity
 uses org.pandalanguage.pandac.tree.If
-uses org.pandalanguage.pandac.tree.IndexedAssignment
-uses org.pandalanguage.pandac.tree.IndexValue
 uses org.pandalanguage.pandac.tree.IntDivide
 uses org.pandalanguage.pandac.tree.IntegerLiteral
 uses org.pandalanguage.pandac.tree.LessThan
@@ -62,8 +60,7 @@ uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.Multiply
-uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
-uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithRange
+uses org.pandalanguage.pandac.tree.NewPrimitiveArray
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NotEqual
@@ -74,6 +71,8 @@ uses org.pandalanguage.pandac.tree.Or
 uses org.pandalanguage.pandac.tree.OrLeft
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexValue
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexAssignment
 uses org.pandalanguage.pandac.tree.RealLiteral
 uses org.pandalanguage.pandac.tree.Remainder
 uses org.pandalanguage.pandac.tree.ReusedValue
@@ -173,10 +172,6 @@ class Context : Immutable {
     constant VARARG_COST := 1
 
     constant CONVERT_COST := 10
-    
-    function canConvert(v:Value, t:Type):Bit {
-        return false
-    }
 
     function matchCost(m:TypedMethodStub, params:ListView<Value>):Int? {
         if m.methodType = MethodNodeType.CONSTRUCTOR & params.length > 0 &
@@ -199,10 +194,7 @@ class Context : Immutable {
         }
         if isVarArg {
             -- strip off vararg parameter, it's not required
-            def newParams := new Array<TypedFormalParameter>()
-            for i in 0 .. m.parameters.length - 1
-                newParams.add(m.parameters[i])
-            methodParams := newParams
+            methodParams := m.parameters[..m.parameters.length - 1]
         }
         -- do we have the right number of parameters?
         if !isVarArg & params.length != methodParams.length | 
@@ -213,10 +205,10 @@ class Context : Immutable {
             if i = 0 & !m.annotations.isClass
                 continue
             def targetType := param.type
-            def cost := params[i].implicitCastCost(targetType)
+            def cost := params[i].implicitCastCost(self, targetType)
             if cost = null {
                 if methodParams[i].isConvert & 
-                        canConvert(params[i], targetType)
+                        params[i].canConvertTo(self, targetType)
                     result += CONVERT_COST
                 else
                     return null
@@ -230,10 +222,10 @@ class Context : Immutable {
             def varArg := m.parameters[m.parameters.length - 1]
             def varArgType := varArg.type->>(PrimitiveArrayType).elementType
             for i in methodParams.length .. params.length {
-                def cost := params[i].implicitCastCost(varArgType)
+                def cost := params[i].implicitCastCost(self, varArgType)
                 if cost = null {
                     if varArg.isConvert & 
-                            canConvert(params[i], varArgType)
+                            params[i].canConvertTo(self, varArgType)
                         result += CONVERT_COST
                     else
                         return null
@@ -250,18 +242,45 @@ class Context : Immutable {
         return searchClass.methods.filter(m => m.name = name)
     }
 
+    ============================================================================
+    Finds the best match for the given method.
+
+    @param contextValue the object the method is being called on, or `null` if
+            it is a bare method name
+    @param name the name of the method
+    @param params the method parameters, which should not include the hidden
+            `self` parameter
+    ============================================================================
     function getMethod(contextValue:Value?, name:String, 
             params:ListView<Value>):TypedMethodStub? {
         def searchClass:TypedClassStub
+        def classMethod:Bit?
         if contextValue != null {
-            if contextValue-?>(ClassLiteral)
+            if contextValue-?>(ClassLiteral) {
                 searchClass := getStub(contextValue->(ClassLiteral).value)
-            else
+                classMethod := true
+            }
+            else {
+                classMethod := false
                 searchClass := getStub(contextValue.type->>(ClassType))
+            }
+        }
+        else {
+            searchClass := currentClass->(TypedClassStub)
+            classMethod := null
+        }
+        def methods:CollectionView<TypedMethodStub>
+        if classMethod = true {
+            methods := getMethodsNamed(name, searchClass).filter
+                    (m => m.annotations.isClass | 
+                    m.methodType = MethodNodeType.CONSTRUCTOR)
+        }
+        else if classMethod = false {
+            methods := getMethodsNamed(name, searchClass).filter
+                    (m => !m.annotations.isClass)
         }
         else
-            searchClass := currentClass->(TypedClassStub)
-        def methods := getMethodsNamed(name, searchClass)
+            methods := getMethodsNamed(name, searchClass)
         var maxCost := Int.MAX
         var max:TypedMethodStub? := null
         for m in methods {
@@ -588,8 +607,12 @@ class ASTGenerator : Immutable (MessageProcessor) {
             if value = null
                 return (null, messages)
             values.add(value)
-            result.append("{" + 
-                    convertStringChars(t.position, remaining, true) + "}")
+            def token:String?
+            token, submessages := convertStringChars(t.position, remaining, 
+                    true)
+            messages := addMessages(messages, submessages)
+            if token != null
+                result.append("{\{token}}")
             lastEnd := matcher.end()
         }
         if lastEnd > 0 {
@@ -600,9 +623,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
             s := result->>(String)
             values.insert(0, new StringLiteral(t.position, s))
-            def string := context.getRequiredType(class(String).name)
-            return call(context, t.position, new ClassLiteral(context, 
-                    t.position, string->(ClassType)), "format", values)
+            return call(context, t.position, new ClassLiteral(t.position, 
+                    ClassType.STRING), "format", values)
         }
         else {
             def chars, submessages := convertStringChars(t.position, s, false)
@@ -681,7 +703,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
         var cl:TypedClassStub
         if contextValue.type = StringOrCharType.STRING_OR_CHAR {
             def submessages:ListView<Message>?
-            contextValue, submessages := contextValue.implicitCast(position, CharType.CHAR)
+            contextValue, submessages := contextValue.implicitCast(position, 
+                    context, CharType.CHAR)
         }
         if contextValue-!>(Super) {
             var submessages:ListView<Message>?
@@ -691,6 +714,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
             if contextValue.type.isPrimitive {
                 def casted:Value?
                 casted, submessages := contextValue.implicitCast(position, 
+                            context,
                             context.getWrapper(contextValue.type->>(PrimitiveType)))
                 messages := addMessages(messages, submessages)
                 if casted = null
@@ -712,7 +736,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     if f.name = name & !f.annotations.isClass &
                             !f.annotations.isThread & isAccessible(context, f) {
                         if contextValue-?>(UnresolvedClassLiteral) {
-                            contextValue := new ClassObjectLiteral(context,
+                            contextValue := new ClassObjectLiteral(
                                     contextValue.position,
                                     contextValue->(UnresolvedClassLiteral).value)
                         }
@@ -722,8 +746,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 }
             }
             if contextValue-?>(UnresolvedClassLiteral) {
-                contextValue := new ClassLiteral(context,
-                        contextValue.position,
+                contextValue := new ClassLiteral(contextValue.position,
                         contextValue->(UnresolvedClassLiteral).value)
             }
             if contextValue-?>(ClassLiteral) {
@@ -773,19 +796,19 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             return parseBareIdentifier(context, e[0])
                         else
 --                            return convertLambda(context, e)
-                            throw new NotSupportedException()
+                            throw new NotSupportedException("lambda")
                     case TokenType.CLASS:
                         return parseBareIdentifier(context, e[0])
                     case TokenType.LPAREN: {
                         if e[2]->(TokenNode).token.type = TokenType.COMMA
 --                            return convertTuple(e)
-                            throw new NotSupportedException()
+                            throw new NotSupportedException("tuple")
                         assert e[2]->(TokenNode).token.type = TokenType.RPAREN
                         return convertExpression(context, e[1])
                     }
                     case TokenType.PLUGIN: 
                         --return convertPlugin(context, e[0].position, e[0]->>(String))
-                        throw new NotSupportedException()
+                        throw new NotSupportedException("plugin")
                     case TokenType.SUPER: 
                         return (new Super(e[0].position), null)
                     case TokenType.ATRETURN: {
@@ -797,7 +820,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                     "appear within @post(...) in methods " +
                                     "which return a value", e[0].position)))
                         } *-
-                        throw new NotSupportedException()
+                        throw new NotSupportedException("@return")
                     }
                     case TokenType.PRE: {
 -*                        if !inPostcondition {
@@ -821,7 +844,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         assert e[3]->(TokenNode).token.type = TokenType.RPAREN
                         def reused := makeReusable(expr)
                         return reused.createReference() *-
-                        throw new NotSupportedException()
+                        throw new NotSupportedException("@pre")
                     }
                     default: throw new CompilerException(
                                 "unsupported term: '\{e[0]->(TokenNode).token}'", 
@@ -836,8 +859,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 assert literal[3]->(TokenNode).token.type = TokenType.RPAREN
                 def type, messages := context.getType(literal[2])
                 if type != null {
-                    return (new ClassObjectLiteral(context, literal.position, 
-                            type), messages)
+                    return (new ClassObjectLiteral(literal.position, type), 
+                            messages)
                 }
                 else
                     return (null, messages)
@@ -923,7 +946,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     }
                     else {
                         if exp.type.isWrapper {
-                            exp, submessages := exp.implicitCast(exp.type->>(PrimitiveType))
+                            exp, submessages := exp.implicitCast(
+                                    context, exp.type->>(PrimitiveType))
                             messages := addMessages(messages, submessages)
                         }
                         if exp.type.isNumber {
@@ -937,25 +961,28 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     }
                 }
                 case TokenType.NOT: {
-                    exp, submessages := exp.implicitCast(BitType.BIT)
+                    exp, submessages := exp.implicitCast(context, BitType.BIT)
                     messages := addMessages(messages, submessages)
                     exp := new UnaryOperation(e.position, UnaryOperationType.NOT,
                             exp)
                 }
                 case TokenType.BITWISENOT: {
                     if exp.type.isWrapper {
-                        exp, submessages := exp.implicitCast(exp.type->>(PrimitiveType))
+                        exp, submessages := exp.implicitCast(context,
+                                exp.type->>(PrimitiveType))
                         messages := addMessages(messages, submessages)
                     }
                     if exp.type.isInteger {
                         if exp.type->>(PrimitiveType).size < 4 {
                             if exp.type->(IntType).signed {
                                 exp, submessages := 
-                                        exp.implicitCast(IntType.INT32)
+                                        exp.implicitCast(context,
+                                                IntType.INT32)
                             }
                             else {
                                 exp, submessages := 
-                                        exp.implicitCast(IntType.UINT32)
+                                        exp.implicitCast(context, 
+                                            IntType.UINT32)
                             }
                             messages := addMessages(messages, submessages)
                         }
@@ -987,17 +1014,17 @@ class ASTGenerator : Immutable (MessageProcessor) {
     implicitCast.
     ============================================================================
     @private
-    method signMattersCast(position:Position, v:Value, t:Type, 
+    method signMattersCast(context:Context, position:Position, v:Value, t:Type, 
             signMatters:Bit):(Value, ListView<Message>?) {
         if !signMatters {
             def srcType := v.type->>(PrimitiveType)
             if srcType.isInteger & t.isInteger & 
                     srcType->(IntType).signed != t->(IntType).signed & 
                     srcType->>(PrimitiveType).size <= t->>(PrimitiveType).size {
-                return v.explicitCast(t)
+                return v.explicitCast(context, t)
             }
         }
-        return v.implicitCast(t)
+        return v.implicitCast(context, t)
     }
     
     ============================================================================
@@ -1011,10 +1038,15 @@ class ASTGenerator : Immutable (MessageProcessor) {
     @param right the right argument
     @returns a method call, or `null`
     ============================================================================
-    method callOverloadedOperator(position:Position, var name:String, 
-            var left:Value, var right:Value):Value? {
--*        left := resolveUnresolvedConstructs(left)
-        right := resolveUnresolvedConstructs(right)
+    method callOverloadedOperator(context:Context, position:Position, 
+            var name:String, var left:Value, var right:Value):Value? {
+        var messages:ListView<Message>? := null
+        left, messages := resolveUnresolvedConstructs(context, left)
+        if messages != null
+            return null
+        right, messages := resolveUnresolvedConstructs(context, right)
+        if messages != null
+            return null
         -- avoid calling the various "fake" operators we define in the wrapper
         -- classes
         if name = "=" | name = "!=" {
@@ -1029,66 +1061,64 @@ class ASTGenerator : Immutable (MessageProcessor) {
             return null -- force this to be compiled as ==, which is quicker 
                         -- than calling nullableEquals.
         if name != "=" {
-            if left.type = StringOrCharType.STRING_OR_CHAR
-                return callOverloadedOperator(position, name, 
-                    implicitCast(left.position, left, ClassType.STRING()), 
-                    right)
-            if right.type = StringOrCharType.STRING_OR_CHAR
-                return callOverloadedOperator(position, name, 
-                    left, implicitCast(right.position, right, 
-                    ClassType.STRING()))
+            if left.type = StringOrCharType.STRING_OR_CHAR {
+                def cast:Value?
+                cast, messages := left.implicitCast(context, 
+                        ClassType.STRING)
+                assert messages = null : messages->>(String)
+                return callOverloadedOperator(context, position, name, cast, 
+                        right)
+            }
+            if right.type = StringOrCharType.STRING_OR_CHAR {
+                def cast:Value?
+                cast, messages := right.implicitCast(context, 
+                        ClassType.STRING)
+                assert messages = null : messages->>(String)
+                return callOverloadedOperator(context, position, name, left, 
+                        cast)
+            }
         }
 
-        var rawName := name
+        def rawName := name
         -- map != and !== to = and ==. We'll invert the answer on return.
         if name.startsWith("!")
             name := name[1..]
         var result:Value? := null
-        var parameters := new PrimitiveArray<Value>(left, right)
+        def parameters := new Array<Value>()
+        parameters.add(left)
+        parameters.add(right)
         if name = "=" & (left.type.isNullable | right.type.isNullable) {
             -- for equality, if one or both parameters are null, we need to
             -- funnel this through Panda.nullableEquals
-            var panda := ClassType.PANDA().classNode
-            var op := panda.symbolTable.getMethod(position, "nullableEquals", 
-                    parameters, true)
-            assert op != null
-            result := call(position, op, false, parameters)
+            result, messages := call(context, position, new ClassLiteral(
+                    position, ClassType.PANDA), "nullableEquals", parameters)
+            assert result != null : "failed to call nullableEquals: \{messages}"
         }
+        -- we can safely ignore the error messages, as it is ok to not find an
+        -- overload
         if result = null {
-            -- check for overload on left (both instance & static)
-            var c:ClassNode? := null
-            if !left.type.isPrimitive
-                c := left.type.classNode
-            if c = null & name != "="
-                c := left.type.unwrapRealLiteral.wrapperVersion().classNode
-            if c != null {
-                var op := c.symbolTable.getMethod(position, name, parameters, 
-                        true)
-                if op != null
-                    result := call(position, op, false, parameters)
-                op := c.symbolTable.getMethod(position, name, parameters, false)
-                if op != null & !op.annotations.isClass
-                    result := call(position, op, true, parameters)
+            -- check for overload on left (both instance & class)
+            def rightParam := new Array<Value>()
+            rightParam.add(right)
+            var ignored:ListView<Message>?
+            result, ignored := call(context, position, left, name, rightParam)
+            if result = null {
+                result, ignored := call(context, position, new ClassLiteral(
+                        position, left.type->>(ClassType)), name, parameters)
             }
         }
         if result = null {
-            -- check for overload on right (static only)
-            var c:ClassNode? := null
-            if !right.type.isPrimitive
-                c := right.type.classNode
-            if c = null & name != "="
-                c := right.type.unwrapRealLiteral.wrapperVersion().classNode
-            if c != null {
-                var op := c.symbolTable.getMethod(position, name, parameters, 
-                        true)
-                if op != null
-                    result := call(position, op, false, parameters)
-            }
+            -- check for overload on right (class only)
+            parameters.clear()
+            parameters.add(right)
+            parameters.add(left)
+            def ignored:ListView<Message>?
+            result, ignored := call(context, position, new ClassLiteral(
+                    position, right.type->>(ClassType)), name, parameters)
         }
         if rawName.startsWith("!") & result != null
             result := new Not(position, result)
-        return result*-
-        return null
+        return result
     }
 
     ============================================================================
@@ -1137,7 +1167,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
         messages := addMessages(messages, submessages)
         right, submessages := resolveUnresolvedConstructs(context, right)
         messages := addMessages(messages, submessages)
-        var value := callOverloadedOperator(position, methodName, left, right)
+        var value := callOverloadedOperator(context, position, methodName, left,
+                right)
         if value = null {
             def opType:BinaryOperationType
             switch op {
@@ -1184,11 +1215,11 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         "'\{left.type.displayName}', " +
                         "'\{right.type.displayName}'", position)))
             }
-            left, submessages := signMattersCast(position, left, operandType, 
-                    BinaryOperation.signMatters(opType))
+            left, submessages := signMattersCast(context, position, left, 
+                    operandType, BinaryOperation.signMatters(opType))
             messages := addMessages(messages, submessages)
-            right, submessages := signMattersCast(position, right, operandType,
-                    BinaryOperation.signMatters(opType))
+            right, submessages := signMattersCast(context, position, right, 
+                    operandType, BinaryOperation.signMatters(opType))
             messages := addMessages(messages, submessages)
             value := new BinaryOperation(position, opType, left, right)
         }
@@ -1354,12 +1385,12 @@ class ASTGenerator : Immutable (MessageProcessor) {
     function resolveUnresolvedConstructs(context:Context, v:Value):
             (Value, ListView<Message>?) {
         if v-?>(UnresolvedArray) | v-?>(UnresolvedTuple)-- | v-?>(UnresolvedRange)
-            return v.implicitCast(v.preferredVariableType)
+            return v.implicitCast(context, v.preferredVariableType)
         return (v, null)
     }
 
-    method call(position:Position, var m:TypedMethodStub, isSuper:Bit,
-            params:ListView<Value>):(Value?, ListView<Message>?) {
+    method call(context:Context, position:Position, var m:TypedMethodStub, 
+            isSuper:Bit, params:ListView<Value>):(Value?, ListView<Message>?) {
         var messages:ListView<Message>? := null
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
@@ -1386,16 +1417,17 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def finalParams := new Array<Value>()
         for i in 0 .. count {
             def target := m.parameters[i].type
-            if params[i].canImplicitCastTo(target) {
-                def cast, submessages := params[i].implicitCast(target)
+            if params[i].canImplicitCastTo(context, target) {
+                def cast, submessages := params[i].implicitCast(context, target)
                 messages := addMessages(messages, submessages)
                 finalParams.add(cast)
             }
--*            else if m.parameters[i].isConvert & 
-                    params[i].canConvertTo(target) {
-                finalParams.append(convert(params[i].position, params[i], 
-                        target))
-            }*-
+            else if m.parameters[i].isConvert & 
+                    params[i].canConvertTo(context, target) {
+                def converted, submessages := params[i].convert(context, target)
+                messages := addMessages(messages, submessages)
+                finalParams.add(converted)
+            }
             else {
                 messages := addMessage(messages, "expected value of type " +
                         "'\{target.displayName}', but found " +
@@ -1405,18 +1437,24 @@ class ASTGenerator : Immutable (MessageProcessor) {
         if isVarArg {
             def values := new Array<Value>()
             def isConvert := methodParams[methodParams.length - 1].isConvert
--*            def type := methodParams[methodParams.length - 1].type->(PrimitiveArrayType).elementType
-            for i in count ... params.length - 1 {
-                if isConvert
-                    values.append(convert(params[i].position, params[i], type))
+            def arrayType := methodParams[methodParams.length - 1].type->(PrimitiveArrayType)
+            def elementType := arrayType.elementType
+            for i in count .. params.length {
+                if isConvert {
+                    def convert, submessages := params[i].convert(context, 
+                            elementType)
+                    messages := addMessages(messages, submessages)
+                    values.add(convert)
+                }
                 else {
-                    values.append(implicitCast(params[i].position, params[i], 
-                            type))
+                    def cast, submessages := params[i].implicitCast(context, 
+                            elementType)
+                    messages := addMessages(messages, submessages)
+                    values.add(cast)
                 }
             }
-            finalParams.append(new NewPrimitiveArrayWithValues(position,
-                methodParams[methodParams.length - 1].type, values))*-
-            throw new NotSupportedException()
+            finalParams.add(new NewPrimitiveArrayWithValues(position,
+                    arrayType, values))
         }
         return (new MethodCall(position, m, isSuper, finalParams), messages)
     }
@@ -1432,7 +1470,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 if result != null {
                     if result.annotations.isClass {
                         -- class method, update the contextValue
-                        contextValue := new ClassLiteral(context, position, 
+                        contextValue := new ClassLiteral(position, 
                                 context.currentClassType())
                     }
                 }
@@ -1441,14 +1479,14 @@ class ASTGenerator : Immutable (MessageProcessor) {
             }
             else {
                 -- in a class context
-                contextValue := new ClassLiteral(context, position,
+                contextValue := new ClassLiteral(position,
                         context.currentClassType())
             }
         }
         var classMethod:Bit
         var supercall:Bit
         if contextValue-?>(UnresolvedClassLiteral) {
-            contextValue := new ClassLiteral(context, position, 
+            contextValue := new ClassLiteral(position, 
                     contextValue->(UnresolvedClassLiteral).value)
         }
         if contextValue-?>(ClassLiteral) {
@@ -1471,7 +1509,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             "superclass", contextValue.position)))
                 }
                 def cast, submessages := context.getSelf(position).implicitCast(
-                        superclass)
+                        context, superclass)
                 assert messages = null : "failed to cast to superclass: \{messages}"
                 newParams.add(cast)
                 supercall := true
@@ -1485,51 +1523,26 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
         var methodStub := context.getMethod(contextValue, methodName, params)
         if methodStub = null {
-            if classMethod & methodName = "constructor" {
+            if classMethod & methodName = MethodNode.CONSTRUCTOR_NAME {
                 -- check for a constructor, which is called like a class method
                 -- but implemented as an instance method
--*                if type.isPrimitiveArray {
-                    -- FIXME: hardcoded yuck
-                    if params.length = 1 & 
-                            params[0].canImplicitCastTo(Type.INDEX_TYPE) {
-                        var elementType := type->(PrimitiveArrayType).elementType
-                        return new NewPrimitiveArrayWithLength(position, type, 
-                                implicitCast(position, params[0], 
-                                Type.INDEX_TYPE))
-                    }
-                    else if params.length = 3 & params[0].type.isPrimitiveArray &
-                            (params[0].type.elementType = type.elementType |
-                                params[0].type.elementType.canImplicitCastTo(
-                                    type.elementType) & 
-                                    !params[0].type.elementType.isPrimitive &
-                                    !type.elementType.isPrimitive) &
-                            params[1].canImplicitCastTo(Type.INDEX_TYPE) &
-                            params[2].canImplicitCastTo(Type.INDEX_TYPE) {
-                        if params[0].type.elementType.isNullable & 
-                                !type.elementType.isNullable
-                            PandaCompiler.reportError("cannot create array " +
-                                    "with possibly-null values", position)
-                        return new NewPrimitiveArrayWithRange(position, type, 
-                                params[0], 
-                                implicitCast(params[1].position, params[1], 
-                                    Type.INDEX_TYPE),
-                                implicitCast(params[2].position, params[2], 
-                                    Type.INDEX_TYPE))
+                def type := contextValue->(ClassLiteral).value
+                if type.isPrimitiveArray {
+                    if params.length = 1 &
+                            params[0].canImplicitCastTo(context, IntType.INT32) {
+                        def cast, _ := params[0].implicitCast(context,
+                                IntType.INT32)
+                        return (new NewPrimitiveArray(position, 
+                                type->>(PrimitiveArrayType), cast), messages)
                     }
                     else {
-                        var finalParams := new Array<Value>()
-                        for param in params {
-                            finalParams.add(param.implicitCast(
-                                    type.elementType))
-                        }
-                        throw new NotSupportedException()
---                        return new NewPrimitiveArrayWithValues(position, type, 
---                                finalParams)
+                        return (null, wrap(new Message(
+                                "invalid arguments to PrimitiveArray constructor", 
+                                position)))
                     }
-                }*-
+                }
                 def newParams := new Array<Value>()
-                newParams.add(new Dummy(contextValue.position,
-                        contextValue->(ClassLiteral).value))
+                newParams.add(new Dummy(contextValue.position, type))
                 newParams.addAll(params)
                 params := newParams
                 def construct, submessages := call(context, position, 
@@ -1552,7 +1565,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     (contextValue-?>(VariableReference) &
                     contextValue->(VariableReference).variable.name = 
                         Parameter.SELF_NAME)
-            def result := call(position, methodStub, supercall, params)
+            def result := call(context, position, methodStub, supercall, params)
             if methodStub.methodType = MethodNodeType.CONSTRUCTOR {
                 return (new Construct(contextValue->(ClassLiteral).value,
                         result[0]->(MethodCall)), result[1])
@@ -1667,7 +1680,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         var result:Value? := raw
         if result.type = RealType.REAL64 {
             def submessages:ListView<Message>?
-            result, submessages := result.implicitCast(RealType.REAL64)
+            result, submessages := result.implicitCast(context, RealType.REAL64)
             messages := addMessages(messages, submessages)
         }
         else if result-?>(Unresolved) {
@@ -1675,7 +1688,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     raw.position)
             if type != null {
                 messages := addMessages(messages, submessages)
-                return (new ClassLiteral(context, raw.position, type), messages)
+                return (new ClassLiteral(raw.position, type), messages)
             }
             if !result->(Unresolved).name.contains(".")
                 result := resolveNoArgFunction(context, result->(Unresolved))
@@ -1713,9 +1726,11 @@ class ASTGenerator : Immutable (MessageProcessor) {
         return (result, messages)
     }
 
-    method convert(context:Context, position:Position, var v:Value, 
-            var t:Type):Value {
-        throw new NotSupportedException()
+    @class
+    function makeExplicit(v:Value):Value {
+        if v-?>(Cast)
+            return new Cast(v->(Cast).value, v.type, CastType.EXPLICIT)
+        return v
     }
 
     method convertInstanceOf(position:Position, var object:Value, 
@@ -1775,7 +1790,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
         assert instanceOf != null
         return call(position, instanceOf, false, parameters)*-
-        throw new NotSupportedException()
+        throw new NotSupportedException("instanceof")
     }
 
     @pre(c.type = ParseNodeType.CONSTRUCT)
@@ -1792,10 +1807,10 @@ class ASTGenerator : Immutable (MessageProcessor) {
         messages := addMessages(messages, submessages)
         if params = null
             return (null, messages)
-        def classLiteral := new ClassLiteral(context, c[1].position, type)
+        def classLiteral := new ClassLiteral(c[1].position, type)
         def result:Value?
         result, submessages := call(context, c.position, classLiteral, 
-                "constructor", params)
+                MethodNode.CONSTRUCTOR_NAME, params)
         messages := addMessages(messages, submessages)
         return (result, messages)
     }
@@ -1825,7 +1840,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     messages := addMessages(messages, submessages)
                     if type = null
                         return (null, messages)
-                    contextValue := new ClassLiteral(context, id.position, type)
+                    contextValue := new ClassLiteral(id.position, type)
                 }
                 else
                     contextValue := context.getSelf(id.position)
@@ -1843,8 +1858,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         if id->(TokenNode).token.type = TokenType.IDENTIFIER {
             def type, _ := context.getType(name, id.position)
             if type != null {
-                return (new UnresolvedClassLiteral(context, id.position, type),
-                        null)
+                return (new UnresolvedClassLiteral(id.position, type), null)
             }
         }
         return (new Unresolved(id.position, null, name), null)
@@ -1874,6 +1888,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
     }
 
     -- FIXME remove this when array syntax is wired up to generic arrays
+    @class
     function wrap(message:Message):ListView<Message> {
         def result := new Array<Message>()
         result.add(message)
@@ -1938,7 +1953,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 -- no assignment method, trigger the exception
                 resolve(left)
             }*-
-            throw new NotSupportedException()
+            throw new NotSupportedException("assignment method")
         }
 -*        else if left-?>(AmbiguousReference) {
             var a := left->(AmbiguousReference)
@@ -1956,7 +1971,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         } *-
         else if left-?>(VariableReference) {
             def variable := left->(VariableReference).variable
-            def cast, submessages := right.implicitCast(variable.type)
+            def cast, submessages := right.implicitCast(context, variable.type)
             messages := addMessages(messages, submessages)
             def assignment := new VariableAssignment(assignmentOp.position,
                     variable, cast)
@@ -2014,37 +2029,36 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 close(class(FieldAssignment))
             }
         }
-        else if left-?>(IndexValue) {
-            if left->(IndexValue).array.type.isImmutable
-                error("cannot modify immutable array", assignmentOp.position)
-            -- handle increasing array length when index = array length
-            var iv := left->(IndexValue)
+*-
+        else if left-?>(PrimitiveArrayIndexValue) {
+            def iv := left->(PrimitiveArrayIndexValue)
+            def result := new Array<Statement>()
             if reuse {
-                cm.add(right)
-                def array := makeReusable(iv.array)
-                def index := makeReusable(iv.index)
-                index.removeFromParent()
-                array.removeFromParent()
-                iv.add(array.createReference())
-                iv.add(index.createReference())
-                right.removeFromParent()
-                currentNode.add(new ValueStatement(array))
-                currentNode.add(new ValueStatement(index))
-                open(new IndexedAssignment(assignmentOp.position,
-                        array.createReference(),
-                        index.createReference()))
-                currentNode.add(implicitCast(right.position, right, iv.type))
+                def old := right->(BinaryOperation)
+                assert old.left = left
+                def array := new ReusedValueDefinition(iv.array)
+                def index := new ReusedValueDefinition(iv.index)
+                def newRight := new BinaryOperation(old.position, old.operation,
+                        new PrimitiveArrayIndexValue(array.createReference(),
+                            index.createReference()), old.right)
+                def cast, submessages := newRight.implicitCast(context,
+                        array.type->>(PrimitiveArrayType).elementType)
+                messages := addMessages(messages, submessages)
+                result.add(new PrimitiveArrayIndexAssignment(left.position,
+                        array, index, cast))
             }
             else {
-                var array := iv.array
-                var index := iv.index
-                array.removeFromParent()
-                index.removeFromParent()
-                open(new IndexedAssignment(assignmentOp.position, array, index))
-                currentNode.add(implicitCast(right.position, right, iv.type))
+                def array := iv.array
+                def index := iv.index
+                def cast, submessages := right.implicitCast(context,
+                        array.type->>(PrimitiveArrayType).elementType)
+                messages := addMessages(messages, submessages)
+                result.add(new PrimitiveArrayIndexAssignment(left.position, 
+                        array, index, cast))
             }
-            close(class(IndexedAssignment))
+           return (result, messages)
         }
+-*
         else if left-?>(PossibleIndexedAssignment) {
             var pia := left->(PossibleIndexedAssignment)
             var params := [pia.index, right]
@@ -2205,7 +2219,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
         else
             error("cannot assign to '\{left}'", assignmentOp)*-
-        throw new NotSupportedException()
+        throw new NotSupportedException("special assignment")
     }
 
     @pre(assignmentOp.type = ParseNodeType.ASSIGNMENT_OPERATOR)
@@ -2266,7 +2280,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
             -- int8 := int8 + 1, and the right side promotes to an Int32, so we
             -- need to downcast)
             if right.type.isInteger & lvalue.type.isInteger {
-                right, submessages := right.explicitCast(lvalue.type)
+                right, submessages := right.explicitCast(context, lvalue.type)
                 messages := addMessages(messages, submessages)
             }
             def newLeft := new Array<Value?>()
@@ -2351,10 +2365,19 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         i += 2
                     }
                     case TokenType.LBRACKET: {
--*                        assert contextValue != null
-                        contextValue := resolve(contextValue)
-                        contextValue := resolveUnresolvedConstructs(context,
+                        assert contextValue != null
+                        var submessages:ListView<Message>?
+                        contextValue, submessages := resolve(context, 
                                 contextValue)
+                        messages := addMessages(messages, submessages)
+                        if contextValue = null
+                            return (null, null, messages)
+                        contextValue, submessages := 
+                                resolveUnresolvedConstructs(context, 
+                                    contextValue)
+                        messages := addMessages(messages, submessages)
+                        if contextValue = null
+                            return (null, null, messages)
                         i += 1
                         var slice := false
                         var endInclusive := false
@@ -2373,7 +2396,10 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             endInclusive := true
                         }
                         else {
-                            left := convertExpression(context, c[i])
+                            left, submessages := convertExpression(context, c[i])
+                            messages := addMessages(messages, submessages)
+                            if left = null
+                                return (null, null, messages)
                             i += 1
                         }
                         if c[i]-?>(TokenNode) & 
@@ -2389,12 +2415,20 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                         TokenType.BY)
                                 right := null
                             else {
-                                right := convertExpression(context, c[i])
+                                right, submessages := convertExpression(context, 
+                                        c[i])
+                                messages := addMessages(messages, submessages)
+                                if right = null
+                                    return (null, null, messages)
                                 i += 1
                             }
                             if c[i]->(TokenNode).token.type = TokenType.BY {
                                 i += 1
-                                step := convertExpression(context, c[i])
+                                step, submessages := convertExpression(context, 
+                                        c[i])
+                                messages := addMessages(messages, submessages)
+                                if step = null
+                                    return (null, null, messages)
                                 i += 1
                             }
                         }
@@ -2413,20 +2447,34 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         if !slice {
                             assert left != null
                             if contextValue.type.isPrimitiveArray {
-                                if contextValue.type.isNullable
-                                    contextValue := implicitCast(c.position, contextValue,
+                                if contextValue.type.isNullable {
+                                    contextValue, submessages := contextValue.implicitCast(
+                                            context,
                                             contextValue.type.unwrapNullable)
-                                contextValue := new IndexValue(c.position, contextValue, 
-                                        implicitCast(c.position, left, 
-                                            Type.INDEX_TYPE))
+                                    messages := addMessages(messages, 
+                                            submessages)
+                                    if contextValue = null
+                                        return (null, null, messages)
+                                }
+                                def cast:Value?
+                                cast, submessages := left.implicitCast(
+                                        context,
+                                        IntType.INT32)
+                                messages := addMessages(messages, submessages)
+                                contextValue := new PrimitiveArrayIndexValue(
+                                        contextValue, cast)
                             }
                             else if contextValue.type.isTuple & 
                                     left-?>(IntegerLiteral) {
-                                contextValue := getField(contextValue.position, contextValue,
+                                contextValue, submessages := getField(context, 
+                                        contextValue.position, contextValue,
                                         "$field" + left->(IntegerLiteral).value)
+                                messages := addMessages(messages, submessages)
+                                if contextValue = null
+                                    return (null, null, messages)
                             }
                             else {
-                                -- look for overloaded [] operator
+-*                                -- look for overloaded [] operator
                                 if contextValue-?>(UnresolvedClassLiteral)
                                     contextValue := contextValue->
                                             (UnresolvedClassLiteral)->>
@@ -2456,9 +2504,11 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 else
                                     contextValue := new PossibleIndexedAssignment(
                                             c.position, contextValue, left)
+                                *-
+                                throw new NotSupportedException("overloaded []")
                             }
                         }
-                        else {
+                        else { -*
                             -- slice
                             if contextValue-?>(UnresolvedClassLiteral)
                                 contextValue := contextValue->
@@ -2487,12 +2537,12 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 contextValue := new PossibleSliceAssignment(
                                         c.position, contextValue, left, right, 
                                         step, endInclusive)
-                            }
+                            } *-
+                            throw new NotSupportedException("lbracket")
                         }
                         assert c[i].type = ParseNodeType.TOKEN &
                                 c[i]->(TokenNode).token.type = TokenType.RBRACKET
-                        i += 1*-
-                        throw new NotSupportedException("lbracket")
+                        i += 1
                     }
                     case TokenType.MEMBER: {-*
                         assert contextValue != null
@@ -2569,8 +2619,9 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         type, submessages := context.getType(c[i])
                         messages := addMessages(messages, submessages)
                         if type != null {
-                            contextValue := convert(context, c[i].position, 
-                                    contextValue, type)
+                            contextValue, submessages := contextValue.convert(
+                                    context, type)
+                            messages := addMessages(messages, submessages)
                         }
                         else
                             return (null, null, messages)
@@ -2595,7 +2646,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         if type != null {
                             contextValue, submessages := 
                                     contextValue.explicitCast(c[i].position, 
-                                        type)
+                                        context, type)
                             messages := addMessages(messages, submessages)
                         }
                         else
@@ -2768,7 +2819,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
             contextValue, messages := convertConstruct(context, c[0])
         else if c[0].type = ParseNodeType.CALL_EXPRESSION {
 --            contextValue := convertCallExpression(c[0])
-            throw new NotSupportedException()
+            throw new NotSupportedException("call expression")
         }
         else {
             def id := c[0]->>(String)
@@ -2797,39 +2848,41 @@ class ASTGenerator : Immutable (MessageProcessor) {
     Processes an IF parse node.
     ============================================================================
     @pre(i.type = ParseNodeType.IF)
-    method convertIf(context:Context, i:ParseNode):(If, ListView<Message>?) {
+    method convertIf(var context:Context, i:ParseNode):
+            (If, Context, ListView<Message>?) {
         assert i[0]->(TokenNode).token.type = TokenType.IF
         var messages:ListView<Message>? := null
         var test, submessages := convertExpression(context, i[1])
         messages := addMessages(messages, submessages)
         def cast:Value?
         if test != null {
-            cast, submessages := test.implicitCast(BitType.BIT)
+            cast, submessages := test.implicitCast(context, BitType.BIT)
             messages := addMessages(messages, submessages)
         }
         else
             cast := new Dummy(i[1].position, BitType.BIT)
         assert i[2].type = ParseNodeType.STATEMENT_OR_BLOCK
         def ifBlock:Block
-        ifBlock, submessages := convertStatementOrBlock(context, i[2])
+        ifBlock, context, submessages := convertStatementOrBlock(context, i[2])
         messages := addMessages(messages, submessages)
         def elseBlock:Block?
         if i.length > 3 {
             assert i[3]->(TokenNode).token.type = TokenType.ELSE
-            elseBlock, submessages := convertStatementOrBlock(context, i[4])
+            elseBlock, context, submessages := convertStatementOrBlock(context, 
+                    i[4])
             messages := addMessages(messages, submessages)
         }
         else
             elseBlock := null
-        return (new If(i.position, cast, ifBlock, elseBlock), messages)
+        return (new If(i.position, cast, ifBlock, elseBlock), context, messages)
     }
     
     ============================================================================
     Processes an ANY_LOOP parse node.
     ============================================================================
     @pre(l.type = ParseNodeType.ANY_LOOP)
-    method convertAnyLoop(context:Context, l:ParseNode):
-            (AbstractLoop, ListView<Message>?) {
+    method convertAnyLoop(var context:Context, l:ParseNode):
+            (AbstractLoop, Context, ListView<Message>?) {
         def label:String?
         var i := 0
         if l[i]->(TokenNode).token.type = TokenType.IDENTIFIER {
@@ -2852,20 +2905,25 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 messages := addMessages(messages, submessages)
                 def cast:Value?
                 if test != null {
-                    cast, submessages := test.implicitCast(BitType.BIT)
+                    cast, submessages := test.implicitCast(context, BitType.BIT)
                     messages := addMessages(messages, submessages)
                 }
                 else
                     cast := new Dummy(l[i + 2].position, BitType.BIT)
                 def block:Block
-                block, submessages := convertStatementOrBlock(context, l[i])
+                block, context, submessages := convertStatementOrBlock(context, 
+                        l[i])
                 messages := addMessages(messages, submessages)
-                return (new Do(l.position, label, cast, block), messages)
+                return (new Do(l.position, label, cast, block), context,
+                        messages)
             }
             case TokenType.LOOP: {
                 i += 1
-                var block, messages := convertStatementOrBlock(context, l[i])
-                return (new Loop(l.position, label, block), messages)
+                def block:Block
+                def messages:ListView<Message>?
+                block, context, messages := convertStatementOrBlock(context, 
+                        l[i])
+                return (new Loop(l.position, label, block), context, messages)
             }
             case TokenType.WHILE: {
                 i += 1
@@ -2874,16 +2932,17 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 messages := addMessages(messages, submessages)
                 def cast:Value?
                 if test != null {
-                    cast, submessages := test.implicitCast(BitType.BIT)
+                    cast, submessages := test.implicitCast(context, BitType.BIT)
                     messages := addMessages(messages, submessages)
                 }
                 else
                     cast := new Dummy(l[i].position, BitType.BIT)
                 i += 1
                 def block:Block?
-                block, submessages := convertStatementOrBlock(context, l[i])
+                block, context, submessages := convertStatementOrBlock(context, l
+                        [i])
                 messages := addMessages(messages, submessages)
-                return (new While(l.position, label, cast, block), messages)
+                return (new While(l.position, label, cast, block), context, messages)
             }
             default: {
                 throw new InternalCompilerException("unsupported loop type", 
@@ -3000,13 +3059,13 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     def element := value->(UnresolvedTuple).values[j]
                     def submessages:ListView<Message>?
                     effectiveValue, submessages := element.implicitCast(
-                            variable.type)
+                            context, variable.type)
                     messages := addMessages(messages, submessages)
                 }
                 else {
                     def submessages:ListView<Message>?
                     effectiveValue, submessages := value.implicitCast(
-                            variable.type)
+                            context, variable.type)
                     messages := addMessages(messages, submessages)
                 }
                 def va := new VariableAssignment(position, variable, 
@@ -3039,12 +3098,12 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 return (call, context, messages)
             }
             case ParseNodeType.ANY_LOOP:  {
-                def l, messages := convertAnyLoop(context, s[0])
-                return (l, context, messages)
+                def l, newContext, messages := convertAnyLoop(context, s[0])
+                return (l, newContext, messages)
             }
             case ParseNodeType.IF: {
-                def i, messages := convertIf(context, s[0])
-                return (i, context, messages)
+                 def i, newContext, messages := convertIf(context, s[0])
+                return (i, newContext, messages)
             }
 -*
             case ParseNodeType.SWITCH_STATEMENT: {
@@ -3072,7 +3131,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
     method convertThrowStatement(t:ParseNode):(Throw, ListView<Message>?) {
 -*        return new Throw(t.position, implicitCast(t[1].position,
                 convertExpression(t[1]), ClassType.ERROR())))*-
-        throw new NotSupportedException()
+        throw new NotSupportedException("throw")
     }
 
     ============================================================================
@@ -3109,7 +3168,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     assert cm != null
                     var value, messages := convertExpression(context, r[1])
                     if value != null {
-                        def cast, submessages := value.implicitCast(
+                        def cast, submessages := value.implicitCast(context, 
                                 cm.returnType)
                         messages := addMessages(messages, submessages)
                         return (new Return(r.position, cast), messages)
@@ -3157,18 +3216,17 @@ class ASTGenerator : Immutable (MessageProcessor) {
     Processes a STATEMENT_OR_BLOCK parse node.
     ============================================================================
     @pre(b.type = ParseNodeType.STATEMENT_OR_BLOCK)
-    method convertStatementOrBlock(context:Context, b:ParseNode):
-            (Block, ListView<Message>?) {
+    method convertStatementOrBlock(var context:Context, b:ParseNode):
+            (Block, Context, ListView<Message>?) {
         if b[0].type = ParseNodeType.BLOCK {
-            def result, _, messages := convertBlock(context, b[0])
-            return (result, messages)
+            def result, newContext, messages := convertBlock(context, b[0])
+            return (result, newContext, messages)
         }
         else {
             def statement:Statement?
             def messages:ListView<Message>?
             if b[0].type = ParseNodeType.SIMPLE_STATEMENT {
-                def ignored:Context
-                statement, ignored, messages := convertSimpleStatement(context,
+                statement, context, messages := convertSimpleStatement(context,
                         b[0])
             }
             else
@@ -3176,7 +3234,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
             def statements := new Array<Statement>()
             if statement != null
                 statements.add(statement)
-            return (new Block(b.position, statements), messages)
+            return (new Block(b.position, statements), context, messages)
         }
     }
 
@@ -3281,9 +3339,15 @@ class ASTGenerator : Immutable (MessageProcessor) {
     method convertCompilationUnits(
             compilationUnits:CollectionView<TypedCompilationUnitStub>,
             typeMap:TypeMap):
-                (CollectionView<ClassNode>, ListView<Message>?) {
+                (CollectionView<ClassNode>, MapView<String, TypedClassStub>, 
+                ListView<Message>?) {
         def result := new Array<ClassNode>()
         def stubs := new HashMap<String, TypedClassStub>()
+        for (_, type) in typeMap.allTypes() {
+            if type.isPrimitiveArray() & 
+                    type->>(PrimitiveArrayType).elementType-!>(GenericParameterType)
+                stubs[type.name] := type->>(PrimitiveArrayType).createStub(false)
+        }
         for cu in compilationUnits {
             for cl in cu.classes
                 stubs[cl.name] := cl
@@ -3296,6 +3360,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
             result.addAll(classes)
             messages := addMessages(messages, submessages)
         }
-        return (result, messages)
+        return (result, stubs, messages)
     }
 }
