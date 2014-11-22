@@ -241,7 +241,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    method getName(cl:TypedClassStub):String {
+    function getName(cl:TypedClassStub):String {
         return MethodNamer.escapeTypeName(cl.name)
     }
 
@@ -259,6 +259,10 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     function getName(v:Variable):String {
+        if v-?>(FieldNode) {
+            def field := v->(FieldNode)
+            return getName(getStub(field.owner)) + "$" + v.name
+        }
         return v.name
     }
 
@@ -947,7 +951,11 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     method callClassInit(cl:TypedClassStub) {
-        throw new NotSupportedException("classinit")
+        def classInit := cl.methods.filter(
+                m => m.name = MethodNode.CLASS_INIT_NAME)
+        assert classInit.length = 1 : "expected exactly one method named " +
+                "'\{MethodNode.CLASS_INIT_NAME} in \{cl}"
+        call("fastcc void @\{getName(classInit.iterator.next())}()")
     }
     
     @protected
@@ -1175,6 +1183,17 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
 
+    @protected
+    @math(overflow)
+    method createRealLiteralReference(r:RealLiteral):String {
+        var bits := Panda.real64Bits(r.value)->>(UInt64)
+        -- LLVM's float representation is completely insane -- it's not a float,
+        -- it's a double with the 29 low-order bits zeroed
+        if r.type = RealType.REAL32
+            bits := bits && ((-1)->(UInt64) << 29->(UInt64))
+        return "0x\{bits,0>16:h}"
+    }
+    
     -- return value is nullable so void expressions (method calls) can return
     -- null
     @protected
@@ -1186,9 +1205,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(MethodCall): return createMethodCallReference(v->(MethodCall))
             case class(StringLiteral): return getStringConstantReference(v->(StringLiteral).value)
             case class(IntegerLiteral): return v->(IntegerLiteral).value->>(String)
--*
             case class(RealLiteral): return createRealLiteralReference(v->(RealLiteral))
-*-
             case class(VariableReference): return createVariableReference(v->(VariableReference))
             case class(FieldReference): return createFieldReference(v->(FieldReference))
             case class(Cast): return createCastReference(v->(Cast))
@@ -1201,8 +1218,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(GreaterThanOrEqual): return createBinaryOperationReference(v->(BinaryOperation), "icmp sge", "icmp uge", "fcmp oge")
             case class(NotEqual): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne", "fcmp one")
             case class(NotIdentity): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne")
-            case class(BitLiteral): return v->(BitLiteral).value->>(String)
     *-
+            case class(BitLiteral): return v->(BitLiteral).value->>(String)
             case class(NewPrimitiveArray): return createNewPrimitiveArrayReference(v->(NewPrimitiveArray))
             case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
             case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->(PrimitiveArrayIndexValue))
@@ -1277,6 +1294,48 @@ class LLVMCodeGenerator (CodeGenerator) {
                 ia->>(String))
     }
     
+    @protected
+    method generateFieldAssignmentCode(fa:FieldAssignment) {
+        if !fa.fieldNode.annotations.isThread {
+            def ep := getFieldPointer(fa.object, fa.fieldNode)
+            def lref := getLLVMType(fa.fieldNode.type) + "* " + ep
+            def vref := createReference(fa.value)
+            assert vref != null : "expected non-null vref in generateFieldAssignmentCode"
+            writeBody("store \{getLLVMType(fa.fieldNode.type)} \{vref}, " + 
+                    lref, fa->>(String))
+        }
+        else {
+-*            var owner := fa.fieldNode.parent->(ClassNode)
+            callClassInit(owner)
+            var threadLocalId := getTempVariable()
+            var indexField := owner.symbolTable.getVariable(fa.fieldNode.name + 
+                    ASTGenerator.INDEX_SUFFIX)
+            assert indexField != null
+            body.writeLine("load i32* @" + getName(indexField))
+            var ref := getReference(fa.value)
+            assert ref != null : "expected non-null ref in generateFieldAssignmentCode"
+            if !fa.value.type.isPrimitive & 
+                    fa.value.type != ClassType.OBJECT() {
+                var cast := getTempVariable()
+                writeBody(cast + " = bitcast " + 
+                        getLLVMType(fa.value.type) + " " + ref + " to " + 
+                        getLLVMType(ClassType.OBJECT()), 
+                        "cast threadlocal to Object")
+                ref := getLLVMType(ClassType.OBJECT()) + " " + cast
+            }
+            else
+                ref := getLLVMType(fa.value.type) + " " + ref
+            var suffix:String
+            if fa.value.type.isPrimitive
+                suffix := fa.value.type.name[ClassNode.CORE.length..]
+            else
+                suffix := "Object"
+            call("fastcc void @panda$core$Panda$setThreadLocal" + 
+                    suffix + "(i32 " + threadLocalId + ", " + ref + ")")*-
+            throw new NotSupportedException("threadlocal field")
+        }
+    }
+
     @protected
     method generateIfCode(i:If) {
         if debug
@@ -1419,8 +1478,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         switch s.class {
             case class(PrimitiveArrayIndexAssignment): 
                     generatePrimitiveArrayIndexAssignmentCode(s->(PrimitiveArrayIndexAssignment))
--*            case class(FieldAssignment): 
-                    generateFieldAssignmentCode(s->(FieldAssignment)) *-
+            case class(FieldAssignment): 
+                    generateFieldAssignmentCode(s->(FieldAssignment))
             case class(ValueStatement):
                     generateValueStatementCode(s->(ValueStatement))
             case class(If): generateIfCode(s->(If))
@@ -1450,6 +1509,50 @@ class LLVMCodeGenerator (CodeGenerator) {
     method generateBlockCode(b:Block) {
         for s in b.statements
             generateStatementCode(s)
+    }
+
+    @protected
+    method getDefaultValue(f:FieldNode):String {
+        def type := f.type
+        if type.isInteger | type = CharType.CHAR
+            return "0"
+        else if type.isReal 
+            return createRealLiteralReference(new RealLiteral(Position.INTERNAL,
+                    0, type))
+        else if type = BitType.BIT
+            return "false"
+        else
+            return "null"
+    }
+
+    @protected
+    method writeFieldDeclaration(f:FieldNode) {
+        if f.annotations.isClass {
+            -- write class field
+            body.write("@" + getName(f) + " = ")
+            def cl := getStub(f.owner)
+            if cl.isExternal
+                body.write("external ")
+            else if f.owner.isPrimitiveArray
+                body.write(SHARED_LINKAGE + " ")
+            body.write("global " + getLLVMType(f.type))
+            if !cl.isExternal
+                body.writeLine(" " + getDefaultValue(f))
+            else
+                body.writeLine()
+        }
+        else if f.annotations.isThread {
+            -- write thread field
+            body.write("@" + getName(f) + " = ")
+            def cl := getStub(f.owner)
+            if cl.isExternal
+                body.write("external ")
+            body.write("global i32")
+            if !cl.isExternal
+                body.writeLine(" 0")
+            else
+                body.writeLine()
+        }
     }
 
     @protected
@@ -1539,6 +1642,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     method generateClassCode(cl:ClassNode) {
         for m in cl.methods
             generateMethodCode(m)
+        for f in cl.fields
+            writeFieldDeclaration(f)
     }
 
     @override
@@ -1558,6 +1663,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             if classes[cl.name] = null & cl.genericParameters = null {
                 for m in cl.methods
                     writeMethodDeclaration(m)
+                for f in cl.fields
+                    writeFieldDeclaration(f)
             }
         }
 -*        for (_, cl) in stubs {

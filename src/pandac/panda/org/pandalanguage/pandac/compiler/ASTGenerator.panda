@@ -301,7 +301,7 @@ class Context : Immutable {
     @pre(isInstance)
     function getSelf(position:Position):Value {
         def selfVar := visibleVariables[Parameter.SELF_NAME]
-        assert selfVar != null
+        assert selfVar != null : "no self at \{position}"
         return new VariableReference(position, selfVar)
     }
 
@@ -1462,6 +1462,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
     method call(context:Context, position:Position, var contextValue:Value?, 
             methodName:String, var params:ListView<Value>):
             (Value?, ListView<Message>?) {
+        Console.writeLine("call: \{position} \{methodName}\{params}")
         var messages:ListView<Message>? := null            
         if contextValue = null {
             if context.isInstance {
@@ -1474,8 +1475,10 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 context.currentClassType())
                     }
                 }
-                if contextValue = null
+                if contextValue = null {
+                    Console.writeLine("getting self!")
                     contextValue := context.getSelf(position)
+                }
             }
             else {
                 -- in a class context
@@ -1684,11 +1687,15 @@ class ASTGenerator : Immutable (MessageProcessor) {
             messages := addMessages(messages, submessages)
         }
         else if result-?>(Unresolved) {
-            def type, submessages := context.getType(raw->>(String), 
-                    raw.position)
-            if type != null {
-                messages := addMessages(messages, submessages)
-                return (new ClassLiteral(raw.position, type), messages)
+            try {
+                def type, submessages := context.getType(raw->>(String), 
+                        raw.position)
+                if type != null {
+                    messages := addMessages(messages, submessages)
+                    return (new ClassLiteral(raw.position, type), messages)
+                }
+            }
+            catch e:CompilerException {
             }
             if !result->(Unresolved).name.contains(".")
                 result := resolveNoArgFunction(context, result->(Unresolved))
@@ -1979,32 +1986,29 @@ class ASTGenerator : Immutable (MessageProcessor) {
             result.add(new ValueStatement(assignment))
             return (result, messages)
         }
--*        else if left-?>(FieldReference) {
-            var fv := left->(FieldReference)
-            var object:Value
+        else if left-?>(FieldReference) {
+            def fv := left->(FieldReference)
+            def object:Value
+            def finalRight:Value
             if reuse {
-                cm.add(right)
-                if fv.object-!>(ClassLiteral) {
-                    def reusable := makeReusable(fv.object)
-                    reusable.replace(reusable.createReference())
-                    currentNode.add(new ValueStatement(reusable))
-                    object := reusable.createReference()
-                }
-                else
-                    object := fv.object
+                def old := right->(BinaryOperation)
+                assert old.left = fv
+                object := new ReusedValueDefinition(fv.object)
+                def newRight := new BinaryOperation(old.position, old.operation,
+                        new FieldReference(old.position, object, fv.field), 
+                        old.right)
+                def cast, submessages := newRight.implicitCast(context,
+                        fv.field.type)
+                messages := addMessages(messages, submessages)
+                finalRight := cast
             }
             else {
                 object := fv.object
-                cm.add(fv)
+                finalRight := right
             }
-            if reuse
-                right.removeFromParent()
-            else {
-                fv.removeFromParent()
-                object.removeFromParent()
-            }
-            var name := fv.field.name
-            var call := callAssignmentMethod(object, name, 
+            def name := fv.field.name
+            Console.writeLine("skipping field ambiguity check")
+-*            var call := callAssignmentMethod(object, name, 
                     new PrimitiveArray<Value>(right))
             if call != null {
                 if currentClass != fv.field.parent & 
@@ -2016,36 +2020,27 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             "\{name}:=() match", fv.position)
                 }
                 currentNode.add(call)
-            }
-            else {
-                if reuse & object-?>(ClassLiteral) {
-                    object.replace(
-                            new ClassLiteral(object->(ClassLiteral).value))
-                }
-                checkAssignment(fv.field, fv.position)
-                open(new FieldAssignment(assignmentOp.position, object, 
-                        fv.field))
-                currentNode.add(implicitCast(right.position, right, fv.type))
-                close(class(FieldAssignment))
-            }
+            }*-
+            def result := new Array<Statement>()
+            result.add(new FieldAssignment(fv.position, object, fv.field,
+                    finalRight))
+            return (result, messages)
         }
-*-
         else if left-?>(PrimitiveArrayIndexValue) {
             def iv := left->(PrimitiveArrayIndexValue)
             def result := new Array<Statement>()
             if reuse {
                 def old := right->(BinaryOperation)
-                assert old.left = left
+                assert old.left = iv
                 def array := new ReusedValueDefinition(iv.array)
                 def index := new ReusedValueDefinition(iv.index)
                 def newRight := new BinaryOperation(old.position, old.operation,
-                        new PrimitiveArrayIndexValue(array.createReference(),
-                            index.createReference()), old.right)
+                        new PrimitiveArrayIndexValue(array, index), old.right)
                 def cast, submessages := newRight.implicitCast(context,
                         array.type->>(PrimitiveArrayType).elementType)
                 messages := addMessages(messages, submessages)
                 result.add(new PrimitiveArrayIndexAssignment(left.position,
-                        array, index, cast))
+                        array.createReference(), index.createReference(), cast))
             }
             else {
                 def array := iv.array
@@ -3277,22 +3272,26 @@ class ASTGenerator : Immutable (MessageProcessor) {
             (MethodNode, ListView<Message>?) {
         def block:Block?
         def messages:ListView<Message>?
+        def parameters := new Array<Parameter>()
+        for p in m.parameters {
+            parameters.add(new Parameter(p.position, p.name, p.type, p.isFinal,
+                    p.isConvert, p.isVarArg))
+        }
         if m.block != null {
+            def visibleVariables := new HashMap<String, Variable>(
+                    context.visibleVariables)
+            for p in parameters
+                visibleVariables[p.name] := p
             def newContext := new Context(context.currentClass, m, 
                     context.lookupContext, context.typeMap, context.stubs,
                     new ImmutableArray<LocalVariable>(),
-                    context.visibleVariables)
+                    new ImmutableHashMap<String, Variable>(visibleVariables))
             block, context, messages := convertBlock(newContext, 
                     m.block->(ParseNode))
         }
         else {
             block := null
             messages := null
-        }
-        def parameters := new Array<Parameter>()
-        for p in m.parameters {
-            parameters.add(new Parameter(p.position, p.name, p.type, p.isFinal,
-                    p.isConvert, p.isVarArg))
         }
         return (new MethodNode(m.position, m, m.name, m.methodType, parameters, 
                 m.returnType, m.annotations, block, context.localVariables), 
@@ -3304,7 +3303,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
             (ClassNode, ListView<Message>?) {
         var messages:ListView<Message>? := null
         def methods := new Array<MethodNode>()
-        def fields := new Array<FieldNode>()
         for m in cl.methods {
             def context := new Context(cl, null, cl.lookupContext, typeMap, 
                     stubs, new ImmutableArray<LocalVariable>(),
@@ -3316,7 +3314,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
         }
         def result := new ClassNode(cl.position, cl.name, cl.isInterface, 
             cl.annotations, cl.lookupContext, cl.superclass, cl.interfaces, 
-            methods, fields, cl.invariants,
+            methods, cl.fields, cl.invariants,
             cl.genericParameters)
         return (result, messages)
     }

@@ -2,7 +2,7 @@ Coding Conventions
 ==================
 
 These are the conventions used in the Panda codebase itself; anyone wishing to
-contribute code to Panda should read and follow these conventions.
+contribute code to Panda should read and follow these conventions. 
 
 Identifiers
 -----------
@@ -46,8 +46,8 @@ significant about them. For instance, the following code is acceptable:
         return 42
     }
     --BEGIN
-    var heightString := getAttribute("height")
-    var height := parseHeight(heightString)
+    def heightString := getAttribute("height")
+    def height := parseHeight(heightString)
 )
 
 In this case, we need to distinguish the raw, unprocessed string form of the 
@@ -227,6 +227,25 @@ suffers as a result.
 Spaces should not appear between a type name and its modifier symbols, thus a
 nullable array of nullable ints should be written `Array<Int?>?`.
 
+Immutability
+------------
+
+Panda permits mutability, and of course you may take advantage of it where it
+makes sense to do so. 
+
+With that said, immutability is generally strongly preferred to mutability. 
+The vast majority of your "variables" should be `def`s, with `var`s relatively
+rare and only where they lead to more straightforward code. Most of the classes
+you create should extend `Immutable`, only using mutable classes where it 
+significantly simplifies the code (and keep in mind that even code which looks
+simpler *at first* can be a maintenance nightmare over time). Feel free to make
+use of mutable objects as temporary values within methods, but most of your 
+public interface should revolve around immutable values.
+
+Functions are strongly preferred to methods, and should be used where possible.
+Appropriate use of `@self`, `@limited`, and `@safeReturn` annotations will make
+use of functions dramatically easier.
+
 Uses
 ----
 
@@ -247,7 +266,7 @@ immediately obvious from looking at the code, e.g. in the below code
 )
 
 the comment is useless, because it does not tell us anything that is not 
-immediately apparent from looking at the code. We would instead want to know 
+immediately apparent from looking at the code. We might instead want to know 
 *why* x is being set to zero at this point, and what this represents or
 accomplishes. Keep in mind that "obvious" to the author of the code is not 
 obvious to others.
@@ -295,7 +314,7 @@ Example:
         
     @param a a number
     @param b a number
-    @return the greater of the two parameters
+    @returns the greater of the two parameters
     ============================================================================
     function max(a:Int32, b:Int32):Int32 {
         if a > b
@@ -391,7 +410,8 @@ read an expression such as `a + b` in English as "add b to a" and have it make
 sense even with overloaded operators. For instance, `String` redefines the add 
 operator to do something very different (concatenation), but it still makes 
 sense when read in English: when told to add the string "World!" to the string 
-"Hello ", one is not surprised to learn that the answer is "Hello World!".
+"Hello ", one is probably not surprised to learn that the answer is "Hello 
+World!".
 
 The overridable operators and their names are:
 
@@ -425,67 +445,6 @@ To make this even more explicit, PandaDoc includes these names in its output, to
 hopefully make it clear that it is not acceptable to simply redefine the 
 operators to do different things.
 
-Exceptions
-----------
-
-You can divide runtime problems into three basic categories:
-
-1. Problems which can only occur because of a bug in your software, and are not 
-generally recoverable. The vast majority of problems fall into this category, 
-and include things such as failed type casts and indexing past the end of an 
-array. If you attempt to index past the end of an array, your software is broken 
-and is no longer trustworthy; attempting to recover and keep running could lead
-to data corruption.
-2. Operations which may fail to compute a value at runtime, but for which simply 
-returning `null` is "good enough" error handling. Converting a `String` to a 
-number is a good example of this type: when you convert "123Hello4" to a number,
-the fact that the conversion returned `null` is enough information for you to 
-easily diagnose the problem. As Panda forces you to check for `null` before 
-using the value, there is no way for you to ignore the error and proceed as if 
-nothing had gone wrong.
-3. Operations which may fail at runtime, are potentially recoverable, and either
-don't return a value (and so cannot return null) or return a non-essential 
-return value (which the programmer could potentially just ignore and remain 
-unaware of the problem), or which may experience complex failures such that a 
-simple "it didn't work" is not helpful in diagnosis.
-
-Category 1 is covered by assertion failures and other `SafetyError`s. A 
-`SafetyError` tells that your program is broken (and hopefully gives you a good 
-indication of how), but after a `SafetyError` there is generally little reason 
-to allow your program to continue executing. It is no longer trustworthy, and 
-other than attempting to alert the user that it has experienced a problem and 
-needs to shut down, there is generally no way for you to recover from the error 
-and fix the problem at runtime.
-
-Category 2 is covered by `null` returns. Use a `null` return when there is no 
-way to simply ignore the return value (i.e., because the return value was the 
-whole point of calling the method in the first place) and when there is no 
-additional information required to explain the failure.
-
-Category 3 is where exceptions come in. `OutputStream.write` is a perfect 
-example of a method requiring exceptions, as a write failure can occur even to 
-perfectly-written software, it is potentially recoverable, and this method 
-doesn't return a value (and if it did, say, return the number of bytes written, 
-many programmers would just ignore the return value anyway). Writes can also 
-fail for a variety of reasons, so additional information is helpful in 
-diagnosing the issue. Therefore, it throws an exception if it fails.
-
-Generally speaking, if there is no reasonable way a programmer would ever catch 
-a particular exception and attempt to recover from it, it should be a 
-`SafetyError` rather than an exception. To use an example from another language, 
-Java's `ArithmeticException` (which occurs after a divide-by-zero) and 
-`IndexOutOfBoundsException` (which occurs if you use an illegal array index) are 
-good examples of how *not* to use exceptions in Panda. These exceptions occur 
-because of errors in your program rather than normal error situations for which 
-recovery is reasonable, and therefore there is no good reason to catch these 
-exceptions and continue executing as if nothing happened. (In Java terms, I
-believe the designers erred in making these `Exception`s rather than `Error`s).
-
-You might reasonably catch a file-not-found error, present the error to the 
-user, and allow him to choose a different file; you would (hopefully!) never do 
-the same with an index out of bounds error. Therefore, in Panda a file not being 
-found is an exception, and an index out of bounds is a `SafetyError`.
-
 SafetyError
 -----------
 
@@ -511,6 +470,9 @@ program is broken. Writing code equivalent to the following:
 will get you soundly flogged. Not only are exceptions incredibly expensive
 compared to a simple loop, but `SafetyError` is explicitly not guaranteed: your 
 code might have been compiled with array bounds checking disabled, for example.
+
+In a future version of the Panda compiler, guaranteed safety violations (such as
+the above example) will generate a compile-time error.
 
 Java Code
 ---------

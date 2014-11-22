@@ -12,10 +12,16 @@ uses org.pandalanguage.pandac.stubs.UntypedFieldNode
 uses org.pandalanguage.pandac.stubs.UntypedGenericParameter
 uses org.pandalanguage.pandac.stubs.UntypedMethodStub
 uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.Variable
+uses org.pandalanguage.pandac.tree.VariableType
+uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.SpecialType
@@ -127,6 +133,50 @@ class TypeResolver (MessageProcessor) {
                 f.tuplePosition), messages)
     }
 
+    method createClassInit(position:Position, owner:ClassType,
+            fields:ListView<FieldNode>):(FieldNode, TypedMethodStub)? {
+        var createInit := false
+        def body := new MutableString()
+        for f in fields {
+            if f.annotations.isClass | 
+                    f.annotations.isThread {
+                -- for isThread, we just ensure that the class init method
+                -- exists (it doesn't have to contain anything). This is so
+                -- code generators can easily do required thread local 
+                -- setup.
+                createInit := true
+                if f.annotations.isClass {
+                    def value := f.initialValue
+                    if value != null
+                        body.append("\{f.name} := \{value}\n")
+                }
+            }
+        }
+        if createInit {
+            -- FIXME need to use array syntax when it's wired up
+            def classAnnotations := new Array<AnnotationType>()
+            classAnnotations.add(AnnotationType.CLASS)
+            def classInited := new FieldNode(position, owner->(ClassType), 
+                    FieldNode.CLASS_INITED_NAME, new Annotations(position, 
+                        classAnnotations), 
+                    VariableType.VAR, BitType.BIT, null, null)
+
+            def methodBody := new PandaParser().parseBlock(
+                    "{ if \{owner.name}.\{classInited.name} return " +
+                    "\{owner.name}.\{classInited.name} := true \{body} }",
+                    position)
+
+            def classInit := new TypedMethodStub(position, 
+                    MethodNode.CLASS_INIT_NAME, new Annotations(position, 
+                        classAnnotations),
+                    MethodNodeType.METHOD, new Array<TypedFormalParameter>(), 
+                    VoidType.VOID, methodBody, owner->(ClassType))
+
+            return (classInited, classInit)
+        }
+        return null
+    }
+
     @private
     @self
     method resolveTypes(cl:UntypedClassStub):
@@ -168,6 +218,15 @@ class TypeResolver (MessageProcessor) {
             def resolved, submessages := resolveTypes(f)
             fields.add(resolved)
             messages := addMessages(messages, submessages)
+        }
+        if !cl.isExternal {
+            def classInit := createClassInit(cl.position, classType->(ClassType), 
+                    fields)
+            if classInit != null {
+                Console.writeLine("CREATED CLASS INIT FOR: \{cl}")
+                fields.add(classInit[0])
+                methods.add(classInit[1])
+            }
         }
         def interfaces := new Array<ClassType>()
         for intf in cl.interfaces {
