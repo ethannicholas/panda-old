@@ -192,8 +192,9 @@ class Scanner : Immutable (MessageProcessor) {
     ============================================================================
     @pre(m.type = ParseNodeType.METHOD_DECLARATION)
     function convertMethodDeclaration(doccomment:String?,
-            var annotations:Annotations, m:ParseNode, 
-            className:String?):(UntypedMethodStub, ListView<Message>?) {
+            var annotations:Annotations, m:ParseNode, className:String?, 
+            isInterface:Bit, isExternal:Bit):
+            (UntypedMethodStub, ListView<Message>?) {
         var messages:ListView<Message>? := null
         var i := 0
         def methodType:MethodNodeType
@@ -254,8 +255,17 @@ class Scanner : Immutable (MessageProcessor) {
         def block:ParseNode?
         if m.length > i & m[i].type = ParseNodeType.BLOCK
             block := m[i]
-        else
+        else {
             block := null
+            if !isExternal {
+                if isInterface
+                    annotations += AnnotationType.ABSTRACT
+                else {
+                    messages := addMessage(messages, "non-abstract method " +
+                            "\{name} must have a method body", m.position)
+                }
+            }
+        }
         return (new UntypedMethodStub(m.position, name, annotations,
                 methodType, finalParameters, returnType, block), messages)
     }
@@ -333,9 +343,9 @@ class Scanner : Immutable (MessageProcessor) {
     Processes a CLASS_MEMBER_DECLARATION parse node.
     ============================================================================
     @pre(cm.type = ParseNodeType.CLASS_MEMBER_DECLARATION)
-    function convertClassMember(cm:ParseNode, className:String):
-            (UntypedMethodStub?, ListView<UntypedFieldNode>?, ParseNode?, 
-            ListView<Message>?) {
+    function convertClassMember(cm:ParseNode, className:String, isInterface:Bit,
+            isExternal:Bit):(UntypedMethodStub?, ListView<UntypedFieldNode>?, 
+                ParseNode?, ListView<Message>?) {
         var messages:ListView<Message>? := null
         if cm[0].type = ParseNodeType.INVARIANT
             return (null, null, cm[0][2], null)
@@ -353,7 +363,7 @@ class Scanner : Immutable (MessageProcessor) {
         switch cm[i].type {
             case ParseNodeType.METHOD_DECLARATION: {
                 def m, methodMessages := convertMethodDeclaration(doccomment, 
-                        annotations, cm[i], className)
+                        annotations, cm[i], className, isInterface, isExternal)
                 messages := addMessages(messages, methodMessages)
                 return (m, null, null, messages)
             }
@@ -402,7 +412,7 @@ class Scanner : Immutable (MessageProcessor) {
 
         for member in classMembers.children {
             def m, f, inv, childMessages := convertClassMember(member, 
-                    className)
+                    className, isInterface, isExternal)
             if m != null
                 methods.add(m)
             if f != null
@@ -692,7 +702,7 @@ class Scanner : Immutable (MessageProcessor) {
                             def m, methodMessages := convertMethodDeclaration(
                                     doccomment, 
                                     annotations + AnnotationType.CLASS, 
-                                    child[i], null)
+                                    child[i], null, false, false)
                             methods.add(m)
                             messages := addMessages(messages, methodMessages)
                         }

@@ -18,6 +18,7 @@ uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableType
@@ -30,7 +31,9 @@ uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
 
 ================================================================================
-Converts the various untyped stubs into their typed equivalents.
+Converts the various untyped stubs into their typed equivalents. This class is
+also responsible for creating a bit of the synthetic code (default constructors
+and classInit methods).
 ================================================================================
 class TypeResolver (MessageProcessor) {
     constant EMPTY_CONTEXT := new LookupContext(new Array<String>(), 
@@ -177,6 +180,19 @@ class TypeResolver (MessageProcessor) {
         return null
     }
 
+    method createDefaultConstructor(position:Position, owner:ClassType):
+            TypedMethodStub {
+        def methodBody := new PandaParser().parseBlock("{}", position)
+        def params := new Array<TypedFormalParameter>()
+        params.add(new TypedFormalParameter(position, Parameter.SELF_NAME, 
+                owner, true, false, false))
+        return new TypedMethodStub(position, 
+                MethodNode.CONSTRUCTOR_NAME, new Annotations(position, 
+                    new Array<AnnotationType>()),
+                MethodNodeType.CONSTRUCTOR, params, VoidType.VOID, methodBody, 
+                owner->(ClassType))
+    }
+
     @private
     @self
     method resolveTypes(cl:UntypedClassStub):
@@ -186,10 +202,10 @@ class TypeResolver (MessageProcessor) {
         self.classAliases := new HashMap<String, String>(
                 cl.lookupContext.classAliases)
         var messages:ListView<Message>? := null
-        def classType, _ := typeMap.getType(
+        def rawClassType, _ := typeMap.getType(
                 new PandaParser().parseType(cl.name, cl.position), 
                 cl.lookupContext)
-        assert classType != null
+        def classType := rawClassType->(ClassType)
         def genericParameters:List<GenericParameterType>?
         if cl.genericParameters != null {
             genericParameters := new Array<GenericParameterType>()
@@ -209,7 +225,7 @@ class TypeResolver (MessageProcessor) {
             genericParameters := null
         def methods := new Array<TypedMethodStub>()
         for m in cl.methods {
-            def resolved, submessages := resolveTypes(classType->(ClassType), m)
+            def resolved, submessages := resolveTypes(classType, m)
             methods.add(resolved)
             messages := addMessages(messages, submessages)
         }
@@ -220,12 +236,15 @@ class TypeResolver (MessageProcessor) {
             messages := addMessages(messages, submessages)
         }
         if !cl.isExternal {
-            def classInit := createClassInit(cl.position, classType->(ClassType), 
-                    fields)
+            def classInit := createClassInit(cl.position, classType, fields)
             if classInit != null {
-                Console.writeLine("CREATED CLASS INIT FOR: \{cl}")
                 fields.add(classInit[0])
                 methods.add(classInit[1])
+            }
+            if methods.filter(m => m.methodType = 
+                    MethodNodeType.CONSTRUCTOR).length = 0 {
+                -- no default constructor
+                methods.add(createDefaultConstructor(cl.position, classType))
             }
         }
         def interfaces := new Array<ClassType>()

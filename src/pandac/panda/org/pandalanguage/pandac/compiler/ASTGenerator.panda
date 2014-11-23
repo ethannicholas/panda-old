@@ -239,7 +239,14 @@ class Context : Immutable {
 
     function getMethodsNamed(name:String, searchClass:TypedClassStub):
             CollectionView<TypedMethodStub> {
-        return searchClass.methods.filter(m => m.name = name)
+        def result := new Array<TypedMethodStub>()
+        def superclass := searchClass.superclass
+        if superclass != null
+            result.addAll(getMethodsNamed(name, getStub(superclass)))
+        for intf in searchClass.interfaces
+            result.addAll(getMethodsNamed(name, getStub(intf)))
+        result.addAll(searchClass.methods.filter(m => m.name = name))
+        return result
     }
 
     ============================================================================
@@ -259,6 +266,13 @@ class Context : Immutable {
             if contextValue-?>(ClassLiteral) {
                 searchClass := getStub(contextValue->(ClassLiteral).value)
                 classMethod := true
+            }
+            else if contextValue-?>(Super) {
+                def cc := currentClass
+                if cc = null
+                    return null
+                searchClass := getStub(cc.superclass->(ClassType))
+                classMethod := false
             }
             else {
                 classMethod := false
@@ -311,7 +325,11 @@ class Context : Immutable {
 
     function getStub(t:ClassType):TypedClassStub {
         def result := stubs[t.name]
-        assert result != null : "missing stub for \{t}"
+--        assert result != null : "missing stub for \{t}"
+        if result = null {
+            Panda.log("no stub for \{t.name}")
+            return getStub(ClassType.OBJECT)
+        }
         return result
     }
 
@@ -1391,6 +1409,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
 
     method call(context:Context, position:Position, var m:TypedMethodStub, 
             isSuper:Bit, params:ListView<Value>):(Value?, ListView<Message>?) {
+        Console.writeLine("calling \{m.owner}::\{m} with \{params}::\{isSuper}")
         var messages:ListView<Message>? := null
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
@@ -1462,7 +1481,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
     method call(context:Context, position:Position, var contextValue:Value?, 
             methodName:String, var params:ListView<Value>):
             (Value?, ListView<Message>?) {
-        Console.writeLine("call: \{position} \{methodName}\{params}")
         var messages:ListView<Message>? := null            
         if contextValue = null {
             if context.isInstance {
@@ -1475,10 +1493,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 context.currentClassType())
                     }
                 }
-                if contextValue = null {
-                    Console.writeLine("getting self!")
+                if contextValue = null
                     contextValue := context.getSelf(position)
-                }
             }
             else {
                 -- in a class context
@@ -1529,7 +1545,15 @@ class ASTGenerator : Immutable (MessageProcessor) {
             if classMethod & methodName = MethodNode.CONSTRUCTOR_NAME {
                 -- check for a constructor, which is called like a class method
                 -- but implemented as an instance method
-                def type := contextValue->(ClassLiteral).value
+                def type:Type
+                if contextValue-?>(ClassLiteral)
+                    type := contextValue->(ClassLiteral).value
+                else {
+                    assert contextValue-?>(Super)
+                    def sc := context.currentClass->(TypedClassStub).superclass
+                    assert sc != null
+                    type := sc
+                }
                 if type.isPrimitiveArray {
                     if params.length = 1 &
                             params[0].canImplicitCastTo(context, IntType.INT32) {
@@ -1544,33 +1568,37 @@ class ASTGenerator : Immutable (MessageProcessor) {
                                 position)))
                     }
                 }
-                def newParams := new Array<Value>()
-                newParams.add(new Dummy(contextValue.position, type))
-                newParams.addAll(params)
-                params := newParams
-                def construct, submessages := call(context, position, 
-                        contextValue, methodName, params)
-                if construct != null {
-                    def stub := construct->(Construct).constructorCall.methodStub
-                    if stub.methodType != 
-                            MethodNodeType.CONSTRUCTOR {
-                        return (null, wrap(new Message(
-                                "instance method '\{stub.name}' cannot be " +
-                                "accessed from a class context", position)))
+                if params.length = 0 | params[0]-!>(Dummy) {
+                    def newParams := new Array<Value>()
+                    newParams.add(new Dummy(contextValue.position, type))
+                    newParams.addAll(params)
+                    params := newParams
+                    def construct, submessages := call(context, position, 
+                            contextValue, methodName, params)
+                    if construct != null {
+                        def stub := construct->(Construct).constructorCall.methodStub
+                        if stub.methodType != 
+                                MethodNodeType.CONSTRUCTOR {
+                            return (null, wrap(new Message(
+                                    "instance method '\{stub.name}' cannot " +
+                                    "be accessed from a class context", 
+                                    position)))
+                        }
+                        messages := addMessages(messages, submessages)
+                        return (construct, messages)
                     }
-                    messages := addMessages(messages, submessages)
-                    return (construct, messages)
                 }
             }
         }
         if methodStub != null {
-            def isSelf := contextValue = null | 
-                    (contextValue-?>(VariableReference) &
-                    contextValue->(VariableReference).variable.name = 
-                        Parameter.SELF_NAME)
             def result := call(context, position, methodStub, supercall, params)
-            if methodStub.methodType = MethodNodeType.CONSTRUCTOR {
-                return (new Construct(contextValue->(ClassLiteral).value,
+            if methodStub.methodType = MethodNodeType.CONSTRUCTOR & !supercall {
+                def type:Type?
+                if contextValue-?>(ClassLiteral)
+                    type := contextValue->(ClassLiteral).value
+                else
+                    type := context.currentClass->(TypedClassStub).superclass
+                return (new Construct(type->(ClassType),
                         result[0]->(MethodCall)), result[1])
             }
             else
@@ -1589,9 +1617,18 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def msg := "no match found for method "->>(MutableString)
         msg.append(methodName)
         msg.append("(")
+        var first := true
         for i, p in params {
-            if i != 0
-                 msg.append(", ")
+            if p-?>(Dummy)
+                continue
+            if i = 0 & contextValue != null & contextValue-!>(ClassLiteral) {
+                assert p = contextValue
+                continue
+            }
+            if first
+                first := false
+            else
+                msg.append(", ")
             msg.append(p.type.displayName)
         }
         msg.append(")")
@@ -3268,10 +3305,20 @@ class ASTGenerator : Immutable (MessageProcessor) {
         return (new Block(b.position, statements), currentContext, messages)
     }
 
+    function isConstructorCall(node:Node):Bit {
+        if node-!>(ValueStatement)
+            return false
+        def vs := node->(ValueStatement)
+        if vs.value-!>(MethodCall)
+            return false
+        def mc := vs.value->(MethodCall)
+        return mc.methodStub.methodType = MethodNodeType.CONSTRUCTOR
+    }
+
     method convertMethod(var context:Context, m:TypedMethodStub):
             (MethodNode, ListView<Message>?) {
-        def block:Block?
-        def messages:ListView<Message>?
+        var block:Block?
+        var messages:ListView<Message>? := null
         def parameters := new Array<Parameter>()
         for p in m.parameters {
             parameters.add(new Parameter(p.position, p.name, p.type, p.isFinal,
@@ -3288,6 +3335,35 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     new ImmutableHashMap<String, Variable>(visibleVariables))
             block, context, messages := convertBlock(newContext, 
                     m.block->(ParseNode))
+            if m.methodType = MethodNodeType.CONSTRUCTOR & (block.length = 0 | 
+                    !isConstructorCall(block[0])) {
+                -- add default constructor call
+                def supertype := context.currentClass->(TypedClassStub).superclass
+                assert supertype != null
+                def superclass := context.getStub(supertype)
+                def defaultConstructor := superclass.methods.filter(
+                        c => c.methodType = MethodNodeType.CONSTRUCTOR &
+                            c.parameters.length = 1)
+                if defaultConstructor.length = 0 {
+                    messages := addMessage(messages, "no explicit call to " +
+                            "superclass constructor, and superclass does not " +
+                            "have a no-parameter constructor", m.position)
+                }
+                else {
+                    assert defaultConstructor.length = 1
+                    def params := new Array<Value>()
+                    def cast, submessages := context.getSelf(m.position).
+                            implicitCast(context, supertype)
+                    messages := addMessages(messages, submessages)
+                    params.add(cast)
+                    def supercall := new MethodCall(m.position, 
+                            defaultConstructor.iterator.next(), true, params)
+                    def newBlock := new Array<Statement>()
+                    newBlock.add(new ValueStatement(supercall))
+                    newBlock.addAll(block.statements)
+                    block := new Block(m.position, newBlock)
+                }
+            }
         }
         else {
             block := null
