@@ -131,19 +131,18 @@ class Context : Immutable {
 
     def currentMethod:TypedMethodStub?
 
-    def stubs:ImmutableHashMap<String, TypedClassStub>
-
     def lookupContext:LookupContext
 
     def typeMap:TypeMap
+
+    def stubs:StubMap
 
     def localVariables:ImmutableArray<LocalVariable>
 
     def visibleVariables:ImmutableHashMap<String, Variable>
 
     constructor(currentClass:TypedClassStub?, currentMethod:TypedMethodStub?,
-            lookupContext:LookupContext, typeMap:TypeMap, 
-            stubs:ImmutableHashMap<String, TypedClassStub>,
+            lookupContext:LookupContext, typeMap:TypeMap, stubs:StubMap,
             localVariables:ImmutableArray<LocalVariable>,
             visibleVariables:ImmutableHashMap<String, Variable>) {
         self.currentClass := currentClass
@@ -323,12 +322,12 @@ class Context : Immutable {
         return getRequiredType(t.name + "Wrapper")->(WrapperType)
     }
 
+    @unsafeFunction
     function getStub(t:ClassType):TypedClassStub {
-        def result := stubs[t.name]
---        assert result != null : "missing stub for \{t}"
+        var result := stubs.getStub(t.name)
         if result = null {
             Panda.log("no stub for \{t.name}")
-            return getStub(ClassType.OBJECT)
+            result := getStub(ClassType.OBJECT)
         }
         return result
     }
@@ -1409,7 +1408,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
 
     method call(context:Context, position:Position, var m:TypedMethodStub, 
             isSuper:Bit, params:ListView<Value>):(Value?, ListView<Message>?) {
-        Console.writeLine("calling \{m.owner}::\{m} with \{params}::\{isSuper}")
         var messages:ListView<Message>? := null
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
@@ -3355,6 +3353,8 @@ class ASTGenerator : Immutable (MessageProcessor) {
                     def cast, submessages := context.getSelf(m.position).
                             implicitCast(context, supertype)
                     messages := addMessages(messages, submessages)
+                    if submessages != null
+                        Console.writeLine("failed to cast \{m.owner} to \{supertype}")
                     params.add(cast)
                     def supercall := new MethodCall(m.position, 
                             defaultConstructor.iterator.next(), true, params)
@@ -3374,8 +3374,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                 messages)
     }
 
-    method convertClass(cl:TypedClassStub, typeMap:TypeMap, 
-            stubs:ImmutableHashMap<String, TypedClassStub>):
+    method convertClass(cl:TypedClassStub, typeMap:TypeMap, stubs:StubMap):
             (ClassNode, ListView<Message>?) {
         var messages:ListView<Message>? := null
         def methods := new Array<MethodNode>()
@@ -3396,7 +3395,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
     }
 
     method convertCompilationUnit(compilationUnit:TypedCompilationUnitStub,
-            typeMap:TypeMap, stubs:ImmutableHashMap<String, TypedClassStub>):
+            typeMap:TypeMap, stubs:StubMap):
             (CollectionView<ClassNode>, ListView<Message>?) {
         def result := new Array<ClassNode>()
         var messages:ListView<Message>? := null
@@ -3412,28 +3411,34 @@ class ASTGenerator : Immutable (MessageProcessor) {
 
     method convertCompilationUnits(
             compilationUnits:CollectionView<TypedCompilationUnitStub>,
-            typeMap:TypeMap):
-                (CollectionView<ClassNode>, MapView<String, TypedClassStub>, 
-                ListView<Message>?) {
+            typeMap:TypeMap, stubs:StubMap):
+            (CollectionView<ClassNode>, ListView<Message>?) {
+        var messages:ListView<Message>? := null
         def result := new Array<ClassNode>()
-        def stubs := new HashMap<String, TypedClassStub>()
-        for (_, type) in typeMap.allTypes() {
-            if type.isPrimitiveArray() & 
-                    type->>(PrimitiveArrayType).elementType-!>(GenericParameterType)
-                stubs[type.name] := type->>(PrimitiveArrayType).createStub(false)
-        }
         for cu in compilationUnits {
             for cl in cu.classes
-                stubs[cl.name] := cl
+                stubs.putStub(cl)
         }
-        def immutableStubs := new ImmutableHashMap<String, TypedClassStub>(stubs)
-        var messages:ListView<Message>? := null
+        var previous := stubs.allStubs()
         for cu in compilationUnits {
             def classes, submessages := convertCompilationUnit(cu, typeMap, 
-                    immutableStubs)
+                    stubs)
             result.addAll(classes)
             messages := addMessages(messages, submessages)
         }
-        return (result, stubs, messages)
+        loop {
+            def current := stubs.allStubs()
+            if current.length = previous.length
+                break
+            for (k, v) in current {
+                if previous[k] = null {
+                    def cl, submessages := convertClass(v, typeMap, stubs)
+                    messages := addMessages(messages, submessages)
+                    result.add(cl)
+                }
+            }
+            previous := current
+        }
+        return (result, messages)
     }
 }

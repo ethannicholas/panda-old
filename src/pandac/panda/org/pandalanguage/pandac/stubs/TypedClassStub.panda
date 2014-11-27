@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.stubs
 
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
+uses org.pandalanguage.pandac.compiler.StubMap
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -106,6 +107,21 @@ class TypedClassStub : ClassStub {
         return null
     }
 
+    method instanceFields(stubs:StubMap):
+            ListView<FieldNode> {
+        def result := new Array<FieldNode>()
+        if superclass != null {
+            def stub := stubs.getStub(superclass.name)
+            if stub != null { -- FIXME remove this test, stub should never be null when this is done
+                assert stub != null : "no stub for \{superclass.name}"
+                result.addAll(stub.instanceFields(stubs))
+            }
+        }
+        result.addAll(fields.filter(f => !f.annotations.isClass & 
+                !f.annotations.isThread))
+        return result
+    }
+
     function instanceFields(stubs:MapView<String, TypedClassStub>):
             ListView<FieldNode> {
         def result := new Array<FieldNode>()
@@ -143,6 +159,20 @@ class TypedClassStub : ClassStub {
         def result := new Array<TypedMethodStub>()
         if superclass != null {
             result.addAll(stubs[superclass.name]->(TypedClassStub).
+                    instanceMethods(stubs).filter(
+                        m => !m.annotations.isPrivate))
+        }
+        result.addAll(methods.filter(
+                m => m.methodType != MethodNodeType.CONSTRUCTOR & 
+                !m.annotations.isClass))
+        return result
+    }
+
+    function instanceMethods(stubs:StubMap):
+            CollectionView<TypedMethodStub> {
+        def result := new Array<TypedMethodStub>()
+        if superclass != null {
+            result.addAll(stubs.getStub(superclass.name)->(TypedClassStub).
                     instanceMethods(stubs).filter(
                         m => !m.annotations.isPrivate))
         }

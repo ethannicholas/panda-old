@@ -46,7 +46,7 @@ class TypeResolver (MessageProcessor) {
     var currentClassName := "<error>"
 
     @private
-    def stubs:Map<String, TypedClassStub>
+    def stubs:StubMap
 
     @private
     var packageUses:CollectionView<String>
@@ -54,11 +54,11 @@ class TypeResolver (MessageProcessor) {
     @private
     var classAliases:Map<String, String>
 
-    constructor(typeMap:TypeMap) {
+    constructor(typeMap:TypeMap, stubs:StubMap) {
         self.typeMap := typeMap
         self.packageUses := new Array<String>()
         self.classAliases := new HashMap<String, String>()
-        self.stubs := new HashMap<String, TypedClassStub>()
+        self.stubs := stubs
     }
 
     @private
@@ -282,15 +282,15 @@ class TypeResolver (MessageProcessor) {
                         self.classAliases), superclass, interfaces, methods, 
                         fields, cl.invariants, genericParameters, 
                         cl.isExternal)
-        stubs[stub.name] := stub
+        stubs.putStub(stub)
         return (stub, messages)
     }
 
-    method resolveTypes(cu:UntypedCompilationUnitStub, typeMap:TypeMap):
-            (TypedCompilationUnitStub, ListView<Message>?) {
+    method resolveTypes(cu:UntypedCompilationUnitStub, 
+            typeMap:TypeMap):(TypedCompilationUnitStub, ListView<Message>?) {
         def list := new Array<UntypedCompilationUnitStub>()
         list.add(cu)
-        def t := new TypeResolver(typeMap)
+        def t := new TypeResolver(typeMap, stubs)
         def classes := new Array<TypedClassStub>()
         var messages:ListView<Message>? := null
         def replyTo := Thread.currentThread.queue
@@ -319,8 +319,7 @@ class TypeResolver (MessageProcessor) {
                 def initialValue := f.initialValue
                 assert initialValue != null
                 def context := new Context(cl, null, 
-                        cl.lookupContext, typeMap, 
-                        new ImmutableHashMap<String, TypedClassStub>(stubs),
+                        cl.lookupContext, typeMap, stubs,
                         new ImmutableArray<LocalVariable>(),
                         new ImmutableHashMap<String, Variable>())
                 var expr, messages := new ASTGenerator().convertExpression(
@@ -390,7 +389,7 @@ class TypeResolver (MessageProcessor) {
             compilationUnits := newCompilationUnits
             if !updated {
                 if remaining
-                    Console.writeLine("cound not infer field types")
+                    Console.writeLine("could not infer field types")
                 return (compilationUnits, null)
             }
         }
@@ -399,13 +398,14 @@ class TypeResolver (MessageProcessor) {
     @class
     method resolveTypes(compilationUnits:CollectionView<UntypedCompilationUnitStub>):
             (CollectionView<TypedCompilationUnitStub>, 
-                TypeMap, ListView<Message>?) {
+                TypeMap, StubMap, ListView<Message>?) {
         def result := new Array<TypedCompilationUnitStub>()
         def classes := new Array<UntypedClassStub>()
         for cu in compilationUnits
             classes.addAll(cu.classes)
         def newTypeMap := new TypeMap(classes)
-        def t := new TypeResolver(newTypeMap)
+        def stubs := new StubMap(newTypeMap)
+        def t := new TypeResolver(newTypeMap, stubs)
         var messages:ListView<Message>? := null
         for cu in compilationUnits {
             def resolved, submessages := t.resolveTypes(cu, newTypeMap)
@@ -414,6 +414,6 @@ class TypeResolver (MessageProcessor) {
         }
         def finished, submessages := t.inferFieldTypes(result)
         messages := addMessages(messages, submessages)
-        return (finished, t.typeMap, messages)
+        return (finished, t.typeMap, stubs, messages)
     }
 }

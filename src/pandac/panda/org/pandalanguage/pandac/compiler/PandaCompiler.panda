@@ -237,7 +237,7 @@ class PandaCompiler (MessageProcessor) {
     @private
     method getTypedCompilationUnits(
             untypedCompilationUnits:CollectionView<UntypedCompilationUnitStub>):
-                (CollectionView<TypedCompilationUnitStub>, TypeMap, 
+                (CollectionView<TypedCompilationUnitStub>, TypeMap, StubMap,
                 ListView<Message>?) {
         return TypeResolver.resolveTypes(untypedCompilationUnits)
     }
@@ -245,10 +245,10 @@ class PandaCompiler (MessageProcessor) {
     @private
     method getClassNodes(
             typedCompilationUnits:CollectionView<TypedCompilationUnitStub>,
-            typeMap:TypeMap):
-            (CollectionView<ClassNode>, MapView<String, TypedClassStub>, ListView<Message>?) {
+            typeMap:TypeMap, stubs:StubMap):
+            (CollectionView<ClassNode>, ListView<Message>?) {
         return new ASTGenerator().convertCompilationUnits(typedCompilationUnits,
-                typeMap)
+                typeMap, stubs)
     }
 
 
@@ -263,24 +263,23 @@ class PandaCompiler (MessageProcessor) {
             return messages
 
         checkpoint("resolving types")
-        def typedCompilationUnits, typeMap, phase2Messages :=
+        def typedCompilationUnits, typeMap, stubs, phase2Messages :=
                 getTypedCompilationUnits(untypedCompilationUnits)
         messages := addMessages(messages, phase2Messages)
         if fatal(messages)
             return messages
 
         checkpoint("generating abstract syntax tree")
-        def classes, stubs, phase3Messages := getClassNodes(
-                typedCompilationUnits, typeMap)
+        def classes, phase3Messages := getClassNodes(typedCompilationUnits, 
+                typeMap, stubs)
         messages := addMessages(messages, phase3Messages)
         if fatal(messages)
             return messages
 
         checkpoint("codegen")
-        def program := new Program(settings, stubs, classes, 
+        def program := new Program(settings, stubs.allStubs(), classes, 
                 typeMap.allTypes().values)
         new ExecutableCodeGenerator(program).generateCode(new File("/tmp/foo"))
-        Console.writeLine(program)
         checkpoint("done")
         Console.writeLine("done")
         return messages

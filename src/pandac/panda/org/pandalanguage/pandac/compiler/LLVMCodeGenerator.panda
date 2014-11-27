@@ -270,7 +270,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     @private
     function getName(m:TypedMethodStub):String {
         def result := methodNames[m]
-        assert result != null : "no method name for \{m}"
+        assert result != null : "no method name for \{m.owner}::\{m}"
         return result
     }
 
@@ -557,13 +557,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     function getMethodIndex(cl:ClassConstant, m:TypedMethodStub):Int {
         -- FIXME use indexOf when that's available
-        def methods := cl.methods
-        for i in 0 .. methods.length {
-            if methods[i] = m
-                return i
-        }
-        throw new InternalCompilerException(m + 
-                " not found in class constant", m.position)
+        def result := cl.methods.indexOf(m)
+        assert result != null : m + " not found in class constant"
+        return result
     }
 
     @protected
@@ -1798,11 +1794,12 @@ class LLVMCodeGenerator (CodeGenerator) {
         header.writeLine('%$itable = type { %panda$core$Class*, %$itable*, ' +
                 "[0 x i8*] }")
         for (_, cl) in stubs {
-            if cl.genericParameters = null
+            if cl.genericParameters = null & !cl.annotations.isUnspecified
                 writeTypeDescriptor(cl)
         }
         for (_, cl) in stubs {
-            if classes[cl.name] = null & cl.genericParameters = null {
+            if classes[cl.name] = null & cl.genericParameters = null &
+                    !cl.annotations.isUnspecified {
                 for m in cl.methods
                     writeMethodDeclaration(m)
                 for f in cl.fields
@@ -1813,8 +1810,10 @@ class LLVMCodeGenerator (CodeGenerator) {
             if cl.live & !cl.annotations.isUnspecified()
                 getClassConstant(cl)
         }*-
-        for (_, cl) in classes
-            generateClassCode(cl)
+        for (_, cl) in classes {
+            if !cl.annotations.isUnspecified
+                generateClassCode(cl)
+        }
 
         body.writeLine("declare void @pandaInit()")
         body.writeLine("declare void @pandaCheckLibVersion(i32)")

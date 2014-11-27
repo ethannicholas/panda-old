@@ -18,6 +18,9 @@ class TypeMap : Immutable {
             Position.INTERNAL)
 
     @private
+    constant ALL_TYPES := "allTypes"
+
+    @private
     def queue := new MessageQueue()
 
     constructor(stubs:CollectionView<UntypedClassStub>) {
@@ -31,12 +34,12 @@ class TypeMap : Immutable {
                 }
                 else if message-?>((String, MessageQueue)) {
                     def command, replyTo := message->((String, MessageQueue))
-                    assert command = "allTypes"
+                    assert command = ALL_TYPES
                     replyTo.post(typeMap.allTypes)
                 }
                 else {
                     def node, context, replyTo := 
-                            message->((ParseNode, LookupContext, 
+                            message->((ParseNode, LookupContext?, 
                                 MessageQueue))
                     def type, messages := typeMap.getType(node, context)
                     def wrappedMessages:ImmutableArray<Message>?
@@ -51,7 +54,7 @@ class TypeMap : Immutable {
     }
 
     @self
-    method getType(node:ParseNode, lookupContext:LookupContext):
+    method getType(node:ParseNode, lookupContext:LookupContext?):
             (Type?, ListView<Message>?) {
         def replyTo := Thread.currentThread().queue
         queue.post((node, lookupContext, replyTo))
@@ -61,7 +64,7 @@ class TypeMap : Immutable {
 
     method allTypes():ImmutableHashMap<String, Type> {
         def replyTo := Thread.currentThread().queue
-        queue.post(("allTypes", replyTo))
+        queue.post((ALL_TYPES, replyTo))
         return replyTo.getMessage()->(ImmutableHashMap<String, Type>)
     }
 

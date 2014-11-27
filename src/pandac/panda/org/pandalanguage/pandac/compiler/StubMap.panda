@@ -1,0 +1,115 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.compiler.Message
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.parser.ParseNode
+uses org.pandalanguage.pandac.stubs.UntypedClassStub
+uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.Type
+
+class StubMap : Immutable {
+    @private
+    constant ALL_STUBS := "allStubs"
+
+    @private
+    constant GET := "get"
+
+    @private
+    def queue := new MessageQueue()
+
+    @private
+    def typeMap:TypeMap
+
+    constructor(typeMap:TypeMap) {
+        self.typeMap := typeMap
+        Thread.start(method() {
+            def map := new HashMap<String, TypedClassStub>()
+            loop {
+                def message := queue.getMessage()
+                if message-?>(TypedClassStub) {
+                    def stub := message->(TypedClassStub)
+                    map[stub.name] := stub
+                }
+                else if message-?>((String, MessageQueue)) {
+                    def command, replyTo := message->((String, MessageQueue))
+                    assert command = ALL_STUBS
+                    replyTo.post(new ImmutableHashMap<String, TypedClassStub>(
+                            map))
+                }
+                else {
+                    def command, parameter, replyTo := 
+                            message->((String, String, MessageQueue))
+                    assert command = GET
+                    replyTo.post(getOrCreateStub(parameter, map))
+                }
+            }
+        }, false)
+    }
+
+    @private
+    method getOrCreateStub(name:String, rawStubs:Map<String, TypedClassStub>):
+            TypedClassStub? {
+        var stub := rawStubs[name]
+        if stub = null {
+            stub := createStub(typeMap, name, rawStubs)
+            if stub != null {
+                assert stub.name = name
+                rawStubs[stub.name] := stub
+            }
+        }
+        return stub
+    }
+
+    @private
+    method createStub(typeMap:TypeMap, name:String, 
+            rawStubs:Map<String, TypedClassStub>):TypedClassStub? {
+        -- we have to be careful here; the createStub methods can't end up 
+        -- calling getStub, or we'll hang
+        def type, _ := typeMap.getType(new PandaParser().parseType(name,
+                Position.INTERNAL), null)
+        if type = null
+            return null
+        if type-?>(PrimitiveArrayType) {
+            def array := type->(PrimitiveArrayType)
+            if array.elementType-?>(GenericParameterType)
+                return null
+            def elementStub := getOrCreateStub(array.elementType.name, rawStubs)
+            return array.createStub(elementStub)
+        }
+        else if type-?>(GenericType) {
+            def generic := type->(GenericType)
+            def baseStub := getOrCreateStub(generic.base.name, rawStubs)
+            assert baseStub != null : "no stub for \{generic.base}"
+            def parameterStubs := new Array<TypedClassStub?>()
+            for p in generic.parameters
+                parameterStubs.add(getOrCreateStub(p.name, rawStubs))
+            def stub, _ := type->(GenericType).createStub(typeMap, baseStub,
+                    parameterStubs)
+            return stub
+        }
+        return null
+    }
+
+    @self
+    method getStub(name:String):TypedClassStub? {
+        def replyTo := Thread.currentThread().queue
+        queue.post((GET, name, replyTo))
+        return replyTo.getMessage()->(TypedClassStub?)
+    }
+
+    method allStubs():ImmutableHashMap<String, TypedClassStub> {
+        def replyTo := Thread.currentThread().queue
+        queue.post((ALL_STUBS, replyTo))
+        return replyTo.getMessage()->(ImmutableHashMap<String, TypedClassStub>)
+    }
+
+    @self
+    method putStub(stub:TypedClassStub) {
+        queue.post(stub)
+    }
+ }

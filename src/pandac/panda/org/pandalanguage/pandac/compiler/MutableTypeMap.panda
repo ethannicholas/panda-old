@@ -102,7 +102,17 @@ class GenericTypeDescriptor : TypeDescriptor {
         if o-!>(GenericTypeDescriptor)
             return false
         def g := o->(GenericTypeDescriptor)
-        return base = g.base & parameters = g.parameters
+        if base != g.base
+            return false
+        -- FIXME "=" isn't working right on ImmutableArray at the moment, so I'm
+        -- doing it manually
+        if parameters.length != g.parameters.length
+            return false
+        for i, p in parameters {
+            if p != g.parameters[i]
+                return false
+        }
+        return true
     }
 
     @override
@@ -264,10 +274,13 @@ class MutableTypeMap {
         putType(ClassType.IMMUTABLE_PRIMITIVE_ARRAY)
         putType(ClassType.PANDA)
 
-        putType(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
+        types[new PrimitiveArrayTypeDescriptor(
+                ClassType.IMMUTABLE_PRIMITIVE_ARRAY, CharType.CHAR)] := 
+                PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY
     }
 
     @self
+    @pre(!type.name.contains("<") & !type.name.contains("?"))
     method putType(type:Type) {
         types[new SimpleTypeDescriptor(type.name)] := type
     }
@@ -288,7 +301,7 @@ class MutableTypeMap {
     @pre(base.type = ParseNodeType.TYPE)
     @pre(parametersNode.type = ParseNodeType.GENERIC_PARAMETERS)
     method resolveGenericType(base:ParseNode, parametersNode:ParseNode, 
-            lookupContext:LookupContext):(TypeDescriptor?, ListView<Message>?) {
+            lookupContext:LookupContext?):(TypeDescriptor?, ListView<Message>?) {
         def resolved, messages := getType(base, lookupContext)
         def parameters := new Array<Type>()
         if resolved != null {
@@ -328,7 +341,7 @@ class MutableTypeMap {
     @self
     @pre(node.type = ParseNodeType.TYPE)
     method resolveTupleOrMethodType(node:ParseNode,  
-            lookupContext:LookupContext):(TypeDescriptor?, ListView<Message>?) {
+            lookupContext:LookupContext?):(TypeDescriptor?, ListView<Message>?) {
         def parameters := new Array<Type>()
         var isMethodType := false
         var isImmutable := false
@@ -393,7 +406,7 @@ class MutableTypeMap {
     @private
     @self
     @pre(node.type = ParseNodeType.TYPE)
-    method resolveType(node:ParseNode, lookupContext:LookupContext):
+    method resolveType(node:ParseNode, lookupContext:LookupContext?):
             (TypeDescriptor?, ListView<Message>?) {
         def last := node[node.length - 1]
         if last-?>(TokenNode) & last->(TokenNode).token.type = TokenType.QUESTION {
@@ -421,15 +434,17 @@ class MutableTypeMap {
         if node[0]->(TokenNode).token.type = TokenType.LPAREN
             return resolveTupleOrMethodType(node, lookupContext)
         def name := node->>(String)
-        def resolved := lookupContext.classAliases[name]
-        if resolved != null
-            return (new SimpleTypeDescriptor(resolved), null)
+        if lookupContext != null {
+            def resolved := lookupContext.classAliases[name]
+            if resolved != null
+                return (new SimpleTypeDescriptor(resolved), null)
+        }
         def rawDescriptor := new SimpleTypeDescriptor(name)
         if types.contains(rawDescriptor)
             return (rawDescriptor, null)
         if stubs.contains(name)
             return (rawDescriptor, null)
-        if !name.contains(".") & !name.contains("<") {
+        if lookupContext != null & !name.contains(".") & !name.contains("<") {
             for p in lookupContext.packageUses {
                 def test := p + "." + name
                 if stubs.contains(test)
@@ -443,7 +458,7 @@ class MutableTypeMap {
     }
 
     @self
-    method getType(node:ParseNode, lookupContext:LookupContext):
+    method getType(node:ParseNode, lookupContext:LookupContext?):
             (Type?, ListView<Message>?) {
         def descriptor, messages := resolveType(node, lookupContext)
         if descriptor != null
