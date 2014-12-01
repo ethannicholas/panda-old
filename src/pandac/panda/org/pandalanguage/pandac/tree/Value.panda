@@ -11,6 +11,9 @@ uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.WrapperType
 
+================================================================================
+Represents a value in an expression, such as `5` or `foo() * 6`.
+================================================================================
 @abstract
 class Value : Node {
     def type:Type
@@ -39,11 +42,29 @@ class Value : Node {
         return type
     }
 
+    ============================================================================
+    If this value is potentially usable, returns `null`. If this value is not
+    and never will be valid, returns an error message.
+
+    For instance, `value[5]` when `value` does not implement the `[]` operator
+    will never be valid, because it is an invalid reference. We still
+    need to be able to represent it as a value, because `value` might implement
+    the `[]:=` operator and `value[5]` might be on the left-hand-side of a `:=`
+    operator. So when processing `value[5] := 10`, we temporarily represent
+    `value[5]` as a non-`valid()` value before replacing it with the final
+    call to `[]:=()`.
+    ============================================================================
+    function checkValid():Message? {
+        return null
+    }
+
     @final
+    @pre(checkValid = null)
     function canImplicitCastTo(context:Context, t:Type):Bit {
         return implicitCastCost(context, t) != null
     }
 
+    @pre(checkValid = null)
     function implicitCastCost(context:Context, t:Type):Int? {
         return type.implicitCastCost(context, t)
     }
@@ -52,6 +73,72 @@ class Value : Node {
     function implicitCast(context:Context, t:Type):(Value, ListView<Message>?) {
         return implicitCast(position, context, t)
     }
+
+    function implicitCast(position:Position, context:Context, t:Type):
+            (Value, ListView<Message>?) {
+        def check := checkValid
+        if check != null {
+            def messages := new Array<Message>()
+            messages.add(check)
+            return (new Dummy(position, t), messages)
+        }
+        if t = type
+            return (self, null)
+        if type.isPrimitive & !t.isPrimitive
+            return wrapped(context, t)
+        if type.isWrapper & t.isPrimitive
+            return unwrap(context).implicitCast(position, context, t)
+        if type.isNullable & !t.isNullable {
+            def base := type->(NullableType).base
+            if base != t {
+                def nonNull, messages := implicitCast(position, context, base)
+                assert messages = null : 
+                        "couldn't remove nullability from \{type}: \{messages}"
+                return nonNull.implicitCast(position, context, t)
+            }
+        }
+        def result := new Cast(self, t, CastType.IMPLICIT)
+        if implicitCastCost(context, t) != null
+            return (result, null)
+        else {
+            def messages := new Array<Message>()
+            messages.add(new Message("expected '\{t.displayName}', but " +
+                    "found '\{type.displayName}'", position))
+            return (result, messages)
+        }
+    }
+    @post(@return[0].type = t)
+
+    @pre(checkValid = null)
+    function canExplicitCastTo(context:Context, t:Type):Bit {
+        return type.canExplicitCastTo(context, t)
+    }
+
+    @pre(checkValid = null)
+    function explicitCast(context:Context, t:Type):(Value, ListView<Message>?) {
+        return explicitCast(position, context, t)
+    }
+
+    @pre(checkValid = null)
+    function explicitCast(position:Position, context:Context, t:Type):
+            (Value, ListView<Message>?) {
+        if t = type
+            return (self, null)
+        if canImplicitCastTo(context, t) {
+            def cast, messages := implicitCast(position, context, t)
+            return (ASTGenerator.makeExplicit(cast), messages)
+        }
+        def result := new Cast(self, t, CastType.EXPLICIT)
+        if canExplicitCastTo(context, t)
+            return (result, null)
+        else {
+            def messages := new Array<Message>()
+            messages.add(new Message("'\{t.displayName}' cannot possibly be " +
+                    "an instance of '\{type.displayName}'", position))
+            return (result, messages)
+        }
+    }
+    @post(@return[0].type = t)
 
     @protected
     function findConverter(context:Context, t:Type):TypedMethodStub? {
@@ -79,10 +166,12 @@ class Value : Node {
     }
     @post(@return = null | @return.returnType = t)
 
+    @pre(checkValid = null)
     function canConvertTo(context:Context, t:Type):Bit {
         return findConverter(context, t) != null
     }
 
+    @pre(checkValid = null)
     function convert(context:Context, t:Type):(Value, ListView<Message>?) {
         def converter := findConverter(context, t)
         if converter != null {
@@ -134,60 +223,17 @@ class Value : Node {
         return new FieldReference(position, wrapper, fields.iterator.next())
     }
 
-    function implicitCast(position:Position, context:Context, t:Type):
-            (Value, ListView<Message>?) {
-        if t = type
-            return (self, null)
-        if type.isPrimitive & !t.isPrimitive
-            return wrapped(context, t)
-        if type.isWrapper & t.isPrimitive
-            return unwrap(context).implicitCast(position, context, t)
-        if type.isNullable & !t.isNullable {
-            def base := type->(NullableType).base
-            if base != t {
-                def nonNull, messages := implicitCast(position, context, base)
-                assert messages = null : 
-                        "couldn't remove nullability from \{type}: \{messages}"
-                return nonNull.implicitCast(position, context, t)
-            }
-        }
-        def result := new Cast(self, t, CastType.IMPLICIT)
-        if implicitCastCost(context, t) != null
-            return (result, null)
-        else {
-            def messages := new Array<Message>()
-            messages.add(new Message("expected '\{t.displayName}', but " +
-                    "found '\{type.displayName}'", position))
-            return (result, messages)
-        }
+    ============================================================================
+    Returns `true` if this value is in its final form and has a known type. Some
+    expressions depend upon context for their interpretation; these are 
+    represented by unresolved values until we have more information. For 
+    example, when parsing the expression `array[5]`, we can't simply represent 
+    this as a call of the `[]` method on `array` - what if the next token is 
+    `:=`? In that case we should actually be calling the `[]:=` method instead.
+    So we store this value as an `UnresolvedArray` until we are sure how it 
+    needs to be handled.
+    ============================================================================
+    function isResolved():Bit {
+        return true
     }
-    @post(@return[0].type = t)
-
-    function canExplicitCastTo(context:Context, t:Type):Bit {
-        return type.canExplicitCastTo(context, t)
-    }
-
-    function explicitCast(context:Context, t:Type):(Value, ListView<Message>?) {
-        return explicitCast(position, context, t)
-    }
-
-    function explicitCast(position:Position, context:Context, t:Type):
-            (Value, ListView<Message>?) {
-        if t = type
-            return (self, null)
-        if canImplicitCastTo(context, t) {
-            def cast, messages := implicitCast(position, context, t)
-            return (ASTGenerator.makeExplicit(cast), messages)
-        }
-        def result := new Cast(self, t, CastType.EXPLICIT)
-        if canExplicitCastTo(context, t)
-            return (result, null)
-        else {
-            def messages := new Array<Message>()
-            messages.add(new Message("'\{t.displayName}' cannot possibly be " +
-                    "an instance of '\{type.displayName}'", position))
-            return (result, messages)
-        }
-    }
-    @post(@return[0].type = t)
 }

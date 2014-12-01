@@ -19,6 +19,9 @@ class ClassType : Type {
     constant CLASS := new ClassType(class(Class).name)
     constant OBJECT := new ClassType(class(Object).name)
     constant STRING := new ClassType(class(String).name)
+    constant ERROR := new ClassType(class(Error).name)
+    constant METHOD := new ClassType(class(Method).name)
+    constant SAFETY_ERROR := new ClassType(class(SafetyError).name)
     constant PRIMITIVE_ARRAY := new ClassType(class(PrimitiveArray).name)
     constant IMMUTABLE_PRIMITIVE_ARRAY := new ClassType(
             class(ImmutablePrimitiveArray).name)
@@ -29,21 +32,11 @@ class ClassType : Type {
     }
 
     @override
-    function simpleName():String {
-        def index := name.lastIndexOf(".")
-        if index != null
-            return name[index + 1..]
-        return name
-    }
-
-    @override
     function implicitCastCost(context:Context, target:Type):Int? {
         if self = target
             return 0
         if target = NativePointerType.NATIVE_POINTER
             return null
---        if target-?>(GenericParameterType)
---            return implicitCastCost(context, target.unwrapGenerics())
         if target.isNullable {
             var result := implicitCastCost(context, target.unwrapNullable)
             if result != null
@@ -84,6 +77,22 @@ class ClassType : Type {
         }
         return best
     }
+
+    @override
+    function canExplicitCastTo(context:Context, var target:Type):Bit {
+        if target.isWrapper
+            target := target->>(PrimitiveType)
+        if canImplicitCastTo(context, target)
+            return true
+        if !target.isPrimitive & context.getStub(target->>(ClassType)).isInterface & 
+                !context.getStub(self).annotations.isFinal {
+            -- as long as this class isn't final, we could be dealing with a
+            -- subclass that potentially implements any interface
+            return true
+        }
+        return target.canImplicitCastTo(context, self)
+    }
+
 
     @override
     function ->>():ClassType {

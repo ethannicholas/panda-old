@@ -16,7 +16,7 @@ export PANDA_HOME="$TARGET"
 CORE_FILES="src/core/panda/panda/core/*.panda\
         src/core/panda/panda/collections/*.panda src/core/panda/panda/threads/*.panda\
         src/core/panda/panda/io/*.panda src/core/panda/panda/math/*.panda"
-STATIC_SETTINGS=$SHARED_TARGET/StaticSettings.panda
+STATIC_SETTINGS="$SHARED_TARGET/StaticSettings.panda"
 
 echo "Compiling core (native)..."
 

@@ -1,0 +1,93 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.compiler.Message
+uses org.pandalanguage.pandac.compiler.MessageProcessor
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+
+================================================================================
+Represents an index or slice which has not yet been fully resolved. This is used
+(as opposed to immediately returning a finished [Value]) to make overloaded
+assignments easier. When processing a[1], we return an `UnresolvedIndex` to 
+represent it, so if the next token is `:=` we can easily perform the appropriate 
+lookup.
+================================================================================
+class UnresolvedIndex : UnresolvedValue (MessageProcessor) {
+    constant UNRESOLVED_INDEX := new UnresolvedType(
+            "<unimplemented index operator>")
+
+    def methodStub:TypedMethodStub?
+
+    constructor(contextValue:Value, index:Value, methodStub:TypedMethodStub?) {
+        super.constructor(contextValue.position, getType(methodStub), 
+                wrap(contextValue, index))
+        self.methodStub := methodStub
+    }
+
+    @class
+    function getType(methodStub:TypedMethodStub?):Type {
+        if methodStub = null
+            return UNRESOLVED_INDEX
+        return methodStub.returnType
+    }
+
+    @override
+    function checkValid():Message? {
+        if methodStub = null {
+            return new Message("'\{contextValue.type.displayName}' does not " +
+                    "implement the '[]' operator with parameter " +
+                    "'\{index.type.displayName}'", position)
+        }
+        return null
+    }
+
+    @override
+    function implicitCast(position:Position, context:Context, 
+            t:Type):(Value, ListView<Message>?) {
+        if methodStub = null {
+            -- this will generate an error
+            return super.implicitCast(position, context, t)
+        }
+        var messages:ListView<Message>? := null
+        def m := methodStub
+        assert m != null : "methodStub is null"
+        def params := new Array<Value>()
+        var contextValue, submessages := self.contextValue.implicitCast(context,
+                m.parameters[0].type)
+        messages := addMessages(messages, submessages)
+        params.add(contextValue)
+        def index:Value
+        index, submessages := self.index.implicitCast(context, 
+                m.parameters[1].type)
+        messages := addMessages(messages, submessages)
+        params.add(index)
+        if messages != null
+            return (new Dummy(position, m.returnType), messages)
+        return new MethodCall(position, m, false, params).implicitCast(context,
+                t)
+    }
+
+    -- FIXME remove this when final array syntax is in
+    @private
+    @class
+    function wrap(contextValue:Value, index:Value):ListView<Node> {
+        def result := new Array<Node>()
+        result.add(contextValue)
+        result.add(index)
+        return result
+    }
+
+    function contextValue():Value {
+        return self[0]->(Value)
+    }
+
+    function index():Value {
+        return self[1]->(Value)
+    }
+}

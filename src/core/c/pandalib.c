@@ -893,7 +893,7 @@ void panda$threads$MessageQueue$threadExit() {
 
 void panda$threads$Thread$startThread(
         Thread* thread, 
-        panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Immutable$GT* context) {
+        panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT* context) {
     if (thread->preventsExit) {
         pthread_mutex_lock(&preventsExitThreadsMutex);
         preventsExitThreads++;

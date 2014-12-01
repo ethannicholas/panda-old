@@ -19,6 +19,7 @@ uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.TupleType
 uses org.pandalanguage.pandac.types.WrapperType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
 
 @private
 @abstract
@@ -155,9 +156,9 @@ class MethodTypeDescriptor : TypeDescriptor {
     def parameters:ImmutableArray<Type>
     def isFunction:Bit
     def isImmutable:Bit
-    def returnType:Type?
+    def returnType:Type
 
-    constructor(parameters:ListView<Type>, returnType:Type?, isFunction:Bit, 
+    constructor(parameters:ListView<Type>, returnType:Type, isFunction:Bit, 
             isImmutable:Bit) {
         self.parameters := new ImmutableArray<Type>(parameters)
         self.returnType := returnType
@@ -182,8 +183,7 @@ class MethodTypeDescriptor : TypeDescriptor {
     @override
     function hash():Int {
         var result := parameters.hash
-        if returnType != null
-            result ~~= returnType.hash
+        result ~~= returnType.hash
         if isFunction
             result ~~= 126126427
         if isImmutable
@@ -270,6 +270,9 @@ class MutableTypeMap {
         putType(ClassType.CLASS)
         putType(ClassType.OBJECT)
         putType(ClassType.STRING)
+        putType(ClassType.ERROR)
+        putType(ClassType.METHOD)
+        putType(ClassType.SAFETY_ERROR)
         putType(ClassType.PRIMITIVE_ARRAY)
         putType(ClassType.IMMUTABLE_PRIMITIVE_ARRAY)
         putType(ClassType.PANDA)
@@ -346,7 +349,7 @@ class MutableTypeMap {
         var isMethodType := false
         var isImmutable := false
         var isFunction := false
-        var returnType:Type? := null
+        var returnType:Type := VoidType.VOID
         var inParameters := true
         assert node[0]->(TokenNode).token.type = TokenType.LPAREN
         for i in 1 .. node.length {
@@ -356,7 +359,8 @@ class MutableTypeMap {
                     if inParameters
                         parameters.add(type)
                     else {
-                        assert returnType = null : "found two return types"
+                        assert returnType = VoidType.VOID : 
+                                "found two return types"
                         returnType := type
                     }
                 }
@@ -398,7 +402,7 @@ class MutableTypeMap {
                     isImmutable), null)
         }
         else {
-            assert returnType = null
+            assert returnType = VoidType.VOID
             return (new TupleTypeDescriptor(parameters), null)
         }
     }

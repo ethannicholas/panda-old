@@ -62,6 +62,7 @@ uses org.pandalanguage.pandac.tree.Ternary
 uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
 uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.Unreachable
 uses org.pandalanguage.pandac.tree.UnresolvedType
 uses org.pandalanguage.pandac.tree.Unwrap
@@ -70,6 +71,7 @@ uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.VariableType
 uses org.pandalanguage.pandac.tree.While
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
@@ -125,6 +127,11 @@ class LLVMCodeGenerator (CodeGenerator) {
     @private
     constant ITABLE_INDEX := 5
 
+    @private
+    constant FAIL_ASSERT_NAME := "@panda$core$Panda$failAssert"
+
+    def program:Program
+
     def debug := false
 
     var tempVariable := 0
@@ -147,7 +154,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def stringConstants := new HashMap<String, String>()
 
-    def references := new HashMap<ReusedValueDefinition, String>()
+    def references := new HashMap<Value, String>()
 
     def types:MapView<String, Type>
 
@@ -165,9 +172,13 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def body := new IndentedOutputStream(bodyBuffer)
 
+    @private
+    def promotedParameters := new HashMap<Variable, Variable>()
+    
     var currentMethod:MethodNode?
 
     constructor(p:Program) {
+        self.program := p
         self.compilerSettings := p.compilerSettings
         self.stubs := p.stubs
         self.classes := p.classes
@@ -235,7 +246,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method getLLVMMethodType(t:MethodType):String {
--*        def result := new MutableString()
+        def result := new MutableString()
         def returnType := t.returnType
         result.append(getLLVMType(returnType))
         result.append(" (")
@@ -246,8 +257,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             result.append(getLLVMType(p))
         }
         result.append(")*")
-        return result->>(String)*-
-        throw new NotSupportedException()
+        return result->>(String)
     }
 
     @protected
@@ -318,7 +328,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         def sc := stub.superclass
         if sc != null
             total += size(sc)
-        for field in stub.instanceFields(stubs) {
+        for field in stub.fields.filter(f => !f.annotations.isClass &
+                !f.annotations.isThread) {
             def fieldSize:Int
             if field.type.isPrimitive
                 fieldSize := size(field.type)
@@ -566,7 +577,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method createMethodCallReference(mc:MethodCall):String? {
         def m := mc.methodStub
         def methodRef:String
-        if m.isEffectivelyVirtual & !mc.isSuper {
+        if program.isEffectivelyVirtual(m) & !mc.isSuper {
             assert !m.annotations.isClass : "expected method not to be @class"
             assert mc.parameters.length >= 1 : "expected method to have a self parameter"
             def target := mc.parameters[0]
@@ -596,9 +607,11 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createVariableAssignmentReference(va:VariableAssignment):String {
-        def variable := va.variable
+        var variable := promotedParameters[va.variable]
+        if variable = null
+            variable := va.variable
         def lref := getLLVMType(variable.type) + "* %" + getName(variable)
-        def result := createReference(va.value)
+        def result := getReference(va.value)
         assert result != null : 
                 "expected non-null result in createVariableAssignmentReference"
         writeBody("store " + getLLVMType(variable.type) + " " + result + ", " + 
@@ -817,8 +830,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                 op := "u" + op
             return createOverflowCheckedBinaryOperationReference(b, op)
         }
-        def left := createReference(b.left)
-        def right := createReference(b.right)
+        def left := getReference(b.left)
+        def right := getReference(b.right)
         assert left != null & right != null : 
                 "expected left and right to be non-null in createBinaryOperationReference"
         return createCommandReference(op + " " + getLLVMType(b.left.type) + 
@@ -858,7 +871,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @pre(and.operation = BinaryOperationType.AND)
     method createAndReference(and:BinaryOperation):String {
-        def left := createReference(and.left)
+        def left := getReference(and.left)
         assert left != null : "expected non-null left in createAndReference"
         def leftFromLabel := currentBlockLabel
         def rightLabel := createLabel()
@@ -867,7 +880,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "and test: \{and}")
         body.writeLine()
         createBlock(rightLabel, "right: \{and}")
-        def right := createReference(and.right)
+        def right := getReference(and.right)
         assert right != null : "expected non-null right in createAndReference"
         def rightFromLabel := currentBlockLabel
         body.writeLine("br label %\{endLabel}")
@@ -881,7 +894,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @pre(or.operation = BinaryOperationType.OR)
     method createOrReference(or:BinaryOperation):String {
-        def left := createReference(or.left)
+        def left := getReference(or.left)
         assert left != null : "expected non-null left in createOrReference"
         def leftFromLabel := currentBlockLabel
         def rightLabel := createLabel()
@@ -890,7 +903,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "or test: \{or}")
         body.writeLine()
         createBlock(rightLabel, "right: \{or}")
-        def right := createReference(or.right)
+        def right := getReference(or.right)
         assert right != null : "expected non-null right in createOrReference"
         def rightFromLabel := currentBlockLabel
         body.writeLine("br label %\{endLabel}")
@@ -903,7 +916,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 -*
     method createTernaryReference(t:Ternary):String {
-        def test := createReference(t.test)
+        def test := getReference(t.test)
         assert test != null : "expected non-null test in createTernaryReference"
         def leftLabel := createLabel()
         def rightLabel := createLabel()
@@ -913,13 +926,13 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine()
 
         createBlock(leftLabel, "left: " + t)
-        def left := createReference(t.left)
+        def left := getReference(t.left)
         assert left != null : "expected non-null left in createTernaryReference"
         def leftFromLabel := currentBlockLabel
         body.writeLine("br label %" + endLabel)
         
         createBlock(rightLabel, "right: " + t)
-        def right := createReference(t.right)
+        def right := getReference(t.right)
         assert right != null : "expected non-null right in createTernaryReference"
         def rightFromLabel := currentBlockLabel
         body.writeLine("br label %" + endLabel)
@@ -932,6 +945,39 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
 *-
+
+    method createUnaryOperationReference(u:UnaryOperation):String {
+        switch u.operation {
+            case UnaryOperationType.MINUS: {
+                var op:String
+                var zero:Value
+                if u.type.isReal {
+                    op := "fsub"
+                    zero := new RealLiteral(Position.INTERNAL, 0)
+                }
+                else {
+                    op := "sub"
+                    zero := new IntegerLiteral(Position.INTERNAL, 0)
+                }
+                var zeroRef := getReference(zero)
+                assert zeroRef != null : "expected non-null zeroRef"
+                var valueRef := getReference(u.operand)
+                assert valueRef != null : "expected non-null valueRef"
+                return createCommandReference(op + " " + getLLVMType(u.type) + 
+                        " " + zeroRef + ", " + valueRef, u->>(String))
+            }
+            case UnaryOperationType.NOT: {
+                return createCommandReference("xor " + 
+                        getTypedReference(u.operand) + ", 1", u->>(String))
+            }
+            case UnaryOperationType.BITWISE_NOT: {
+                return createCommandReference("xor " + 
+                        getTypedReference(u.operand) + ", -1", u->>(String))
+            }
+            default: unreachable
+        }
+    }
+
     method createNewPrimitiveArrayReference(na:NewPrimitiveArray):String {
         def arrayClass := getStub(na.type->(ClassType))
         def cc := getClassConstant(arrayClass)
@@ -940,7 +986,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def classType := getLLVMType(ClassType.CLASS)
         writeBody("\{cast} = bitcast \{cc.type}* @\{cc.name} to \{classType}",
                 "convert class pointer")
-        def ref := createReference(na.arrayLength)
+        def ref := getReference(na.arrayLength)
         assert ref != null : "expected non-null ref in createNewPrimitiveArrayWithLengthReference"
         def alloc := createCallReference(
                 "i8* @pandaNewPrimitiveArrayWithLength(\{classType} \{cast}, " + 
@@ -1171,7 +1217,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createCastReference(c:Cast):String? {
-        def tempResult := createReference(c.value)
+        def tempResult := getReference(c.value)
         assert tempResult != null : 
                 "expected non-null tempResult in createCastReference"
         def actualType := c.value.type
@@ -1299,7 +1345,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @protected
     method createVariableReference(vr:VariableReference):String {
-        def variable := vr.variable
+        var variable := promotedParameters[vr.variable]
+        if variable = null
+            variable := vr.variable
         if variable-?>(Parameter)
             return "%" + getName(variable)
         return createCommandReference("load " + getLLVMType(vr.type) + "* %" + 
@@ -1308,7 +1356,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         
     @protected
     method createReusedValueDefinitionReference(rvd:ReusedValueDefinition):String {
-        def result := createReference(rvd.value)
+        def result := getReference(rvd.value)
         assert result != null : "null reference for ReusedValueDefinition " + rvd
         references[rvd] := result
         return result
@@ -1332,12 +1380,59 @@ class LLVMCodeGenerator (CodeGenerator) {
         return "0x\{bits,0>16:h}"
     }
     
+    @protected
+    method createDynamicCallReference(d:DynamicCall):String? {
+        def methodValue := getTypedReference(d.methodValue)
+        def object := getClassConstant(getStub(ClassType.METHOD))
+        var offset := object.methods.length
+        -- FIXME uncomment this when shimming works
+        if !d.type.isPrimitive
+            offset += 1 -- shimmed
+        -- the "real" type of the method includes a reference to the method 
+        -- object before the formal parameters
+        def baseType := d.methodValue.type->>(MethodType)
+        def realParameters := new Array<Type>()
+        realParameters.add(baseType)
+        realParameters.addAll(baseType.methodParameters)
+        def realType := new MethodType(realParameters, baseType.returnType, 
+                baseType.isFunction, baseType.immutableMethod)
+        def methodPtr := getVirtualMethodReference(d.methodValue, offset,
+                getLLVMMethodType(realType))
+        def c := "fastcc "->>(MutableString)
+        c.append(getLLVMMethodType(realType))
+        c.append(" ")
+        c.append(methodPtr)
+        c.append("(")
+        c.append(getTypedReference(d.methodValue))
+        for i, p in d.parameters {
+            c.append(", ")
+            c.append(getTypedReference(p))
+        }
+        c.append(")")
+        def result:String?
+        if d.type = VoidType.VOID
+            result := null
+        else
+            result := getTempVariable()
+        call(c->>(String), result, d->>(String))
+        return result
+    }
+
+    @protected
+    method createClassObjectLiteralReference(type:ClassObjectLiteral):String {
+        def cl := getStub(type.value)
+        def cc := getClassConstant(cl)
+        def classType := getLLVMType(ClassType.CLASS)
+        return "bitcast(\{cc.type}* @\{cc.name} to \{classType})"
+    }
+
     -- return value is nullable so void expressions (method calls) can return
     -- null
     @protected
     method createReference(v:Value):String? {
         switch v.class {
             case class(VariableAssignment): return createVariableAssignmentReference(v->(VariableAssignment))
+            case class(UnaryOperation): return createUnaryOperationReference(v->(UnaryOperation))
             case class(BinaryOperation): return createBinaryOperationReference(v->(BinaryOperation))
             case class(Construct): return createConstructReference(v->(Construct))
             case class(MethodCall): return createMethodCallReference(v->(MethodCall))
@@ -1361,19 +1456,14 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(NewPrimitiveArray): return createNewPrimitiveArrayReference(v->(NewPrimitiveArray))
             case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
             case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->(PrimitiveArrayIndexValue))
-    -*
-            case class(Not): return createNotReference(v->(Not))
-            case class(BitwiseNot): return createBitwiseNotReference(v->(BitwiseNot))
-            case class(UnaryMinus): return createUnaryMinusReference(v->(UnaryMinus))
-    *-
             case class(NullLiteral): return "null"
-    -*
             case class(ClassObjectLiteral): return createClassObjectLiteralReference(v->(ClassObjectLiteral))
+    -*
             case class(Ternary): return createTernaryReference(v->(Ternary))
             case class(Unwrap): return createReference(v->(Unwrap).value)
             case class(MethodValue): return createMethodValueReference(v->(MethodValue))
-            case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
     *-
+            case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
             case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
             case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) 
             case class(Unresolved): throw new InternalCompilerException(
@@ -1387,14 +1477,25 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method getTypedReference(v:Value):String {
-        def ref := createReference(v)
+        def ref := getReference(v)
         assert ref != null : "expected non-null ref in getTypedReference"
         return getLLVMType(v.type) + " " + ref
+    }
+
+    @protected
+    method getReference(v:Value):String? {
+        var result := references[v]
+        if result = null {
+            result := createReference(v)
+            if result != null
+                references[v] := result
+        }
+        return result
     }
     
     @protected
     method generateValueStatementCode(v:ValueStatement) {
-        createReference(v.value)
+        getReference(v.value)
     }
 
     @pre(array.type.isPrimitiveArray)
@@ -1426,7 +1527,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def ep := getPrimitiveArrayElementPointer(ia.array, ia.index)
         def elementType := ia.array.type->>(PrimitiveArrayType).elementType
         def lref := getLLVMType(elementType) + "* " + ep
-        def ref := createReference(ia.value) 
+        def ref := getReference(ia.value) 
         assert ref != null : "expected non-null ref in generateIndexAssignmentCode"
         writeBody("store \{getLLVMType(elementType)} \{ref}, \{lref}", 
                 ia->>(String))
@@ -1437,7 +1538,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if !fa.fieldNode.annotations.isThread {
             def ep := getFieldPointer(fa.object, fa.fieldNode)
             def lref := getLLVMType(fa.fieldNode.type) + "* " + ep
-            def vref := createReference(fa.value)
+            def vref := getReference(fa.value)
             assert vref != null : "expected non-null vref in generateFieldAssignmentCode"
             writeBody("store \{getLLVMType(fa.fieldNode.type)} \{vref}, " + 
                     lref, fa->>(String))
@@ -1610,6 +1711,33 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    method generateAssertCode(a:Assert) {
+        def succeedLabel := createLabel()
+        def failLabel := createLabel()
+        writeBody("br \{getTypedReference(a.test)}, label %\{succeedLabel}, " +
+                "label %\{failLabel}", "assert test: \{a}")
+        body.writeLine()
+        createBlock(failLabel, "fail: \{a}")
+        var error := a.error
+        if error != null {
+            if error.type = ClassType.STRING
+                call("void \{FAIL_ASSERT_NAME}(\{getTypedReference(error)})")
+            else {
+                assert error.type = ClassType.ERROR : 
+                        "expected error.type = ERROR but found \{error.type}"
+                call("void @pandaThrow(\{getTypedReference(error)})")
+            }
+        }
+        else {
+            call("void \{FAIL_ASSERT_NAME}(\{getLLVMType(ClassType.STRING)}" +
+                    " null)")
+        }
+        body.writeLine("unreachable")
+        body.writeLine()
+        createBlock(succeedLabel, "succeed: \{a}")
+    }
+    
+    @protected
     method generateStatementCode(s:Statement) {
         if debug
             body.writeLine("; " + s)
@@ -1631,8 +1759,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(Return): generateReturnCode(s->(Return))
             case class(Break): generateBreakCode(s->(Break))
             case class(Continue): generateContinueCode(s->(Continue))
--*
             case class(Assert): generateAssertCode(s->(Assert))
+-*
             case class(Throw): generateThrowCode(s->(Throw))
             case class(Try): generateTryCode(s->(Try))
             case class(CatchExit): { }
@@ -1717,6 +1845,33 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine()
     }
 
+    ============================================================================
+    Recursively scan the tree, looking for parameters which have been assigned
+    to and therefore need to be promoted to actual variables.
+    
+    @param node the node to scan
+    ============================================================================
+    @protected
+    @pre(node-!>(MethodNode))
+    method findPromotedParameters(node:Node) {
+        if node-?>(MethodNode)
+            throw new AssertionError("FIXME")
+        if node-?>(VariableAssignment) {
+            var variable := node->(VariableAssignment).variable
+            if variable-?>(Parameter) {
+                if promotedParameters[variable] = null {
+                    promotedParameters[variable] := new LocalVariable(
+                            variable.position, variable.name + "_promoted", 
+                            variable.type, VariableType.VAR)
+                }
+            }
+        }
+        else {
+            for child in node
+                findPromotedParameters(child)
+        }
+    }
+
     @protected
     method generateMethodCode(m:MethodNode) {
         if m.annotations.isAbstract
@@ -1725,6 +1880,9 @@ class LLVMCodeGenerator (CodeGenerator) {
         tempVariable := 1
         def private := m.annotations.isPrivate
         def external := m.annotations.isExternal
+        promotedParameters.clear()
+        if m.block != null
+            findPromotedParameters(m.block->(Block))
         body.writeLine()
         if debug
             body.writeLine("; " + m)
@@ -1755,16 +1913,16 @@ class LLVMCodeGenerator (CodeGenerator) {
             currentBlockLabel := "0"
             for v in m.localVariables
                 body.writeLine("%\{getName(v)} = alloca \{getLLVMType(v.type)}")
--*            for (source, promoted) in promotedParameters {
+            for (source, promoted) in promotedParameters {
                 body.writeLine("%" + getName(promoted) + " = alloca " + 
                         getLLVMType(promoted.type))
                 body.writeLine("store " + getLLVMType(promoted.type) +
                         " %" + getName(source) + ", " + 
                         getLLVMType(promoted.type) + "* %" + getName(promoted))
-            } *-
+            }
             
             def block := m.block
-            assert block != null
+            assert block != null : "no block for non-abstract \{m}:\{m.position}"
             generateBlockCode(block)
             if !block.endsInBranch {
                 if m.returnType = VoidType.VOID
@@ -1780,8 +1938,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     method generateClassCode(cl:ClassNode) {
         for m in cl.methods
             generateMethodCode(m)
-        for f in cl.fields
-            writeFieldDeclaration(f)
+        for f in cl.fields {
+            if f.owner.name = cl.name
+                writeFieldDeclaration(f)
+        }
     }
 
     @override
@@ -1798,22 +1958,25 @@ class LLVMCodeGenerator (CodeGenerator) {
                 writeTypeDescriptor(cl)
         }
         for (_, cl) in stubs {
-            if classes[cl.name] = null & cl.genericParameters = null &
-                    !cl.annotations.isUnspecified {
-                for m in cl.methods
-                    writeMethodDeclaration(m)
-                for f in cl.fields
-                    writeFieldDeclaration(f)
+            if classes[cl.name] = null {
+                for m in cl.methods {
+                    if !cl.annotations.isUnspecified | m.annotations.isClass
+                        writeMethodDeclaration(m)
+                }
+                for f in cl.fields {
+                    if (!cl.annotations.isUnspecified | f.annotations.isClass |
+                            f.annotations.isThread) & f.owner.name = cl.name {
+                        writeFieldDeclaration(f)
+                    }
+                }
             }
         }
 -*        for (_, cl) in stubs {
             if cl.live & !cl.annotations.isUnspecified()
                 getClassConstant(cl)
         }*-
-        for (_, cl) in classes {
-            if !cl.annotations.isUnspecified
-                generateClassCode(cl)
-        }
+        for (_, cl) in classes
+            generateClassCode(cl)
 
         body.writeLine("declare void @pandaInit()")
         body.writeLine("declare void @pandaCheckLibVersion(i32)")
@@ -1848,6 +2011,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("declare {i32, i1} @llvm.umul.with.overflow.i32(i32 %a, i32 %b)")
         body.writeLine("declare {i64, i1} @llvm.umul.with.overflow.i64(i64 %a, i64 %b)")
 
+        body.writeLine("declare void @pandaThrow(\{getLLVMType(ClassType.ERROR)})")
         body.writeLine("declare void @llvm.trap() noreturn nounwind")
         body.writeLine("declare void @pandaCheckSignCasti8(i8)")
         body.writeLine("declare void @pandaCheckSignCasti16(i16)")

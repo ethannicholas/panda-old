@@ -244,8 +244,16 @@ class Scanner : Immutable (MessageProcessor) {
         if !annotations.isClass {
             assert className != null
             var parameterArray := new Array<UntypedFormalParameter>()
+            def type:String
+            if annotations.isWrapperMethod {
+                assert className.endsWith("Wrapper")
+                type := className[..className.length - "Wrapper".length]
+            }
+            else
+                type := className
+
             parameterArray.add(new UntypedFormalParameter(m.position, 
-                    Parameter.SELF_NAME, new PandaParser().parseType(className,
+                    Parameter.SELF_NAME, new PandaParser().parseType(type,
                         m.position), true, false, false))
             parameterArray.addAll(formalParameters)
             finalParameters := parameterArray
@@ -257,13 +265,11 @@ class Scanner : Immutable (MessageProcessor) {
             block := m[i]
         else {
             block := null
-            if !isExternal {
-                if isInterface
-                    annotations += AnnotationType.ABSTRACT
-                else {
-                    messages := addMessage(messages, "non-abstract method " +
-                            "\{name} must have a method body", m.position)
-                }
+            if isInterface
+                annotations += AnnotationType.ABSTRACT
+            else if !isExternal {
+                messages := addMessage(messages, "non-abstract method " +
+                        "\{name} must have a method body", m.position)
             }
         }
         return (new UntypedMethodStub(m.position, name, annotations,
@@ -480,6 +486,7 @@ class Scanner : Immutable (MessageProcessor) {
         if cl[i].type = ParseNodeType.GENERIC_PARAMETERS_DECLARATION {
             genericParametersNode := cl[i]
             i += 1
+            annotations += AnnotationType.UNSPECIFIED
         }
         else
             genericParametersNode := null
@@ -529,6 +536,7 @@ class Scanner : Immutable (MessageProcessor) {
         if cl[i].type = ParseNodeType.GENERIC_PARAMETERS_DECLARATION {
             genericParametersNode := cl[i]
             i += 1
+            annotations += AnnotationType.UNSPECIFIED
         }
         else
             genericParametersNode := null

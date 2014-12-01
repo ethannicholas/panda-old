@@ -5,14 +5,16 @@ uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.UntypedClassStub
 uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
 
-class StubMap : Immutable {
+class StubMap : Immutable (MessageProcessor) {
     @private
     constant ALL_STUBS := "allStubs"
 
@@ -66,6 +68,37 @@ class StubMap : Immutable {
     }
 
     @private
+    method inferFieldTypes(cl:TypedClassStub):TypedClassStub {
+        if cl.fullyResolved
+            return cl
+        def result:TypedClassStub
+        def remaining:Bit
+        var messages:ListView<Message>?
+        def progress:Bit
+        result, progress, remaining, messages := new TypeResolver(typeMap, 
+                self).inferFieldTypes(cl)
+        if remaining {
+            def fields := new MutableString()
+            def filter := f:FieldNode => f.type-?>(UnresolvedType)
+            for f in result.fields.filter(filter) {
+                fields.append("\n    ")
+                fields.append("\{f.name}:\{f.position}")
+            }
+            messages := addMessage(messages, "unable to infer field " +
+                    "types in '\{cl.name}', possibly due to a circular " +
+                    "dependency involving:\{fields}", result.position)
+            assert messages != null
+            -- this shouldn't actually happen; we should be detecting
+            -- circular dependencies in the base generic class prior to
+            -- handling particular instances of it, but let's play it safe
+            throw new CompilerException(messages)
+        }
+        assert result.fullyResolved
+        return result
+
+    }
+
+    @private
     method createStub(typeMap:TypeMap, name:String, 
             rawStubs:Map<String, TypedClassStub>):TypedClassStub? {
         -- we have to be careful here; the createStub methods can't end up 
@@ -96,6 +129,7 @@ class StubMap : Immutable {
     }
 
     @self
+    @pre(!name.startsWith("<"))
     method getStub(name:String):TypedClassStub? {
         def replyTo := Thread.currentThread().queue
         queue.post((GET, name, replyTo))

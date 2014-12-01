@@ -5,7 +5,7 @@ set -o errexit
 set -o pipefail
 
 export BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-$BASEDIR/scripts/build_all.sh
+"$BASEDIR/scripts/build_all.sh"
 
 echo
 echo Success!

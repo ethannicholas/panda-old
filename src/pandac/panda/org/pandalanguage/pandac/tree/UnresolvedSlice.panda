@@ -1,0 +1,117 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.compiler.ASTGenerator
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Message
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+
+================================================================================
+Represents an index or slice which has not yet been fully resolved. This is used
+(as opposed to immediately returning a finished [Value]) to make overloaded
+assignments easier. When processing a[1 .. 5], we return an `UnresolvedIndex`
+to represent it, so if the next token is `:=` we can easily perform the
+appropriate lookup.
+================================================================================
+class UnresolvedSlice : UnresolvedValue {
+    constant UNRESOLVED_SLICE := new UnresolvedType("<unresolved slice>")
+
+    def left:Value?
+    def right:Value?
+    def step:Value?
+    def inclusive:Bit
+    def methodStub:TypedMethodStub?
+
+    constructor(contextValue:Value, left:Value?, right:Value?, step:Value?,
+            inclusive:Bit, methodStub:TypedMethodStub?) {
+        super.constructor(contextValue.position, UNRESOLVED_SLICE, 
+                wrap(contextValue))
+        self.left := left
+        self.right := right
+        self.step := step
+        self.inclusive := inclusive
+        self.methodStub := methodStub
+    }
+
+    -- FIXME remove this when final array syntax is in
+    @private
+    @class
+    function wrap(contextValue:Value):ListView<Node> {
+        def result := new Array<Node>()
+        result.add(contextValue)
+        return result
+    }
+
+    function contextValue():Value {
+        return self[0]->(Value)
+    }
+
+    @override
+    function checkValid():Message? {
+        if methodStub = null {
+            def name:String
+            if inclusive
+                name := "[...]"
+            else
+                name := "[..]"
+            def parameters := new MutableString("[")
+            if left != null
+                parameters.append("'\{left.type.displayName}'")
+            else
+                parameters.append("'null'")
+            parameters.append(", ")
+            if right != null
+                parameters.append("'\{right.type.displayName}'")
+            else
+                parameters.append("'null'")
+            parameters.append(", ")
+            if step != null
+                parameters.append("'\{step.type.displayName}'")
+            else
+                parameters.append("'null'")
+            parameters.append("]")
+            return new Message("'\{contextValue.type.displayName}' does not " +
+                    "implement the '\{name}' operator for \{parameters}", 
+                    position)
+        }
+        return null
+    }
+
+    @override
+    @unsafeFunction
+    function implicitCast(position:Position, context:Context, 
+            t:Type):(Value, ListView<Message>?) {
+        def stub := methodStub
+        if stub = null
+            return (self, null)
+        def params := new Array<Value>()
+        params.add(contextValue)
+        if stub.parameters.length >= 2 {
+            if left != null
+                params.add(left->(Value))
+            else
+                params.add(new NullLiteral(position))
+            if stub.parameters.length >= 3 {
+                if right != null
+                    params.add(right->(Value))
+                else
+                    params.add(new NullLiteral(position))
+                if stub.parameters.length >= 4 {
+                    if step != null
+                        params.add(step->(Value))
+                    else
+                        params.add(new NullLiteral(position))
+                }
+            }
+        }
+        var result, messages := new ASTGenerator().call(context, position, 
+                    methodStub->(TypedMethodStub), false, params)
+        if result = null
+            result := self
+        return (result, messages)
+    }
+}
