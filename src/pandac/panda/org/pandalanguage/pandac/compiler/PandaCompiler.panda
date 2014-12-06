@@ -7,9 +7,8 @@ uses org.pandalanguage.pandac.pandadoc.PandaDoc
 uses org.pandalanguage.pandac.pandadoc.HTMLFragmentGenerator
 uses org.pandalanguage.pandac.pandadoc.HTMLGenerator
 uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.stubs.UntypedClassStub
 uses org.pandalanguage.pandac.stubs.TypedClassStub
-uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
-uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
@@ -27,12 +26,12 @@ The overall design of the compiler is:
 1. [PandaParser] is run on each compilation unit, resulting in a [ParseNode] of
    type `COMPILATION_UNIT`.
 2. The [Scanner] class takes these `ParseNode`s and converts them into a tree of
-   [UntypedCompilationUnitStub], [UntypedClassStub], etc. At this point we know
-   all of the symbols but have not resolved them yet.
+   [UntypedClassStub], [UntypedMethodStub], etc. At this point we know all of 
+   the symbols but have not resolved them yet.
 3. The [TypeResolver] class takes the various untyped stubs and resolves all of
    the [Type]s (with the assistance of [TypeMap]), producing 
-   [TypedCompilationUnitStub], [TypedClassStub], etc. These stubs are fully
-   resolved, but any code associated with them is still just raw `ParseNode`s.
+   [TypedClassStub], [TypedMethodStub], etc. These stubs are fully resolved, but
+   any code associated with them is still just raw `ParseNode`s.
 4. For stubs loaded from plink files, their journey has already ended: they will
    never be anything more than stubs. Classes found in .panda files now go 
    through [ASTGenerator], which takes `TypedClassStub`, `TypedMethodStub`, etc.
@@ -176,9 +175,9 @@ class PandaCompiler (MessageProcessor) {
     }
 
     @protected
-    method getUntypedCompilationUnits(settings:CompilerSettings):
-            (CollectionView<UntypedCompilationUnitStub>, ListView<Message>?) {
-        def result := new Array<UntypedCompilationUnitStub>()
+    method getUntypedClassStubs(settings:CompilerSettings):
+            (CollectionView<UntypedClassStub>, ListView<Message>?) {
+        def result := new Array<UntypedClassStub>()
         var messages:ListView<Message>? := null
         def scanner := new Scanner()
         def workQueue := new MessageQueue()
@@ -190,7 +189,7 @@ class PandaCompiler (MessageProcessor) {
         for i in 0 .. THREADS {
             workQueue.post(null)
             Thread.start(method() {
-                def result := new Array<UntypedCompilationUnitStub>()
+                def result := new Array<UntypedClassStub>()
                 var messages:ListView<Message>? := null
                 loop {
                     def f := workQueue.getMessage()->(File?)
@@ -199,9 +198,9 @@ class PandaCompiler (MessageProcessor) {
                     def input := new BufferedInputStream(f.openInputStream())
                     def parsed := new PandaParser().parseCompilationUnit(f.name,
                             input)
-                    def stub, submessages := scanner.convertCompilationUnit(f.name, 
-                            parsed)
-                    result.add(stub)
+                    def stubs, submessages := scanner.convertCompilationUnit(
+                            f.name, parsed)
+                    result.addAll(stubs)
                     messages := addMessages(messages, submessages)
                     input.close()
                 }
@@ -211,12 +210,12 @@ class PandaCompiler (MessageProcessor) {
                 else
                     responseMessages := null
                 responseQueue.post(
-                        (new ImmutableArray<UntypedCompilationUnitStub>(result),
+                        (new ImmutableArray<UntypedClassStub>(result),
                          responseMessages))
             })
         }
         for i in 0 .. THREADS {
-            def subresult, submessages := responseQueue.getMessage()->((ImmutableArray<UntypedCompilationUnitStub>, ImmutableArray<Message>?))
+            def subresult, submessages := responseQueue.getMessage()->((ImmutableArray<UntypedClassStub>, ImmutableArray<Message>?))
             result.addAll(subresult)
             messages := addMessages(messages, submessages)
         }
@@ -235,19 +234,18 @@ class PandaCompiler (MessageProcessor) {
     }
 
     @private
-    method getTypedCompilationUnits(
-            untypedCompilationUnits:CollectionView<UntypedCompilationUnitStub>):
-                (CollectionView<TypedCompilationUnitStub>, TypeMap, StubMap,
+    method getTypedClassStubs(untypedClasses:CollectionView<UntypedClassStub>):
+                (CollectionView<TypedClassStub>, TypeMap, StubMap,
                 ListView<Message>?) {
-        return TypeResolver.resolveTypes(untypedCompilationUnits)
+        return TypeResolver.resolveTypes(untypedClasses)
     }
 
     @private
     method getClassNodes(
-            typedCompilationUnits:CollectionView<TypedCompilationUnitStub>,
+            typedClasses:CollectionView<TypedClassStub>,
             typeMap:TypeMap, stubs:StubMap):
             (CollectionView<ClassNode>, ListView<Message>?) {
-        return new ASTGenerator().convertCompilationUnits(typedCompilationUnits,
+        return new ASTGenerator().convertClasses(typedClasses,
                 typeMap, stubs)
     }
 
@@ -256,21 +254,20 @@ class PandaCompiler (MessageProcessor) {
     method compile(settings:CompilerSettings):ListView<Message>? {
         var messages:ListView<Message>? := null
         checkpoint("loading symbols")
-        def untypedCompilationUnits, phase1Messages := 
-                getUntypedCompilationUnits(settings)
+        def untypedClasses, phase1Messages := getUntypedClassStubs(settings)
         messages := addMessages(messages, phase1Messages)
         if fatal(messages)
             return messages
 
         checkpoint("resolving types")
-        def typedCompilationUnits, typeMap, stubs, phase2Messages :=
-                getTypedCompilationUnits(untypedCompilationUnits)
+        def typedClasses, typeMap, stubs, phase2Messages := getTypedClassStubs(
+                untypedClasses)
         messages := addMessages(messages, phase2Messages)
         if fatal(messages)
             return messages
 
         checkpoint("generating abstract syntax tree")
-        def classes, phase3Messages := getClassNodes(typedCompilationUnits, 
+        def classes, phase3Messages := getClassNodes(typedClasses, 
                 typeMap, stubs)
         messages := addMessages(messages, phase3Messages)
         if fatal(messages)

@@ -288,7 +288,11 @@ class LLVMCodeGenerator (CodeGenerator) {
     function getName(v:Variable):String {
         if v-?>(FieldNode) {
             def field := v->(FieldNode)
-            return getName(getStub(field.owner)) + "$" + v.name
+            def name := getName(getStub(field.owner)) + "$" + v.name
+            if field.annotations.isClass
+                return "class_" + name
+            else
+                return name
         }
         return v.name
     }
@@ -1684,6 +1688,30 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     @post(loops.length = @pre(loops.length))
 
+    @protected
+    method generateLoopWithContinueBlockCode(l:LoopWithContinueBlock) {
+        loops.push(l)
+        def startLabel := createLabel()
+        def nextLabel := createLabel()
+        def endLabel := createLabel()
+        nextLabels[l] := nextLabel
+        endLabels[l] := endLabel
+        body.writeLine("br label %" + startLabel)
+        body.writeLine()
+        createBlock(startLabel, "start: " + l)
+        generateBlockCode(l.block)
+        if !l.block.endsInBranch
+            body.writeLine("br label %" + nextLabel)
+        createBlock(nextLabel, "next: " + l)
+        generateBlockCode(l.continueBlock)
+        assert !l.continueBlock.endsInBranch : "expected loop to not end in branch in generateLoopWithContinueBlockCode"
+        body.writeLine("br label %" + startLabel)
+        body.writeLine()
+        createBlock(endLabel, "end: " + l)
+        assert loops.pop() = l
+    }
+    @post(loops.length = @pre(loops.length))
+
     function findLoop(label:String?):AbstractLoop {
         if label = null
             return loops.peek
@@ -1752,9 +1780,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(While): generateWhileCode(s->(While))
             case class(Do): generateDoCode(s->(Do))
             case class(Loop): generateLoopCode(s->(Loop))
--*            case class(LoopWithContinueBlock): 
-                    generateLoopWithContinueBlockCode(s->(LoopWithContinueBlock))
-*-
+            case class(LoopWithContinueBlock): 
+                    generateLoopWithContinueBlockCode(
+                        s->(LoopWithContinueBlock))
             case class(Block): generateBlockCode(s->(Block))
             case class(Return): generateReturnCode(s->(Return))
             case class(Break): generateBreakCode(s->(Break))
@@ -1831,6 +1859,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if debug
             body.writeLine("; " + m)
         body.write("declare ")
+        Console.writeLine(3)
         if !external
             body.write("fastcc ")
         body.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
@@ -1959,15 +1988,23 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         for (_, cl) in stubs {
             if classes[cl.name] = null {
+                Console.writeLine(cl.name + " - " + cl.annotations.isUnspecified)
                 for m in cl.methods {
-                    if !cl.annotations.isUnspecified | m.annotations.isClass
+                    if !cl.annotations.isUnspecified | m.annotations.isClass {
+                        Console.writeLine("WRITING \{m}:\{m.owner}")
                         writeMethodDeclaration(m)
+                    }
+                    else
+                        Console.writeLine("SKIPPING \{m}:\{m.owner}")
                 }
                 for f in cl.fields {
                     if (!cl.annotations.isUnspecified | f.annotations.isClass |
                             f.annotations.isThread) & f.owner.name = cl.name {
+                        Console.writeLine("WRITING \{f}:\{f.owner}")
                         writeFieldDeclaration(f)
                     }
+                    else
+                        Console.writeLine("skipping \{f}:\{f.owner}")
                 }
             }
         }

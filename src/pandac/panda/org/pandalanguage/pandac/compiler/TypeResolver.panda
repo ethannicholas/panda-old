@@ -6,12 +6,10 @@ uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.TypedClassStub
 uses org.pandalanguage.pandac.stubs.TypedFormalParameter
 uses org.pandalanguage.pandac.stubs.TypedMethodStub
-uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
 uses org.pandalanguage.pandac.stubs.UntypedClassStub
 uses org.pandalanguage.pandac.stubs.UntypedFieldNode
 uses org.pandalanguage.pandac.stubs.UntypedGenericParameter
 uses org.pandalanguage.pandac.stubs.UntypedMethodStub
-uses org.pandalanguage.pandac.stubs.UntypedCompilationUnitStub
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -288,29 +286,6 @@ class TypeResolver (MessageProcessor) {
         return (stub, messages)
     }
 
-    method resolveTypes(cu:UntypedCompilationUnitStub, 
-            typeMap:TypeMap):(TypedCompilationUnitStub, ListView<Message>?) {
-        def list := new Array<UntypedCompilationUnitStub>()
-        list.add(cu)
-        def t := new TypeResolver(typeMap, stubs)
-        def classes := new Array<TypedClassStub>()
-        var messages:ListView<Message>? := null
-        def replyTo := Thread.currentThread.queue
-        for cl in cu.classes {
-            def resolved, submessages := resolveTypes(cl)
-            classes.add(resolved)
-            messages := addMessages(messages, submessages)
-        }
-        def methods := new Array<TypedMethodStub>()
--*        for m in cu.methods {
-            def resolved, submessages := t.resolveTypes(m)
-            methods.add(resolved)
-            messages := addMessages(messages, submessages)
-        }*-
-        return (new TypedCompilationUnitStub(cu.name, classes, cu.statements),
-                messages)
-    }
-
     -- returns a new stub with resolved types, whether any fields were resolved,
     -- whether there are remaining unresolved fields, and errors
     method inferFieldTypes(cl:TypedClassStub):
@@ -357,64 +332,41 @@ class TypeResolver (MessageProcessor) {
         return (cl, false, remaining, null)
     }
 
-    method inferFieldTypes(cu:TypedCompilationUnitStub):
-            (TypedCompilationUnitStub, Bit, Bit, ListView<Message>?) {
-        var updated := false
-        var remaining := false
-        def classes := new Array<TypedClassStub>()
-        for cl in cu.classes {
-            if cl.genericParameters != null
-                classes.add(cl)
-            else {
-                def newCl, newUpdated, newRemaining, messages := 
-                        inferFieldTypes(cl)
-                classes.add(newCl)
-                updated |= newUpdated
-                remaining |= newRemaining
-            }
-        }
-        return (new TypedCompilationUnitStub(cu.name, classes, cu.statements), 
-                updated, remaining, null)
-    }
-
-    method inferFieldTypes(var compilationUnits:CollectionView<TypedCompilationUnitStub>):
-            (CollectionView<TypedCompilationUnitStub>, ListView<Message>?) {
+    method inferFieldTypes(var classes:CollectionView<TypedClassStub>):
+            (CollectionView<TypedClassStub>, ListView<Message>?) {
         loop {
             var updated := false
             var remaining := false
-            def newCompilationUnits := new Array<TypedCompilationUnitStub>()
-            for cu in compilationUnits {
-                def newCompilationUnit, newUpdated, newRemaining, messages :=
-                        inferFieldTypes(cu)
-                newCompilationUnits.add(newCompilationUnit)
+            def newClasses := new Array<TypedClassStub>()
+            for cl in classes {
+                def newClass, newUpdated, newRemaining, messages :=
+                        inferFieldTypes(cl)
+                newClasses.add(newClass)
                 updated |= newUpdated
                 remaining |= newRemaining
             }
-            compilationUnits := newCompilationUnits
+            classes := newClasses
             if !updated {
                 if remaining
                     Console.writeLine("could not infer field types")
-                return (compilationUnits, null)
+                return (classes, null)
             }
         }
     }
 
     @class
-    method resolveTypes(compilationUnits:CollectionView<UntypedCompilationUnitStub>):
-            (CollectionView<TypedCompilationUnitStub>, 
+    method resolveTypes(classes:CollectionView<UntypedClassStub>):
+            (CollectionView<TypedClassStub>, 
                 TypeMap, StubMap, ListView<Message>?) {
-        def result := new Array<TypedCompilationUnitStub>()
-        def classes := new Array<UntypedClassStub>()
-        for cu in compilationUnits
-            classes.addAll(cu.classes)
+        def result := new Array<TypedClassStub>()
         def newTypeMap := new TypeMap(classes)
         def stubs := new StubMap(newTypeMap)
         def t := new TypeResolver(newTypeMap, stubs)
         var messages:ListView<Message>? := null
-        for cu in compilationUnits {
-            def resolved, submessages := t.resolveTypes(cu, newTypeMap)
-            result.add(resolved)
+        for cl in classes {
+            def resolved, submessages := t.resolveTypes(cl)
             messages := addMessages(messages, submessages)
+            result.add(resolved)
         }
         def finished, submessages := t.inferFieldTypes(result)
         messages := addMessages(messages, submessages)

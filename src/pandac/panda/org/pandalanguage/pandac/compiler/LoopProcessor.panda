@@ -1,0 +1,72 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.tree.AbstractLoop
+uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BinaryOperationType
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
+uses org.pandalanguage.pandac.tree.ForEach
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.Statement
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.Variable
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+
+class LoopProcessor {
+    method createLoop(ast:ASTGenerator, context:Context, position:Position, 
+            label:String?, indexVar:Variable?, valueVar:Variable, list:Value, 
+            block:Block):Statement {
+        var call, messages := ast.call(context, position, list, "iterator", 
+                new Array<Value>())
+        assert messages = null : messages->>(String)
+        assert call != null
+        def iterator := new ReusedValueDefinition(call)
+        def statements := new Array<Statement>()
+        if indexVar != null  {
+            statements.add(new ValueStatement(new VariableAssignment(position,
+                indexVar, new IntegerLiteral(position, 0, indexVar.type, 
+                true))))
+        }
+        def br := new Break(position)
+        def breakStatements := new Array<Statement>()
+        breakStatements.add(br)
+        def breakBlock := new Block(position, breakStatements)
+        def test:Value?
+        test, messages := ast.call(context, position, 
+                iterator.createReference(), "done", new Array<Value>())
+        assert messages = null : messages->>(String)
+        assert test != null
+        def breakIf := new If(position, test, breakBlock, null)
+        statements.add(breakIf)
+        def next:Value?
+        next, messages := ast.call(context, position, 
+                iterator.createReference(), "next", new Array<Value>())
+        assert messages = null : messages->>(String)
+        assert next != null
+        statements.add(new ValueStatement(new VariableAssignment(position,
+                valueVar, next)))
+        statements.addAll(block.statements)
+        def loopBlock := new Block(position, statements)
+        def continueStatements := new Array<Statement>()
+        if indexVar != null {
+            def add := new BinaryOperation(position, BinaryOperationType.ADD,
+                    new VariableReference(position, indexVar),
+                    new IntegerLiteral(position, 1, indexVar.type, true))
+            continueStatements.add(new ValueStatement(new VariableAssignment(
+                    position, indexVar, add)))
+        }
+        def continueBlock := new Block(position, continueStatements)
+        def l := new LoopWithContinueBlock(position, label, loopBlock, 
+                continueBlock)
+        def outerblockStatements := new Array<Statement>()
+        outerblockStatements.add(new ValueStatement(iterator))
+        outerblockStatements.add(l)
+        return new Block(position, outerblockStatements)
+   }
+}

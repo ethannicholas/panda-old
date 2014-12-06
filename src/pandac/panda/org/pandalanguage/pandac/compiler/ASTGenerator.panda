@@ -8,7 +8,6 @@ uses org.pandalanguage.pandac.parser.Token
 uses org.pandalanguage.pandac.parser.TokenNode
 uses org.pandalanguage.pandac.parser.TokenType
 uses org.pandalanguage.pandac.stubs.TypedClassStub
-uses org.pandalanguage.pandac.stubs.TypedCompilationUnitStub
 uses org.pandalanguage.pandac.stubs.TypedFormalParameter
 uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.tree.AbstractLoop
@@ -345,8 +344,15 @@ class Context : Immutable {
 
     method getType(name:String, position:Position):
             (Type?, ListView<Message>?) {
-        def node := new PandaParser().parseType(name, position)
-        return typeMap.getType(node, lookupContext)
+        try {
+            def node := new PandaParser().parseType(name, position)
+            return typeMap.getType(node, lookupContext)
+        }
+        catch e:CompilerException {
+            def messages := new Array<Message>()
+            messages.add(new Message(e.message, position))
+            return (null, messages)
+        }
     }
 
     method getRequiredType(name:String):Type {
@@ -696,8 +702,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def annotations := f.annotations
         if allowNoArgFunctions {
             def name := f.name
-            def m := context.currentMethod
-            assert m != null
             def unresolved := new Unresolved(position, contextValue, name)
             def noArg := resolveNoArgFunction(context, unresolved)
             if noArg != null
@@ -822,8 +826,7 @@ class ASTGenerator : Immutable (MessageProcessor) {
                         return parseBareIdentifier(context, e[0])
                     case TokenType.LPAREN: {
                         if e[2]->(TokenNode).token.type = TokenType.COMMA
---                            return convertTuple(e)
-                            throw new NotSupportedException("tuple")
+                            return convertTuple(context, e)
                         assert e[2]->(TokenNode).token.type = TokenType.RPAREN
                         return convertExpression(context, e[1])
                     }
@@ -1141,8 +1144,10 @@ class ASTGenerator : Immutable (MessageProcessor) {
             result, ignored := call(context, position, new ClassLiteral(
                     position, right.type->>(ClassType)), name, parameters)
         }
-        if rawName.startsWith("!") & result != null
-            result := new Not(position, result)
+        if rawName.startsWith("!") & result != null {
+            result := new UnaryOperation(position, UnaryOperationType.NOT, 
+                    result)
+        }
         return result
     }
 
@@ -2534,13 +2539,16 @@ class ASTGenerator : Immutable (MessageProcessor) {
         def lvalues := new Array<Value?>()
         while i < c.length {
             if c[i].type = ParseNodeType.TOKEN {
+                Console.writeLine(c[i]->(TokenNode).token + " - " + c[i]->(TokenNode).token.type)
                 switch c[i]->(TokenNode).token.type {
                     case TokenType.DOT: {
                         def name := c[i + 1]->>(String)
                         assert contextValue != null
                         var submessages:ListView<Message>?
+                        Console.writeLine("resolving 1")
                         contextValue, submessages := resolve(context, 
                                 contextValue)
+                        Console.writeLine("resolving 2")
                         messages := addMessages(messages, submessages)
                         if contextValue = null
                             return (null, null, messages)
@@ -3042,13 +3050,270 @@ class ASTGenerator : Immutable (MessageProcessor) {
             elseBlock := null
         return (new If(i.position, cast, ifBlock, elseBlock), context, messages)
     }
-    
+
+    @private
+    method castToIterable(context:Context, value:Value):
+            (Value?, ListView<Message>?) {
+        def cl := context.getStub(value.type->>(ClassType))
+        for intf in cl.allInterfaces(context.stubs.allStubs()) {
+            if intf.name.startsWith("panda.collections.Iterable<") {
+                def result, messages := value.implicitCast(context, 
+                        context.getType(intf))
+                return (result, messages)
+            }
+        }
+        def result := new Array<Message>()
+        result.add(new Message("expected 'panda.collections.Iterable<T>', " +
+                "but found '\{value.type.displayName}'", value.position))
+        return (null, result)
+    }
+
+    @private
+    @pre(t.type = ParseNodeType.FOR_TUPLE)
+    method convertForTuple(context:Context, t:ParseNode):
+            (ListView<(Position, String?, Type?, ParseNode?)>, 
+            ListView<Message>?) {
+        def result := new Array<(Position, String?, Type?, 
+                ParseNode?)>()
+        var messages:ListView<Message>? := null
+        var i := 0
+        assert t[0]->(TokenNode).token.type = TokenType.LPAREN
+        i += 1
+        while t[i]->(TokenNode).token.type != TokenType.RPAREN {
+            def position := t[i].position
+            var name:String?
+            if t[i]->(TokenNode).token.type = TokenType.IDENTIFIER
+                name := t[i]->>(String)
+            else {
+                assert t[i]->(TokenNode).token.type = TokenType.UNDERSCORE
+                name := null
+            }
+            i += 1
+            def type:Type?
+            def typeNode:ParseNode?
+            if t[i].type = ParseNodeType.TYPE_DECLARATION {
+                typeNode := t[i][1]
+                var submessages:ListView<Message>?
+                type, submessages := context.getType(typeNode)
+                messages := addMessages(messages, submessages)
+                i += 1
+            }
+            else {
+                typeNode := null
+                type := null
+            }
+            if t[i]->(TokenNode).token.type = TokenType.COMMA
+                i += 1
+            result.add((position, name, type, typeNode))
+        }
+        return (result, messages)
+    }
+
+    @private
+    function getElementType(value:Value):Type {
+        if value.type.isPrimitiveArray
+            return value.type.unwrapNullable->(PrimitiveArrayType).elementType
+        else {
+            assert value.type.name.startsWith("panda.collections.Iterable<")
+            return value.type.unwrapNullable->(GenericType).parameters[0]
+        }
+    }
+
+    ============================================================================
+    Processes an ANY_LOOP parse node containing a `for` loop.
+    ============================================================================
+    @pre(l.type = ParseNodeType.ANY_LOOP)
+    method convertForLoop(var context:Context, l:ParseNode, var i:Int, 
+            label:String?):(Statement?, Context, ListView<Message>?) {
+        var messages:ListView<Message>? := null
+        i += 1
+        var vars:ListView<(Position, String?, Type?, ParseNode?)>
+        if l[i].type = ParseNodeType.FOR_TUPLE {
+            var submessages:ListView<Message>?
+            vars, submessages := convertForTuple(context, l[i])
+            messages := addMessages(messages, submessages)
+            i += 1
+        }
+        else {
+            assert l[i]->(TokenNode).token.type = TokenType.IDENTIFIER
+            def name := l[i]->>(String)
+            def namePosition := l[i].position
+            var type:Type? := null
+            var typeNode:ParseNode? := null
+            i += 1
+            if l[i].type = ParseNodeType.TYPE_DECLARATION {
+                typeNode := l[i][1]
+                var submessages:ListView<Message>?
+                type, submessages := context.getType(typeNode)
+                messages := addMessages(messages, submessages)
+                i += 1
+            }
+            def newVars := new Array<(Position, String?, Type?, ParseNode?)>()
+            newVars.add((namePosition, name, type, typeNode))
+            vars := newVars
+        }
+        var indexPosition:Position? := null
+        var indexName:String? := null
+        var indexType:Type? := null
+        var indexTypeNode:ParseNode? := null
+        if l[i]->(TokenNode).token.type = TokenType.COMMA {
+            -- we have both an index and a value
+            i += 1
+            assert vars.length = 1
+            indexPosition := vars[0][0]
+            indexName := vars[0][1]
+            indexType := vars[0][2]
+            indexTypeNode := vars[0][3]
+            if indexType = null
+                indexType := IntType.INT32
+            if !indexType.isInteger {
+                throw new CompilerException("loop index must be an integer",
+                        indexPosition)
+            }
+            if l[i].type = ParseNodeType.FOR_TUPLE {
+                var submessages:ListView<Message>?
+                vars, submessages := convertForTuple(context, l[i])
+                messages := addMessages(messages, submessages)
+                i += 1
+            }
+            else {
+                def position := l[i].position
+                def name := l[i]->>(String)
+                def type:Type?
+                def typeNode:ParseNode?
+                i += 1
+                if l[i].type = ParseNodeType.TYPE_DECLARATION {
+                    typeNode := l[i][1]
+                    var submessages:ListView<Message>?
+                    type, submessages := context.getType(typeNode)
+                    messages := addMessages(messages, submessages)
+                    i += 1
+                }
+                else {
+                    type := null
+                    typeNode := null
+                }
+                def newVars := new Array<(Position, String?, Type?, 
+                        ParseNode?)>()
+                newVars.add((position, name, type, typeNode))
+                vars := newVars
+            }
+        }
+        assert l[i]->(TokenNode).token.type = TokenType.IN
+        i += 1
+        var array, submessages := convertExpression(context, l[i])
+        messages := addMessages(messages, submessages)
+        if array = null
+            return (null, context, messages)
+        i += 1
+        if array-?>(UnresolvedRange) {
+            Console.writeLine("hack, skipping loop")
+            return (null, context, null)
+        }
+        array, submessages := resolveUnresolvedConstructs(context, array)
+        messages := addMessages(messages, submessages)
+        if array = null
+            return (null, context, messages)
+        array, submessages := castToIterable(context, array)
+        messages := addMessages(messages, submessages)
+        if array = null
+            return (null, context, messages)
+        if vars.length > 1 {
+            if !getElementType(array).isTuple {
+                throw new CompilerException("'\{array.type.displayName}' " +
+                        "is not a tuple", array.position)
+            }
+            def count := getElementType(array).unwrapNullable->(TupleType)
+                    .types.length
+            if count != vars.length {
+                throw new CompilerException("number of for-loop variables (" + 
+                        "\{vars.length}) and tuple elements (\{count}) do " +
+                        "not match", l.position)
+            }
+        }
+        var valueName:String?
+        var valuePosition := vars[0][0]
+        var valueType:Type?
+        var valueTypeNode:ParseNode?
+        if vars.length = 1 {
+            valueName := vars[0][1]
+            if valueName = null
+                throw new CompilerException("'_' is only permitted in " +
+                            "multiple assignments from a tuple", vars[0][0])
+            valueType := vars[0][2]
+            valueTypeNode := vars[0][3]
+            if valueType != null & 
+                    !getElementType(array).canImplicitCastTo(context, 
+                        valueType) {
+                throw new CompilerException("elements of " + 
+                        "\{array.type.displayName} cannot be converted to " +
+                        valueType.displayName, valuePosition)
+            }
+        }
+        else {
+            valueName := "$tuple\{l.position.line}_\{l.position.column}"
+            valueType := getElementType(array)
+            valueTypeNode := null
+        }
+        if valueType = null
+            valueType := getElementType(array)
+        var indexVar:Variable?
+        if indexName != null {
+            assert indexPosition != null
+            assert indexType != null
+            indexVar := new LocalVariable(indexPosition, indexName, indexType,
+                    VariableType.DEF)
+            context += indexVar
+        }
+        else
+            indexVar := null
+        def valueVar := new LocalVariable(valuePosition, valueName, valueType,
+                VariableType.DEF)
+        context += valueVar
+        var block:Block?
+        block, context, submessages := convertStatementOrBlock(context, l[i])
+        if block = null
+            return (null, context, messages)
+        if vars.length > 1 {
+            var newStatements := new Array<Statement>()
+            for index, t in vars {
+                def position := t[0]
+                def name := t[1]
+                if name = null
+                    continue
+                var type := t[2]
+                if type = null
+                    type := getElementType(array).unwrapNullable->(TupleType).types[index]
+                def elementVar := new LocalVariable(t[0], name, type, 
+                        VariableType.DEF)
+                context += elementVar
+                def field:Value?
+                field, submessages := getField(context, array.position,
+                        new VariableReference(l.position, valueVar), "$field" + 
+                        index)
+                messages := addMessages(messages, submessages)
+                if field = null
+                    return (null, context, messages)
+                def cast:Value
+                cast, submessages := field.implicitCast(context, type)
+                messages := addMessages(messages, submessages)
+                newStatements.add(new ValueStatement(
+                        new VariableAssignment(l.position, elementVar, cast)))
+            }
+            newStatements.addAll(block.statements)
+            block := new Block(block.position, newStatements)
+        }
+        messages := addMessages(messages, submessages)
+        return (new LoopProcessor().createLoop(self, context, l.position, label, 
+                indexVar, valueVar, array, block), context, messages)
+    }
+
     ============================================================================
     Processes an ANY_LOOP parse node.
     ============================================================================
     @pre(l.type = ParseNodeType.ANY_LOOP)
     method convertAnyLoop(var context:Context, l:ParseNode):
-            (AbstractLoop, Context, ListView<Message>?) {
+            (Statement?, Context, ListView<Message>?) {
         def label:String?
         var i := 0
         if l[i]->(TokenNode).token.type = TokenType.IDENTIFIER {
@@ -3060,9 +3325,13 @@ class ASTGenerator : Immutable (MessageProcessor) {
         else 
             label := null
         switch l[i]->(TokenNode).token.type {
-            case TokenType.FOR:
---                result := convertForLoop(l, i, label)
-                return (new Loop(l.position, label, new Block(l.position, new Array<Statement>())), context, null)
+            case TokenType.FOR: {
+                def result:Statement?
+                def messages:ListView<Message>?
+                result, context, messages := convertForLoop(context, l, i, 
+                        label)
+                return (result, context, messages)
+            }
 
             case TokenType.DO: {
                 i += 1
@@ -3355,6 +3624,29 @@ class ASTGenerator : Immutable (MessageProcessor) {
         return new Unreachable(t.position)
     }
 
+    @pre(t.type = ParseNodeType.TERM)
+    method convertTuple(context:Context, t:ParseNode):
+            (Value?, ListView<Message>?) {
+        assert t[0]->(TokenNode).token.type = TokenType.LPAREN
+        assert t[t.length - 1]->(TokenNode).token.type = TokenType.RPAREN
+        def params := new Array<Value>()
+        var messages:ListView<Message>? := null
+        var success := true
+        for i in 1 ... t.length - 2 by 2 {
+            def expr, submessages := convertExpression(context, t[i])
+            messages := addMessages(messages, submessages)
+            if expr != null
+                params.add(expr)
+            else
+                success := false
+            assert i = 1 | t[i - 1]->(TokenNode).token.type = TokenType.COMMA
+        }
+        if success
+            return (new UnresolvedTuple(t.position, params), messages)
+        else
+            return (null, messages)
+    }
+
     @pre(s.type = ParseNodeType.TERMINAL_STATEMENT)
     method convertTerminalStatement(context:Context, s:ParseNode):
             (Statement, ListView<Message>?) {
@@ -3386,7 +3678,6 @@ class ASTGenerator : Immutable (MessageProcessor) {
                             messages := addMessage(messages, check)
                             return (new Return(r.position), messages)
                         }
-                        Console.writeLine("casting \{value} to \{cm.returnType}")
                         def cast, submessages := value.implicitCast(context, 
                                 cm.returnType)
                         messages := addMessages(messages, submessages)
@@ -3502,6 +3793,10 @@ class ASTGenerator : Immutable (MessageProcessor) {
         return mc.methodStub.methodType = MethodNodeType.CONSTRUCTOR
     }
 
+    function callsOtherSelfConstructor(block:Block):Bit {
+        return false
+    }
+
     method convertMethod(var context:Context, m:TypedMethodStub):
             (MethodNode, ListView<Message>?) {
         var block:Block?
@@ -3556,6 +3851,25 @@ class ASTGenerator : Immutable (MessageProcessor) {
             block := null
             messages := null
         }
+        if m.methodType = MethodNodeType.CONSTRUCTOR & block != null {
+            if !callsOtherSelfConstructor(block) {
+                def statements := new Array<Statement>()
+                for f in context.currentClass->(TypedClassStub).fields {
+                    if f.initialValue != null & !f.annotations.isClass & 
+                            !f.annotations.isThread {
+                        def value, submessages := convertExpression(context, 
+                                f.initialValue->(ParseNode))
+                        messages := addMessages(messages, submessages)
+                        if value != null {
+                            statements.add(new FieldAssignment(m.position,
+                                    context.getSelf(m.position), f, value))
+                        }
+                    }
+                }
+                statements.addAll(block.statements)
+                block := new Block(block.position, statements)
+            }
+        }
         return (new MethodNode(m.position, m, m.name, m.methodType, parameters, 
                 m.returnType, m.annotations, block, context.localVariables), 
                 messages)
@@ -3585,37 +3899,21 @@ class ASTGenerator : Immutable (MessageProcessor) {
         return (result, messages)
     }
 
-    method convertCompilationUnit(compilationUnit:TypedCompilationUnitStub,
+    method convertClasses(classes:CollectionView<TypedClassStub>,
             typeMap:TypeMap, stubs:StubMap):
             (CollectionView<ClassNode>, ListView<Message>?) {
-        def result := new Array<ClassNode>()
         var messages:ListView<Message>? := null
-        for cl in compilationUnit.classes {
+        def result := new Array<ClassNode>()
+        for cl in classes
+            stubs.putStub(cl)
+        var previous := stubs.allStubs()
+        for cl in classes {
             if cl.genericParameters = null & !cl.isExternal {
-                def classNode, submessages := convertClass(cl, typeMap, stubs)
+                def classNode, submessages := convertClass(cl, typeMap, 
+                        stubs)
                 result.add(classNode)
                 messages := addMessages(messages, submessages)
             }
-        }
-        return (result, messages)
-    }
-
-    method convertCompilationUnits(
-            compilationUnits:CollectionView<TypedCompilationUnitStub>,
-            typeMap:TypeMap, stubs:StubMap):
-            (CollectionView<ClassNode>, ListView<Message>?) {
-        var messages:ListView<Message>? := null
-        def result := new Array<ClassNode>()
-        for cu in compilationUnits {
-            for cl in cu.classes
-                stubs.putStub(cl)
-        }
-        var previous := stubs.allStubs()
-        for cu in compilationUnits {
-            def classes, submessages := convertCompilationUnit(cu, typeMap, 
-                    stubs)
-            result.addAll(classes)
-            messages := addMessages(messages, submessages)
         }
         loop {
             def current := stubs.allStubs()

@@ -27,10 +27,15 @@ class StubMap : Immutable (MessageProcessor) {
     @private
     def typeMap:TypeMap
 
+    @private
+    @thread
+    var masterMap:Map<String, TypedClassStub>?
+
     constructor(typeMap:TypeMap) {
         self.typeMap := typeMap
         Thread.start(method() {
             def map := new HashMap<String, TypedClassStub>()
+            StubMap.masterMap := map
             loop {
                 def message := queue.getMessage()
                 if message-?>(TypedClassStub) {
@@ -131,6 +136,9 @@ class StubMap : Immutable (MessageProcessor) {
     @self
     @pre(!name.startsWith("<"))
     method getStub(name:String):TypedClassStub? {
+        def map := masterMap
+        if map != null
+            return getOrCreateStub(name, map)
         def replyTo := Thread.currentThread().queue
         queue.post((GET, name, replyTo))
         return replyTo.getMessage()->(TypedClassStub?)
