@@ -230,7 +230,10 @@ class MutableTypeMap {
     @private
     def types := new HashMap<TypeDescriptor, Type>()
 
-    constructor(stubs:CollectionView<UntypedClassStub>) {
+    @private
+    def errors:ErrorReporter
+
+    constructor(stubs:CollectionView<UntypedClassStub>, errors:ErrorReporter) {
         for stub in stubs {
             self.stubs[stub.name] := stub
             if stub.name.startsWith("panda.core.") & 
@@ -239,6 +242,9 @@ class MutableTypeMap {
                 self.stubs[baseName] := stub
             }
         }
+
+        self.errors := errors
+
         putType(IntType.INT8)
         putType(IntType.INT16)
         putType(IntType.INT32)
@@ -304,47 +310,43 @@ class MutableTypeMap {
     @pre(base.type = ParseNodeType.TYPE)
     @pre(parametersNode.type = ParseNodeType.GENERIC_PARAMETERS)
     method resolveGenericType(base:ParseNode, parametersNode:ParseNode, 
-            lookupContext:LookupContext?):(TypeDescriptor?, ListView<Message>?) {
-        def resolved, messages := getType(base, lookupContext)
+            lookupContext:LookupContext?):TypeDescriptor? {
+        def resolved := getType(base, lookupContext)
         def parameters := new Array<Type>()
         if resolved != null {
             for i in 1 .. parametersNode.length - 1 by 2 {
-                def parameter, pMessages := getType(parametersNode[i], 
-                        lookupContext)
+                def parameter := getType(parametersNode[i], lookupContext)
                 if parameter != null
                     parameters.add(parameter)
                 else
-                    return (null, pMessages)
+                    return null
             }
             if resolved-!>(ClassType) {
-                def error := new Array<Message>()
-                error.add(new Message("\{resolved.name} may not have " +
-                        "generic parameters", base.position))
-                return (null, error)
+                errors.error("\{resolved.name} may not have generic parameters", 
+                        base.position)
+                return null
             }
             if resolved.name = "panda.collections.PrimitiveArray" |
                     resolved.name = "panda.collections.ImmutablePrimitiveArray" {
                 if parameters.length != 1 {
-                    def error := new Array<Message>()
-                    error.add(new Message("\{resolved.name} expected exactly " +
-                            " one generic parameter", base.position))
-                    return (null, error)
+                    errors.error("\{resolved.name} expected exactly " +
+                            " one generic parameter", base.position)
+                    return null
                 }
-                return (new PrimitiveArrayTypeDescriptor(resolved->(ClassType), 
-                        parameters[0]), messages)
+                return new PrimitiveArrayTypeDescriptor(resolved->(ClassType), 
+                        parameters[0])
             }
-            return (new GenericTypeDescriptor(resolved->(ClassType), 
-                    parameters), messages)
+            return new GenericTypeDescriptor(resolved->(ClassType), parameters)
         }
         else
-            return (null, messages)
+            return null
     }
     
     @private
     @self
     @pre(node.type = ParseNodeType.TYPE)
     method resolveTupleOrMethodType(node:ParseNode,  
-            lookupContext:LookupContext?):(TypeDescriptor?, ListView<Message>?) {
+            lookupContext:LookupContext?):TypeDescriptor? {
         def parameters := new Array<Type>()
         var isMethodType := false
         var isImmutable := false
@@ -354,7 +356,7 @@ class MutableTypeMap {
         assert node[0]->(TokenNode).token.type = TokenType.LPAREN
         for i in 1 .. node.length {
             if node[i].type = ParseNodeType.TYPE {
-                def type, submessages := getType(node[i], lookupContext)
+                def type := getType(node[i], lookupContext)
                 if type != null {
                     if inParameters
                         parameters.add(type)
@@ -365,7 +367,7 @@ class MutableTypeMap {
                     }
                 }
                 else
-                    return (null, submessages)
+                    return null
             }
             else {
                 def tokenType := node[i]->(TokenNode).token.type 
@@ -398,12 +400,12 @@ class MutableTypeMap {
             }
         }
         if isMethodType {
-            return (new MethodTypeDescriptor(parameters, returnType, isFunction, 
-                    isImmutable), null)
+            return new MethodTypeDescriptor(parameters, returnType, isFunction, 
+                    isImmutable)
         }
         else {
             assert returnType = VoidType.VOID
-            return (new TupleTypeDescriptor(parameters), null)
+            return new TupleTypeDescriptor(parameters)
         }
     }
 
@@ -411,24 +413,20 @@ class MutableTypeMap {
     @self
     @pre(node.type = ParseNodeType.TYPE)
     method resolveType(node:ParseNode, lookupContext:LookupContext?):
-            (TypeDescriptor?, ListView<Message>?) {
+            TypeDescriptor? {
         def last := node[node.length - 1]
         if last-?>(TokenNode) & last->(TokenNode).token.type = TokenType.QUESTION {
             def base := new ParseNode(ParseNodeType.TYPE, 
                     node[..node.length - 1])
-            def result, messages := getType(base, lookupContext)
+            def result := getType(base, lookupContext)
             if result != null {
-                if result-?>(PrimitiveType) {
-                    return (new NullableTypeDescriptor(result->>(WrapperType)), 
-                            null)
-                }
-                else {
-                    return (new NullableTypeDescriptor(result), 
-                            null)
-                }
+                if result-?>(PrimitiveType)
+                    return new NullableTypeDescriptor(result->>(WrapperType))
+                else
+                    return new NullableTypeDescriptor(result)
             }
             else
-                return (null, messages)
+                return null
         }
         if last.type = ParseNodeType.GENERIC_PARAMETERS {
             def base := new ParseNode(ParseNodeType.TYPE, 
@@ -441,34 +439,31 @@ class MutableTypeMap {
         if lookupContext != null {
             def resolved := lookupContext.classAliases[name]
             if resolved != null
-                return (new SimpleTypeDescriptor(resolved), null)
+                return new SimpleTypeDescriptor(resolved)
         }
         def rawDescriptor := new SimpleTypeDescriptor(name)
         if types.contains(rawDescriptor)
-            return (rawDescriptor, null)
+            return rawDescriptor
         if stubs.contains(name)
-            return (rawDescriptor, null)
+            return rawDescriptor
         if lookupContext != null & !name.contains(".") & !name.contains("<") {
             for p in lookupContext.packageUses {
                 def test := p + "." + name
                 if stubs.contains(test)
-                    return (new SimpleTypeDescriptor(test), null)
+                    return new SimpleTypeDescriptor(test)
             }
         }
-        def messages := new Array<Message>()
-        messages.add(new Message("unknown identifier '\{node}'", 
-                node.position))
-        return (null, messages)
+        errors.error("unknown identifier '\{node}'", node.position)
+        return null
     }
 
     @self
-    method getType(node:ParseNode, lookupContext:LookupContext?):
-            (Type?, ListView<Message>?) {
-        def descriptor, messages := resolveType(node, lookupContext)
+    method getType(node:ParseNode, lookupContext:LookupContext?):Type? {
+        def descriptor := resolveType(node, lookupContext)
         if descriptor != null
-            return (getType(descriptor), messages)
+            return getType(descriptor)
         else
-            return (null, messages)
+            return null
     }
 
     @safeReturn

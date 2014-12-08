@@ -1,6 +1,5 @@
 package org.pandalanguage.pandac.compiler
 
-uses org.pandalanguage.pandac.compiler.Message
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.UntypedClassStub
@@ -14,7 +13,7 @@ uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
-class StubMap : Immutable (MessageProcessor) {
+class StubMap : Immutable {
     @private
     constant ALL_STUBS := "allStubs"
 
@@ -28,10 +27,13 @@ class StubMap : Immutable (MessageProcessor) {
     def typeMap:TypeMap
 
     @private
+    def errors:ErrorReporter
+
+    @private
     @thread
     var masterMap:Map<String, TypedClassStub>?
 
-    constructor(typeMap:TypeMap) {
+    constructor(typeMap:TypeMap, errors:ErrorReporter) {
         self.typeMap := typeMap
         Thread.start(method() {
             def map := new HashMap<String, TypedClassStub>()
@@ -73,42 +75,11 @@ class StubMap : Immutable (MessageProcessor) {
     }
 
     @private
-    method inferFieldTypes(cl:TypedClassStub):TypedClassStub {
-        if cl.fullyResolved
-            return cl
-        def result:TypedClassStub
-        def remaining:Bit
-        var messages:ListView<Message>?
-        def progress:Bit
-        result, progress, remaining, messages := new TypeResolver(typeMap, 
-                self).inferFieldTypes(cl)
-        if remaining {
-            def fields := new MutableString()
-            def filter := f:FieldNode => f.type-?>(UnresolvedType)
-            for f in result.fields.filter(filter) {
-                fields.append("\n    ")
-                fields.append("\{f.name}:\{f.position}")
-            }
-            messages := addMessage(messages, "unable to infer field " +
-                    "types in '\{cl.name}', possibly due to a circular " +
-                    "dependency involving:\{fields}", result.position)
-            assert messages != null
-            -- this shouldn't actually happen; we should be detecting
-            -- circular dependencies in the base generic class prior to
-            -- handling particular instances of it, but let's play it safe
-            throw new CompilerException(messages)
-        }
-        assert result.fullyResolved
-        return result
-
-    }
-
-    @private
     method createStub(typeMap:TypeMap, name:String, 
             rawStubs:Map<String, TypedClassStub>):TypedClassStub? {
         -- we have to be careful here; the createStub methods can't end up 
         -- calling getStub, or we'll hang
-        def type, _ := typeMap.getType(new PandaParser().parseType(name,
+        def type := typeMap.getType(new PandaParser(errors).parseType(name,
                 Position.INTERNAL), null)
         if type = null
             return null
@@ -126,7 +97,7 @@ class StubMap : Immutable (MessageProcessor) {
             def parameterStubs := new Array<TypedClassStub?>()
             for p in generic.parameters
                 parameterStubs.add(getOrCreateStub(p.name, rawStubs))
-            def stub, _ := type->(GenericType).createStub(typeMap, baseStub,
+            def stub := type->(GenericType).createStub(typeMap, baseStub,
                     parameterStubs)
             return stub
         }

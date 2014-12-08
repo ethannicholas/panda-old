@@ -1,0 +1,233 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
+uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.ClassObjectLiteral
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.NewPrimitiveArray
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.Super
+uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
+uses org.pandalanguage.pandac.tree.Unwrap
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.Type
+
+class IRGenerator {
+    constant SHIM_PREFIX := "$shim_"
+
+    @class
+    function makeExplicit(v:Value):Value {
+        if v-?>(Cast)
+            return new Cast(v->(Cast).value, v.type, CastType.EXPLICIT)
+        return v
+    }
+
+    method call(context:Context, position:Position, var m:TypedMethodStub, 
+            isSuper:Bit, params:ListView<Value>):Value? {
+        def methodParams := m.parameters
+        var isVarArg := methodParams.length > 0 &
+                methodParams[methodParams.length - 1].isVarArg
+        for i, p in params {
+            if p-?>(Unwrap) {
+                if !isVarArg {
+                    context.errors.error("'...' may not be used with " +
+                            "non-variadic \{m}", position)
+                    return null
+                }
+                if i < params.length - 1 {
+                    context.errors.error("'...' may only be used " +
+                            "with the last parameter of a call", position)
+                    return null
+                }
+            }
+        }
+        if isVarArg & params.length > 0 & params[params.length - 1]-?>(Unwrap)
+            isVarArg := false
+        def count:Int
+        if isVarArg
+            count := methodParams.length - 1
+        else
+            count := methodParams.length
+        def finalParams := new Array<Value>()
+        for i in 0 .. count {
+            def target := m.parameters[i].type
+            if params[i].canImplicitCastTo(context, target) {
+                def cast := params[i].implicitCast(context, target)
+                finalParams.add(cast)
+            }
+            else if m.parameters[i].isConvert & 
+                    params[i].canConvertTo(context, target) {
+                def converted := params[i].convert(context, target)
+                finalParams.add(converted)
+            }
+            else {
+                context.errors.error("expected value of type " +
+                        "'\{target.displayName}', but found " +
+                        "'\{params[i].type.displayName}'", params[i].position)
+            }
+        }
+        if isVarArg {
+            def values := new Array<Value>()
+            def isConvert := methodParams[methodParams.length - 1].isConvert
+            def arrayType := methodParams[methodParams.length - 1].type->(PrimitiveArrayType)
+            def elementType := arrayType.elementType
+            for i in count .. params.length {
+                if isConvert {
+                    def convert := params[i].convert(context, elementType)
+                    values.add(convert)
+                }
+                else {
+                    def cast := params[i].implicitCast(context, elementType)
+                    values.add(cast)
+                }
+            }
+            finalParams.add(new NewPrimitiveArrayWithValues(position,
+                    arrayType, values))
+        }
+        return new MethodCall(position, m, isSuper, finalParams)
+    }
+
+    method call(context:Context, position:Position, var contextValue:Value?, 
+            methodName:String, var params:ListView<Value>):Value? {
+        for p in params {
+            if !p.checkValid(context.errors)
+                return null
+        }
+        if contextValue = null {
+            if context.isInstance {
+                -- bare identifier, could be either instance or class
+                var result := context.getMethod(null, methodName, params)
+                if result != null {
+                    if result.annotations.isClass {
+                        -- class method, update the contextValue
+                        contextValue := new ClassLiteral(position, 
+                                context.currentClassType())
+                    }
+                }
+                if contextValue = null
+                    contextValue := context.getSelf(position)
+            }
+            else {
+                -- in a class context
+                contextValue := new ClassLiteral(position,
+                        context.currentClassType())
+            }
+        }
+        var classMethod:Bit
+        var supercall:Bit
+        if contextValue-?>(UnresolvedClassLiteral) {
+            contextValue := new ClassLiteral(position, 
+                    contextValue->(UnresolvedClassLiteral).value)
+        }
+        if contextValue-?>(ClassLiteral) {
+            classMethod := true
+            supercall := false
+        }
+        else if contextValue-?>(ClassObjectLiteral) {
+            classMethod := false
+            supercall := false
+        }
+        else {
+            classMethod := false
+            var newParams := new Array<Value>()
+            if contextValue-?>(Super) {
+                def cl := context.currentClass
+                assert cl != null
+                def superclass := cl.superclass
+                if superclass = null {
+                    context.errors.error("class '\{cl}' has no superclass", 
+                            contextValue.position)
+                    return null
+                }
+                def cast := context.getSelf(position).implicitCast(
+                        context, superclass)
+                newParams.add(cast)
+                supercall := true
+            }
+            else {
+                newParams.add(contextValue)
+                supercall := false
+            }
+            newParams.addAll(params)
+            params := newParams
+        }
+        var methodStub := context.getMethod(contextValue, methodName, params)
+        if methodStub = null {
+            if classMethod & methodName = MethodNode.CONSTRUCTOR_NAME {
+                -- check for a constructor, which is called like a class method
+                -- but implemented as an instance method
+                def type:Type
+                if contextValue-?>(ClassLiteral)
+                    type := contextValue->(ClassLiteral).value
+                else {
+                    assert contextValue-?>(Super)
+                    def sc := context.currentClass->(TypedClassStub).superclass
+                    assert sc != null
+                    type := sc
+                }
+                if type.isPrimitiveArray {
+                    if params.length = 1 &
+                            params[0].canImplicitCastTo(context, IntType.INT32) {
+                        def cast := params[0].implicitCast(context,
+                                IntType.INT32)
+                        return new NewPrimitiveArray(position, 
+                                type->>(PrimitiveArrayType), cast)
+                    }
+                    else {
+                        context.errors.error("invalid arguments to " +
+                                "PrimitiveArray constructor", position)
+                        return null
+                    }
+                }
+                if params.length = 0 | params[0]-!>(Dummy) {
+                    def newParams := new Array<Value>()
+                    newParams.add(new Dummy(contextValue.position, type))
+                    newParams.addAll(params)
+                    params := newParams
+                    def construct := call(context, position, contextValue, 
+                            methodName, params)
+                    if construct != null {
+                        def stub := construct->(Construct).constructorCall.methodStub
+                        if stub.methodType != 
+                                MethodNodeType.CONSTRUCTOR {
+                            context.errors.error(
+                                    "instance method '\{stub.name}' cannot " +
+                                    "be accessed from a class context", 
+                                    position)
+                        }
+                        return construct
+                    }
+                }
+            }
+        }
+        if methodStub != null {
+            def result := call(context, position, methodStub, supercall, params)
+            if methodStub.methodType = MethodNodeType.CONSTRUCTOR & !supercall {
+                def type:Type?
+                if contextValue-?>(ClassLiteral)
+                    type := contextValue->(ClassLiteral).value
+                else
+                    type := context.currentClass->(TypedClassStub).superclass
+                return new Construct(type->(ClassType), result->(MethodCall))
+            }
+            else
+                return result
+        }
+        else {
+            --wrap(getMethodNotFoundMessage(context, position, 
+            --        contextValue, methodName, params))
+            if true throw new NotSupportedException()
+            return null
+        }
+    }
+}

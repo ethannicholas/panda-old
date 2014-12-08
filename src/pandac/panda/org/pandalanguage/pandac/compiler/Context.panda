@@ -1,0 +1,294 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.stubs.TypedFormalParameter
+uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.Super
+uses org.pandalanguage.pandac.tree.Unwrap
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.Variable
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.WrapperType
+
+class Context : Immutable {
+    def errors:ErrorReporter
+
+    def currentClass:TypedClassStub?
+
+    def currentMethod:TypedMethodStub?
+
+    def lookupContext:LookupContext
+
+    def typeMap:TypeMap
+
+    def stubs:StubMap
+
+    def localVariables:ImmutableArray<LocalVariable>
+
+    def visibleVariables:ImmutableHashMap<String, Variable>
+
+    constructor(currentClass:TypedClassStub?, currentMethod:TypedMethodStub?,
+            lookupContext:LookupContext, typeMap:TypeMap, stubs:StubMap,
+            localVariables:ImmutableArray<LocalVariable>,
+            visibleVariables:ImmutableHashMap<String, Variable>) {
+        self.currentClass := currentClass
+        self.currentMethod := currentMethod
+        self.lookupContext := lookupContext
+        self.typeMap := typeMap
+        self.stubs := stubs
+        self.localVariables := localVariables
+        self.visibleVariables := visibleVariables
+    }
+
+    function isInstance():Bit {
+        return currentMethod != null & !currentMethod.annotations.isClass
+    }
+
+    function getVariable(name:String):Variable? {
+        var result := visibleVariables[name]
+        if result != null
+            return result
+        if currentClass != null 
+            return currentClass.getField(self, name)
+        return null
+    }
+
+    @private
+    constant VARARG_COST := 1
+
+    constant CONVERT_COST := 10
+
+    function matchCost(m:TypedMethodStub, params:ListView<Value>):Int? {
+        if m.methodType = MethodNodeType.CONSTRUCTOR & params.length > 0 &
+                m.parameters[0].type != params[0].type {
+            -- constructor called on mismatched type means we're in a subclass,
+            -- and since constructors are not inherited we need to ignore it
+            return null
+        }
+        var result := 0
+        var methodParams:ListView<TypedFormalParameter> := m.parameters
+        var isVarArg := methodParams.length > 0 & 
+                methodParams[methodParams.length - 1].isVarArg
+        if isVarArg
+            result += VARARG_COST
+        if params.length > 0 & params[params.length - 1]-?>(Unwrap) {
+            -- we handle unwrap parameters (such as the call foo(bar, baz...))
+            -- by simply turning off varargs; the last parameter is already an
+            -- array and we just let it be treated as such
+            isVarArg := false
+        }
+        if isVarArg {
+            -- strip off vararg parameter, it's not required
+            methodParams := m.parameters[..m.parameters.length - 1]
+        }
+        -- do we have the right number of parameters?
+        if !isVarArg & params.length != methodParams.length | 
+                isVarArg & params.length < methodParams.length
+            return null
+
+        for i, param in methodParams {
+            if i = 0 & !m.annotations.isClass
+                continue
+            def targetType := param.type
+            def cost := params[i].implicitCastCost(self, targetType)
+            if cost = null {
+                if methodParams[i].isConvert & 
+                        params[i].canConvertTo(self, targetType)
+                    result += CONVERT_COST
+                else
+                    return null
+            }
+            else
+                result += cost
+        }
+        
+        if isVarArg {
+            -- verify that all remaining parameters match the vararg
+            def varArg := m.parameters[m.parameters.length - 1]
+            def varArgType := varArg.type->>(PrimitiveArrayType).elementType
+            for i in methodParams.length .. params.length {
+                def cost := params[i].implicitCastCost(self, varArgType)
+                if cost = null {
+                    if varArg.isConvert & 
+                            params[i].canConvertTo(self, varArgType)
+                        result += CONVERT_COST
+                    else
+                        return null
+                }
+                else
+                    result += cost
+            }
+        }
+        return result
+    }
+
+    function getMethodsNamed(name:String, searchClass:TypedClassStub):
+            CollectionView<TypedMethodStub> {
+        def result := new Array<TypedMethodStub>()
+        def superclass := searchClass.superclass
+        if superclass != null
+            result.addAll(getMethodsNamed(name, getStub(superclass)))
+        for intf in searchClass.interfaces
+            result.addAll(getMethodsNamed(name, getStub(intf)))
+        result.addAll(searchClass.methods.filter(m => m.name = name))
+        return result
+    }
+
+    ============================================================================
+    Finds the best match for the given method.
+
+    @param contextValue the object the method is being called on, or `null` if
+            it is a bare method name
+    @param name the name of the method
+    @param params the method parameters
+    ============================================================================
+    function getMethod(contextValue:Value?, name:String, 
+            params:ListView<Value>):TypedMethodStub? {
+        def searchClass:TypedClassStub
+        def classMethod:Bit?
+        if contextValue != null {
+            if contextValue-?>(ClassLiteral) {
+                searchClass := getStub(contextValue->(ClassLiteral).value)
+                classMethod := true
+            }
+            else if contextValue-?>(Super) {
+                def cc := currentClass
+                if cc = null
+                    return null
+                searchClass := getStub(cc.superclass->(ClassType))
+                classMethod := false
+            }
+            else {
+                classMethod := false
+                searchClass := getStub(contextValue.type->>(ClassType))
+            }
+        }
+        else {
+            searchClass := currentClass->(TypedClassStub)
+            classMethod := null
+        }
+        def methods:CollectionView<TypedMethodStub>
+        if classMethod = true {
+            methods := getMethodsNamed(name, searchClass).filter
+                    (m => m.annotations.isClass | 
+                    m.methodType = MethodNodeType.CONSTRUCTOR)
+        }
+        else if classMethod = false {
+            methods := getMethodsNamed(name, searchClass).filter
+                    (m => !m.annotations.isClass)
+        }
+        else
+            methods := getMethodsNamed(name, searchClass)
+        var maxCost := Int.MAX
+        var max:TypedMethodStub? := null
+        for m in methods {
+            def cost := matchCost(m, params)
+            if cost != null & cost < maxCost {
+                maxCost := cost
+                max := m
+            }
+        }
+        return max
+    }
+
+    @pre(currentClass != null)
+    method currentClassType():ClassType {
+        return getType(currentClass->(TypedClassStub))
+    }
+
+    @pre(isInstance)
+    function getSelf(position:Position):Value {
+        def selfVar := visibleVariables[Parameter.SELF_NAME]
+        assert selfVar != null : "no self at \{position}"
+        return new VariableReference(position, selfVar)
+    }
+
+    method getWrapper(t:PrimitiveType):WrapperType {
+        return getRequiredType(t.name + "Wrapper")->(WrapperType)
+    }
+
+    @unsafeFunction
+    function getStub(t:ClassType):TypedClassStub {
+        var result := stubs.getStub(t.name)
+        if result = null {
+            Panda.log("no stub for \{t.name}")
+            result := getStub(ClassType.OBJECT)
+        }
+        return result
+    }
+
+    @pre(currentClass != null)
+    method getType(cl:TypedClassStub):ClassType {
+        return getRequiredType(cl.name)->(ClassType)
+    }
+
+    method getType(name:String, position:Position):Type? {
+        try {
+            def node := new PandaParser(errors).parseType(name, position)
+            return typeMap.getType(node, lookupContext)
+        }
+        catch e:CompilerException {
+            errors.error(e.message, position)
+            return null
+        }
+    }
+
+    method getRequiredType(name:String):Type {
+        def node := new PandaParser(errors).parseType(name, Position.INTERNAL)
+        def result := typeMap.getType(node, lookupContext)
+        if result = null {
+            throw new InternalCompilerException("failed to load type '\{name}'")
+        }
+        return result
+    }
+
+    function +(v:Variable):Context {
+        def newVisibleVariables := new HashMap<String, Variable>(
+                visibleVariables)
+        newVisibleVariables[v.name] := v
+        def newLocalVariables:ImmutableArray<LocalVariable>
+        if v-?>(LocalVariable) {
+            def temp := new Array<LocalVariable>(localVariables)
+            temp.add(v->(LocalVariable))
+            newLocalVariables := new ImmutableArray<LocalVariable>(temp)
+        }
+        else
+            newLocalVariables := localVariables
+        return new Context(currentClass, currentMethod, lookupContext, typeMap,
+                stubs, newLocalVariables, 
+                new ImmutableHashMap<String, Variable>(newVisibleVariables))
+    }
+
+    function +(variables:ListView<Variable>):Context {
+        def newVisibleVariables := new HashMap<String, Variable>(
+                visibleVariables)
+        for v in variables
+            newVisibleVariables[v.name] := v
+        def newLocalVariables := new Array<LocalVariable>(localVariables)
+        for v in variables {
+            if v-?>(LocalVariable)
+                newLocalVariables.add(v->(LocalVariable))
+        }
+        return new Context(currentClass, currentMethod, lookupContext, typeMap,
+                stubs, new ImmutableArray<LocalVariable>(newLocalVariables), 
+                new ImmutableHashMap<String, Variable>(newVisibleVariables))
+    }
+
+    function addLocalsFrom(other:Context):Context {
+        def newLocals := new Array<LocalVariable>(localVariables)
+        newLocals.addAll(other.localVariables)
+        return new Context(currentClass, currentMethod, lookupContext, typeMap,
+                stubs, new ImmutableArray<LocalVariable>(newLocals), 
+                visibleVariables)
+    }
+}

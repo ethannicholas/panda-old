@@ -2,8 +2,7 @@ package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.Dummy
-uses org.pandalanguage.pandac.compiler.Message
-uses org.pandalanguage.pandac.compiler.MessageProcessor
+uses org.pandalanguage.pandac.compiler.ErrorReporter
 uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.ClassType
@@ -18,7 +17,7 @@ assignments easier. When processing a[1], we return an `UnresolvedIndex` to
 represent it, so if the next token is `:=` we can easily perform the appropriate 
 lookup.
 ================================================================================
-class UnresolvedIndex : UnresolvedValue (MessageProcessor) {
+class UnresolvedIndex : UnresolvedValue {
     constant UNRESOLVED_INDEX := new UnresolvedType(
             "<unimplemented index operator>")
 
@@ -38,37 +37,31 @@ class UnresolvedIndex : UnresolvedValue (MessageProcessor) {
     }
 
     @override
-    function checkValid():Message? {
+    method checkValid(errors:ErrorReporter):Bit {
         if methodStub = null {
-            return new Message("'\{contextValue.type.displayName}' does not " +
+            errors.error("'\{contextValue.type.displayName}' does not " + 
                     "implement the '[]' operator with parameter " +
                     "'\{index.type.displayName}'", position)
+            return false
         }
-        return null
+        return true
     }
 
     @override
-    function implicitCast(position:Position, context:Context, 
-            t:Type):(Value, ListView<Message>?) {
+    method implicitCast(position:Position, context:Context, t:Type):Value {
         if methodStub = null {
             -- this will generate an error
             return super.implicitCast(position, context, t)
         }
-        var messages:ListView<Message>? := null
         def m := methodStub
         assert m != null : "methodStub is null"
         def params := new Array<Value>()
-        var contextValue, submessages := self.contextValue.implicitCast(context,
+        var contextValue := self.contextValue.implicitCast(context,
                 m.parameters[0].type)
-        messages := addMessages(messages, submessages)
         params.add(contextValue)
         def index:Value
-        index, submessages := self.index.implicitCast(context, 
-                m.parameters[1].type)
-        messages := addMessages(messages, submessages)
+        index := self.index.implicitCast(context, m.parameters[1].type)
         params.add(index)
-        if messages != null
-            return (new Dummy(position, m.returnType), messages)
         return new MethodCall(position, m, false, params).implicitCast(context,
                 t)
     }

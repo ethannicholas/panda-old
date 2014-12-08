@@ -1,8 +1,22 @@
 package org.pandalanguage.pandac.types
 
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.ErrorReporter
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.tree.Position
+
+class FatalErrorReporter : ErrorReporter {
+    @override
+    method error(message:String, position:Position) {
+        throw new CompilerException(message, position)
+    }
+
+    @override
+    method warning(message:String, position:Position) {
+        throw new CompilerException(message, position)
+    }
+}
 
 ================================================================================
 Represents a Panda type. This includes class types (`panda.core.Object`),
@@ -25,6 +39,8 @@ uniquely identifying the type.
 ================================================================================
 @abstract
 class Type : Immutable {
+    constant FATAL := new FatalErrorReporter()
+
     def name:String
 
     @protected
@@ -115,11 +131,9 @@ class Type : Immutable {
         if isNullable
             return self
         assert !name.endsWith("?")
-        def result, messages := context.typeMap.getType(
-                new PandaParser().parseType(name + "?", Position.INTERNAL),
-                context.lookupContext)
+        def result := context.typeMap.getType(new PandaParser(FATAL).parseType(
+                name + "?", Position.INTERNAL), context.lookupContext)
         assert result != null : "could not find nullable version of \{self}"
-        assert messages = null : messages->>(String)
         return result
     }
 

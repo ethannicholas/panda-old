@@ -18,42 +18,27 @@ uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
+class CompilerErrorReporter : ErrorReporter {
+    @override
+    method error(message:String, position:Position) {
+        Console.writeLine("error: \{position}: \{message}")
+    }
+
+    @override
+    method warning(message:String, position:Position) {
+        Console.writeLine("warning: \{position}: \{message}")
+    }
+}
+
 ================================================================================
 Main entry point for the Panda compiler.
-
-The overall design of the compiler is:
-
-1. [PandaParser] is run on each compilation unit, resulting in a [ParseNode] of
-   type `COMPILATION_UNIT`.
-2. The [Scanner] class takes these `ParseNode`s and converts them into a tree of
-   [UntypedClassStub], [UntypedMethodStub], etc. At this point we know all of 
-   the symbols but have not resolved them yet.
-3. The [TypeResolver] class takes the various untyped stubs and resolves all of
-   the [Type]s (with the assistance of [TypeMap]), producing 
-   [TypedClassStub], [TypedMethodStub], etc. These stubs are fully resolved, but
-   any code associated with them is still just raw `ParseNode`s.
-4. For stubs loaded from plink files, their journey has already ended: they will
-   never be anything more than stubs. Classes found in .panda files now go 
-   through [ASTGenerator], which takes `TypedClassStub`, `TypedMethodStub`, etc.
-   and turns then into [ClassNode], [MethodNode], and the rest of the nodes in
-   the `org.pandalanguage.pandac.tree` package.
-
-(at this point, the narrative diverges into fantasy land. FIXME: update this 
-when the new compiler design is finished.)
-
-5. The `ClassNode`s are analyzed by [CFGGenerator] and then [DataFlowAnalyzer].
-6. The classes and analysis information go to [SafetyChecker], which inserts
-   checks for preconditions, postconditions, and invariants (among other 
-   things).
-7. The classes are passed to [Optimizer] to be optimized.
-8. Finally, a [CodeGenerator] produces the actual, finished output code from the
-   processed `ClassNode`s. 
 ================================================================================
-class PandaCompiler (MessageProcessor) {
+class PandaCompiler {
     constant PANDA_HOME := determinePandaHome()
 
     var lastCheckpointLabel:String?
     var lastCheckpointTime:Int64
+    def errors := new CompilerErrorReporter()
 
     @class
     function determinePandaHome():File {
@@ -176,125 +161,64 @@ class PandaCompiler (MessageProcessor) {
 
     @protected
     method getUntypedClassStubs(settings:CompilerSettings):
-            (CollectionView<UntypedClassStub>, ListView<Message>?) {
+            CollectionView<UntypedClassStub> {
         def result := new Array<UntypedClassStub>()
-        var messages:ListView<Message>? := null
-        def scanner := new Scanner()
         def workQueue := new MessageQueue()
         def responseQueue := new MessageQueue()
-        constant THREADS := settings.sources.length.min(
-            Thread.preferredThreadCount)
+        constant THREADS := 1
         for f in settings.sources
             workQueue.post(f)
+        def errorReporter := self.errors
         for i in 0 .. THREADS {
             workQueue.post(null)
             Thread.start(method() {
                 def result := new Array<UntypedClassStub>()
-                var messages:ListView<Message>? := null
                 loop {
                     def f := workQueue.getMessage()->(File?)
                     if f = null
                         break
                     def input := new BufferedInputStream(f.openInputStream())
-                    def parsed := new PandaParser().parseCompilationUnit(f.name,
-                            input)
-                    def stubs, submessages := scanner.convertCompilationUnit(
-                            f.name, parsed)
-                    result.addAll(stubs)
-                    messages := addMessages(messages, submessages)
+                    def parsed := new PandaParser(errorReporter).parseFile(
+                            f.name, input)
+                    if parsed != null {
+--                        def out := new IndentedOutputStream(Console.outputStream)
+--                        out.closeUnderlyingStream := false
+--                        parsed->(org.pandalanguage.pandac.ast.ASTNode).write(out)
+--                        out.close()
+                    }
+--                    result.addAll(parsed)
                     input.close()
                 }
-                def responseMessages:ImmutableArray<Message>?
-                if messages != null
-                    responseMessages := new ImmutableArray<Message>(messages)
-                else
-                    responseMessages := null
                 responseQueue.post(
-                        (new ImmutableArray<UntypedClassStub>(result),
-                         responseMessages))
+                        new ImmutableArray<UntypedClassStub>(result))
+                        
             })
         }
         for i in 0 .. THREADS {
-            def subresult, submessages := responseQueue.getMessage()->((ImmutableArray<UntypedClassStub>, ImmutableArray<Message>?))
+            def subresult := responseQueue.getMessage()->
+                    (ImmutableArray<UntypedClassStub>)
             result.addAll(subresult)
-            messages := addMessages(messages, submessages)
         }
-        return (result, messages)
+        return result
     }
-
-    @private
-    function fatal(messages:ListView<Message>?):Bit {
-        if messages = null
-            return false
-        for m in messages {
-            if !m.warning
-                return true
-        }
-        return false
-    }
-
-    @private
-    method getTypedClassStubs(untypedClasses:CollectionView<UntypedClassStub>):
-                (CollectionView<TypedClassStub>, TypeMap, StubMap,
-                ListView<Message>?) {
-        return TypeResolver.resolveTypes(untypedClasses)
-    }
-
-    @private
-    method getClassNodes(
-            typedClasses:CollectionView<TypedClassStub>,
-            typeMap:TypeMap, stubs:StubMap):
-            (CollectionView<ClassNode>, ListView<Message>?) {
-        return new ASTGenerator().convertClasses(typedClasses,
-                typeMap, stubs)
-    }
-
 
     @protected
-    method compile(settings:CompilerSettings):ListView<Message>? {
-        var messages:ListView<Message>? := null
-        checkpoint("loading symbols")
-        def untypedClasses, phase1Messages := getUntypedClassStubs(settings)
-        messages := addMessages(messages, phase1Messages)
-        if fatal(messages)
-            return messages
-
-        checkpoint("resolving types")
-        def typedClasses, typeMap, stubs, phase2Messages := getTypedClassStubs(
-                untypedClasses)
-        messages := addMessages(messages, phase2Messages)
-        if fatal(messages)
-            return messages
-
-        checkpoint("generating abstract syntax tree")
-        def classes, phase3Messages := getClassNodes(typedClasses, 
-                typeMap, stubs)
-        messages := addMessages(messages, phase3Messages)
-        if fatal(messages)
-            return messages
-
-        checkpoint("codegen")
-        def program := new Program(settings, stubs.allStubs(), classes, 
-                typeMap.allTypes().values)
-        Console.writeLine(program)
-        new ExecutableCodeGenerator(program).generateCode(new File("/tmp/foo"))
-        checkpoint("done")
-        Console.writeLine("done")
-        return messages
+    method compile(settings:CompilerSettings) {
+        def untypedClasses := getUntypedClassStubs(settings)
     }
 
     function processArguments(args:PrimitiveArray<String>):CompilerSettings {
         def sources := new Array<File>()
-        sources.add(PANDA_HOME.resolve(
-                "shared/core/lib/PandaCoreClasses.plink"))
+--        sources.add(PANDA_HOME.resolve(
+--                "shared/core/lib/PandaCoreClasses.plink"))
         for arg in args.filter(arg => arg.endsWith(".panda"))
             sources.add(new File(arg))
         return new CompilerSettings(sources)
     }
 
-    method runWithArgs(args:PrimitiveArray<String>):ListView<Message>? {
+    method runWithArgs(args:PrimitiveArray<String>) {
         def settings := processArguments(args)
-        return compile(settings)
+        compile(settings)
     }
 
     @class
@@ -305,33 +229,7 @@ class PandaCompiler (MessageProcessor) {
                 System.exit(1)
             }
             def pandac := new PandaCompiler()
-            def result := pandac.runWithArgs(args)
-            if result != null {
-                var warnings := 0
-                var errors := 0
-                for m in result {
-                    if m.warning
-                        warnings += 1
-                    else
-                        errors += 1
-                    Console.writeLine(m)
-                }
-                if errors != 0 {
-                    Console.write(errors + " error")
-                    if errors != 1
-                        Console.write("s")
-                }
-                if warnings != 0 {
-                    if errors != 0
-                        Console.write(", ")
-                    Console.write(errors + " warning")
-                    if errors != 1
-                        Console.write("s")
-                }
-                if errors + warnings != 0
-                    Console.writeLine()
-            }
-            System.exit(0)
+            pandac.runWithArgs(args)
         }
         catch e:InternalCompilerException {
             def position := e.position

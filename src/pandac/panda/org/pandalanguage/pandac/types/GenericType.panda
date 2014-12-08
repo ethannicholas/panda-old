@@ -30,7 +30,7 @@ A concrete instantiation of a type with generic parameters, such as
 with respect to generics (note in particular that `HashMap<K, V>` is *not* a 
 `GenericType`).
 ================================================================================
-class GenericType : ClassType (MessageProcessor) {
+class GenericType : ClassType {
     def base:ClassType
     def parameters:ImmutableArray<Type>
 
@@ -57,7 +57,8 @@ class GenericType : ClassType (MessageProcessor) {
 
     @private
     function parseType(name:String):ParseNode {
-        return new PandaParser().parseType(name, new Position(name, -1, -1))
+        return new PandaParser(FATAL).parseType(name, new Position(name, -1, 
+                -1))
     }
 
     @private
@@ -65,11 +66,8 @@ class GenericType : ClassType (MessageProcessor) {
             lookupContext:LookupContext):Type {
         if type = VoidType.VOID | type-?>(UnresolvedType)
             return type
-        def result, messages := typeMap.getType(parseType(type.name), 
-                lookupContext)
+        def result := typeMap.getType(parseType(type.name), lookupContext)
         assert result != null : "failed to find type '\{type}'"
-        assert messages = null : 
-                "unexpected messages resolving type: \{messages}"
         return result
     }
 
@@ -101,9 +99,8 @@ class GenericType : ClassType (MessageProcessor) {
     }
 
     method createStub(typeMap:TypeMap, baseStub:TypedClassStub,
-            parameterStubs:ListView<TypedClassStub?>):
-            (TypedClassStub, ListView<Message>?) {
-        var messages:ListView<Message>? := null
+            parameterStubs:ListView<TypedClassStub?>):TypedClassStub {
+-*        var messages:ListView<Message>? := null
         def baseParameters := baseStub.genericParameters
         assert baseParameters != null : 
                 "base class (\{baseStub.name}) is not generic"
@@ -130,20 +127,16 @@ class GenericType : ClassType (MessageProcessor) {
         var superclass := baseStub.superclass
         var submessages:ListView<Message>?
         if superclass != null {
-            def resolved:Type?
-            resolved, submessages := typeMap.getType(parseType(
+            def resolved := typeMap.getType(parseType(
                     superclass.name), lookupContext)
-            messages := addMessages(messages, submessages)
             superclass := resolved->(ClassType)
         }
         else
             superclass := null
         def interfaces := new Array<ClassType>()
         for intf in baseStub.interfaces {
-            var type:Type?
-            type, submessages := typeMap.getType(parseType(intf.name), 
+            var type := typeMap.getType(parseType(intf.name), 
                     lookupContext)
-            messages := addMessages(messages, submessages)
             if type != null
                 interfaces.add(type->>(ClassType))
         }
@@ -160,6 +153,7 @@ class GenericType : ClassType (MessageProcessor) {
         return (new TypedClassStub(position, name, baseStub.isInterface, 
                 annotations, lookupContext, superclass, interfaces, methods, 
                 fields, baseStub.invariants, null, baseStub.isExternal), 
-                messages)
+                messages)*-
+        throw new NotSupportedException()
     }    
 }

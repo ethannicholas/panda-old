@@ -1,8 +1,8 @@
 package org.pandalanguage.pandac.tree
 
-uses org.pandalanguage.pandac.compiler.ASTGenerator
 uses org.pandalanguage.pandac.compiler.Context
-uses org.pandalanguage.pandac.compiler.Message
+uses org.pandalanguage.pandac.compiler.ErrorReporter
+uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.stubs.TypedMethodStub
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.ClassType
@@ -51,7 +51,7 @@ class UnresolvedSlice : UnresolvedValue {
     }
 
     @override
-    function checkValid():Message? {
+    method checkValid(errors:ErrorReporter):Bit {
         if methodStub = null {
             def name:String
             if inclusive
@@ -74,20 +74,20 @@ class UnresolvedSlice : UnresolvedValue {
             else
                 parameters.append("'null'")
             parameters.append("]")
-            return new Message("'\{contextValue.type.displayName}' does not " +
+            errors.error("'\{contextValue.type.displayName}' does not " +
                     "implement the '\{name}' operator for \{parameters}", 
                     position)
+            return false
         }
-        return null
+        return true
     }
 
     @override
     @unsafeFunction
-    function implicitCast(position:Position, context:Context, 
-            t:Type):(Value, ListView<Message>?) {
+    function implicitCast(position:Position, context:Context, t:Type):Value {
         def stub := methodStub
         if stub = null
-            return (self, null)
+            return self
         def params := new Array<Value>()
         params.add(contextValue)
         if stub.parameters.length >= 2 {
@@ -108,10 +108,10 @@ class UnresolvedSlice : UnresolvedValue {
                 }
             }
         }
-        var result, messages := new ASTGenerator().call(context, position, 
+        var result := new IRGenerator().call(context, position, 
                     methodStub->(TypedMethodStub), false, params)
         if result = null
             result := self
-        return (result, messages)
+        return result
     }
 }

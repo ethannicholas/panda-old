@@ -1,7 +1,6 @@
 package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.compiler.Message
-uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.UntypedClassStub
 uses org.pandalanguage.pandac.tree.Position
@@ -14,19 +13,15 @@ class TypeMap : Immutable {
             new HashMap<String, String>())
 
     @private
-    constant CLASS_NAME := new PandaParser().parseType(class(Class).name, 
-            Position.INTERNAL)
-
-    @private
     constant ALL_TYPES := "allTypes"
 
     @private
     def queue := new MessageQueue()
 
-    constructor(stubs:CollectionView<UntypedClassStub>) {
+    constructor(stubs:CollectionView<UntypedClassStub>, errors:ErrorReporter) {
         def immutableStubs := new ImmutableArray<UntypedClassStub>(stubs)
         Thread.start(method() {
-            def typeMap := new MutableTypeMap(immutableStubs)
+            def typeMap := new MutableTypeMap(immutableStubs, errors)
             loop {
                 def message := queue.getMessage()
                 if message-?>(Type) {
@@ -41,25 +36,19 @@ class TypeMap : Immutable {
                     def node, context, replyTo := 
                             message->((ParseNode, LookupContext?, 
                                 MessageQueue))
-                    def type, messages := typeMap.getType(node, context)
-                    def wrappedMessages:ImmutableArray<Message>?
-                    if messages != null
-                        wrappedMessages := new ImmutableArray<Message>(messages)
-                    else
-                        wrappedMessages := null
-                    replyTo.post((type, wrappedMessages))
+                    def type := typeMap.getType(node, context)
+                    replyTo.post(type)
                 }
             }
         }, false)
     }
 
     @self
-    method getType(node:ParseNode, lookupContext:LookupContext?):
-            (Type?, ListView<Message>?) {
+    method getType(node:ParseNode, lookupContext:LookupContext?):Type? {
         def replyTo := Thread.currentThread().queue
         queue.post((node, lookupContext, replyTo))
-        def type, messages := replyTo.getMessage()->((Type?, ImmutableArray<Message>?))
-        return (type, messages)
+        def type := replyTo.getMessage()->(Type?)
+        return type
     }
 
     method allTypes():ImmutableHashMap<String, Type> {
