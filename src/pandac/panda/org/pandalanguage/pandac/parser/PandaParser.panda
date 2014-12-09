@@ -31,9 +31,11 @@ uses org.pandalanguage.pandac.ast.ASTIf
 uses org.pandalanguage.pandac.ast.ASTIndex
 uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
+uses org.pandalanguage.pandac.ast.ASTLambdaExpression
 uses org.pandalanguage.pandac.ast.ASTLoop
 uses org.pandalanguage.pandac.ast.ASTMethod
 uses org.pandalanguage.pandac.ast.ASTMethodType
+uses org.pandalanguage.pandac.ast.ASTMethodValue
 uses org.pandalanguage.pandac.ast.ASTNew
 uses org.pandalanguage.pandac.ast.ASTNode
 uses org.pandalanguage.pandac.ast.ASTNullLiteral
@@ -725,7 +727,8 @@ class PandaParser {
                 postconditions.add(post)
         }
         return new ASTMethod(methodTypeNode.position, name, methodType, 
-            annotations, parameters, returnType, body, postconditions)
+            doccomment, annotations, parameters, returnType, body, 
+            postconditions)
     }
 
     ============================================================================
@@ -784,30 +787,39 @@ class PandaParser {
     methodValue = (FUNCTION | METHOD) formalParameterList typeDeclaration? block
     ============================================================================
     @protected
-    method methodValue():ParseNode? {
--*        def children := new Array<ParseNode>()
+    method methodValue():ASTMethodValue? {
         def t := nextToken()
-        if t.type != TokenType.FUNCTION & t.type != TokenType.METHOD {
-            throw new CompilerException("expected 'function' or 'method', " +
-                    "but found '" + t + "'", t.position)
-        }
-        children.add(new TokenNode(t))
-        children.add(formalParameterList())
-        if peek().type = TokenType.COLON {
-            def ty := typeDeclaration()
-            if ty = null
+        def methodType:MethodNodeType
+        switch t.type {
+            case TokenType.METHOD:
+                methodType := MethodNodeType.METHOD
+            case TokenType.FUNCTION:
+                methodType := MethodNodeType.FUNCTION
+            default: {
+                errors.error("expected 'function' or 'method', " +
+                        "but found '" + t + "'", t.position)
                 return null
-            children.add(ty)
+            }
+        }
+        def parameters := formalParameterList()
+        if parameters = null
+            return null
+        def returnType:ASTType?
+        if peek().type = TokenType.COLON {
+            returnType := typeDeclaration()
+            if returnType = null
+                return null
             expectReturnValue := true
         }
-        else
+        else {
+            returnType := null
             expectReturnValue := false
+        }
         def bl := block()
         if bl = null
             return null
-        children.add(bl)
-        return new ParseNode(ParseNodeType.METHOD_VALUE, children) *-
-        throw new NotSupportedException()
+        return new ASTMethodValue(t.position, methodType, parameters, 
+                returnType, bl)
     }
 
     ============================================================================
@@ -1256,56 +1268,112 @@ class PandaParser {
     }
 
     ============================================================================
-    lambda = ((LPAREN ((IDENTIFIER typeDeclaration 
-                    (COMMA IDENTIFIER typeDeclaration)*) | 
-                    (IDENTIFIER (COMMA IDENTIFIER)*)) 
-              RPAREN) | IDENTIFIER typeDeclaration?)
-                YIELDS expression()
-
-    Note that lambda can "backtrack" by realizing that it has, in fact, just
-    encountered a tuple consisting of identifiers (which looks the same as the
-    start of a lambda, e.g. "(x, y)"). It will therefore return either a lambda
-    or a tuple.
+    unparenthesizedLambda = IDENTIFIER typeDeclaration? YIELDS expression
     ============================================================================
     @protected
     @self
-    method lambda():ASTExpression? {
--*        var foundTypes := false
-        if peek().type = TokenType.LPAREN {
-            def start := expect(TokenType.LPAREN, "'('")
-            assert start != null
-            def identifiers := new Array<Token>()
-            expect(TokenType.IDENTIFIER, "identifier for lambda parameter", 
-                    children)
-            if peek().type = TokenType.COLON {
-                foundTypes := true
-                children.add(typeDeclaration())
-            }
-            while checkNext(TokenType.COMMA, children) != null {
-                if checkNext(TokenType.IDENTIFIER, children) = null
-                    return new ASTTupleExpression(start.position, children)
-                if foundTypes
-                    children.add(typeDeclaration())
-            }
-            if checkNext(TokenType.RPAREN, children) = null
-                return rollbackLambda(children)
-        }
-        else {
-            expect(TokenType.IDENTIFIER, "identifier for lambda parameter", 
-                    children)
-            if peek().type = TokenType.COLON {
-                children.add(typeDeclaration())
-                foundTypes := true
-            }
-        }
-        if foundTypes | peek().type = TokenType.YIELDS {
-            expect(TokenType.YIELDS, "'=>' after lambda parameters", children)
-            children.add(expression())
-            return new ParseNode(ParseNodeType.LAMBDA, children)
+    method unparenthesizedLambda():ASTLambdaExpression? {
+        def start := expect(TokenType.IDENTIFIER, "lambda parameter name")
+        if start = null
+            return null
+        def type:ASTType?
+        if peek().type = TokenType.COLON {
+            type := typeDeclaration()
+            if type = null
+                return null
         }
         else
-            return rollbackLambda(children)*-
-        throw new NotSupportedException()
+            type := null
+        if expect(TokenType.YIELDS, "'=>'") != null
+            return null
+        def result := expression()
+        if result = null
+            return null
+        def parameters := new Array<ASTTypedIdentifier>()
+        parameters.add(new ASTTypedIdentifier(start.position, start.text, type))
+        return new ASTLambdaExpression(start.position, parameters, result)
+    }
+
+    ============================================================================
+    parenthesizedExpression = LPAREN expression (COLON typeDeclaration)?
+            (COMMA expression (COLON typeDeclaration)?)* (YIELDS expression?
+    ============================================================================
+    @protected
+    @self
+    method parenthesizedExpression():ASTExpression? {
+        def start := expect(TokenType.LPAREN, "'('")
+        if start = null
+            return null
+        def expressions := new Array<ASTExpression>()
+        def types := new Array<ASTType>()
+        var expr := expression()
+        if expr = null
+            return null
+        expressions.add(expr)
+        if peek().type = TokenType.COLON {
+            def type := typeDeclaration()
+            if type = null
+                return null
+            types.add(type)
+        }
+        while checkNext(TokenType.COMMA) != null {
+            expr := expression()
+            if expr = null
+                return null
+            expressions.add(expr)
+            if peek().type = TokenType.COLON {
+                def type := typeDeclaration()
+                if type = null
+                    return null
+                types.add(type)
+            }
+        }
+        if expect(TokenType.RPAREN, "')'") = null
+            return null
+        if checkNext(TokenType.YIELDS) != null {
+            def result := expression()
+            if result = null
+                return null
+            if types.length != 0 & types.length != expressions.length {
+                errors.error("either all lambda parameters must have type " +
+                        "declarations, or none must", start.position)
+                return null
+            }
+            def parameters := new Array<ASTTypedIdentifier>()
+            for i, identifier in expressions {
+                if identifier-?>(ASTIdentifier) {
+                    if types.length = 0 {
+                        parameters.add(new ASTTypedIdentifier(
+                                identifier.position,
+                                identifier->(ASTIdentifier).identifier, null))
+                    }
+                    else {
+                        parameters.add(new ASTTypedIdentifier(
+                                identifier.position,
+                                identifier->(ASTIdentifier).identifier,
+                                types[i]))
+                    }
+                }
+                else {
+                    errors.error("expected a lambda parameter identifier",
+                            identifier.position)
+                    return null
+                }
+            }
+            return new ASTLambdaExpression(start.position, parameters, result)
+        }
+        else {
+            -- not a lambda
+            if types.length != 0 {
+                errors.error("invalid lambda expression", start.position)
+                return null
+            }
+            if expressions.length = 1 {
+                -- basic parenthesized expression
+                return expressions[0]
+            }
+            return new ASTTupleExpression(start.position, expressions)
+        }
     }
 
     ============================================================================
@@ -1368,9 +1436,9 @@ class PandaParser {
 
     ============================================================================
     term = NUMBER | TRUE | FALSE | NULL | STRING | PLUGIN | IDENTIFIER | SELF |
-            SUPER | CLASS | LPAREN expression (COMMA expression)* RPAREN | 
-            lambda | construct | arrayLiteral | mapLiteral | methodValue | 
-            classLiteral | ATRETURN | PRE LPAREN expression RPAREN | CONSTRUCTOR
+            SUPER | CLASS | lambdaOrTuple | construct | arrayLiteral | 
+            mapLiteral | methodValue | classLiteral | ATRETURN | PRE LPAREN 
+            expression RPAREN | CONSTRUCTOR
     ============================================================================
     @protected
     @self
@@ -1400,42 +1468,14 @@ class PandaParser {
                     def p := peek().type
                     if p = TokenType.COLON | p = TokenType.YIELDS {
                         pushback(t)
-                        return lambda()
+                        return unparenthesizedLambda()
                     }
                 }
                 return new ASTIdentifier(t.position, t.text)
             }
             case TokenType.LPAREN: {
--*                children.add(new TokenNode(t))
-                -- figure out if we've got a parenthesized lambda, i.e.
-                -- (x:Real, y:Real) => x + y
-                var haveLambda := false
-                if peek().type != TokenType.IDENTIFIER {
-                    def id := nextToken()
-                    def p := peek().type
-                    pushback(id)
-                    if p = TokenType.COLON | p = TokenType.COMMA {
-                        pushback(t) -- push the LPAREN as well
-                        def lambda, tuple := lambda()
-                        if lambda != null
-                            children.add(lambda)
-                        else {
-                            assert tuple != null
-                            children.addAll(tuple)
-                        }
-                        haveLambda := true
-                    }
-                }
-                if !haveLambda {
-                    children.add(expression())
-                    while checkNext(TokenType.COMMA, children) != null
-                        children.add(expression())
-                    expect(TokenType.RPAREN, "')' to complete expression", 
-                            children)
-                }*-
-                def result := expression()
-                expect(TokenType.RPAREN, "')' to complete expression")
-                return result
+                pushback(t)
+                return parenthesizedExpression()
             }
             case TokenType.ATRETURN:
                 return new ASTAtReturn(t.position)
@@ -1457,11 +1497,11 @@ class PandaParser {
                 pushback(t)
                 return arrayLiteral()
             }
--*            case TokenType.FUNCTION,
+            case TokenType.FUNCTION,
                  TokenType.METHOD: {
                 pushback(t)
                 return methodValue()
-            }*-
+            }
             case TokenType.CLASS: {
                 if peek().type = TokenType.LPAREN {
                     pushback(t)
@@ -2215,6 +2255,7 @@ class PandaParser {
             type := null
         result.add(new ASTTypedIdentifier(name.position, name.text, type))
         while checkNext(TokenType.COMMA) != null {
+            name := checkNext(TokenType.UNDERSCORE)
             if name = null {
                 name := expect(TokenType.IDENTIFIER, 
                         "variable name (an identifier) after ',' in for-loop")
