@@ -29,8 +29,6 @@ class Context : Immutable {
 
     def lookupContext:LookupContext
 
-    def typeMap:TypeMap
-
     def stubs:StubMap
 
     def localVariables:ImmutableArray<LocalVariable>
@@ -38,13 +36,12 @@ class Context : Immutable {
     def visibleVariables:ImmutableHashMap<String, Variable>
 
     constructor(currentClass:TypedClassStub?, currentMethod:TypedMethodStub?,
-            lookupContext:LookupContext, typeMap:TypeMap, stubs:StubMap,
+            lookupContext:LookupContext, stubs:StubMap,
             localVariables:ImmutableArray<LocalVariable>,
             visibleVariables:ImmutableHashMap<String, Variable>) {
         self.currentClass := currentClass
         self.currentMethod := currentMethod
         self.lookupContext := lookupContext
-        self.typeMap := typeMap
         self.stubs := stubs
         self.localVariables := localVariables
         self.visibleVariables := visibleVariables
@@ -201,11 +198,6 @@ class Context : Immutable {
         return max
     }
 
-    @pre(currentClass != null)
-    method currentClassType():ClassType {
-        return getType(currentClass->(TypedClassStub))
-    }
-
     @pre(isInstance)
     function getSelf(position:Position):Value {
         def selfVar := visibleVariables[Parameter.SELF_NAME]
@@ -214,7 +206,7 @@ class Context : Immutable {
     }
 
     method getWrapper(t:PrimitiveType):WrapperType {
-        return getRequiredType(t.name + "Wrapper")->(WrapperType)
+        throw new NotSupportedException()
     }
 
     @unsafeFunction
@@ -228,28 +220,13 @@ class Context : Immutable {
     }
 
     @pre(currentClass != null)
+    method currentClassType():ClassType {
+        throw new NotSupportedException()
+    }
+
+    @pre(currentClass != null)
     method getType(cl:TypedClassStub):ClassType {
-        return getRequiredType(cl.name)->(ClassType)
-    }
-
-    method getType(name:String, position:Position):Type? {
-        try {
-            def node := new PandaParser(errors).parseType(name, position)
-            return typeMap.getType(node, lookupContext)
-        }
-        catch e:CompilerException {
-            errors.error(e.message, position)
-            return null
-        }
-    }
-
-    method getRequiredType(name:String):Type {
-        def node := new PandaParser(errors).parseType(name, Position.INTERNAL)
-        def result := typeMap.getType(node, lookupContext)
-        if result = null {
-            throw new InternalCompilerException("failed to load type '\{name}'")
-        }
-        return result
+        throw new NotSupportedException()
     }
 
     function +(v:Variable):Context {
@@ -264,9 +241,9 @@ class Context : Immutable {
         }
         else
             newLocalVariables := localVariables
-        return new Context(currentClass, currentMethod, lookupContext, typeMap,
-                stubs, newLocalVariables, 
-                new ImmutableHashMap<String, Variable>(newVisibleVariables))
+        return new Context(currentClass, currentMethod, lookupContext, stubs, 
+                newLocalVariables, new ImmutableHashMap<String, Variable>(
+                    newVisibleVariables))
     }
 
     function +(variables:ListView<Variable>):Context {
@@ -279,16 +256,15 @@ class Context : Immutable {
             if v-?>(LocalVariable)
                 newLocalVariables.add(v->(LocalVariable))
         }
-        return new Context(currentClass, currentMethod, lookupContext, typeMap,
-                stubs, new ImmutableArray<LocalVariable>(newLocalVariables), 
+        return new Context(currentClass, currentMethod, lookupContext, stubs, 
+                new ImmutableArray<LocalVariable>(newLocalVariables), 
                 new ImmutableHashMap<String, Variable>(newVisibleVariables))
     }
 
     function addLocalsFrom(other:Context):Context {
         def newLocals := new Array<LocalVariable>(localVariables)
         newLocals.addAll(other.localVariables)
-        return new Context(currentClass, currentMethod, lookupContext, typeMap,
-                stubs, new ImmutableArray<LocalVariable>(newLocals), 
-                visibleVariables)
+        return new Context(currentClass, currentMethod, lookupContext, stubs, 
+                new ImmutableArray<LocalVariable>(newLocals), visibleVariables)
     }
 }

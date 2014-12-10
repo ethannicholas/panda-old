@@ -2,12 +2,12 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.analysis.DataFlowAnalyzer
 uses org.pandalanguage.pandac.analysis.SafetyChecker
+uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.compiler.Message
 uses org.pandalanguage.pandac.pandadoc.PandaDoc
 uses org.pandalanguage.pandac.pandadoc.HTMLFragmentGenerator
 uses org.pandalanguage.pandac.pandadoc.HTMLGenerator
 uses org.pandalanguage.pandac.parser.PandaParser
-uses org.pandalanguage.pandac.stubs.UntypedClassStub
 uses org.pandalanguage.pandac.stubs.TypedClassStub
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Position
@@ -160,19 +160,18 @@ class PandaCompiler {
     }
 
     @protected
-    method getUntypedClassStubs(settings:CompilerSettings):
-            CollectionView<UntypedClassStub> {
-        def result := new Array<UntypedClassStub>()
+    method getASTFiles(settings:CompilerSettings):CollectionView<ASTFile> {
+        def result := new Array<ASTFile>()
         def workQueue := new MessageQueue()
         def responseQueue := new MessageQueue()
-        constant THREADS := 1
+        constant THREADS := 8
         for f in settings.sources
             workQueue.post(f)
         def errorReporter := self.errors
         for i in 0 .. THREADS {
             workQueue.post(null)
             Thread.start(method() {
-                def result := new Array<UntypedClassStub>()
+                def result := new Array<ASTFile>()
                 loop {
                     def f := workQueue.getMessage()->(File?)
                     if f = null
@@ -181,22 +180,21 @@ class PandaCompiler {
                     def parsed := new PandaParser(errorReporter).parseFile(
                             f.name, input)
                     if parsed != null {
---                        def out := new IndentedOutputStream(Console.outputStream)
---                        out.closeUnderlyingStream := false
---                        parsed->(org.pandalanguage.pandac.ast.ASTNode).write(out)
---                        out.close()
+-*                        def out := new IndentedOutputStream(Console.outputStream)
+                        out.closeUnderlyingStream := false
+                        parsed->(org.pandalanguage.pandac.ast.ASTNode).write(out)
+                        out.close()*-
                     }
---                    result.addAll(parsed)
+                    if parsed != null
+                        result.add(parsed)
                     input.close()
                 }
-                responseQueue.post(
-                        new ImmutableArray<UntypedClassStub>(result))
-                        
+                responseQueue.post(new ImmutableArray<ASTFile>(result))
             })
         }
         for i in 0 .. THREADS {
             def subresult := responseQueue.getMessage()->
-                    (ImmutableArray<UntypedClassStub>)
+                    (ImmutableArray<ASTFile>)
             result.addAll(subresult)
         }
         return result
@@ -204,13 +202,13 @@ class PandaCompiler {
 
     @protected
     method compile(settings:CompilerSettings) {
-        def untypedClasses := getUntypedClassStubs(settings)
+        def files := getASTFiles(settings)
     }
 
     function processArguments(args:PrimitiveArray<String>):CompilerSettings {
         def sources := new Array<File>()
---        sources.add(PANDA_HOME.resolve(
---                "shared/core/lib/PandaCoreClasses.plink"))
+        sources.add(PANDA_HOME.resolve(
+                "shared/core/lib/PandaCoreClasses.plink"))
         for arg in args.filter(arg => arg.endsWith(".panda"))
             sources.add(new File(arg))
         return new CompilerSettings(sources)
