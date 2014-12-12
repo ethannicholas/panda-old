@@ -1,12 +1,12 @@
-package org.pandalanguage.pandac.compiler
+-*package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.BinaryOperationType
 uses org.pandalanguage.pandac.ast.UnaryOperationType
 uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.compiler.CompilerSettings
 uses org.pandalanguage.pandac.compiler.Dummy
-uses org.pandalanguage.pandac.stubs.TypedClassStub 
-uses org.pandalanguage.pandac.stubs.TypedMethodStub 
+uses org.pandalanguage.pandac.stubs.ClassStub 
+uses org.pandalanguage.pandac.stubs.MethodStub 
 uses org.pandalanguage.pandac.tree.AbstractLoop
 uses org.pandalanguage.pandac.tree.Annotation
 uses org.pandalanguage.pandac.tree.Assert
@@ -91,12 +91,12 @@ uses org.pandalanguage.pandac.types.WrapperType
 class ClassConstant : Immutable {
     def name:String
     def type:String
-    def methods:ImmutableArray<TypedMethodStub>
+    def methods:ImmutableArray<MethodStub>
     
-    constructor(name:String, type:String, methods:ListView<TypedMethodStub>) {
+    constructor(name:String, type:String, methods:ListView<MethodStub>) {
         self.name := name
         self.type := type
-        self.methods := new ImmutableArray<TypedMethodStub>(methods)
+        self.methods := new ImmutableArray<MethodStub>(methods)
     }
 }
 
@@ -139,13 +139,11 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def compilerSettings:CompilerSettings
 
-    def stubs:MapView<String, TypedClassStub>
-
     def classes:MapView<String, ClassNode>
 
     def classConstants := new HashMap<String, ClassConstant>()
 
-    def methodNames:MapView<TypedMethodStub, String>
+    def methodNames:MapView<MethodStub, String>
 
     var nameCount:Int
     
@@ -176,14 +174,12 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     var currentMethod:MethodNode?
 
-    constructor(p:Program) {
+    constructor(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
-        self.compilerSettings := p.compilerSettings
-        self.stubs := p.stubs
+        self.compilerSettings := compilerSettings
         self.classes := p.classes
-        self.types := p.types
-        self.methodNames := new MethodNamer().nameMethods(stubs, 
-                new CMethodNamingStrategy())
+--        self.methodNames := new MethodNamer().nameMethods(classes, 
+--                new CMethodNamingStrategy())
     }
 
     @protected
@@ -229,7 +225,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         return "%" + getName(getStub(t->>(ClassType))) + "*"
     }
 
-    method getLLVMMethodType(t:TypedMethodStub):String {
+    method getLLVMMethodType(t:MethodStub):String {
         def result := new MutableString()
         def returnType := t.returnType
         result.append(getLLVMType(returnType))
@@ -267,7 +263,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function getName(cl:TypedClassStub):String {
+    function getName(cl:ClassStub):String {
         return MethodNamer.escapeTypeName(cl.name)
     }
 
@@ -277,7 +273,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function getName(m:TypedMethodStub):String {
+    function getName(m:MethodStub):String {
         def result := methodNames[m]
         assert result != null : "no method name for \{m.owner}::\{m}"
         return result
@@ -297,7 +293,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function getType(cl:TypedClassStub):ClassType {
+    function getType(cl:ClassStub):ClassType {
         return types[cl.name]->(ClassType)
     }
 
@@ -307,19 +303,20 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function getStub(cl:ClassType):TypedClassStub {
+    function getStub(cl:ClassType):ClassStub {
         return getStub(cl.name)
     }
 
     @private
-    function getStub(s:String):TypedClassStub {
-        def result := stubs[s]
+    function getStub(s:String):ClassStub {
+-*        def result := stubs[s]
         -- FIXME TEMP
         if result = null {
             Panda.log("no stub for " + s)
-            return stubs["panda.core.Object"]->(TypedClassStub)
+            return stubs["panda.core.Object"]->(ClassStub)
         }
-        return result
+        return result*-
+        throw new NotSupportedException()
     }
 
     @private
@@ -367,7 +364,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     
     @protected
-    method writeTypeDescriptor(cl:TypedClassStub) {
+    method writeTypeDescriptor(cl:ClassStub) {
         if debug
             header.writeLine("; " + cl.name)
         header.write("%" + getName(cl) + " = type { ")
@@ -569,7 +566,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
-    function getMethodIndex(cl:ClassConstant, m:TypedMethodStub):Int {
+    function getMethodIndex(cl:ClassConstant, m:MethodStub):Int {
         -- FIXME use indexOf when that's available
         def result := cl.methods.indexOf(m)
         assert result != null : m + " not found in class constant"
@@ -623,8 +620,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     
     @private
-    method getITable(cl:TypedClassStub):String {
-        def visited := new HashSet<TypedClassStub>()
+    method getITable(cl:ClassStub):String {
+        def visited := new HashSet<ClassStub>()
         def interfaces := cl.allInterfaces(stubs)
         var previous := "%$itable* null"
         for intf in interfaces {
@@ -660,7 +657,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
-    method getClassConstant(cl:TypedClassStub):ClassConstant {
+    method getClassConstant(cl:ClassStub):ClassConstant {
         var name := cl.name
         var cc := classConstants[name]
         if cc = null {
@@ -1137,7 +1134,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    method callClassInit(cl:TypedClassStub) {
+    method callClassInit(cl:ClassStub) {
         def classInit := cl.methods.filter(
                 m => m.name = MethodNode.CLASS_INIT_NAME)
         assert classInit.length = 1 : "expected exactly one method named " +
@@ -1849,7 +1846,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
-    method writeMethodDeclaration(m:TypedMethodStub) {
+    method writeMethodDeclaration(m:MethodStub) {
         if m.annotations.isAbstract
             return
         def private := m.annotations.isPrivate
@@ -2085,4 +2082,4 @@ class LLVMCodeGenerator (CodeGenerator) {
         if !compilerSettings.preserveTempArtifacts
             unoptTarget.delete()
     }
-}
+}*-

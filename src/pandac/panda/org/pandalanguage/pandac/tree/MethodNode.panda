@@ -1,6 +1,6 @@
 package org.pandalanguage.pandac.tree
 
-uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
@@ -23,116 +23,64 @@ class MethodNode : Node {
  
     constant CLASS_INIT_NAME  := "$classInit"
 
-    def stub:TypedMethodStub
+    def stub:MethodStub
 
-    ============================================================================
-    The method's name.
-    ============================================================================
-    def name:String
+    def body:Block
 
-    ============================================================================
-    The type of method.
-    ============================================================================
-    def methodType:MethodNodeType
-
-    ============================================================================
-    The method's formal parameters.
-    ============================================================================
-    def parameters:ImmutableArray<Parameter>
-
-    ============================================================================
-    The method's return type.
-    ============================================================================
-    def returnType:Type
-
-    ============================================================================
-    The annotations attached to this method.
-    ============================================================================
-    def annotations:Annotations
-
-    ============================================================================
-    The method's local variables.
-    ============================================================================
     def localVariables:ImmutableArray<LocalVariable>
 
-    @pre(annotations.isClass | methodType = MethodNodeType.CONSTRUCTOR |
-            (parameters.length > 0 & parameters[0].name = Parameter.SELF_NAME))
-    @pre(methodType != MethodNodeType.CONSTRUCTOR | returnType = VoidType.VOID)
-    constructor(position:Position, stub:TypedMethodStub, name:String, 
-            methodType:MethodNodeType, parameters:ListView<Parameter>, 
-            returnType:Type, annotations:Annotations, block:Block?, 
+    constructor(stub:MethodStub, body:Block, 
             localVariables:ListView<LocalVariable>) {
-        super.constructor(position, wrap(block))
+        super.constructor(position)
         self.stub := stub
-        self.name := name
-        self.methodType := methodType
-        self.parameters := new ImmutableArray<Parameter>(parameters)
-        self.returnType := returnType
-        self.annotations := annotations
+        self.body := body
         self.localVariables := new ImmutableArray<LocalVariable>(localVariables)
-    }
-
-    @private
-    @class
-    function wrap(b:Block?):Array<Node> {
-        def result := new Array<Node>()
-        if b != null
-            result.add(b)
-        return result
-    }
-
-    function block():Block? {
-        if length > 0
-            return self[0]->(Block)
-        return null
     }
 
     @override
     function format(fmt:String):String {
         def result := new MutableString()
-        switch methodType {
+        switch stub.methodType {
             case MethodNodeType.METHOD: result.append("method ")
             case MethodNodeType.FUNCTION: result.append("function ")
             case MethodNodeType.CONSTRUCTOR: { }
             default: unreachable
         }
-        result.append(name)
+        result.append(stub.name)
         result.append("(")
         var start:Int
-        if annotations.isClass
+        if stub.annotations.isClass
             start := 0
         else
             start := 1
-        for i in start .. parameters.length {
+        for i in start .. stub.parameters.length {
             if i > start
                 result.append(", ")
-            result.append(parameters[i].name)
-            if parameters[i].isConvert
+            result.append(stub.parameters[i].name)
+            if stub.parameters[i].isConvert
                 result.append("->>")
             else
                 result.append(":")
-            result.append(parameters[i].type.name)
-            if parameters[i].isVarArg
+            result.append(stub.parameters[i].type.name)
+            if stub.parameters[i].isVarArg
                 result.append("...")
         }
         result.append(")")
-        if returnType != VoidType.VOID {
+        if stub.returnType != VoidType.VOID {
             result.append(":")
-            result.append(returnType.name)
+            result.append(stub.returnType.name)
         }
-        if block != null {
-            result.append(" {\n")
-            for v in localVariables {
-                switch v.varType {
-                    case VariableType.DEF: result.append("def ")
-                    case VariableType.VAR: result.append("var ")
-                    case VariableType.CONSTANT: result.append("constant ")
-                }
-                result.append("\{v.name}:\{v.type.displayName}\n")
+        result.append(" {\n")
+        for v in localVariables {
+            switch v.varType {
+                case VariableType.DEF: result.append("def ")
+                case VariableType.VAR: result.append("var ")
+                case VariableType.CONSTANT: result.append("constant ")
             }
-            result.append(block->(Node))
-            result.append("\n}")
+            result.append("\{v.name}:\{v.type.displayName}\n")
         }
+        result.append(body->(Node))
+        result.append("\n}")
         return result->>(String)
     }
 }

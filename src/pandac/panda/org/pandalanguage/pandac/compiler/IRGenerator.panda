@@ -1,12 +1,20 @@
 package org.pandalanguage.pandac.compiler
 
-uses org.pandalanguage.pandac.stubs.TypedClassStub
-uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.ast.ASTExpression
+uses org.pandalanguage.pandac.ast.ASTInvariant
+uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.FormalParameter
+uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.Cast
 uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassObjectLiteral
+uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
@@ -21,9 +29,31 @@ uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
 
 class IRGenerator {
     constant SHIM_PREFIX := "$shim_"
+
+    var context:Context
+
+    constructor(classes:ImmutableHashMap<String, ClassStub>,
+            errors:ErrorReporter) {
+        def classAnnotation := new Array<AnnotationType>()
+        classAnnotation.add(AnnotationType.CLASS)
+        context := new Context(classes, errors, 
+                new ClassStub(Position.INTERNAL, "<dummy>", false, 
+                    new Annotations(Position.INTERNAL, 
+                        new Array<AnnotationType>()), 
+                    new LookupContext(new Array<String>(), 
+                        new HashMap<String, String>()), 
+                    null, new Array<ClassType>(),
+                    new Array<MethodStub>(), new Array<FieldNode>(), 
+                    new Array<ASTInvariant>(), null, true), 
+                new MethodStub(Position.INTERNAL, "<dummy>",
+                    new Annotations(Position.INTERNAL, classAnnotation),
+                    MethodNodeType.METHOD, new Array<FormalParameter>(), 
+                    VoidType.VOID, null, ClassType.OBJECT))
+    }
 
     @class
     function makeExplicit(v:Value):Value {
@@ -32,7 +62,7 @@ class IRGenerator {
         return v
     }
 
-    method call(context:Context, position:Position, var m:TypedMethodStub, 
+    method call(context:Context, position:Position, var m:MethodStub, 
             isSuper:Bit, params:ListView<Value>):Value? {
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
@@ -111,7 +141,7 @@ class IRGenerator {
                     if result.annotations.isClass {
                         -- class method, update the contextValue
                         contextValue := new ClassLiteral(position, 
-                                context.currentClassType())
+                                context.currentClass.type)
                     }
                 }
                 if contextValue = null
@@ -120,7 +150,7 @@ class IRGenerator {
             else {
                 -- in a class context
                 contextValue := new ClassLiteral(position,
-                        context.currentClassType())
+                        context.currentClass.type)
             }
         }
         var classMethod:Bit
@@ -142,7 +172,6 @@ class IRGenerator {
             var newParams := new Array<Value>()
             if contextValue-?>(Super) {
                 def cl := context.currentClass
-                assert cl != null
                 def superclass := cl.superclass
                 if superclass = null {
                     context.errors.error("class '\{cl}' has no superclass", 
@@ -171,7 +200,7 @@ class IRGenerator {
                     type := contextValue->(ClassLiteral).value
                 else {
                     assert contextValue-?>(Super)
-                    def sc := context.currentClass->(TypedClassStub).superclass
+                    def sc := context.currentClass->(ClassStub).superclass
                     assert sc != null
                     type := sc
                 }
@@ -217,7 +246,7 @@ class IRGenerator {
                 if contextValue-?>(ClassLiteral)
                     type := contextValue->(ClassLiteral).value
                 else
-                    type := context.currentClass->(TypedClassStub).superclass
+                    type := context.currentClass->(ClassStub).superclass
                 return new Construct(type->(ClassType), result->(MethodCall))
             }
             else
@@ -229,5 +258,9 @@ class IRGenerator {
             if true throw new NotSupportedException()
             return null
         }
+    }
+
+    method generateProgram():Program {
+        return new Program(new Array<ClassNode>())
     }
 }

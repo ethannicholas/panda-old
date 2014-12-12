@@ -8,7 +8,7 @@ uses org.pandalanguage.pandac.pandadoc.PandaDoc
 uses org.pandalanguage.pandac.pandadoc.HTMLFragmentGenerator
 uses org.pandalanguage.pandac.pandadoc.HTMLGenerator
 uses org.pandalanguage.pandac.parser.PandaParser
-uses org.pandalanguage.pandac.stubs.TypedClassStub
+uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
@@ -164,7 +164,7 @@ class PandaCompiler {
         def result := new Array<ASTFile>()
         def workQueue := new MessageQueue()
         def responseQueue := new MessageQueue()
-        constant THREADS := 8
+        constant THREADS := 1
         for f in settings.sources
             workQueue.post(f)
         def errorReporter := self.errors
@@ -179,12 +179,6 @@ class PandaCompiler {
                     def input := new BufferedInputStream(f.openInputStream())
                     def parsed := new PandaParser(errorReporter).parseFile(
                             f.name, input)
-                    if parsed != null {
--*                        def out := new IndentedOutputStream(Console.outputStream)
-                        out.closeUnderlyingStream := false
-                        parsed->(org.pandalanguage.pandac.ast.ASTNode).write(out)
-                        out.close()*-
-                    }
                     if parsed != null
                         result.add(parsed)
                     input.close()
@@ -203,6 +197,9 @@ class PandaCompiler {
     @protected
     method compile(settings:CompilerSettings) {
         def files := getASTFiles(settings)
+        def stubs := new StubGenerator(files, errors).generateStubs()
+        Console.writeLine(stubs)
+        new IRGenerator(stubs, errors).generateProgram()
     }
 
     function processArguments(args:PrimitiveArray<String>):CompilerSettings {

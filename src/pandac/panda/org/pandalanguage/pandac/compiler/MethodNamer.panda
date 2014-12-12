@@ -1,7 +1,7 @@
 package org.pandalanguage.pandac.compiler
 
-uses org.pandalanguage.pandac.stubs.TypedClassStub
-uses org.pandalanguage.pandac.stubs.TypedMethodStub
+uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.types.Type
 
 ================================================================================
@@ -11,7 +11,7 @@ target language.
 ================================================================================
 class MethodNamer {
     @private
-    def named := new HashSet<TypedClassStub>()
+    def named := new HashSet<ClassStub>()
 
     @class
     function escapeTypeName(name:String):String {
@@ -22,10 +22,10 @@ class MethodNamer {
                 replace(",", "$C").replace("&", "$AM")
     }
 
-    method nameMethods(stubs:MapView<String, TypedClassStub>,
+    method nameMethods(stubs:MapView<String, ClassStub>,
             strategy:MethodNamingStrategy):
-            MapView<TypedMethodStub, String> {
-        def result := new HashMap<TypedMethodStub, String>()
+            MapView<MethodStub, String> {
+        def result := new HashMap<MethodStub, String>()
         for cl in stubs.values
             nameMethods(cl, stubs, strategy, result)
         return result
@@ -33,12 +33,12 @@ class MethodNamer {
 
     @private
     @limited
-    method nameMethods(cl:TypedClassStub, stubs:MapView<String, TypedClassStub>,
-            strategy:MethodNamingStrategy, result:Map<TypedMethodStub, String>) {
+    method nameMethods(cl:ClassStub, stubs:MapView<String, ClassStub>,
+            strategy:MethodNamingStrategy, result:Map<MethodStub, String>) {
         if named.contains(cl)
             return
         named.add(cl)
-        def getStub := function(type:Type):TypedClassStub {
+        def getStub := function(type:Type):ClassStub {
             def result := stubs[type.name]
             if result != null { -- FIXME remove this test when compiler is finished
                 assert result != null : "no stub for \{type.name}"
@@ -46,7 +46,7 @@ class MethodNamer {
             }
             else {
                 Panda.log("no stub for " + type)
-                return stubs["panda.core.Object"]->(TypedClassStub)
+                return stubs["panda.core.Object"]->(ClassStub)
             }
         }
         def sc := cl.superclass
@@ -54,8 +54,8 @@ class MethodNamer {
             nameMethods(getStub(sc), stubs, strategy, result)
         for intf in cl.interfaces
             nameMethods(getStub(intf), stubs, strategy, result)
-        def disambiguationBuckets:Map<String, List<TypedMethodStub>> := 
-                new HashMap<String, List<TypedMethodStub>>()
+        def disambiguationBuckets:Map<String, List<MethodStub>> := 
+                new HashMap<String, List<MethodStub>>()
         for m in cl.methods {
             if !cl.annotations.isUnspecified | m.annotations.isClass {
                 Console.writeLine("naming \{cl.name}::\{m}")
@@ -64,16 +64,16 @@ class MethodNamer {
             }
         }
         for (_, bucket) in disambiguationBuckets {
-            def shortBuckets:Map<String, List<TypedMethodStub>> := 
-                    new HashMap<String, List<TypedMethodStub>>()
+            def shortBuckets:Map<String, List<MethodStub>> := 
+                    new HashMap<String, List<MethodStub>>()
             for m in bucket
                 addToBucket(shortBuckets, strategy.shortName(cl, m), m)
             for (key, shortBucket) in shortBuckets {
                 if shortBucket.length = 1
                     result[shortBucket[0]] := key
                 else {
-                    def mediumBuckets:Map<String, List<TypedMethodStub>> := 
-                            new HashMap<String, List<TypedMethodStub>>()
+                    def mediumBuckets:Map<String, List<MethodStub>> := 
+                            new HashMap<String, List<MethodStub>>()
                     for m in shortBucket {
                         addToBucket(mediumBuckets, strategy.mediumName(cl, m),
                                 m)
@@ -93,11 +93,11 @@ class MethodNamer {
 
     @private
     @class
-    method addToBucket(buckets:Map<String, List<TypedMethodStub>>, name:String, 
-            m:TypedMethodStub) {
+    method addToBucket(buckets:Map<String, List<MethodStub>>, name:String, 
+            m:MethodStub) {
         var bucket := buckets[name]
         if bucket = null {
-            bucket := new Array<TypedMethodStub>()
+            bucket := new Array<MethodStub>()
             buckets[name] := bucket
         }
         bucket.add(m)

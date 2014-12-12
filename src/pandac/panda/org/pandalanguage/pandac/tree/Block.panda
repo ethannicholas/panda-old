@@ -1,25 +1,11 @@
 package org.pandalanguage.pandac.tree
 
 class Block : Statement {
-    constructor(position:Position, children:ListView<Statement>) {
-        super.constructor(position, remap(children))
-    }
+    def statements:List<Statement>
 
-    -- FIXME covariance should take care of this when it's in
-    @private
-    @class
-    function remap(children:ListView<Statement>):ListView<Node> {
-        def result := new Array<Node>()
-        for c in children
-            result.add(c)
-        return result
-    }
-
-    function statements():ListView<Statement> {
-        def result := new Array<Statement>()
-        for child in self
-            result.add(child->(Statement))
-        return result
+    constructor(position:Position, statements:ListView<Statement>) {
+        super.constructor(position)
+        self.statements := new Array<Statement>(statements)
     }
 
     -- this method was originally written for LLVMCodeGenerator to know whether
@@ -30,17 +16,17 @@ class Block : Statement {
     -- LLVM-specific test into LLVMCodeGenerator and rename endsInBranchOrThrow 
     -- to endsInBranch.
     function endsInBranch():Bit {
-        if length = 0
+        if statements.length = 0
             return false
-        var last := self[self.length - 1]
+        var last := statements[statements.length - 1]
         return last-?>(Return) | last-?>(Continue) | last-?>(Break) |
                 (last-?>(Block) & last->(Block).endsInBranch)
     }
 
     function endsInBranchOrThrow():Bit {
-        if length = 0
+        if statements.length = 0
             return false
-        var last := self[self.length - 1]
+        var last := statements[statements.length - 1]
         return last-?>(Return) | last-?>(Continue) | last-?>(Break) | 
                 last-?>(Throw) | last-?>(Unreachable) |
                 (last-?>(Block) & last->(Block).endsInBranchOrThrow)
@@ -48,6 +34,6 @@ class Block : Statement {
 
     @override
     function format(fmt:String):String {
-        return "{ " + join("\n") + " }"
+        return "{ " + statements.join("\n") + " }"
     }
 }

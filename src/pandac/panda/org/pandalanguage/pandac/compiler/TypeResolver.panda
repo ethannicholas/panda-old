@@ -1,6 +1,10 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.ast.ASTClass
+uses org.pandalanguage.pandac.ast.ASTClassType
+uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.Type
 
 class TypeResolver : Immutable {
@@ -10,13 +14,25 @@ class TypeResolver : Immutable {
     @private
     def errors:ErrorReporter
 
-    constructor(errors:ErrorReporter, classNames:CollectionView<String>) {
-        self.errors := errors
+    constructor(files:CollectionView<ASTFile>, errors:ErrorReporter) {
+        def classNames := new HashSet<String>()
+        for f in files {
+            for decl in f {
+                if decl-?>(ASTClass)
+                    classNames.add(decl->(ASTClass).name)
+            }
+        }
         self.classNames := new ImmutableHashSet<String>(classNames)
+        self.errors := errors
     }
 
     function resolve(raw:ASTType, context:LookupContext):Type? {
-        Panda.log("looking for \{raw} in \{classNames}")
-        throw new NotSupportedException()
+        if raw-?>(ASTClassType) {
+            def cl := raw->(ASTClassType)
+            def result := context.classAliases[cl.name]
+            if result != null
+                return new ClassType(result)
+        }
+        return null
     }
 }
