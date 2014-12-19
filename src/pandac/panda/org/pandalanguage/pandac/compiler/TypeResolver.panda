@@ -3,35 +3,125 @@ package org.pandalanguage.pandac.compiler
 uses org.pandalanguage.pandac.ast.ASTClass
 uses org.pandalanguage.pandac.ast.ASTClassType
 uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.BitType
+uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.NativePointerType
+uses org.pandalanguage.pandac.types.NullableType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.WrapperType
 
 class TypeResolver : Immutable {
     @private
-    def classNames:ImmutableHashSet<String>
+    def types:ImmutableHashMap<String, Type>
 
     @private
     def errors:ErrorReporter
 
     constructor(files:CollectionView<ASTFile>, errors:ErrorReporter) {
-        def classNames := new HashSet<String>()
+        def types := new HashMap<String, Type>()
+        types[IntType.INT8.name]    := IntType.INT8
+        types[IntType.INT16.name]   := IntType.INT16
+        types[IntType.INT32.name]   := IntType.INT32
+        types[IntType.INT64.name]   := IntType.INT64
+        types[IntType.UINT8.name]   := IntType.UINT8
+        types[IntType.UINT16.name]  := IntType.UINT16
+        types[IntType.UINT32.name]  := IntType.UINT32
+        types[IntType.UINT64.name]  := IntType.UINT64
+        types[RealType.REAL32.name] := RealType.REAL32
+        types[RealType.REAL64.name] := RealType.REAL64
+        types[CharType.CHAR.name]   := CharType.CHAR
+        types[BitType.BIT.name]     := BitType.BIT
+        types["panda.core.Int"]     := IntType.INT32
+        types["panda.core.Real"]    := RealType.REAL64
+        types[WrapperType.INT8_WRAPPER.name]   := WrapperType.INT8_WRAPPER
+        types[WrapperType.INT16_WRAPPER.name]  := WrapperType.INT16_WRAPPER
+        types[WrapperType.INT32_WRAPPER.name]  := WrapperType.INT32_WRAPPER
+        types[WrapperType.INT64_WRAPPER.name]  := WrapperType.INT64_WRAPPER
+        types[WrapperType.UINT8_WRAPPER.name]  := WrapperType.UINT8_WRAPPER
+        types[WrapperType.UINT16_WRAPPER.name] := WrapperType.UINT16_WRAPPER
+        types[WrapperType.UINT32_WRAPPER.name] := WrapperType.UINT32_WRAPPER
+        types[WrapperType.UINT64_WRAPPER.name] := WrapperType.UINT64_WRAPPER
+        types[WrapperType.REAL32_WRAPPER.name] := WrapperType.REAL32_WRAPPER
+        types[WrapperType.REAL64_WRAPPER.name] := WrapperType.REAL64_WRAPPER
+        types[WrapperType.CHAR_WRAPPER.name]   := WrapperType.CHAR_WRAPPER
+        types[WrapperType.BIT_WRAPPER.name]    := WrapperType.BIT_WRAPPER
+        types[NativePointerType.NATIVE_POINTER.name] := 
+                NativePointerType.NATIVE_POINTER
+
+        var currentPackage:String? := null
         for f in files {
-            for decl in f {
-                if decl-?>(ASTClass)
-                    classNames.add(decl->(ASTClass).name)
+            currentPackage := null
+            for decl in f.entries {
+                if decl-?>(ASTClass) {
+                    var name := decl->(ASTClass).name
+                    if currentPackage != null
+                        name := currentPackage + "." + name
+                    def existing := types[name]
+                    if existing != null {
+                        if existing-!>(WrapperType) {
+                            errors.error("duplicate definition of type " +
+                                    "'\{name}'", decl.position)
+                        }
+                        continue
+                    }
+                    types[name] := new ClassType(name)
+                }
+                else if decl-?>(ASTPackageDeclaration)
+                    currentPackage := decl->(ASTPackageDeclaration).name
             }
         }
-        self.classNames := new ImmutableHashSet<String>(classNames)
+        self.types := new ImmutableHashMap<String, Type>(types)
         self.errors := errors
     }
 
-    function resolve(raw:ASTType, context:LookupContext):Type? {
+    function resolve(name:String, context:LookupContext):Type? {
+        var result := types[name]
+        if result != null
+            return result
+        def alias := context.classAliases[name]
+        if alias != null
+            return types[alias]
+        if !name.contains(".") {
+            for p in context.packageUses {
+                def testName := p + "." + name
+                result := types[testName]
+                if result != null
+                    return result
+            }
+        }
+        return null
+    }
+
+    method resolve(raw:ASTType, context:LookupContext):Type? {
         if raw-?>(ASTClassType) {
             def cl := raw->(ASTClassType)
-            def result := context.classAliases[cl.name]
-            if result != null
-                return new ClassType(result)
+            def base := resolve(cl.name, context)
+            if base = null
+                return null
+            def gp := cl.genericParameters
+            if gp != null {
+                if base.name = class(PrimitiveArray).name {
+                    if gp.length != 1 {
+                        errors.error("PrimitiveArray requires exactly 1 " + 
+                                "parameter", raw.position)
+                        return null
+                    }
+                    def parameter := resolve(gp[0], context)
+                    if parameter = null
+                        return null
+                    return new PrimitiveArrayType(base->(ClassType), parameter)
+                }
+                return null
+            }
+            if raw.isNullable
+                return new NullableType(base->>(ClassType))
+            return base
         }
         return null
     }

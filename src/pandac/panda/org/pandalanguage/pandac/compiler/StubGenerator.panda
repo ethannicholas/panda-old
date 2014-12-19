@@ -7,6 +7,7 @@ uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTMethod
 uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
 uses org.pandalanguage.pandac.ast.ASTParameter
+uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
 uses org.pandalanguage.pandac.stubs.ClassStub
@@ -18,6 +19,8 @@ uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
@@ -29,41 +32,85 @@ class StubGenerator {
 
     def errors:ErrorReporter
 
-    constructor(files:CollectionView<ASTFile>, errors:ErrorReporter) {
+    constructor(files:CollectionView<ASTFile>, typeResolver:TypeResolver,
+            errors:ErrorReporter) {
         self.files := new Array<ASTFile>(files)
+        self.typeResolver := typeResolver
         self.errors := errors
-        self.typeResolver := new TypeResolver(files, errors)
     }
 
-    function convertAnnotations(position:Position, 
+    method convertAnnotations(position:Position, 
             annotations:ListView<ASTAnnotation>?):Annotations {
-        return new Annotations(position, new Array<AnnotationType>())
+        def result := new Array<AnnotationType>()
+        if annotations != null {
+            for ann in annotations {
+                if ann-?>(ASTSimpleAnnotation) {
+                    switch ann->(ASTSimpleAnnotation).name {
+                        case "@protected":  result.add(AnnotationType.PROTECTED)
+                        case "@private":  result.add(AnnotationType.PRIVATE)
+                        case "@abstract":  result.add(AnnotationType.ABSTRACT)
+                        case "@class":  result.add(AnnotationType.CLASS)
+                        case "@thread":  result.add(AnnotationType.THREAD)
+                        case "@external":  result.add(AnnotationType.EXTERNAL)
+                        case "@final":  result.add(AnnotationType.FINAL)
+                        case "@override":  result.add(AnnotationType.OVERRIDE)
+                        case "@readonly":  result.add(AnnotationType.READONLY)
+                        case "@limited":  result.add(AnnotationType.LIMITED)
+                        case "@self":  result.add(AnnotationType.SELF)
+                        case "@safeReturn":  result.add(AnnotationType.SAFERETURN)
+                        case "@unsafeFunction":  result.add(AnnotationType.UNSAFEFUNCTION)
+                        case "@$wrapperMethod":  result.add(AnnotationType.WRAPPER_METHOD)
+                        default: errors.warning("unsupported annotation: \{ann}", 
+                                ann.position)
+                    }
+                }
+                else {
+                    errors.warning("unsupported annotation: \{ann}", 
+                            ann.position)
+                }
+            }
+        }
+        return new Annotations(position, result)
     }
 
-    function resolveType(type:ASTType, lookupContext:LookupContext):Type? {
-        return typeResolver.resolve(type, lookupContext)
+    method resolveType(type:ASTType, lookupContext:LookupContext):Type? {
+        def result := typeResolver.resolve(type, lookupContext)
+        if result = null
+            errors.warning("type '\{type}' not found", type.position)
+        return result
     }
 
-    function convertMethod(m:ASTMethod, owner:ClassType,
-            lookupContext:LookupContext):MethodStub {
+    method convertMethod(m:ASTMethod, owner:ClassType,
+            lookupContext:LookupContext):MethodStub? {
         def parameters := new Array<FormalParameter>()
         def annotations := convertAnnotations(m.position, m.annotations)
         if !annotations.isClass {
+            def type:Type
+            if annotations.isWrapperMethod
+                type := owner->>(PrimitiveType)
+            else
+                type := owner
             parameters.add(new FormalParameter(m.position, Parameter.SELF_NAME, 
-                    owner, false, false, false))
+                    type, false, false, false))
         }
         for p in m.parameters {
-            def type := resolveType(p.type, lookupContext)
+            var type := resolveType(p.type, lookupContext)
             if type != null {
+                if p.isVarArg {
+                    type := new PrimitiveArrayType(ClassType.PRIMITIVE_ARRAY,
+                            type)
+                }
                 parameters.add(new FormalParameter(p.position, p.name, type, 
                         p.isVar, p.isConvert, p.isVarArg))
             }
+            else
+                return null
         }
         var returnType:Type?
         if m.returnType != null {
             returnType := resolveType(m.returnType->(ASTType), lookupContext)
             if returnType = null
-                returnType := VoidType.VOID
+                return null
         }
         else
             returnType := VoidType.VOID
@@ -73,7 +120,7 @@ class StubGenerator {
                 owner)
     }
 
-    function convertFields(f:ASTField, owner:ClassType, 
+    method convertFields(f:ASTField, owner:ClassType, 
             lookupContext:LookupContext):ListView<FieldNode> {
         def result := new Array<FieldNode>()
         def annotations := convertAnnotations(f.position, f.annotations)
@@ -96,7 +143,9 @@ class StubGenerator {
             className := currentPackage + "." + cl.name
         else
             className := cl.name
-        def classType := new ClassType(className)
+        def classType := typeResolver.resolve(className, 
+                lookupContext)->(ClassType)
+        Console.writeLine("converted \{className} into \{classType}")
         def interfaces := new Array<ClassType>()
         var superclass:Type?
         if cl.superclass != null {
@@ -121,8 +170,11 @@ class StubGenerator {
             }
         }
         def methods := new Array<MethodStub>()
-        for m in cl.methods
-            methods.add(convertMethod(m, classType, lookupContext))
+        for m in cl.methods {
+            def converted := convertMethod(m, classType, lookupContext)
+            if converted != null
+                methods.add(converted)
+        }
         def fields := new Array<FieldNode>()
         for f in cl.fields
             fields.addAll(convertFields(f, classType, lookupContext))
@@ -137,6 +189,11 @@ class StubGenerator {
         var currentPackage:String? := null
         def classAliases := new HashMap<String, String>()
         def packageUses := new Array<String>() 
+        packageUses.add("panda.collections")
+        packageUses.add("panda.core")
+        packageUses.add("panda.io")
+        packageUses.add("panda.math")
+        packageUses.add("panda.threads")
         for e in f.entries {
             if e-?>(ASTPackageDeclaration) {
                 currentPackage := e->(ASTPackageDeclaration).name
@@ -159,8 +216,10 @@ class StubGenerator {
             }
             else if e-?>(ASTClass) {
                 def cl := e->(ASTClass)
-                result.add(convertClass(cl, currentPackage, 
-                        new LookupContext(packageUses, classAliases)))
+                if cl.genericParameters = null {
+                    result.add(convertClass(cl, currentPackage, 
+                            new LookupContext(packageUses, classAliases)))
+                }
             }
         }
         return result

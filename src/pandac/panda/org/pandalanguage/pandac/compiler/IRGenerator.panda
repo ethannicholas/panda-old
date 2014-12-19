@@ -1,58 +1,107 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.ast.ArrowOperationType
+uses org.pandalanguage.pandac.ast.ASTArrowExpression
+uses org.pandalanguage.pandac.ast.ASTAssignment
+uses org.pandalanguage.pandac.ast.ASTBinaryExpression
+uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.ast.ASTBreak
+uses org.pandalanguage.pandac.ast.ASTCallExpression
+uses org.pandalanguage.pandac.ast.ASTClassType
+uses org.pandalanguage.pandac.ast.ASTContinue
+uses org.pandalanguage.pandac.ast.ASTDotExpression
 uses org.pandalanguage.pandac.ast.ASTExpression
+uses org.pandalanguage.pandac.ast.ASTExpressionStatement
+uses org.pandalanguage.pandac.ast.ASTIdentifier
+uses org.pandalanguage.pandac.ast.ASTIf
+uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.ast.ASTLoop
+uses org.pandalanguage.pandac.ast.ASTNullLiteral
+uses org.pandalanguage.pandac.ast.ASTStatement
+uses org.pandalanguage.pandac.ast.ASTStringLiteral
+uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.ast.ASTVarDeclaration
+uses org.pandalanguage.pandac.ast.ASTWhile
+uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BinaryOperationType
+uses org.pandalanguage.pandac.tree.BitLiteral
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
 uses org.pandalanguage.pandac.tree.Cast
 uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.Continue
+uses org.pandalanguage.pandac.tree.FieldAssignment
 uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.Loop
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.NewPrimitiveArray
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
+uses org.pandalanguage.pandac.tree.Not
+uses org.pandalanguage.pandac.tree.NullLiteral
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexAssignment
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexValue
+uses org.pandalanguage.pandac.tree.ReusedValue
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.Statement
+uses org.pandalanguage.pandac.tree.StringLiteral
 uses org.pandalanguage.pandac.tree.Super
+uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
+uses org.pandalanguage.pandac.tree.UnresolvedDotExpression
+uses org.pandalanguage.pandac.tree.UnresolvedIdentifier
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.VarDeclaration
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.While
+uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
 
 class IRGenerator {
     constant SHIM_PREFIX := "$shim_"
 
+    constant STRING_GROUP := #/(?<!\\)\\\{.*?(?<!\\)\}/#
+
+    constant UNESCAPED_BRACE := #/(?<!\\)\{/#
+
     var context:Context
 
-    constructor(classes:ImmutableHashMap<String, ClassStub>,
+    def currentlyInferring := new HashSet<FieldNode>()
+
+    constructor(classes:ImmutableHashMap<String, ClassStub>, 
+            typeResolver:TypeResolver, compilerSettings:CompilerSettings,
             errors:ErrorReporter) {
-        def classAnnotation := new Array<AnnotationType>()
-        classAnnotation.add(AnnotationType.CLASS)
-        context := new Context(classes, errors, 
-                new ClassStub(Position.INTERNAL, "<dummy>", false, 
-                    new Annotations(Position.INTERNAL, 
-                        new Array<AnnotationType>()), 
-                    new LookupContext(new Array<String>(), 
-                        new HashMap<String, String>()), 
-                    null, new Array<ClassType>(),
-                    new Array<MethodStub>(), new Array<FieldNode>(), 
-                    new Array<ASTInvariant>(), null, true), 
-                new MethodStub(Position.INTERNAL, "<dummy>",
-                    new Annotations(Position.INTERNAL, classAnnotation),
-                    MethodNodeType.METHOD, new Array<FormalParameter>(), 
-                    VoidType.VOID, null, ClassType.OBJECT))
+        context := new Context(typeResolver, classes, errors, compilerSettings)
     }
 
     @class
@@ -61,9 +110,174 @@ class IRGenerator {
             return new Cast(v->(Cast).value, v.type, CastType.EXPLICIT)
         return v
     }
+    
+    @class
+    function isAccessible(f:FieldNode):Bit {
+        return true
+    }
 
-    method call(context:Context, position:Position, var m:MethodStub, 
-            isSuper:Bit, params:ListView<Value>):Value? {
+    @private
+    method createFieldReference(position:Position, var contextValue:Value, 
+            f:FieldNode, allowNoArgFunctions:Bit):Value {
+        inferFieldType(f)
+        def annotations := f.annotations
+        if allowNoArgFunctions {
+            def name := f.name
+            def m := context.currentMethod
+        }
+        def result := new FieldReference(position, contextValue, f)
+        return result
+    }
+
+    method getField(position:Position, var contextValue:Value,
+            var name:String):Value? {
+        return getField(position, contextValue, name, true)
+    }
+
+    method getField(position:Position, var contextValue:Value,
+            var name:String, allowNoArgFunctions:Bit):Value? {
+        if name = "class"
+            name := "$class"
+        var cl:ClassStub
+        if contextValue.type = StringOrCharType.STRING_OR_CHAR {
+            contextValue := contextValue.implicitCast(context, 
+                    CharType.CHAR)
+        }
+        if contextValue-!>(Super) {
+            def resolved := resolve(contextValue)
+            if resolved = null
+                return null
+            contextValue := resolved 
+            if contextValue.type.isPrimitive {
+                def casted:Value?
+                casted := contextValue.implicitCast(context,
+                        contextValue.type->>(ClassType))
+                return getField(position, casted, name, allowNoArgFunctions)
+            }
+            else {
+                var contextValueClass := context.getStub(
+                        contextValue.type->>(ClassType))
+                cl := contextValueClass
+            }
+            if contextValue-!>(ClassLiteral) {
+                def fields := cl.instanceFields(context)
+                -- need to search backwards since ancestor classes are at the
+                -- beginning of the array, and we may be shadowing fields
+                for i in fields.length - 1  ... 0 by -1 {
+                    def f := fields[i]
+                    if f.name = name & !f.annotations.isClass &
+                            !f.annotations.isThread & isAccessible(f) {
+                        if contextValue-?>(UnresolvedClassLiteral) {
+                            contextValue := new ClassObjectLiteral(
+                                    contextValue.position,
+                                    contextValue->(UnresolvedClassLiteral).value)
+                        }
+                        return createFieldReference(position, contextValue, f, 
+                                allowNoArgFunctions)
+                    }
+                }
+            }
+            if contextValue-?>(UnresolvedClassLiteral) {
+                contextValue := new ClassLiteral(contextValue.position,
+                        contextValue->(UnresolvedClassLiteral).value)
+            }
+            if contextValue-?>(ClassLiteral) {
+                var type := contextValue->(ClassLiteral).value
+                if type.isPrimitive
+                    type := type->>(ClassType)
+                cl := context.getStub(type->>(ClassType))
+                for f in cl.fields {
+                    if f.name = name & (f.annotations.isClass |
+                            f.annotations.isThread) &
+                            isAccessible(f) {
+                        return createFieldReference(position, contextValue, f, 
+                                allowNoArgFunctions)
+                    }
+                }
+            }
+        }
+        return new UnresolvedDotExpression(contextValue, name)
+    }
+
+    @private
+    method getMethodNotFoundMessage(context:Context, contextValue:Value?, 
+            methodName:String, params:ListView<Value>):String {
+        def msg := "no match found for method "->>(MutableString)
+        msg.append(methodName)
+        msg.append("(")
+        var first := true
+        for i, p in params {
+            if p-?>(Dummy)
+                continue
+            if i = 0 & contextValue != null & contextValue-!>(ClassLiteral) {
+                assert p = contextValue
+                continue
+            }
+            if first
+                first := false
+            else
+                msg.append(", ")
+            msg.append(p.type.displayName)
+        }
+        msg.append(")")
+        if contextValue != null {
+            if contextValue-?>(Super)
+                msg.append(" in \{context.currentClass->(ClassStub).superclass->(Type).displayName}")
+            else if contextValue-?>(ClassLiteral)
+                msg.append(" in \{contextValue}")
+            else
+                msg.append(" in \{contextValue.type.displayName}")
+        }
+        for p in params {
+-*            if p-?>(UnresolvedLambda) {
+                def lambda := p->(UnresolvedLambda)
+                if lambda.errors.length > 0 {
+                    msg.append("\n    possible error in lambda at " +
+                            "\{lambda.position}:")
+                    def entries := new PrimitiveArray<Object>()
+                    for e in lambda.errors
+                        entries.append(e)
+                    Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
+                        def e1 := eo1->((Object?, Object?))[0]->(PrimitiveArray<Type>)
+                        def e2 := eo2->((Object?, Object?))[0]->(PrimitiveArray<Type>)
+                        assert e1.length = e2.length
+                        for i in 0 .. e1.length {
+                            def n1 := e1[i].name
+                            def n2 := e2[i].name
+                            if n1 > n2
+                                return true
+                            if n2 > n1
+                                return false
+                        }
+                        return false
+                    })
+                    for raw in entries {
+                        def e := raw->((Object?, Object?))
+                        def types := e[0]->(PrimitiveArray<Type>)
+                        def typeString := new MutableString()
+                        typeString.append("(")
+                        for i, type in types {
+                            if i > 0
+                                typeString.append(",")
+                            typeString.append(type.displayName)
+                        }
+                        typeString.append(")=>(...)")
+                        var error, errorPos := e[1]->((String, Position?))
+                        if errorPos = null
+                            errorPos := Position.INTERNAL
+                        msg.append("\n        when interpreted as \{typeString}:\n")
+                        msg.append("            \{error}")
+                        if errorPos != lambda.position
+                            msg.append(" at \{errorPos}")
+                    }
+                }
+            }*-
+        }
+        return msg->>(String)
+    }
+
+    method call(position:Position, var m:MethodStub, isSuper:Bit, 
+            params:ListView<Value>):Value? {
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
                 methodParams[methodParams.length - 1].isVarArg
@@ -127,7 +341,7 @@ class IRGenerator {
         return new MethodCall(position, m, isSuper, finalParams)
     }
 
-    method call(context:Context, position:Position, var contextValue:Value?, 
+    method testCall(position:Position, var contextValue:Value?, 
             methodName:String, var params:ListView<Value>):Value? {
         for p in params {
             if !p.checkValid(context.errors)
@@ -223,7 +437,7 @@ class IRGenerator {
                     newParams.add(new Dummy(contextValue.position, type))
                     newParams.addAll(params)
                     params := newParams
-                    def construct := call(context, position, contextValue, 
+                    def construct := call(position, contextValue, 
                             methodName, params)
                     if construct != null {
                         def stub := construct->(Construct).constructorCall.methodStub
@@ -240,7 +454,7 @@ class IRGenerator {
             }
         }
         if methodStub != null {
-            def result := call(context, position, methodStub, supercall, params)
+            def result := call(position, methodStub, supercall, params)
             if methodStub.methodType = MethodNodeType.CONSTRUCTOR & !supercall {
                 def type:Type?
                 if contextValue-?>(ClassLiteral)
@@ -252,15 +466,1056 @@ class IRGenerator {
             else
                 return result
         }
-        else {
-            --wrap(getMethodNotFoundMessage(context, position, 
-            --        contextValue, methodName, params))
-            if true throw new NotSupportedException()
+        else
             return null
+    }
+
+    method call(position:Position, var contextValue:Value?, 
+            methodName:String, var params:ListView<Value>):Value? {
+        def result := testCall(position, contextValue, methodName, params)
+        if result = null {
+            context.errors.error(getMethodNotFoundMessage(context, contextValue,
+                    methodName, params), position)
+        }
+        return result
+    }
+
+    method convertCallExpression(c:ASTCallExpression):Value? {
+        def target := convertExpression(c.target)
+        if target = null
+            return null
+        def parameters := new Array<Value>()
+        for p in c.parameters {
+            def converted := convertExpression(p)
+            if converted = null
+                return null
+            def resolved := resolve(converted)
+            if resolved = null
+                return null
+            parameters.add(resolved)
+        }
+        if target-?>(UnresolvedDotExpression) {
+            def u := target->(UnresolvedDotExpression)
+            return call(c.position, u.left, u.right, parameters)
+        }
+        context.errors.error("expected a method, but found '\{target.type}'",
+                target.position)
+        return null
+    }
+
+    method resolveClass(position:Position, name:String):Value? {
+        def type := new ASTClassType(position, name, null, false) 
+        def resolved := context.typeResolver.resolve(type, 
+                context.currentClass.lookupContext)
+        if resolved != null
+            return new ClassLiteral(position, resolved)
+        return null
+    }
+
+    method convertDotExpression(d:ASTDotExpression):Value? {
+        def left := convertExpression(d.left)
+        if left = null
+            return null
+        if left-?>(UnresolvedIdentifier) {
+            def name := left->(UnresolvedIdentifier).name + "." + d.right
+            def cl := resolveClass(d.position, name)
+            if cl != null
+                return cl
+            return new UnresolvedIdentifier(d.position, name)
+        }
+        return new UnresolvedDotExpression(left, d.right)
+    }
+
+    method convertIdentifier(id:ASTIdentifier):Value? {
+        def cl := resolveClass(id.position, id.identifier)
+        if cl != null
+            return cl
+        return new UnresolvedIdentifier(id.position, id.identifier)
+    }
+
+    method convertIntegerLiteral(i:ASTIntegerLiteral):Value? {
+        return new IntegerLiteral(i.position, i.value)
+    }
+
+    ============================================================================
+    Given a sequence of chars from a string literal (e.g. "Hello\n!"), returns a
+    string representing the contents of the literal (e.g. "Hello<newline>!")
+
+    If `interpolating` is true, permits the additional escape sequences `\:`,
+    `\{`, and `\}`, passing them through unmodified.
+    ============================================================================
+    method convertStringChars(position:Position, s:String, 
+            interpolating:Bit):String? {
+        var result := new MutableString()
+        var i := 0
+        loop {
+            var next := s.indexOf("\\", i)
+            if next = null {
+                result.append(s[i..])
+                break
+            }
+            result.append(s[i .. next])
+            var c := s[next + 1]
+            switch c {
+                case "n":  result.append("\n")
+                case "r":  result.append("\r")
+                case "t":  result.append("\t")
+                case '"':  result.append('"')
+                case "\\": {
+                    result.append("\\")
+                    if interpolating
+                        result.append("\\")
+                }
+                case "'":  result.append("'")
+                case ":", "{", "}": {
+                    if interpolating {
+                        result.append("\\")
+                        result.append(c)
+                    }
+                    else {
+                        context.errors.error("invalid string escape '\\" + c + 
+                                "'", new Position(position.file, position.line, 
+                                position.column + i))
+                        return null
+                    }
+                }
+                default: {
+                    context.errors.error("invalid string escape '\\" + c + "'", 
+                            new Position(position.file, position.line, 
+                            position.column + i))
+                    return null
+                }
+            }
+            i := next + 2
+        }
+        return result->>(String)
+    }
+
+    method convertStringLiteral(string:ASTStringLiteral):Value? {
+        var s := string.value
+        def result := new MutableString()
+        def matcher := STRING_GROUP.matcher(s)
+        def values := new Array<Value>()
+        var lastEnd := 0
+        while matcher.find() {
+            var chars := convertStringChars(string.position, 
+                    s[lastEnd .. matcher.start], false)
+            if chars != null {
+                result.append(chars.replace(UNESCAPED_BRACE, 
+                        "\\{"))
+            }
+            def text := s[matcher.start + 2 .. matcher.end - 1]
+            var expr, remaining := new PandaParser(context.errors).parseExpressionWithExtraText(
+                    text, string.position)
+            if expr = null
+                return null
+            var value:Value?
+            value := convertExpression(expr)
+            if value = null
+                return null
+            value := resolve(value)
+            if value = null
+                return null
+            values.add(value)
+            def token:String?
+            token := convertStringChars(string.position, remaining, 
+                    true)
+            if token != null
+                result.append("{\{token}}")
+            lastEnd := matcher.end()
+        }
+        if lastEnd > 0 {
+            def chars := convertStringChars(string.position, s[lastEnd..], false)
+            if chars != null
+                result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
+            s := result->>(String)
+            values.insert(0, new StringLiteral(string.position, s))
+            return call(string.position, new ClassLiteral(string.position, 
+                    ClassType.STRING), "format", values)
+        }
+        else {
+            def chars := convertStringChars(string.position, s, false)
+            if chars = null
+                return null
+            return new StringLiteral(string.position, chars)
         }
     }
 
+    method convertBinaryExpression(b:ASTBinaryExpression):Value? {
+        var left := convertExpression(b.left)
+        if left = null
+            return null
+        left := resolve(left)
+        if left = null
+            return null
+        var right := convertExpression(b.right)
+        if right = null
+            return null
+        right := resolve(right)
+        if right = null
+            return null
+        return getBinaryValue(b.position, left, b.operation, right)
+    }
+
+    method convertInstanceOf(position:Position, var object:Value, 
+            var type:Type):Value? {
+        if object.type = StringOrCharType.STRING_OR_CHAR {
+            -- hardcode STRING_OR_CHAR-?>(Char) and STRING_OR_CHAR-?>(String)
+            -- as true
+            if type = CharType.CHAR | ClassType.STRING.canImplicitCastTo(
+                    context, type)
+                return new BitLiteral(position, true)
+        }
+        def primitiveTarget := type.isPrimitive | type.isWrapper
+        if primitiveTarget {
+            if object.type = StringOrCharType.STRING_OR_CHAR
+                object := object.implicitCast(context, CharType.CHAR)
+            if object.type = CharType.CHAR & type.isNumber
+                object := object.explicitCast(context, IntType.INT32)
+        }
+        def primitiveSource := object.type.isPrimitive | 
+                object.type.isWrapper
+
+        if object.type.isNumber & type.isReal
+            return new BitLiteral(position, true)
+
+        if !primitiveSource & type.isPrimitive
+            type := type->>(ClassType)
+
+        if !object.canExplicitCastTo(context, type) {
+            context.errors.error("'\{object}' (\{object.type.displayName}) " +
+                    "cannot possibly be an instance of '\{type.displayName}'", 
+                    position)
+        }
+
+        def parameters := new Array<Value>()
+        parameters.add(object)
+        if !primitiveTarget {
+            parameters.add(new ClassObjectLiteral(position, 
+                    type->>(ClassType)))
+        }
+
+        var methodName := "instanceOf"
+        if primitiveTarget {
+            var target := type.unwrapNullable
+            var name := target.name
+            constant CORE := "panda.core."
+            assert name.startsWith(CORE)
+            name := name[CORE.length..]
+            if target.isWrapper
+                name := name.replace("Wrapper", "")
+            methodName += name
+        }
+        def panda := new ClassLiteral(position, ClassType.PANDA)
+        var instanceOf:MethodStub? := null
+        if !object.type.isNullable
+            instanceOf := context.getMethod(panda, methodName, parameters)
+        if instanceOf = null {
+            parameters.add(new BitLiteral(position, type.isNullable))
+            instanceOf := context.getMethod(panda, methodName, parameters)
+        }
+        assert instanceOf != null
+        return call(position, instanceOf, false, parameters)
+    }
+
+    method convertArrowExpression(a:ASTArrowExpression):Value? {
+        var left := convertExpression(a.left)
+        if left = null
+            return null
+        left := resolve(left)
+        if left = null
+            return null
+        def right := context.typeResolver.resolve(a.right, 
+                context.currentClass.lookupContext)
+        if right = null
+            return null
+        switch a.operation {
+            case ArrowOperationType.INSTANCE_OF:
+                return convertInstanceOf(a.position, left, right)
+            case ArrowOperationType.CONVERT:
+                return left.convert(context, right)
+            default:
+                unreachable
+        }
+    }
+
+    method resolve(v:Value):Value? {
+        if v-?>(UnresolvedIdentifier) {
+            def name := v->(UnresolvedIdentifier).name
+            def result := context.symbolTable[name]
+            if result != null
+                return new VariableReference(v.position, result)
+            else {
+                context.errors.error("unknown identifier '\{name}'", v.position)
+                return null
+            }
+        }
+        if v.type-?>(UnresolvedType)
+            return v.implicitCast(context, v.preferredVariableType())
+        return v
+    }
+    @post(@return = null | @return.type-!>(UnresolvedType))
+
+    method convertExpression(e:ASTExpression):Value? {
+        switch e.class {
+            case class(ASTCallExpression):
+                return convertCallExpression(e->(ASTCallExpression))
+            case class(ASTIdentifier):
+                return convertIdentifier(e->(ASTIdentifier))
+            case class(ASTDotExpression):
+                return convertDotExpression(e->(ASTDotExpression))
+            case class(ASTIntegerLiteral):
+                return convertIntegerLiteral(e->(ASTIntegerLiteral))
+            case class(ASTStringLiteral):
+                return convertStringLiteral(e->(ASTStringLiteral))
+            case class(ASTNullLiteral):
+                return new NullLiteral(e.position)
+            case class(ASTBinaryExpression):
+                return convertBinaryExpression(e->(ASTBinaryExpression))
+            case class(ASTArrowExpression):
+                return convertArrowExpression(e->(ASTArrowExpression))
+            default:
+                throw new InternalCompilerException("unsupported expression: " +
+                        e.class.name, e.position)
+        }
+    }
+
+    method convertVarDeclaration(v:ASTVarDeclaration):Statement? {
+        def initializer:Value?
+        if v.initializer != null {
+            initializer := convertExpression(v.initializer->(ASTExpression))
+            if initializer = null
+                return null
+        }
+        else {
+            initializer := null
+        }
+        for decl in v.vars {
+            def type:Type?
+            if decl.type != null {
+                type := context.typeResolver.resolve(decl.type->(ASTType),
+                        context.currentClass.lookupContext)
+                if type = null {
+                    context.errors.error("unknown class '\{decl.type->(ASTType)}'",
+                            decl.type->(ASTType).position)
+                    return null
+                }
+            }
+            else {
+                if initializer = null {
+                    context.errors.error("variable has neither an " +
+                            "initializer nor a type", decl.position)
+                    return null
+                }
+                type := initializer.type
+            }
+            def local := new LocalVariable(decl.position, decl.identifier, type,
+                    v.varType)
+            context.symbolTable[local.name] := local
+            context.localVariables.add(local)
+            if initializer != null {
+                -- no support for tuples yet!
+                return new ValueStatement(new VariableAssignment(decl.position, 
+                        local, initializer, true))
+            }
+        }
+        return null
+    }
+
+    method convertIf(i:ASTIf):Statement? {
+        def test := convertExpression(i.test)
+        if test = null
+            return null
+        def thenStatement := convertStatement(i.thenStatement)
+        if thenStatement = null
+            return null
+        def elseStatement:Statement?
+        if i.elseStatement != null {
+            elseStatement := convertStatement(i.elseStatement->(ASTStatement))
+            if elseStatement = null
+                return null
+        }
+        else
+            elseStatement := null
+        return new If(i.position, test, thenStatement, elseStatement)
+    }
+
+    method convertLoop(l:ASTLoop):Statement? {
+        def statement := convertStatement(l.statement)
+        if statement = null
+            return null
+        return new Loop(l.position, l.label, statement)
+    }
+
+    method convertWhile(w:ASTWhile):Statement? {
+        def test := convertExpression(w.test)
+        if test = null
+            return null
+        def statement := convertStatement(w.statement)
+        if statement = null
+            return null
+        return new While(w.position, w.label, test, statement)
+    }
+
+    method convertBreak(b:ASTBreak):Statement? {
+        return new Break(b.position, b.label)
+    }
+
+    method convertContinue(c:ASTContinue):Statement? {
+        return new Continue(c.position, c.label)
+    }
+
+    ============================================================================
+    Looks for an overloaded version of `name` (which could be `"="`, `"+"`, 
+    etc.) and returns a call to it, or `null` if no such overloaded operator was
+    found.
+    
+    @param position the position of the call in the source code
+    @param name the name of the method to call
+    @param left the left argument
+    @param right the right argument
+    @returns a method call, or `null`
+    ============================================================================
+    method callOverloadedOperator(position:Position, var name:String, 
+            left:Value, right:Value):Value? {
+        -- avoid calling the various "fake" operators we define in the wrapper
+        -- classes
+        if name = "=" | name = "!=" {
+            if left.type.isPrimitive & right.type.isPrimitive
+                return null
+        }
+        else if !name.startsWith("[") & (left.type.isNumber | 
+                left.type.isWrapper) & (right.type.isNumber | 
+                right.type.isWrapper)
+            return null
+        if left.type = NullType.NULL | right.type = NullType.NULL
+            return null -- force this to be compiled as ==, which is quicker 
+                        -- than calling nullableEquals.
+        if name != "=" {
+            if left.type = StringOrCharType.STRING_OR_CHAR {
+                def cast:Value?
+                cast := left.implicitCast(context, ClassType.STRING)
+                return callOverloadedOperator(position, name, cast, right)
+            }
+            if right.type = StringOrCharType.STRING_OR_CHAR {
+                def cast:Value?
+                cast := right.implicitCast(context, ClassType.STRING)
+                return callOverloadedOperator(position, name, left, cast)
+            }
+        }
+
+        def rawName := name
+        -- map != and !== to = and ==. We'll invert the answer on return.
+        if name.startsWith("!")
+            name := name[1..]
+        var result:Value? := null
+        def parameters := new Array<Value>()
+        parameters.add(left)
+        parameters.add(right)
+        if name = "=" & (left.type.isNullable | right.type.isNullable) {
+            -- for equality, if one or both parameters are null, we need to
+            -- funnel this through Panda.nullableEquals
+            result := testCall(position, new ClassLiteral(
+                    position, ClassType.PANDA), "nullableEquals", parameters)
+            assert result != null : "failed to call nullableEquals"
+        }
+        if result = null {
+            -- check for overload on left (both instance & class)
+            def rightParam := new Array<Value>()
+            rightParam.add(right)
+            result := testCall(position, left, name, rightParam)
+            if result = null {
+                result := testCall(position, new ClassLiteral(
+                        position, left.type->>(ClassType)), name, parameters)
+            }
+        }
+        if result = null {
+            -- check for overload on right (class only)
+            parameters.clear()
+            parameters.add(right)
+            parameters.add(left)
+            result := testCall(position, new ClassLiteral(position, 
+                    right.type->>(ClassType)), name, parameters)
+        }
+        if rawName.startsWith("!") & result != null {
+            result := new UnaryOperation(position, UnaryOperationType.NOT,
+                    result)
+        }
+        return result
+    }
+
+    ============================================================================
+    As implicitCast, but with the ability to toggle whether we care about 
+    signedness. If `signMatters` is false, the signedness is not considered
+    important and will not stop a cast that would normally not be allowed.
+
+    Note that the source and destination types are not necessarily integers; if
+    not, we ignore the signMatters flag altogether and just perform a normal
+    implicitCast.
+    ============================================================================
+    @private
+    method signMattersCast(position:Position, v:Value, t:Type, 
+            signMatters:Bit):Value? {
+        if !signMatters {
+            def srcType := v.type->>(PrimitiveType)
+            if srcType.isInteger & t.isInteger & 
+                    srcType->(IntType).signed != t->(IntType).signed & 
+                    srcType->>(PrimitiveType).size <= t->>(PrimitiveType).size
+                return v.explicitCast(context, t)
+        }
+        return v.implicitCast(context, t)
+    }
+    
+    ============================================================================
+    Returns `<left> <op> <right>`, where `op` is the type of a token 
+    representing a binary operator.
+    
+    @param node the position, for error reporting purposes
+    @param left the left operand
+    @param op the token type of a binary operator
+    @param right the right operand
+    ============================================================================
+    method getBinaryValue(position:Position, var left:Value, 
+            op:BinaryOperationType, var right:Value):Value? {
+        var methodName:String
+        switch op {
+            case BinaryOperationType.ADD:                   methodName := "+"
+            case BinaryOperationType.SUBTRACT:              methodName := "-"
+            case BinaryOperationType.MULTIPLY:              methodName := "*"
+            case BinaryOperationType.DIVIDE:                methodName := "/"
+            case BinaryOperationType.INT_DIVIDE:            methodName := "//"
+            case BinaryOperationType.REMAINDER:             methodName := "%"
+            case BinaryOperationType.SHIFT_LEFT:            methodName := "<<"
+            case BinaryOperationType.SHIFT_RIGHT:           methodName := ">>"
+            case BinaryOperationType.AND:                   methodName := "&"
+            case BinaryOperationType.OR:                    methodName := "|"
+            case BinaryOperationType.XOR:                   methodName := "~"
+            case BinaryOperationType.BITWISE_AND:           methodName := "&&"
+            case BinaryOperationType.BITWISE_OR:            methodName := "||"
+            case BinaryOperationType.BITWISE_XOR:           methodName := "~~"
+            case BinaryOperationType.POWER:                 methodName := "^"
+            case BinaryOperationType.EQUAL:                 methodName := "="
+            case BinaryOperationType.NOT_EQUAL:             methodName := "!="
+            case BinaryOperationType.IDENTITY:              methodName := "=="
+            case BinaryOperationType.NOT_IDENTITY:          methodName := "!=="
+            case BinaryOperationType.LESS_THAN:             methodName := "<"
+            case BinaryOperationType.GREATER_THAN:          methodName := ">"
+            case BinaryOperationType.LESS_THAN_OR_EQUAL:    methodName := "<="
+            case BinaryOperationType.GREATER_THAN_OR_EQUAL: methodName := ">="
+            default: {
+                context.errors.error("unsupported binary operator '\{op}'",
+                        position)
+                return null
+            }
+        }
+        def resolvedLeft := resolve(left)
+        if resolvedLeft != null
+            left := resolvedLeft
+        else
+            return null 
+        def resolvedRight := resolve(right)
+        if resolvedRight != null
+            right := resolvedRight
+        else
+            return null
+        var value := callOverloadedOperator(position, methodName, left,
+                right)
+        if value = null {
+            def operandType := BinaryOperation.operandType(context, op, left, 
+                    right)
+            if operandType = null {
+                context.errors.error("'\{methodName}' cannot operate on " +
+                        "'\{left.type.displayName}', "+ 
+                        "'\{right.type.displayName}'", position)
+                return null
+            }
+            Console.writeLine("operand type: " + operandType)
+            def leftCast := signMattersCast(position, left, operandType, 
+                    BinaryOperation.signMatters(op))
+            if leftCast != null
+                left := leftCast
+            else
+                return null
+            def rightCast := signMattersCast(position, right, operandType, 
+                    BinaryOperation.signMatters(op))
+            if rightCast != null
+                right := rightCast
+            else
+                return null
+            value := new BinaryOperation(position, op, left, right)
+        }
+        return value
+    }
+
+    -- FIXME refactoring required! I did this all wrong and dumb. When I first
+    -- started working on Panda, all lvalues were also rvalues. Then one
+    -- situation crept in where the two weren't exactly the same, so I hacked it
+    -- a bit to get it working. Then another cropped up, and another, and slowly
+    -- this nice simple method turned into this hellish monstrosity. It needs to
+    -- be killed with extreme prejudice, and I apologize to anyone reading this
+    -- code. It just built up a bit at a time until it was completely out of
+    -- control.
+    --
+    -- The basic idea is that (due to the original simplicity) the processing
+    -- originally just figured out the rvalue on the left side of the assignment
+    -- operator, ran into an assignment operator, made sure the rvalue worked as
+    -- an lvalue, and continued on its merry way. Since then, this has gotten so 
+    -- hellishly complicated that it absolutely needs to be rewritten so as to 
+    -- know up front to be looking for an lvalue, so we can eliminate all of 
+    -- these special cases and cut this at least in half.
+    --
+    -- UPDATE:
+    -- Oh god I made it even worse. It's so awful. Please don't judge me by this
+    -- method, I'm better than this, I swear :-(
+    --
+    -- FURTHER UPDATE:
+    -- Actually, I don't think the refactoring is as simple as I outlined. I 
+    -- hadn't considered the complexities introduced by compound assignment. We
+    -- can't just process the assignment target twice (once in "lvalue mode" and
+    -- once in "rvalue mode"), because that would involve duplicate evaluations
+    -- of things that are only supposed to be evaluated once. It can certainly
+    -- be done simpler than it's being done, but I don't think it's possible to
+    -- eliminate quite as much complexity as I had hoped.
+    method processSingleAssignment(var left:Value, right:Value, 
+            reuse:Bit):Statement {
+        def resolved := resolve(left)
+        if resolved != null
+            left := resolved
+-*        if left-?>(Unresolved) {
+            -- could be an assignment method
+            var contextValue := left->(Unresolved).contextValue
+            def name := left->(Unresolved).name
+            if contextValue = null {
+                if context.isInstance
+                    contextValue := context.getSelf(left.position)
+                else {
+                    -- we're in a class context, so there can't possibly be an
+                    -- assignment method. Go ahead and report the error.
+                    return null
+                }
+            }
+            def call := callAssignmentMethod(contextValue, name, 
+                    new PrimitiveArray<Value>(right))
+            if call != null
+                currentNode.add(call)
+            else {
+                -- no assignment method, trigger the exception
+                resolve(left)
+            }
+        }
+        else if left-?>(AmbiguousReference) {
+            var a := left->(AmbiguousReference)
+            var object := a.context
+            if reuse {
+                def reusable := makeReusable(object)
+                reusable.replace(reusable.createReference())
+                currentNode.add(new ValueStatement(reusable))
+                object := reusable.createReference()
+            }
+            checkAssignment(a.field, a.position)
+            open(new FieldAssignment(left.position, object, a.field))
+            currentNode.add(implicitCast(right.position, right, a.type))
+            close(class(FieldAssignment))
+        } *-
+        if left-?>(VariableReference) {
+            def variable := left->(VariableReference).variable
+            def cast := right.implicitCast(context, variable.type)
+            def assignment := new VariableAssignment(left.position,
+                    variable, cast)
+            return new ValueStatement(assignment)
+        }
+        else if left-?>(FieldReference) {
+            def fv := left->(FieldReference)
+            def object:Value
+            def finalRight:Value
+            if reuse {
+                def old := right->(BinaryOperation)
+                assert old.left = fv
+                object := new ReusedValueDefinition(fv.object)
+                def newRight := new BinaryOperation(old.position, old.operation,
+                        new FieldReference(old.position, object, fv.field), 
+                        old.right)
+                def cast := newRight.implicitCast(context, fv.field.type)
+                finalRight := cast
+            }
+            else {
+                object := fv.object
+                finalRight := right
+            }
+            def name := fv.field.name
+            Console.writeLine("skipping field ambiguity check")
+-*            var call := callAssignmentMethod(object, name, 
+                    new PrimitiveArray<Value>(right))
+            if call != null {
+                if currentClass != fv.field.parent & 
+                        !fv.field.annotations.isReadOnly &
+                        !fv.field.annotations.isFinal {
+                    throw new CompilerException("reference to '\{name}' is " +
+                            "ambiguous, both field \{name} (of type " +
+                            "\{fv.field.type.displayName}) and method " +
+                            "\{name}:=() match", fv.position)
+                }
+                currentNode.add(call)
+            }*-
+            return new FieldAssignment(fv.position, object, fv.field,
+                    finalRight)
+        }
+        else if left-?>(PrimitiveArrayIndexValue) {
+            def iv := left->(PrimitiveArrayIndexValue)
+            if reuse {
+                def old := right->(BinaryOperation)
+                assert old.left = iv
+                def array := new ReusedValueDefinition(iv.array)
+                def index := new ReusedValueDefinition(iv.index)
+                def newRight := new BinaryOperation(old.position, old.operation,
+                        new PrimitiveArrayIndexValue(array, index), old.right)
+                def cast := newRight.implicitCast(context,
+                        array.type->>(PrimitiveArrayType).elementType)
+                return new PrimitiveArrayIndexAssignment(left.position,
+                        array.createReference(), index.createReference(), cast)
+            }
+            else {
+                def array := iv.array
+                def index := iv.index
+                def cast := right.implicitCast(context,
+                        array.type->>(PrimitiveArrayType).elementType)
+                return new PrimitiveArrayIndexAssignment(left.position, 
+                        array, index, cast)
+            }
+        }
+-*
+        else if left-?>(PossibleIndexedAssignment) {
+            var pia := left->(PossibleIndexedAssignment)
+            var params := [pia.index, right]
+            var call := callAssignmentMethod(pia.context, "[]", params)
+            if call != null
+                currentNode.add(call)
+            else {
+                -- FIXME use map
+                var types := new PrimitiveArray<String>()
+                for p in params
+                    types.append(p.type.displayName)
+                throw new CompilerException("'\{pia.context.type.displayName}' does " + 
+                        "not define the indexed assignment ([]:=) operator " +
+                        "for \{types}", pia.position)
+            }
+        }
+        else if left-?>(PossibleSliceAssignment) {
+            var psa := left->(PossibleSliceAssignment)
+            var params := [psa.left, psa.right, psa.step, right]
+            var name:String
+            if psa.endInclusive
+                name := "[...]"
+            else
+                name := "[..]"
+            var call := callAssignmentMethod(psa.context, name, params)
+            if call != null
+                currentNode.add(call)
+            else {
+                var types := new PrimitiveArray<String>()
+                for p in params
+                    types.append(p.type.displayName)
+                if psa.endInclusive
+                    name := "inclusive slice assignment ([...]:=)"
+                else
+                    name := "exclusive slice assignment ([..]:=)"
+                throw new CompilerException("\{psa.context.type.displayName} does " +
+                        "not define the \{name} operator for \{types}", 
+                        psa.position)
+            }
+        }
+        else if left-?>(MethodCall) {
+            -- assigning to a method call. We need to look for a corresponding
+            -- assignment method / field.
+            var mc := left->(MethodCall)
+            var methodNode := mc.methodNode
+            if !methodNode.annotations.isClass & (mc.parameters.length = 1 | 
+                    methodNode.name = "[]" | methodNode.name = "[..]" |
+                    methodNode.name = "[...]") {
+                var cl := mc.methodNode.parent->(ClassNode)
+                var oldParams := mc.parameters
+                var testParams := oldParams[1..]
+                -- undo implicit casts that happened as part of setting up the
+                -- original method call
+                for i, p in testParams {
+                    testParams[i] := unwrapImplicitCast(p)
+                }
+                if methodNode.name = "[..]" | methodNode.name = "[...]" {
+                    -- restore parameters that might have been stripped when we
+                    -- matched the initial slice. Such a hack, I'm so sorry.
+                    if testParams.length = 0
+                        testParams.append(new NullLiteral(left.position))
+                    if testParams.length = 1
+                        testParams.append(new NullLiteral(left.position))
+                    if testParams.length = 2
+                        testParams.append(new IntegerLiteral(left.position, 1))
+                }
+                testParams.append(right)
+                def src := unwrapImplicitCast(oldParams[0])
+                def m := findAssignmentMethod(src, methodNode.name, 
+                        testParams, mc.isSuper)
+                if m != null {
+                    -- found assignment method
+                    -- promote our parameters, call it and we're done
+                    var params := new PrimitiveArray<Value>()
+                    if reuse
+                        cm.add(right)
+                    else
+                        cm.add(mc)
+                    for i, p in m.params {
+                        if i = m.params.length - 1
+                            break
+                        if reuse {
+                            def getMethod := left->(MethodCall).methodNode
+                            var reusable := makeReusable(p)
+                            reusable.replace(implicitCast(p.position,
+                                    reusable.createReference(),
+                                    getMethod.parameters[i].type))
+                            params.append(reusable)
+                        }
+                        else
+                            params.append(p)
+                        if params[i].parent != null
+                            params[i].removeFromParent()
+                    }
+                    if reuse
+                        right.removeFromParent()
+                    else
+                        mc.removeFromParent()
+                    params.append(right)
+                    currentNode.add(new ValueStatement(call(
+                            left.position, m.methodNode, 
+                            m.methodNode.isDeclaredVirtual() & !mc.isSuper, 
+                            params)))
+                }
+                else {
+                    -- no assignment method
+                    if methodNode.name = "[]" {
+                        var types := new PrimitiveArray<String>()
+                        for p in testParams
+                            types.append(p.type.displayName)
+                        throw new CompilerException("'\{src.type.displayName}' " +
+                                "does not define the indexed assignment ([]:=) " +
+                                "operator for \{types}", mc.position)
+                    }
+                    else if methodNode.name = "[..]" {
+                        throw new CompilerException("'\{src.type.displayName}' " +
+                                "does not define the exclusive slice assignment ([..]:=) " +
+                                "operator for these types", mc.position)
+                    }
+                    else if methodNode.name = "[...]" {
+                        throw new CompilerException("'\{src.type.displayName}' " +
+                                "does not define the inclusive slice assignment ([...]:=) " +
+                                "operator for these types", mc.position)
+                    }
+                    else {
+                        -- check for a field by this name
+                        if oldParams.length = 1 {
+                            var object := oldParams[0]
+                            def field := getField(left.position, 
+                                    new Dummy(object.type), 
+                                    mc.methodNode.name, false)
+                            if field-?>(FieldReference) {
+                                if reuse {
+                                    cm.add(right)
+                                    def reusable := makeReusable(object)
+                                    reusable.replace(reusable.createReference())
+                                    object := reusable
+                                    right.removeFromParent()
+                                }
+                                else
+                                    object.removeFromParent()
+                                checkAssignment(field->(FieldReference).field,
+                                        field.position)
+                                open(new FieldAssignment(left.position, 
+                                        object, field->(FieldReference).field))
+                                currentNode.add(implicitCast(right.position, 
+                                        right, field.type))
+                                close(class(FieldAssignment))
+                                return
+                            }
+                        }
+                        error("cannot assign to '\{left}'", left.position)
+                    }
+                }
+            }
+            else
+                error("cannot assign to '\{left}'", left.position)
+        }
+        else
+            error("cannot assign to '\{left}'", left.position)*-
+        throw new NotSupportedException("special assignment")
+    }
+
+    method processAssignment(position:Position, var left:ListView<Value?>, 
+            assignmentOp:BinaryOperationType?, var right:Value):Statement? {
+        def cm := context.currentMethod
+        def reuse:Bit
+        if assignmentOp = null {
+            reuse := false
+        }
+        else {
+            reuse := true
+            if left.length > 1 {
+                context.errors.error("compound assignment cannot " +
+                        " assign to multiple values at once", 
+                        position)
+                return null
+            }
+            var lvalue := left[0]
+            if lvalue = null {
+                context.errors.error("'_' is only permitted in " +
+                        "multiple assignments from a tuple", 
+                        position)
+                return null
+            }
+            lvalue := resolve(lvalue)
+            if lvalue = null
+                return null
+            def finalRight := getBinaryValue(position, lvalue, assignmentOp, 
+                    right)
+            if finalRight = null
+                return null
+            right := finalRight
+            -- deal with situations like int8 += 1 (which resolves into
+            -- int8 := int8 + 1, and the right side promotes to an Int32, so we
+            -- need to downcast)
+            if right.type.isInteger & lvalue.type.isInteger
+                right := right.explicitCast(context, lvalue.type)
+            def newLeft := new Array<Value?>()
+            newLeft.add(lvalue)
+            left := newLeft
+        }
+
+        if left.length > 1 {
+-*            var result := new Array<Statement>()
+            def reused := new ReusedValueDefinition(right)
+            result.add(new ValueStatement(reused))
+            for i, lvalue in left {
+                if lvalue != null {
+                    def tupleValue := getField(right.position, 
+                            reused.createReference(), "$field" + i)
+                    assert tupleValue != null : "can't-happen tuple failure"
+                    def assignment := processSingleAssignment(lvalue, 
+                            assignmentOp, tupleValue, reuse)
+                    if assignments = null
+                        return null
+                }
+            }
+            return new Block(position, result)*-
+            unreachable
+        }
+        else {
+            def lvalue := left[0]
+            assert lvalue != null
+            return processSingleAssignment(lvalue, right, reuse)
+        }
+    }
+
+    method convertAssignment(a:ASTAssignment):Statement? {
+        def lvalues := new Array<Value?>()
+        for lvalue in a.lvalues {
+            def converted := convertExpression(lvalue)
+            if converted = null
+                return null
+            def resolved := resolve(converted)
+            if resolved = null
+                return null
+            lvalues.add(resolved)
+        }
+        assert lvalues.length = 1 : "tuples not supported"
+        def rvalue := convertExpression(a.rvalue)
+        if rvalue = null
+            return null
+        return processAssignment(a.position, lvalues, a.operator, rvalue)
+    }
+
+    method convertStatement(s:ASTStatement):Statement? {
+        switch s.class {
+            case class(ASTExpressionStatement): {
+                def expr := convertExpression(
+                        s->(ASTExpressionStatement).expression)
+                if expr != null
+                    return new ValueStatement(expr)
+                return null
+            }
+            case class(ASTIf):
+                return convertIf(s->(ASTIf))
+            case class(ASTLoop):
+                return convertLoop(s->(ASTLoop))
+            case class(ASTWhile):
+                return convertWhile(s->(ASTWhile))
+            case class(ASTBreak):
+                return convertBreak(s->(ASTBreak))
+            case class(ASTContinue):
+                return convertContinue(s->(ASTContinue))
+            case class(ASTVarDeclaration):
+                return convertVarDeclaration(s->(ASTVarDeclaration))
+            case class(ASTAssignment):
+                return convertAssignment(s->(ASTAssignment))
+            case class(ASTBlock):
+                return convertBlock(s->(ASTBlock))
+            default:
+                throw new InternalCompilerException("unsupported statement: " +
+                        s.class.name, s.position)
+        }
+    }
+
+    method convertBlock(b:ASTBlock):Block {
+        def statements := new Array<Statement>()
+        for s in b.statements {
+            def converted := convertStatement(s)
+            if converted != null
+                statements.add(converted)
+        }
+        return new Block(b.position, statements)
+    }
+
+    method convertMethod(m:MethodStub):MethodNode {
+        context.localVariables.clear()
+        context.currentMethod := m
+        def body := convertBlock(m.body->(ASTBlock))
+        def result := new MethodNode(m, body, context.localVariables)
+        return result
+    }
+
+    method convertClass(cl:ClassStub):ClassNode {
+        def methods := new Array<MethodNode>()
+        context.currentClass := cl
+        for m in cl.methods.filter(m => m.body != null)
+            methods.add(convertMethod(m))
+        return new ClassNode(cl, methods)
+    }
+
+    method inferFieldType(f:FieldNode) {
+        if f.type-!>(UnresolvedType)
+            return
+        if f.initialValue = null {
+            context.errors.error("field '\{f.name}' has neither an explicit " +
+                    "type nor an initial value", f.position)
+            f.type := VoidType.VOID
+        }
+        if currentlyInferring.contains(f) {
+            def msg := new MutableString("unable to resolve field types due " +
+                    "to a circular dependency involving:")
+            for msgField in currentlyInferring
+                msg.append("\n    '\{msgField.name}': \{msgField.position}")
+            context.errors.error(msg->>(String), f.position)
+            f.type := VoidType.VOID
+            return
+        }
+        currentlyInferring.add(f)
+        def expr := convertExpression(f.initialValue->(ASTExpression))
+        if expr != null
+            f.type := expr.preferredVariableType()
+        currentlyInferring.remove(f)
+    }
+
     method generateProgram():Program {
-        return new Program(new Array<ClassNode>())
+        def classes := new Array<ClassNode>()
+        for cl in context.classes.values.filter(cl => !cl.isExternal) {
+            classes.add(convertClass(cl))
+        }
+        return new Program(context.classes.values, classes)
     }
 }

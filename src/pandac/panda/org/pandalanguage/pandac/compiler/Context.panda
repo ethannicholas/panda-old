@@ -1,9 +1,15 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.ast.ASTInvariant
+uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
@@ -12,12 +18,19 @@ uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.VoidType
 
 class Context {
-    def classes:ImmutableHashMap<String, ClassStub>
+    def typeResolver:TypeResolver
+
+    var classes:Map<String, ClassStub>
 
     def errors:ErrorReporter
+
+    def compilerSettings:CompilerSettings
 
     var currentClass:ClassStub
 
@@ -25,13 +38,28 @@ class Context {
 
     var symbolTable:SymbolTable
 
-    constructor(classes:ImmutableHashMap<String, ClassStub>, 
-            errors:ErrorReporter, currentClass:ClassStub, 
-            currentMethod:MethodStub) {
-        self.classes := classes
+    def localVariables := new Array<LocalVariable>()
+
+    constructor(typeResolver:TypeResolver, classes:MapView<String, ClassStub>, 
+            errors:ErrorReporter, compilerSettings:CompilerSettings) {
+        self.typeResolver := typeResolver
+        self.classes := new HashMap<String, ClassStub>(classes)
         self.errors := errors
-        self.currentClass := currentClass
-        self.currentMethod := currentMethod
+        self.compilerSettings := compilerSettings
+        self.currentClass := new ClassStub(Position.INTERNAL, "<dummy>", false, 
+                new Annotations(Position.INTERNAL, 
+                    new Array<AnnotationType>()), 
+                new LookupContext(new Array<String>(), 
+                    new HashMap<String, String>()), 
+                null, new Array<ClassType>(),
+                new Array<MethodStub>(), new Array<FieldNode>(), 
+                new Array<ASTInvariant>(), null, true)
+        def classAnnotation := new Array<AnnotationType>()
+        classAnnotation.add(AnnotationType.CLASS)
+        self.currentMethod := new MethodStub(Position.INTERNAL, "<dummy>",
+                new Annotations(Position.INTERNAL, classAnnotation),
+                MethodNodeType.METHOD, new Array<FormalParameter>(), 
+                VoidType.VOID, null, ClassType.OBJECT)
         self.symbolTable := new SymbolTable()
     }
 
@@ -46,8 +74,43 @@ class Context {
         symbolTable := newSymbolTable
     }
 
+    @private
+    method createStub(name:String):ClassStub? {
+        def type := typeResolver.resolve(new PandaParser(errors).parseType(name,
+                Position.INTERNAL), new LookupContext(new Array<String>(),
+                    new HashMap<String, String>()))
+        if type = null
+            return null
+        if type-?>(PrimitiveArrayType) {
+            def array := type->(PrimitiveArrayType)
+            if array.elementType-?>(GenericParameterType)
+                return null
+            def elementStub := getStub(array.elementType.name)
+            return array.createStub(elementStub)
+        }
+        else if type-?>(GenericType) {
+-*            def generic := type->(GenericType)
+            def baseStub := getStub(generic.base.name)
+            def parameterStubs := new Array<ClassStub?>()
+            for p in generic.parameters
+                parameterStubs.add(getStub(p.name))
+            def stub, _ := type->(GenericType).createStub(typeMap, baseStub,
+                    parameterStubs)
+            return stub*-
+            throw new CompilerException("Generic not supported")
+        }
+        return null
+    }
+
+    @unsafeFunction
     function getStub(name:String):ClassStub {
-        return classes[name]->(ClassStub)
+        var result := classes[name]
+        if result = null {
+            result := createStub(name)
+            assert result != null
+            classes[name] := result
+        }
+        return result
     }
 
     function getStub(cl:ClassType):ClassStub {

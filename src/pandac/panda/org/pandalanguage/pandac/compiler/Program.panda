@@ -6,9 +6,16 @@ uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.types.Type
 
 class Program {
+    def stubs:ImmutableHashMap<String, ClassStub>
+
     def classes:Map<String, ClassNode>
 
-    constructor(classes:CollectionView<ClassNode>) {
+    constructor(stubs:CollectionView<ClassStub>, 
+            classes:CollectionView<ClassNode>) {
+        def mutableStubs := new HashMap<String, ClassStub>()
+        for cl in stubs
+            mutableStubs[cl.name] := cl
+        self.stubs := new ImmutableHashMap<String, ClassStub>(mutableStubs)
         self.classes := new HashMap<String, ClassNode>()
         for cl in classes
             self.classes[cl.stub.name] := cl
@@ -17,5 +24,14 @@ class Program {
     @override
     function format(fmt:String):String {
         return classes.values->>(String)
+    }
+
+    function isEffectivelyVirtual(m:MethodStub):Bit {
+        if !m.isDeclaredVirtual
+            return false
+        def stub := stubs[m.owner.name]
+        if stub != null & stub.annotations.isFinal
+            return false
+        return true
     }
 }

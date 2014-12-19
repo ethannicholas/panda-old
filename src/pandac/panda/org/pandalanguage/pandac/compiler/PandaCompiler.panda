@@ -19,14 +19,24 @@ uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
 class CompilerErrorReporter : ErrorReporter {
+    constant ERROR_MESSAGE := "error"
+    constant WARNING_MESSAGE := "warning"
+    def queue:MessageQueue
+
+    constructor(queue:MessageQueue) {
+        self.queue := queue
+    }
+
     @override
     method error(message:String, position:Position) {
         Console.writeLine("error: \{position}: \{message}")
+        queue.post(ERROR_MESSAGE)
     }
 
     @override
     method warning(message:String, position:Position) {
         Console.writeLine("warning: \{position}: \{message}")
+        queue.post(WARNING_MESSAGE)
     }
 }
 
@@ -38,7 +48,10 @@ class PandaCompiler {
 
     var lastCheckpointLabel:String?
     var lastCheckpointTime:Int64
-    def errors := new CompilerErrorReporter()
+    def errorQueue := new MessageQueue()
+    def errors := new CompilerErrorReporter(errorQueue)
+    var errorCount := 0
+    var warningCount := 0
 
     @class
     function determinePandaHome():File {
@@ -194,12 +207,52 @@ class PandaCompiler {
         return result
     }
 
+    @private
+    method processMessages() {
+        while errorQueue.hasMessage() {
+            def message := errorQueue.getMessage()
+            switch message {
+                case CompilerErrorReporter.ERROR_MESSAGE: errorCount += 1
+                case CompilerErrorReporter.WARNING_MESSAGE: warningCount += 1
+                default: unreachable
+            }
+        }
+    }
+
     @protected
     method compile(settings:CompilerSettings) {
         def files := getASTFiles(settings)
-        def stubs := new StubGenerator(files, errors).generateStubs()
-        Console.writeLine(stubs)
-        new IRGenerator(stubs, errors).generateProgram()
+        processMessages()
+        if errorCount = 0 {
+            def typeResolver := new TypeResolver(files, errors)
+            processMessages()
+            if errorCount = 0 {
+                def stubs := new StubGenerator(files, typeResolver, 
+                        errors).generateStubs()
+                processMessages()
+                if errorCount = 0 {
+                    def program := new IRGenerator(stubs, typeResolver, settings,
+                            errors).generateProgram()
+                    processMessages()
+                    if errorCount = 0 {
+                        def cg := new ExecutableCodeGenerator(program, settings)
+                        cg.generateCode(new File("/tmp/foo"))
+                    }
+                }
+            }
+        }
+        if warningCount > 1 {
+            Console.writeLine(warningCount + " warnings")
+        }
+        else if warningCount = 1 {
+            Console.writeLine("1 warning")
+        }
+        if errorCount > 1 {
+            Console.writeLine(errorCount + " errors")
+        }
+        else if errorCount = 1 {
+            Console.writeLine("1 error")
+        }
     }
 
     function processArguments(args:PrimitiveArray<String>):CompilerSettings {

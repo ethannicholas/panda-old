@@ -1,7 +1,6 @@
--*package org.pandalanguage.pandac.compiler
+package org.pandalanguage.pandac.compiler
 
-uses org.pandalanguage.pandac.ast.BinaryOperationType
-uses org.pandalanguage.pandac.ast.UnaryOperationType
+uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.compiler.CompilerSettings
 uses org.pandalanguage.pandac.compiler.Dummy
@@ -11,6 +10,7 @@ uses org.pandalanguage.pandac.tree.AbstractLoop
 uses org.pandalanguage.pandac.tree.Annotation
 uses org.pandalanguage.pandac.tree.Assert
 uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BinaryOperationType
 uses org.pandalanguage.pandac.tree.BitLiteral
 uses org.pandalanguage.pandac.tree.Block
 uses org.pandalanguage.pandac.tree.Break
@@ -62,6 +62,7 @@ uses org.pandalanguage.pandac.tree.Ternary
 uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
 uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.Unreachable
 uses org.pandalanguage.pandac.tree.UnresolvedType
 uses org.pandalanguage.pandac.tree.Unwrap
@@ -98,6 +99,19 @@ class ClassConstant : Immutable {
         self.type := type
         self.methods := new ImmutableArray<MethodStub>(methods)
     }
+}
+
+@private
+class FatalErrorReporter : ErrorReporter {
+    @override
+    method error(message:String, position:Position) {
+        throw new CompilerException(message, position)
+    }
+
+    @override
+    method warning(message:String, position:Position) {
+        throw new CompilerException(message, position)
+    }    
 }
 
 class LLVMCodeGenerator (CodeGenerator) {
@@ -137,8 +151,6 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     var currentBlockLabel:String := "0"
 
-    def compilerSettings:CompilerSettings
-
     def classes:MapView<String, ClassNode>
 
     def classConstants := new HashMap<String, ClassConstant>()
@@ -152,8 +164,6 @@ class LLVMCodeGenerator (CodeGenerator) {
     def stringConstants := new HashMap<String, String>()
 
     def references := new HashMap<Value, String>()
-
-    def types:MapView<String, Type>
 
     def loops := new Stack<AbstractLoop>()
 
@@ -174,12 +184,16 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     var currentMethod:MethodNode?
 
+    var context:Context
+
     constructor(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
-        self.compilerSettings := compilerSettings
+        def errors := new FatalErrorReporter()
+        self.context := new Context(new TypeResolver(new Array<ASTFile>(), errors),
+                p.stubs, errors, compilerSettings)
         self.classes := p.classes
---        self.methodNames := new MethodNamer().nameMethods(classes, 
---                new CMethodNamingStrategy())
+        self.methodNames := new MethodNamer().nameMethods(p.stubs, 
+                new CMethodNamingStrategy())
     }
 
     @protected
@@ -293,11 +307,6 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function getType(cl:ClassStub):ClassType {
-        return types[cl.name]->(ClassType)
-    }
-
-    @private
     function getClass(cl:ClassType):ClassNode {
         return classes[cl.name]->(ClassNode)
     }
@@ -309,14 +318,13 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     function getStub(s:String):ClassStub {
--*        def result := stubs[s]
+        def result := program.stubs[s]
         -- FIXME TEMP
         if result = null {
             Panda.log("no stub for " + s)
-            return stubs["panda.core.Object"]->(ClassStub)
+            return program.stubs["panda.core.Object"]->(ClassStub)
         }
-        return result*-
-        throw new NotSupportedException()
+        return result
     }
 
     @private
@@ -356,6 +364,15 @@ class LLVMCodeGenerator (CodeGenerator) {
             body.writeLine("; " + comment)
         body.writeLine(label + ":")
     }
+
+    @protected
+    function endsInBranch(s:Statement):Bit {
+        if s-?>(Return) | s-?>(Break) | s-?>(Continue)
+            return true
+        if s-?>(Block)
+            return s->(Block).endsInBranch
+        return false
+    }
     
     @protected
     method createLabel():String {
@@ -368,7 +385,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if debug
             header.writeLine("; " + cl.name)
         header.write("%" + getName(cl) + " = type { ")
-        def fields := cl.instanceFields(stubs)
+        def fields := cl.instanceFields(context)
         for i, f in fields {
             if i != 0
                 header.write(", ")
@@ -622,14 +639,14 @@ class LLVMCodeGenerator (CodeGenerator) {
     @private
     method getITable(cl:ClassStub):String {
         def visited := new HashSet<ClassStub>()
-        def interfaces := cl.allInterfaces(stubs)
+        def interfaces := cl.allInterfaces(context)
         var previous := "%$itable* null"
         for intf in interfaces {
             if visited.contains(intf)
                 continue
             visited.add(intf)
             def intfCC := getClassConstant(intf)
-            def methods := cl.interfaceMethods(intf, stubs)
+            def methods := cl.interfaceMethods(intf, context)
             def name := "@" + getName(cl) + "$." + getName(intf)
             def type := "{ " + getLLVMType(ClassType.CLASS) + 
                     ", %$itable*, [" + methods.length + " x i8*] }"
@@ -661,7 +678,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         var name := cl.name
         var cc := classConstants[name]
         if cc = null {
-            def methods := cl.virtualMethods(stubs)
+            def methods := cl.virtualMethods(context)
             def className := getName(cl)
             cc := new ClassConstant(
                     className + "_class",
@@ -670,10 +687,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                     getLLVMType(ClassType.CLASS) + ", i1, i1, %$itable*, [" + 
                     methods.length + " x i8*] }", methods)
             classConstants[name] := cc
-            if types[name]-?>(WrapperType) {
-                assert name.endsWith("Wrapper") : "invalid wrapper class name"
+            if name.startsWith("panda.core.") & name.endsWith("Wrapper")
                 name := name[0 .. name.length - "Wrapper".length]
-            }
             -- go ahead and get other class constants here, before we've written
             -- anything -- this could cause other class definitions to be
             -- printed, and we don't want to be in the middle of output when
@@ -821,8 +836,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         assert cm != null : 
                 "currentMethod unexpectedly null in createBinaryOperationReference"
         if (op = "add" | op = "sub" | op = "mul") & 
-                !cm.annotations.isOverflow &
-                compilerSettings.overflowChecking &
+                !cm.stub.annotations.isOverflow &
+                context.compilerSettings.overflowChecking &
                 !b.permitOverflow {
             if b.type.isInteger & b.type->(IntType).signed
                 op := "s" + op
@@ -1153,7 +1168,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         else {
             def cl := getStub(object.type->>(ClassType))
-            def fields := cl.instanceFields(stubs)
+            def fields := cl.instanceFields(context)
             for i in 0 .. fields.length {
                 if fields[i] = field {
                     return createCommandReference("getelementptr inbounds " + 
@@ -1299,7 +1314,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     "expected actualType to not be primitive"
             assert !destType.isPrimitive :
                     "expected destType to not be primitive"
-            def checkCast := compilerSettings.checkCasts
+            def checkCast := context.compilerSettings.checkCasts
             if checkCast {
 -*                -- verify the cast. Use a dummy for the first 
                 -- parameter just to get the type right.
@@ -1466,8 +1481,6 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
             case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
             case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) 
-            case class(Unresolved): throw new InternalCompilerException(
-                    "unresolved value \{v}", v.position)
             default: {
                 throw new InternalCompilerException("unsupported value class: " + 
                         v.class.name, v.position)
@@ -1503,7 +1516,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method getPrimitiveArrayElementPointer(array:Value, index:Value):String {
         def arrayRef := getTypedReference(array)
         def indexRef := getTypedReference(index)
-        if compilerSettings.boundsChecking {
+        if context.compilerSettings.boundsChecking {
             def cast := getTempVariable()
             def arrayType := getLLVMType(ClassType.PRIMITIVE_ARRAY)
             body.writeLine("\{cast} = bitcast \{arrayRef} to \{arrayType}")
@@ -1582,7 +1595,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def ifLabel := createLabel()
         def elseLabel := createLabel()
         def endLabel:String
-        if i.elseBlock != null
+        if i.elseStatement != null
             endLabel := createLabel()
         else
             endLabel := elseLabel
@@ -1591,15 +1604,15 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "if test: " + i.test)
         body.writeLine()
         createBlock(ifLabel, "then: " + i)
-        generateBlockCode(i.ifBlock)
-        if !i.ifBlock.endsInBranch
+        generateStatementCode(i.thenStatement)
+        if !endsInBranch(i.thenStatement)
             writeBody("br label %" + endLabel, "then -> end")
         body.writeLine()
-        def elseBlock := i.elseBlock
-        if elseBlock != null {
+        def elseStatement := i.elseStatement
+        if elseStatement != null {
             createBlock(elseLabel, "else: " + i)
-            generateBlockCode(elseBlock)
-            if !elseBlock.endsInBranch
+            generateStatementCode(elseStatement)
+            if !endsInBranch(elseStatement)
                 writeBody("br label %" + endLabel, "else -> end")
             body.writeLine()
         }
@@ -1631,8 +1644,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "while test: " + w.test)
         body.writeLine()
         createBlock(bodyLabel, "body: " + w)
-        generateBlockCode(w.block())
-        if !w.block.endsInBranch
+        generateStatementCode(w.statement)
+        if !endsInBranch(w.statement)
             body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + w)
@@ -1651,8 +1664,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("br label %" + bodyLabel)
         body.writeLine()
         createBlock(bodyLabel, "body: " + d)
-        generateBlockCode(d.block)
-        if !d.block.endsInBranch
+        generateStatementCode(d.statement)
+        if !endsInBranch(d.statement)
             body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(nextLabel, "next: " + d)
@@ -1675,8 +1688,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(nextLabel, "next: " + l)
-        generateBlockCode(l.block)
-        if !l.block.endsInBranch
+        generateStatementCode(l.statement)
+        if !endsInBranch(l.statement)
             body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + l)
@@ -1695,12 +1708,13 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("br label %" + startLabel)
         body.writeLine()
         createBlock(startLabel, "start: " + l)
-        generateBlockCode(l.block)
-        if !l.block.endsInBranch
+        generateStatementCode(l.statement)
+        if !endsInBranch(l.statement)
             body.writeLine("br label %" + nextLabel)
         createBlock(nextLabel, "next: " + l)
         generateBlockCode(l.continueBlock)
-        assert !l.continueBlock.endsInBranch : "expected loop to not end in branch in generateLoopWithContinueBlockCode"
+        assert !endsInBranch(l.continueBlock) : "expected loop to not end in " +
+                "branch in generateLoopWithContinueBlockCode"
         body.writeLine("br label %" + startLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + l)
@@ -1854,8 +1868,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine()
         if debug
             body.writeLine("; " + m)
+        body.writeLine("; \{m} - \{m.position}")
         body.write("declare ")
-        Console.writeLine(3)
         if !external
             body.write("fastcc ")
         body.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
@@ -1879,7 +1893,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     @pre(node-!>(MethodNode))
     method findPromotedParameters(node:Node) {
-        if node-?>(MethodNode)
+-*        if node-?>(MethodNode)
             throw new AssertionError("FIXME")
         if node-?>(VariableAssignment) {
             var variable := node->(VariableAssignment).variable
@@ -1894,20 +1908,19 @@ class LLVMCodeGenerator (CodeGenerator) {
         else {
             for child in node
                 findPromotedParameters(child)
-        }
+        }*-
     }
 
     @protected
     method generateMethodCode(m:MethodNode) {
-        if m.annotations.isAbstract
+        if m.stub.annotations.isAbstract
             return
         currentMethod := m
         tempVariable := 1
-        def private := m.annotations.isPrivate
-        def external := m.annotations.isExternal
+        def private := m.stub.annotations.isPrivate
+        def external := m.stub.annotations.isExternal
         promotedParameters.clear()
-        if m.block != null
-            findPromotedParameters(m.block->(Block))
+        findPromotedParameters(m.body)
         body.writeLine()
         if debug
             body.writeLine("; " + m)
@@ -1917,7 +1930,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             body.write("define ")
         if !external
             body.write("fastcc ")
-        body.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
+        body.write(getLLVMType(m.stub.returnType) + " @\{getName(m.stub)}(")
         for i, p in m.parameters {
             if i > 0
                 body.write(", ")
@@ -1928,7 +1941,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
         }
         body.write(")")
-        if m.methodType = MethodNodeType.FUNCTION & isImmutable(m.returnType)
+        if m.stub.methodType = MethodNodeType.FUNCTION & 
+                isImmutable(m.stub.returnType)
             body.write(" readonly")
         if external
             body.writeLine()
@@ -1946,11 +1960,10 @@ class LLVMCodeGenerator (CodeGenerator) {
                         getLLVMType(promoted.type) + "* %" + getName(promoted))
             }
             
-            def block := m.block
-            assert block != null : "no block for non-abstract \{m}:\{m.position}"
+            def block := m.body
             generateBlockCode(block)
-            if !block.endsInBranch {
-                if m.returnType = VoidType.VOID
+            if !endsInBranch(block) {
+                if m.stub.returnType = VoidType.VOID
                     body.writeLine("ret void")
                 else
                     body.writeLine("unreachable")
@@ -1963,8 +1976,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     method generateClassCode(cl:ClassNode) {
         for m in cl.methods
             generateMethodCode(m)
-        for f in cl.fields {
-            if f.owner.name = cl.name
+        for f in cl.stub.fields {
+            if f.owner.name = cl.stub.name
                 writeFieldDeclaration(f)
         }
     }
@@ -1978,29 +1991,20 @@ class LLVMCodeGenerator (CodeGenerator) {
                 '"')
         header.writeLine('%$itable = type { %panda$core$Class*, %$itable*, ' +
                 "[0 x i8*] }")
-        for (_, cl) in stubs {
+        for (_, cl) in context.classes {
             if cl.genericParameters = null & !cl.annotations.isUnspecified
                 writeTypeDescriptor(cl)
         }
-        for (_, cl) in stubs {
+        for (_, cl) in context.classes {
             if classes[cl.name] = null {
-                Console.writeLine(cl.name + " - " + cl.annotations.isUnspecified)
                 for m in cl.methods {
-                    if !cl.annotations.isUnspecified | m.annotations.isClass {
-                        Console.writeLine("WRITING \{m}:\{m.owner}")
+                    if !cl.annotations.isUnspecified | m.annotations.isClass
                         writeMethodDeclaration(m)
-                    }
-                    else
-                        Console.writeLine("SKIPPING \{m}:\{m.owner}")
                 }
                 for f in cl.fields {
                     if (!cl.annotations.isUnspecified | f.annotations.isClass |
-                            f.annotations.isThread) & f.owner.name = cl.name {
-                        Console.writeLine("WRITING \{f}:\{f.owner}")
+                            f.annotations.isThread) & f.owner.name = cl.name
                         writeFieldDeclaration(f)
-                    }
-                    else
-                        Console.writeLine("skipping \{f}:\{f.owner}")
                 }
             }
         }
@@ -2008,8 +2012,10 @@ class LLVMCodeGenerator (CodeGenerator) {
             if cl.live & !cl.annotations.isUnspecified()
                 getClassConstant(cl)
         }*-
-        for (_, cl) in classes
+        for (_, cl) in classes {
+            Console.writeLine("generateClassCode: " + cl.stub.name + " - " + cl.methods)
             generateClassCode(cl)
+        }
 
         body.writeLine("declare void @pandaInit()")
         body.writeLine("declare void @pandaCheckLibVersion(i32)")
@@ -2078,8 +2084,8 @@ class LLVMCodeGenerator (CodeGenerator) {
 
         def opt := PandaCompiler.getLLVMHome().resolve("opt")
         System.exec(opt, unoptTarget.path, "-o", target.path, "-O3",
-                "-q", "-f", "-S", "-std-compile-opts")
-        if !compilerSettings.preserveTempArtifacts
+                "-q", "-f", "-S")
+        if !context.compilerSettings.preserveTempArtifacts
             unoptTarget.delete()
     }
-}*-
+}
