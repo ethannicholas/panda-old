@@ -9,6 +9,7 @@ uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
 uses org.pandalanguage.pandac.ast.ASTParameter
 uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
 uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
@@ -19,6 +20,8 @@ uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
@@ -76,7 +79,7 @@ class StubGenerator {
     method resolveType(type:ASTType, lookupContext:LookupContext):Type? {
         def result := typeResolver.resolve(type, lookupContext)
         if result = null
-            errors.warning("type '\{type}' not found", type.position)
+            errors.error("type '\{type}' not found", type.position)
         return result
     }
 
@@ -128,8 +131,10 @@ class StubGenerator {
             var type:Type? := null
             if v.type != null
                 type := resolveType(v.type->(ASTType), lookupContext)
-            if type = null
-                type := new UnresolvedType(v.identifier, v.position)
+            if type = null {
+                type := new UnresolvedType("<field:\{v.identifier}>", 
+                        v.position)
+            }
             result.add(new FieldNode(f.position, owner, v.identifier, 
                     annotations, f.decl.varType, type, f.decl.initializer, i))
         }
@@ -137,15 +142,39 @@ class StubGenerator {
     }
 
     method convertClass(cl:ASTClass, currentPackage:String?,
-            lookupContext:LookupContext):ClassStub {
+            var lookupContext:LookupContext):ClassStub {
         def className:String
         if currentPackage != null
             className := currentPackage + "." + cl.name
         else
             className := cl.name
-        def classType := typeResolver.resolve(className, 
+        def classType := typeResolver.resolveName(className, 
                 lookupContext)->(ClassType)
-        Console.writeLine("converted \{className} into \{classType}")
+        if cl.genericParameters != null {
+            Console.writeLine("converting generic parameters")
+            for p in cl.genericParameters->(ListView<ASTTypedIdentifier>) {
+                def bound:Type
+                if p.type != null {
+                    def resolved := resolveType(p.type->(ASTType), 
+                            lookupContext)
+                    if resolved != null
+                        bound := resolved
+                    else
+                        bound := NullableType.ANY
+                }
+                else
+                    bound := NullableType.ANY
+                def type := new GenericParameterType(className + "." + 
+                        p.identifier, bound)
+                Console.writeLine("mapping \{type.name} to \{type}")
+                typeResolver.types[type.name] := type
+                def newAliases := new HashMap<String, String>(
+                        lookupContext.classAliases)
+                newAliases[p.identifier] := type.name
+                lookupContext := new LookupContext(lookupContext.packageUses,
+                        newAliases)
+            }
+        }
         def interfaces := new Array<ClassType>()
         var superclass:Type?
         if cl.superclass != null {
@@ -156,8 +185,12 @@ class StubGenerator {
                 superclass := null
             }
         }
-        else
-            superclass := null
+        else {
+            if className = class(Object).name
+                superclass := null
+            else
+                superclass := ClassType.OBJECT
+        }
         if cl.interfaces != null {
             for t in cl.interfaces->(ListView<ASTType>) {
                 def type := resolveType(t, lookupContext)
@@ -178,10 +211,13 @@ class StubGenerator {
         def fields := new Array<FieldNode>()
         for f in cl.fields
             fields.addAll(convertFields(f, classType, lookupContext))
+        var annotations := convertAnnotations(cl.position, cl.annotations)
+        if cl.genericParameters != null
+            annotations += AnnotationType.UNSPECIFIED
         return new ClassStub(cl.position, className, cl.isInterface, 
-                convertAnnotations(cl.position, cl.annotations), lookupContext, 
-                superclass->(ClassType?), interfaces, methods, fields, 
-                cl.invariants, cl.genericParameters, cl.isExternal)
+                annotations, lookupContext, superclass->(ClassType?), 
+                interfaces, methods, fields, cl.invariants, 
+                cl.genericParameters, cl.isExternal)
     }
 
     method generateStubs(f:ASTFile):CollectionView<ClassStub> {
@@ -216,10 +252,8 @@ class StubGenerator {
             }
             else if e-?>(ASTClass) {
                 def cl := e->(ASTClass)
-                if cl.genericParameters = null {
-                    result.add(convertClass(cl, currentPackage, 
-                            new LookupContext(packageUses, classAliases)))
-                }
+                result.add(convertClass(cl, currentPackage, 
+                        new LookupContext(packageUses, classAliases)))
             }
         }
         return result

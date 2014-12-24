@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.Type
 
 ================================================================================
@@ -11,7 +12,16 @@ target language.
 ================================================================================
 class MethodNamer {
     @private
+    def strategy:MethodNamingStrategy
+
+    @private
+    def context:Context
+
+    @private
     def named := new HashSet<ClassStub>()
+
+    @private
+    def names := new HashMap<MethodStub, String>()
 
     @class
     function escapeTypeName(name:String):String {
@@ -22,42 +32,34 @@ class MethodNamer {
                 replace(",", "$C").replace("&", "$AM")
     }
 
-    method nameMethods(stubs:MapView<String, ClassStub>,
-            strategy:MethodNamingStrategy):
-            MapView<MethodStub, String> {
-        def result := new HashMap<MethodStub, String>()
-        for cl in stubs.values
-            nameMethods(cl, stubs, strategy, result)
-        return result
+    constructor(context:Context, strategy:MethodNamingStrategy) {
+        self.context := context
+        self.strategy := strategy
+    }
+
+    method getName(m:MethodStub):String {
+        nameMethods(context.getStub(m.owner))
+        Console.writeLine("getting name of \{m.owner}::\{m}")
+        return names[m]->(String)
     }
 
     @private
-    @limited
-    method nameMethods(cl:ClassStub, stubs:MapView<String, ClassStub>,
-            strategy:MethodNamingStrategy, result:Map<MethodStub, String>) {
+    @self
+    method nameMethods(cl:ClassStub) {
         if named.contains(cl)
             return
+        Console.writeLine("naming methods in \{cl.name}:\{cl.annotations.isUnspecified}")
         named.add(cl)
-        def getStub := function(type:Type):ClassStub {
-            def result := stubs[type.name]
-            if result != null { -- FIXME remove this test when compiler is finished
-                assert result != null : "no stub for \{type.name}"
-                return result
-            }
-            else {
-                Panda.log("no stub for " + type)
-                return stubs["panda.core.Object"]->(ClassStub)
-            }
+        def getStub := function(type:ClassType):ClassStub {
+            return context.getStub(type)
         }
         def sc := cl.superclass
-        if sc != null
-            nameMethods(getStub(sc), stubs, strategy, result)
-        for intf in cl.interfaces
-            nameMethods(getStub(intf), stubs, strategy, result)
         def disambiguationBuckets:Map<String, List<MethodStub>> := 
                 new HashMap<String, List<MethodStub>>()
         for m in cl.methods {
+            Console.writeLine("looking at \{m}")
             if !cl.annotations.isUnspecified | m.annotations.isClass {
+                Console.writeLine("bucketing \{m}")
                 addToBucket(disambiguationBuckets, strategy.disambiguation(m), 
                         m)
             }
@@ -69,7 +71,7 @@ class MethodNamer {
                 addToBucket(shortBuckets, strategy.shortName(cl, m), m)
             for (key, shortBucket) in shortBuckets {
                 if shortBucket.length = 1
-                    result[shortBucket[0]] := key
+                    names[shortBucket[0]] := key
                 else {
                     def mediumBuckets:Map<String, List<MethodStub>> := 
                             new HashMap<String, List<MethodStub>>()
@@ -79,10 +81,10 @@ class MethodNamer {
                     }
                     for (mKey, mediumBucket) in mediumBuckets {
                         if mediumBucket.length = 1
-                            result[mediumBucket[0]] := mKey
+                            names[mediumBucket[0]] := mKey
                         else {
                             for m in mediumBucket
-                                result[m] := strategy.longName(cl, m)
+                                names[m] := strategy.longName(cl, m)
                         }
                     }
                 }

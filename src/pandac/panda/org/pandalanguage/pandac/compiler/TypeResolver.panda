@@ -3,28 +3,35 @@ package org.pandalanguage.pandac.compiler
 uses org.pandalanguage.pandac.ast.ASTClass
 uses org.pandalanguage.pandac.ast.ASTClassType
 uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.ast.ASTMethodType
 uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
+uses org.pandalanguage.pandac.ast.ASTTupleType
 uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
 uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.RealType
+uses org.pandalanguage.pandac.types.TupleType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
 uses org.pandalanguage.pandac.types.WrapperType
 
-class TypeResolver : Immutable {
-    @private
-    def types:ImmutableHashMap<String, Type>
+class TypeResolver {
+    def types:HashMap<String, Type>
 
     @private
     def errors:ErrorReporter
 
     constructor(files:CollectionView<ASTFile>, errors:ErrorReporter) {
-        def types := new HashMap<String, Type>()
+        types := new HashMap<String, Type>()
         types[IntType.INT8.name]    := IntType.INT8
         types[IntType.INT16.name]   := IntType.INT16
         types[IntType.INT32.name]   := IntType.INT32
@@ -76,17 +83,21 @@ class TypeResolver : Immutable {
                     currentPackage := decl->(ASTPackageDeclaration).name
             }
         }
-        self.types := new ImmutableHashMap<String, Type>(types)
+
         self.errors := errors
     }
 
-    function resolve(name:String, context:LookupContext):Type? {
-        var result := types[name]
-        if result != null
-            return result
+    @pre(!name.contains("<"))
+    method resolveName(name:String, context:LookupContext):Type? {
         def alias := context.classAliases[name]
-        if alias != null
-            return types[alias]
+        if alias != null {
+            return resolve(new PandaParser(errors).parseType(alias, 
+                    Position.INTERNAL), context)
+        }
+        var result := types[name]
+        if result != null {
+            return result
+        }
         if !name.contains(".") {
             for p in context.packageUses {
                 def testName := p + "." + name
@@ -101,12 +112,13 @@ class TypeResolver : Immutable {
     method resolve(raw:ASTType, context:LookupContext):Type? {
         if raw-?>(ASTClassType) {
             def cl := raw->(ASTClassType)
-            def base := resolve(cl.name, context)
+            var base := resolveName(cl.name, context)
             if base = null
                 return null
             def gp := cl.genericParameters
             if gp != null {
-                if base.name = class(PrimitiveArray).name {
+                if base.name = class(PrimitiveArray).name |
+                        base.name = class(ImmutablePrimitiveArray).name {
                     if gp.length != 1 {
                         errors.error("PrimitiveArray requires exactly 1 " + 
                                 "parameter", raw.position)
@@ -117,12 +129,55 @@ class TypeResolver : Immutable {
                         return null
                     return new PrimitiveArrayType(base->(ClassType), parameter)
                 }
-                return null
+                def genericParameters := new Array<Type>()
+                for p in gp {
+                    def resolved := resolve(p, context)
+                    if resolved = null
+                        return null
+                    genericParameters.add(resolved)
+                }
+                base := new GenericType(base->>(ClassType), genericParameters)
             }
-            if raw.isNullable
-                return new NullableType(base->>(ClassType))
+            if raw.isNullable {
+                if base.isPrimitive
+                    base := base->>(ClassType)            
+                return new NullableType(base)
+            }
             return base
         }
-        return null
+        if raw-?>(ASTMethodType) {
+            def m := raw->(ASTMethodType)
+            def parameters := new Array<Type>()
+            for p in m.parameters {
+                def resolved := resolve(p, context)
+                if resolved = null
+                    return null
+                parameters.add(resolved)
+            }
+            def returnType:Type?
+            if m.returnType != null {
+                returnType := resolve(m.returnType->(ASTType), context)
+                if returnType = null
+                    return null
+            }
+            else
+                returnType := VoidType.VOID
+            return new MethodType(parameters, returnType, m.isFunction,
+                    m.isImmutable)
+        }
+        if raw-?>(ASTTupleType) {
+-*            def tuple := raw->(ASTTupleType)
+            def types := new Array<Type>()
+            for t in tuple.types {
+                def resolved := resolve(t, context)
+                if resolved = null
+                    return null
+                types.add(resolved)
+            }
+            return new TupleType(types)*-
+            return ClassType.OBJECT
+        }
+        throw new InternalCompilerException("Unsupported type: " + raw + ":" + 
+                raw.class.name)
     }
 }

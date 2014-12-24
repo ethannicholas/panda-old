@@ -20,7 +20,9 @@ uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.VoidType
 
 class Context {
@@ -61,6 +63,7 @@ class Context {
                 MethodNodeType.METHOD, new Array<FormalParameter>(), 
                 VoidType.VOID, null, ClassType.OBJECT)
         self.symbolTable := new SymbolTable()
+        getStub(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
     }
 
     method pushSymbolTable() {
@@ -85,35 +88,46 @@ class Context {
             def array := type->(PrimitiveArrayType)
             if array.elementType-?>(GenericParameterType)
                 return null
-            def elementStub := getStub(array.elementType.name)
+            def elementStub:ClassStub?
+            if array.elementType.isPrimitive
+                elementStub := null
+            else
+                elementStub := getStub(array.elementType.name)
             return array.createStub(elementStub)
         }
         else if type-?>(GenericType) {
--*            def generic := type->(GenericType)
+            def generic := type->(GenericType)
             def baseStub := getStub(generic.base.name)
             def parameterStubs := new Array<ClassStub?>()
-            for p in generic.parameters
-                parameterStubs.add(getStub(p.name))
-            def stub, _ := type->(GenericType).createStub(typeMap, baseStub,
+            for p in generic.parameters {
+                if p-!>(PrimitiveType) & p-!>(GenericParameterType)
+                    parameterStubs.add(getStub(p.name))
+                else
+                    parameterStubs.add(null)
+            }
+            return type->(GenericType).createStub(self, baseStub,
                     parameterStubs)
-            return stub*-
-            throw new CompilerException("Generic not supported")
         }
         return null
     }
 
+    @private
     @unsafeFunction
     function getStub(name:String):ClassStub {
+        if name.endsWith("?")
+            return getStub(name[0 .. name.length - 1])
         var result := classes[name]
         if result = null {
             result := createStub(name)
-            assert result != null
+            assert result != null : "failed to create stub for \{name}"
             classes[name] := result
         }
         return result
     }
 
     function getStub(cl:ClassType):ClassStub {
+        if cl.isMethod
+            return getStub(ClassType.METHOD)
         return getStub(cl.name)
     }
 

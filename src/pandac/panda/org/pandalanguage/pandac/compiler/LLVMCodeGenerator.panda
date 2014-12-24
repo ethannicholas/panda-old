@@ -155,8 +155,6 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def classConstants := new HashMap<String, ClassConstant>()
 
-    def methodNames:MapView<MethodStub, String>
-
     var nameCount:Int
     
     var charArrayCount := 0
@@ -179,6 +177,8 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def body := new IndentedOutputStream(bodyBuffer)
 
+    def methodNamer:MethodNamer
+
     @private
     def promotedParameters := new HashMap<Variable, Variable>()
     
@@ -189,10 +189,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     constructor(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         def errors := new FatalErrorReporter()
-        self.context := new Context(new TypeResolver(new Array<ASTFile>(), errors),
-                p.stubs, errors, compilerSettings)
+        self.context := new Context(p.typeResolver, p.stubs, errors, 
+                compilerSettings)
         self.classes := p.classes
-        self.methodNames := new MethodNamer().nameMethods(p.stubs, 
+        self.methodNamer := new MethodNamer(context, 
                 new CMethodNamingStrategy())
     }
 
@@ -236,7 +236,17 @@ class LLVMCodeGenerator (CodeGenerator) {
             case VoidType.VOID: return "void"
             case NativePointerType.NATIVE_POINTER: return "i8*"
         }
-        return "%" + getName(getStub(t->>(ClassType))) + "*"
+        def stub := context.classes[t.name]
+        if stub != null
+            return "%" + getName(stub) + "*"
+        else {
+            -- can happen for the time being when methods are present in 
+            -- imported libraries but never called. We don't necessarily end up
+            -- making stubs for classes referenced by such methods, but due to 
+            -- the current lack of dead code elimination we still write the 
+            -- method signature. This hack gets things working for now.
+            return getLLVMType(ClassType.OBJECT)
+        }
     }
 
     method getLLVMMethodType(t:MethodStub):String {
@@ -282,15 +292,13 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function getName(m:MethodNode):String {
+    method getName(m:MethodNode):String {
         return getName(m.stub)
     }
 
     @private
-    function getName(m:MethodStub):String {
-        def result := methodNames[m]
-        assert result != null : "no method name for \{m.owner}::\{m}"
-        return result
+    method getName(m:MethodStub):String {
+        return methodNamer.getName(m)
     }
 
     @private
@@ -313,18 +321,12 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     function getStub(cl:ClassType):ClassStub {
-        return getStub(cl.name)
+        return context.getStub(cl)
     }
 
     @private
     function getStub(s:String):ClassStub {
-        def result := program.stubs[s]
-        -- FIXME TEMP
-        if result = null {
-            Panda.log("no stub for " + s)
-            return program.stubs["panda.core.Object"]->(ClassStub)
-        }
-        return result
+        return context.getStub(s)
     }
 
     @private
@@ -1410,7 +1412,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         realParameters.add(baseType)
         realParameters.addAll(baseType.methodParameters)
         def realType := new MethodType(realParameters, baseType.returnType, 
-                baseType.isFunction, baseType.immutableMethod)
+                baseType.isMethod, baseType.immutableMethod)
         def methodPtr := getVirtualMethodReference(d.methodValue, offset,
                 getLLVMMethodType(realType))
         def c := "fastcc "->>(MutableString)
@@ -1992,7 +1994,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         header.writeLine('%$itable = type { %panda$core$Class*, %$itable*, ' +
                 "[0 x i8*] }")
         for (_, cl) in context.classes {
-            if cl.genericParameters = null & !cl.annotations.isUnspecified
+            if !cl.annotations.isUnspecified
                 writeTypeDescriptor(cl)
         }
         for (_, cl) in context.classes {
@@ -2013,7 +2015,6 @@ class LLVMCodeGenerator (CodeGenerator) {
                 getClassConstant(cl)
         }*-
         for (_, cl) in classes {
-            Console.writeLine("generateClassCode: " + cl.stub.name + " - " + cl.methods)
             generateClassCode(cl)
         }
 

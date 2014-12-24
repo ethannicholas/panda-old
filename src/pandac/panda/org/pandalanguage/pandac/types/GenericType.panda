@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.types
 
 uses org.pandalanguage.pandac.compiler.ASTGenerator
 uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
 uses org.pandalanguage.pandac.compiler.Message
 uses org.pandalanguage.pandac.compiler.MessageProcessor
@@ -10,6 +11,7 @@ uses org.pandalanguage.pandac.compiler.TypeMap
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
@@ -52,5 +54,113 @@ class GenericType : ClassType {
         }
         result.append(">")
         return result->>(String)
+    }
+
+
+    @private
+    function parseType(name:String, context:Context):ParseNode {
+        return new PandaParser(context.errors).parseType(name, 
+                new Position(name, -1, -1))
+    }
+
+    @private
+    method getType(type:Type, context:Context, 
+            lookupContext:LookupContext):Type {
+        if type-?>(UnresolvedType) {
+            throw new CompilerException("unresolved type: '\{type.name}'", 
+                    type->(UnresolvedType).position)
+        }
+        if type = VoidType.VOID
+            return type
+        def result := context.typeResolver.resolve(
+                new PandaParser(context.errors).parseType(type.name,
+                    context.currentClass.position), lookupContext)
+        if result != null
+            return result
+        throw new CompilerException("unable to resolve type '\{type.name}'",
+                Position.INTERNAL)
+    }
+
+    @private
+    method instantiateField(f:FieldNode, context:Context, 
+            lookupContext:LookupContext):FieldNode {
+        return new FieldNode(f.position, self, f.name, f.annotations, f.varType,
+                getType(f.type, context, lookupContext), f.initialValue, 
+                f.tuplePosition)
+    }
+
+    @private
+    method instantiateMethod(m:MethodStub, context:Context, 
+            lookupContext:LookupContext):MethodStub {
+        def parameters := new Array<FormalParameter>()
+        for p in m.parameters {
+            def type:Type
+            if p.name = Parameter.SELF_NAME
+                type := self
+            else
+                type := getType(p.type, context, lookupContext)
+            parameters.add(new FormalParameter(p.position, p.name, 
+                    type, !p.isVar, p.isConvert, p.isVarArg))
+        }
+        return new MethodStub(m.position, m.name, m.annotations,
+                m.methodType, parameters, getType(m.returnType, context,
+                    lookupContext), 
+                m.body, self)
+    }
+
+    method createStub(context:Context, baseStub:ClassStub,
+            parameterStubs:ListView<ClassStub?>):ClassStub {
+        def baseParameters := baseStub.genericParameters
+        assert baseParameters != null : 
+                "base class (\{baseStub.name}) is not generic"
+        assert baseParameters.length = parameters.length : 
+                "parameter mismatch (\{baseParameters} vs. \{parameters})"
+        def position := new Position(name, -1, -1)
+        def aliases := new HashMap<String, String>(
+                baseStub.lookupContext.classAliases)
+        for i, p in parameters {
+            aliases[baseParameters[i].identifier] := p.name
+            def fullName := baseStub.name + "." + baseParameters[i].identifier
+            aliases[fullName] := p.name
+        }
+        def lookupContext := new LookupContext(
+                baseStub.lookupContext.packageUses, aliases)
+        def fields := new Array<FieldNode>()
+        for f in baseStub.fields.filter(f => !f.annotations.isClass &
+                !f.annotations.isThread)
+            fields.add(instantiateField(f, context, lookupContext))
+        def methods := new Array<MethodStub>()
+        for m in baseStub.methods.filter(m => !m.annotations.isClass)
+            methods.add(instantiateMethod(m, context, lookupContext))
+        var superclass := baseStub.superclass
+        if superclass != null {
+            def resolved:Type?
+            resolved := getType(superclass, context, lookupContext)
+            superclass := resolved->(ClassType)
+        }
+        else
+            superclass := null
+        def interfaces := new Array<ClassType>()
+        for intf in baseStub.interfaces {
+            var type:Type?
+            type := getType(intf, context, lookupContext)
+            if type != null
+                interfaces.add(type->>(ClassType))
+        }
+        var annotations := baseStub.annotations - AnnotationType.UNSPECIFIED
+        for i, p in parameters {
+            def unspecified:Bit
+            if p-?>(GenericParameterType)
+                unspecified := true
+            def stub := parameterStubs[i]
+            unspecified := stub != null & stub.annotations.isUnspecified
+            if unspecified {
+                annotations += AnnotationType.UNSPECIFIED
+                break
+            }
+        }
+        return new ClassStub(position, name, false, annotations, 
+                lookupContext, superclass, interfaces, methods, fields, 
+                baseStub.invariants, null, baseStub.isExternal)
     }
 }
