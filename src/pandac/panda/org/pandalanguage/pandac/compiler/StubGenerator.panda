@@ -1,13 +1,18 @@
 package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ASTAnnotation
+uses org.pandalanguage.pandac.ast.ASTAssignment
+uses org.pandalanguage.pandac.ast.ASTBlock
 uses org.pandalanguage.pandac.ast.ASTClass
+uses org.pandalanguage.pandac.ast.ASTExpression
 uses org.pandalanguage.pandac.ast.ASTField
 uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.ast.ASTIdentifier
 uses org.pandalanguage.pandac.ast.ASTMethod
 uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
 uses org.pandalanguage.pandac.ast.ASTParameter
 uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
+uses org.pandalanguage.pandac.ast.ASTStatement
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
@@ -17,8 +22,12 @@ uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.VariableType
+uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.NullableType
@@ -126,7 +135,9 @@ class StubGenerator {
     method convertFields(f:ASTField, owner:ClassType, 
             lookupContext:LookupContext):ListView<FieldNode> {
         def result := new Array<FieldNode>()
-        def annotations := convertAnnotations(f.position, f.annotations)
+        var annotations := convertAnnotations(f.position, f.annotations)
+        if f.decl.varType = VariableType.CONSTANT
+            annotations += AnnotationType.CLASS
         for i, v in f.decl.vars {
             var type:Type? := null
             if v.type != null
@@ -141,6 +152,54 @@ class StubGenerator {
         return result
     }
 
+    method createClassInit(position:Position, owner:ClassType,
+            fields:ListView<FieldNode>):(FieldNode, MethodStub)? {
+        var createInit := false
+        def body := new Array<ASTStatement>()
+        for f in fields {
+            if f.annotations.isClass | 
+                    f.annotations.isThread {
+                -- for isThread, we just ensure that the class init method
+                -- exists (it doesn't have to contain anything). This is so
+                -- code generators can easily do required thread local 
+                -- setup.
+                createInit := true
+                if f.annotations.isClass {
+                    def value := f.initialValue
+                    if value != null {
+                        def target := new Array<ASTExpression>()
+                        target.add(new ASTIdentifier(f.position, f.name))
+                        body.add(new ASTAssignment(target, null, value))
+                    }
+                }
+            }
+        }
+        if createInit {
+            -- FIXME need to use array syntax when it's wired up
+            def classAnnotations := new Array<AnnotationType>()
+            classAnnotations.add(AnnotationType.CLASS)
+            def classInited := new FieldNode(position, owner->(ClassType), 
+                    FieldNode.CLASS_INITED_NAME, new Annotations(position, 
+                        classAnnotations), 
+                    VariableType.VAR, BitType.BIT, null, null)
+
+            -*def methodBody := new PandaParser().parseBlock(
+                    "{ if \{owner.name}.\{classInited.name} return " +
+                    "\{owner.name}.\{classInited.name} := true \{body} }",
+                    position)*-
+
+            def classInit := new MethodStub(position, 
+                    MethodNode.CLASS_INIT_NAME, new Annotations(position, 
+                        classAnnotations),
+                    MethodNodeType.METHOD, new Array<FormalParameter>(), 
+                    VoidType.VOID, new ASTBlock(position, body), 
+                    owner->(ClassType))
+
+            return (classInited, classInit)
+        }
+        return null
+    }
+
     method convertClass(cl:ASTClass, currentPackage:String?,
             var lookupContext:LookupContext):ClassStub {
         def className:String
@@ -151,7 +210,6 @@ class StubGenerator {
         def classType := typeResolver.resolveName(className, 
                 lookupContext)->(ClassType)
         if cl.genericParameters != null {
-            Console.writeLine("converting generic parameters")
             for p in cl.genericParameters->(ListView<ASTTypedIdentifier>) {
                 def bound:Type
                 if p.type != null {
@@ -166,7 +224,6 @@ class StubGenerator {
                     bound := NullableType.ANY
                 def type := new GenericParameterType(className + "." + 
                         p.identifier, bound)
-                Console.writeLine("mapping \{type.name} to \{type}")
                 typeResolver.types[type.name] := type
                 def newAliases := new HashMap<String, String>(
                         lookupContext.classAliases)
@@ -214,10 +271,17 @@ class StubGenerator {
         var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null
             annotations += AnnotationType.UNSPECIFIED
-        return new ClassStub(cl.position, className, cl.isInterface, 
-                annotations, lookupContext, superclass->(ClassType?), 
-                interfaces, methods, fields, cl.invariants, 
-                cl.genericParameters, cl.isExternal)
+        if !cl.isExternal {
+            def init := createClassInit(cl.position, classType, fields)
+            if init != null {
+                fields.add(init[0])
+                methods.add(init[1])
+            }
+        }
+        return new ClassStub(cl.position, new ClassType(className), 
+                cl.isInterface, annotations, lookupContext, 
+                superclass->(ClassType?), interfaces, methods, fields, 
+                cl.invariants, cl.genericParameters, cl.isExternal)
     }
 
     method generateStubs(f:ASTFile):CollectionView<ClassStub> {

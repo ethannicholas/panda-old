@@ -9,11 +9,14 @@ uses org.pandalanguage.pandac.ast.ASTBreak
 uses org.pandalanguage.pandac.ast.ASTCallExpression
 uses org.pandalanguage.pandac.ast.ASTClassType
 uses org.pandalanguage.pandac.ast.ASTContinue
+uses org.pandalanguage.pandac.ast.ASTDo
 uses org.pandalanguage.pandac.ast.ASTDotExpression
 uses org.pandalanguage.pandac.ast.ASTExpression
 uses org.pandalanguage.pandac.ast.ASTExpressionStatement
+uses org.pandalanguage.pandac.ast.ASTFor
 uses org.pandalanguage.pandac.ast.ASTIdentifier
 uses org.pandalanguage.pandac.ast.ASTIf
+uses org.pandalanguage.pandac.ast.ASTIndex
 uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTFile
@@ -21,9 +24,11 @@ uses org.pandalanguage.pandac.ast.ASTLoop
 uses org.pandalanguage.pandac.ast.ASTNew
 uses org.pandalanguage.pandac.ast.ASTNullLiteral
 uses org.pandalanguage.pandac.ast.ASTReturn
+uses org.pandalanguage.pandac.ast.ASTSelf
 uses org.pandalanguage.pandac.ast.ASTStatement
 uses org.pandalanguage.pandac.ast.ASTStringLiteral
 uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.ast.ASTVarDeclaration
 uses org.pandalanguage.pandac.ast.ASTWhile
 uses org.pandalanguage.pandac.parser.PandaParser
@@ -44,6 +49,7 @@ uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.Continue
+uses org.pandalanguage.pandac.tree.Do
 uses org.pandalanguage.pandac.tree.FieldAssignment
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.FieldReference
@@ -73,15 +79,19 @@ uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedDotExpression
 uses org.pandalanguage.pandac.tree.UnresolvedIdentifier
+uses org.pandalanguage.pandac.tree.UnresolvedIndex
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.VarDeclaration
+uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.VariableType
 uses org.pandalanguage.pandac.tree.While
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
@@ -124,10 +134,12 @@ class IRGenerator {
     method createFieldReference(position:Position, var contextValue:Value, 
             f:FieldNode, allowNoArgFunctions:Bit):Value {
         inferFieldType(f)
-        def annotations := f.annotations
         if allowNoArgFunctions {
-            def name := f.name
-            def m := context.currentMethod
+            def result := testCall(position, contextValue, f.name, 
+                    new Array<Value>())
+            if result != null & result->(MethodCall).methodStub.methodType =
+                    MethodNodeType.FUNCTION
+                return result
         }
         def result := new FieldReference(position, contextValue, f)
         return result
@@ -164,6 +176,11 @@ class IRGenerator {
                 cl := contextValueClass
             }
             if contextValue-!>(ClassLiteral) {
+                def noArg := testCall(position, contextValue, name, 
+                        new Array<Value>())
+                if noArg != null & noArg->(MethodCall).methodStub.methodType =
+                        MethodNodeType.FUNCTION
+                    return noArg
                 def fields := cl.instanceFields(context)
                 -- need to search backwards since ancestor classes are at the
                 -- beginning of the array, and we may be shadowing fields
@@ -488,13 +505,23 @@ class IRGenerator {
             return null
         def parameters := new Array<Value>()
         for p in c.parameters {
-            def converted := convertExpression(p)
-            if converted = null
-                return null
-            def resolved := resolve(converted)
+            def resolved := resolve(p)
             if resolved = null
                 return null
             parameters.add(resolved)
+        }
+        if target-?>(UnresolvedIdentifier) {
+            if context.isInstance {
+                def test := testCall(c.position, context.getSelf(c.position),
+                        target->(UnresolvedIdentifier).name, parameters)
+                if test != null
+                    return test
+            }
+            def test := testCall(c.position, new ClassLiteral(c.position,
+                        context.currentClass.type),
+                    target->(UnresolvedIdentifier).name, parameters)
+            if test != null
+                return test
         }
         if target-?>(UnresolvedDotExpression) {
             def u := target->(UnresolvedDotExpression)
@@ -520,9 +547,12 @@ class IRGenerator {
             return null
         if left-?>(UnresolvedIdentifier) {
             def v := context.symbolTable[left->(UnresolvedIdentifier).name]
-            if v != null
-                return new UnresolvedDotExpression(new VariableReference(
-                        left.position, v), d.right)
+            if v != null {
+                def resolved := resolve(left)
+                if resolved = null
+                    return resolved
+                return new UnresolvedDotExpression(resolved, d.right)
+            }
             def name := left->(UnresolvedIdentifier).name + "." + d.right
             def cl := resolveClass(d.position, name)
             if cl != null
@@ -615,11 +645,7 @@ class IRGenerator {
                     text, string.position)
             if expr = null
                 return null
-            var value:Value?
-            value := convertExpression(expr)
-            if value = null
-                return null
-            value := resolve(value)
+            def value := resolve(expr)
             if value = null
                 return null
             values.add(value)
@@ -648,16 +674,10 @@ class IRGenerator {
     }
 
     method convertBinaryExpression(b:ASTBinaryExpression):Value? {
-        var left := convertExpression(b.left)
+        def left := resolve(b.left)
         if left = null
             return null
-        left := resolve(left)
-        if left = null
-            return null
-        var right := convertExpression(b.right)
-        if right = null
-            return null
-        right := resolve(right)
+        def right := resolve(b.right)
         if right = null
             return null
         return getBinaryValue(b.position, left, b.operation, right)
@@ -725,10 +745,7 @@ class IRGenerator {
     }
 
     method convertArrowExpression(a:ASTArrowExpression):Value? {
-        var left := convertExpression(a.left)
-        if left = null
-            return null
-        left := resolve(left)
+        def left := resolve(a.left)
         if left = null
             return null
         def right := context.typeResolver.resolve(a.right, 
@@ -749,18 +766,58 @@ class IRGenerator {
         if v-?>(UnresolvedIdentifier) {
             def name := v->(UnresolvedIdentifier).name
             def result := context.symbolTable[name]
-            if result != null
+            if result != null {
+                if result-?>(FieldNode) {
+                    def f := result->(FieldNode)
+                    if !f.annotations.isClass & !f.annotations.isThread {
+                        if !context.isInstance {
+                            context.errors.error("cannot reference field '" +
+                                    f.name + "' from a class context",
+                                    v.position)
+                            return new Dummy(v.position, f.type)
+                        }
+                        return new FieldReference(v.position, 
+                                context.getSelf(v.position), f)
+                    }
+                    return new FieldReference(v.position, 
+                            new ClassLiteral(v.position, f.owner), f)
+                }
                 return new VariableReference(v.position, result)
+            }
             else {
                 context.errors.error("unknown identifier '\{name}'", v.position)
                 return null
             }
+        }
+        if v-?>(UnresolvedDotExpression) {
+            def u := v->(UnresolvedDotExpression)
+            def result := getField(v.position, u.left, u.right, true)
+            if result-?>(UnresolvedDotExpression) {
+                context.errors.error("'\{u.left.type.displayName}' does not " +
+                        " have a field or no-argument function named " +
+                        "'\{u.right}'",
+                        u.position)
+                return null
+            }
+            return result
         }
         if v.type-?>(UnresolvedType)
             return v.implicitCast(context, v.preferredVariableType())
         return v
     }
     @post(@return = null | @return.type-!>(UnresolvedType))
+
+    method resolve(e:ASTExpression):Value? {
+        var result := convertExpression(e)
+        if result = null
+            return null
+        return resolve(result)
+    }
+
+    method resolve(t:ASTType):Type? {
+        return context.typeResolver.resolve(t, 
+                context.currentClass.lookupContext) 
+    }
 
     method convertNew(n:ASTNew):Value? {
         def type := context.typeResolver.resolve(n.type, 
@@ -776,6 +833,22 @@ class IRGenerator {
         }
         return call(n.position, new ClassLiteral(n.position, type), 
                 MethodNode.CONSTRUCTOR_NAME, parameters)
+    }
+
+    method convertIndex(i:ASTIndex):Value? {
+        def target := resolve(i.target)
+        if target = null
+            return null
+        def index := resolve(i.index)
+        if index = null
+            return index
+        def call := callOverloadedOperator(i.position, "[]", target, index)
+        def stub:MethodStub?
+        if call != null
+            stub := call->(MethodCall).methodStub
+        else
+            stub := null
+        return new UnresolvedIndex(i.position, target, index, stub)
     }
 
     method convertExpression(e:ASTExpression):Value? {
@@ -798,6 +871,10 @@ class IRGenerator {
                 return convertArrowExpression(e->(ASTArrowExpression))
             case class(ASTNew):
                 return convertNew(e->(ASTNew))
+            case class(ASTSelf):
+                return new UnresolvedIdentifier(e.position, "self")
+            case class(ASTIndex):
+                return convertIndex(e->(ASTIndex))
             default:
                 throw new InternalCompilerException("unsupported expression: " +
                         e.class.name, e.position)
@@ -807,13 +884,12 @@ class IRGenerator {
     method convertVarDeclaration(v:ASTVarDeclaration):Statement? {
         def initializer:Value?
         if v.initializer != null {
-            initializer := convertExpression(v.initializer->(ASTExpression))
+            initializer := resolve(v.initializer->(ASTExpression))
             if initializer = null
                 return null
         }
-        else {
+        else
             initializer := null
-        }
         for decl in v.vars {
             def type:Type?
             if decl.type != null {
@@ -864,6 +940,106 @@ class IRGenerator {
         return new If(i.position, test, thenStatement, elseStatement)
     }
 
+    @private
+    method castToIterable(value:Value):Value? {
+        def cl := context.getStub(value.type->>(ClassType))
+        for intf in cl.allInterfaces(context) {
+            if intf.name.startsWith("panda.collections.Iterable<")
+                return value.implicitCast(context, intf.type)
+        }
+        context.errors.error("expected 'panda.collections.Iterable<T>'" +
+                ", but found '\{value.type.displayName}'", value.position)
+        return null
+    }
+
+    method convertFor(f:ASTFor):Statement? {
+        def indexVar:LocalVariable?
+        if f.indexVar != null {
+            def astVar := f.indexVar->(ASTTypedIdentifier)
+            def type:Type?
+            if astVar.type != null {
+                type := resolve(astVar.type->(ASTType))
+                if type = null
+                    return null
+            }
+            else
+                type := IntType.INT32
+            indexVar := new LocalVariable(astVar.position, astVar.identifier, 
+                    type, VariableType.DEF)
+            context.localVariables.add(indexVar)
+            context.symbolTable[indexVar.name] := indexVar
+        }
+        else
+            indexVar := null
+        var list := resolve(f.list)
+        if list = null
+            return null
+        list := castToIterable(list)
+        if list = null
+            return null
+        def elementType := list.type->(GenericType).parameters[0]
+        def valueVars := new Array<Variable>()
+        for v in f.valueVars {
+            var type:Type?
+            if v.type != null {
+                type := resolve(v.type->(ASTType))
+                if type = null
+                    return null
+            }
+            else
+                type := elementType
+            def valueVar := new LocalVariable(v.position, v.identifier, type,
+                    VariableType.DEF)
+            valueVars.add(valueVar)
+            context.localVariables.add(valueVar)
+            context.symbolTable[valueVar.name] := valueVar
+        }
+        def statements := new Array<Statement>()
+        if indexVar != null {
+            statements.add(new ValueStatement(new VariableAssignment(f.position, 
+                    indexVar, new IntegerLiteral(f.position, 0, indexVar.type, 
+                    true), true)))
+        }
+        def typeParams := new Array<Type>()
+        typeParams.add(elementType)
+        def iteratorVar := new LocalVariable(f.position, "$iterator", 
+                new GenericType(new ClassType("panda.collections.Iterator"), 
+                typeParams), VariableType.DEF)
+        def getIterator := call(f.position, list, "iterator", 
+                new Array<Value>())
+        assert getIterator != null
+        statements.add(new ValueStatement(new VariableAssignment(f.position, 
+                iteratorVar, getIterator, true)))
+        context.localVariables.add(iteratorVar)
+        def bodyStatements := new Array<Statement>()
+        if indexVar != null {
+            def plusOne := new BinaryOperation(f.position, 
+                    BinaryOperationType.ADD, new VariableReference(f.position,
+                            indexVar), new IntegerLiteral(f.position, 1, 
+                            indexVar.type, true))
+            bodyStatements.add(new ValueStatement(new VariableAssignment(
+                    f.position, indexVar, plusOne, false)))
+        }
+        def next := call(f.position, new VariableReference(f.position, 
+                iteratorVar), "next", new Array<Value>())
+        assert next != null
+        bodyStatements.add(new ValueStatement(new VariableAssignment(f.position,
+                valueVars[0], next, false)))
+        def bodyStatement := convertStatement(f.statement)
+        if bodyStatement = null
+            return null
+        bodyStatements.add(bodyStatement)
+        def done := call(f.position, new VariableReference(f.position, 
+                iteratorVar), "done", new Array<Value>())
+        assert done != null
+        def test := new UnaryOperation(f.position, UnaryOperationType.NOT, done)
+        def w := new While(f.position, f.label, test, new Block(f.position,
+                bodyStatements))
+        statements.add(w)
+        Console.writeLine(statements)
+        return new Block(f.position, statements)
+    }
+
     method convertLoop(l:ASTLoop):Statement? {
         def statement := convertStatement(l.statement)
         if statement = null
@@ -879,6 +1055,16 @@ class IRGenerator {
         if statement = null
             return null
         return new While(w.position, w.label, test, statement)
+    }
+
+    method convertDo(d:ASTDo):Statement? {
+        def test := convertExpression(d.test)
+        if test = null
+            return null
+        def statement := convertStatement(d.statement)
+        if statement = null
+            return null
+        return new Do(d.position, d.label, test, statement)
     }
 
     method convertBreak(b:ASTBreak):Statement? {
@@ -1053,7 +1239,6 @@ class IRGenerator {
                         "'\{right.type.displayName}'", position)
                 return null
             }
-            Console.writeLine("operand type: " + operandType)
             def leftCast := signMattersCast(position, left, operandType, 
                     BinaryOperation.signMatters(op))
             if leftCast != null
@@ -1439,10 +1624,7 @@ class IRGenerator {
     method convertAssignment(a:ASTAssignment):Statement? {
         def lvalues := new Array<Value?>()
         for lvalue in a.lvalues {
-            def converted := convertExpression(lvalue)
-            if converted = null
-                return null
-            def resolved := resolve(converted)
+            def resolved := resolve(lvalue)
             if resolved = null
                 return null
             lvalues.add(resolved)
@@ -1458,10 +1640,7 @@ class IRGenerator {
         Console.writeLine("converting \{r}:\{r.position}")
         if r.value = null
             return new Return(r.position)
-        def converted := convertExpression(r.value->(ASTExpression))
-        if converted = null
-            return null
-        def resolved := resolve(converted)
+        def resolved := resolve(r.value->(ASTExpression))
         if resolved = null
             return null
         def cast := resolved.implicitCast(context, 
@@ -1480,10 +1659,14 @@ class IRGenerator {
             }
             case class(ASTIf):
                 return convertIf(s->(ASTIf))
+            case class(ASTFor):
+                return convertFor(s->(ASTFor))
             case class(ASTLoop):
                 return convertLoop(s->(ASTLoop))
             case class(ASTWhile):
                 return convertWhile(s->(ASTWhile))
+            case class(ASTDo):
+                return convertDo(s->(ASTDo))
             case class(ASTBreak):
                 return convertBreak(s->(ASTBreak))
             case class(ASTContinue):
@@ -1514,6 +1697,36 @@ class IRGenerator {
         return new Block(b.position, statements)
     }
 
+    function callsOtherSelfConstructor(owner:ClassType,
+            statements:ListView<Statement>):Bit {
+        if statements.length > 0 {
+            if statements[0]-?>(ValueStatement) {
+                var value := statements[0]->(ValueStatement).value
+                if value-?>(MethodCall) {
+                    var call := value->(MethodCall)
+                    if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
+                        return call.parameters[0].type = owner
+                }
+            }
+        }
+        return false
+    }
+    
+    function callsSuperConstructor(owner:ClassType,
+            statements:ListView<Statement>):Bit {
+        if statements.length > 0 {
+            if statements[0]-?>(ValueStatement) {
+                var value := statements[0]->(ValueStatement).value
+                if value-?>(MethodCall) {
+                    var call := value->(MethodCall)
+                    if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
+                        return call.parameters[0].type != owner
+                }
+            }
+        }
+        return false
+    }   
+
     method convertMethod(m:MethodStub):MethodNode {
         context.localVariables.clear()
         context.currentMethod := m
@@ -1525,7 +1738,25 @@ class IRGenerator {
             parameters.add(p)
             context.symbolTable[p.name] := p
         }
-        def body := convertBlock(m.body->(ASTBlock))
+        var body := convertBlock(m.body->(ASTBlock))
+        if m.methodType = MethodNodeType.CONSTRUCTOR & 
+                !callsOtherSelfConstructor(m.owner, body.statements) {
+            def statements := new Array<Statement>()
+            for f in context.currentClass.fields {
+                if !f.annotations.isClass & !f.annotations.isThread {
+                    if f.initialValue != null {
+                        def initialValue := convertExpression(f.initialValue->(ASTExpression))
+                        if initialValue != null {
+                            statements.add(new FieldAssignment(f.position,
+                                    context.getSelf(f.position), f,
+                                    initialValue))
+                        }
+                    }
+                }
+            }
+            statements.addAll(body.statements)
+            body := new Block(body.position, statements)
+        }
         def result := new MethodNode(m, body, parameters, 
                 context.localVariables)
         context.popSymbolTable()
@@ -1535,6 +1766,10 @@ class IRGenerator {
     method convertClass(cl:ClassStub):ClassNode {
         def methods := new Array<MethodNode>()
         context.currentClass := cl
+        context.pushSymbolTable()
+        for f in cl.fields {
+            context.symbolTable[f.name] := f
+        }
         for f in cl.fields
             inferFieldType(f)
         for m in cl.methods.filter(m => m.body != null)
@@ -1543,7 +1778,6 @@ class IRGenerator {
     }
 
     method inferFieldType(f:FieldNode) {
-        Console.writeLine("inferring type of \{f.name}:\{f.position}")
         if f.type-!>(UnresolvedType)
             return
         if f.initialValue = null {
