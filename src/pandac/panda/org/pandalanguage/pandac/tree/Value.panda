@@ -9,6 +9,7 @@ uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.WrapperType
 
 ================================================================================
@@ -24,13 +25,16 @@ class Value : Node {
     }
     
     @final
-    function preferredVariableType():Type {
-        return preferredVariableType(false)
+    method preferredVariableType(context:Context):Type {
+        return preferredVariableType(context, false)
     }
 
-    function preferredVariableType(preferImmutable:Bit):Type {
-        return type
+    method preferredVariableType(context:Context, preferImmutable:Bit):Type {
+        assert type-!>(UnresolvedType) : 
+                "'\{self}':\{class.name} has unresolved type"
+        return type.preferredVariableType()
     }
+    @post(@return-!>(UnresolvedType))
 
     ============================================================================
     If this value is potentially usable, returns `null`. If this value is not
@@ -44,7 +48,7 @@ class Value : Node {
     `value[5]` as a non-`valid()` value before replacing it with the final
     call to `[]:=()`.
     ============================================================================
-    method checkValid(errors:ErrorReporter):Bit {
+    method checkValid(context:Context):Bit {
         return true
     }
 
@@ -53,17 +57,19 @@ class Value : Node {
         return implicitCastCost(context, t) != null
     }
 
+    @pre(t-!>(UnresolvedType))
     function implicitCastCost(context:Context, t:Type):Int? {
         return type.implicitCastCost(context, t)
     }
 
     @final
+    @pre(t-!>(UnresolvedType))
     method implicitCast(context:Context, t:Type):Value {
         return implicitCast(position, context, t)
     }
 
     method implicitCast(position:Position, context:Context, t:Type):Value {
-        if !checkValid(context.errors) {
+        if !checkValid(context) {
             return new Dummy(position, t)
         }
         if t = type
@@ -79,7 +85,7 @@ class Value : Node {
                 return nonNull.implicitCast(position, context, t)
             }
         }
-        def result := new Cast(self, t, CastType.IMPLICIT)
+        def result := new Cast(position, self, t, CastType.IMPLICIT)
         if implicitCastCost(context, t) != null
             return result
         else {
@@ -105,7 +111,7 @@ class Value : Node {
             def cast := implicitCast(position, context, t)
             return IRGenerator.makeExplicit(cast)
         }
-        def result := new Cast(self, t, CastType.EXPLICIT)
+        def result := new Cast(position, self, t, CastType.EXPLICIT)
         if !canExplicitCastTo(context, t) {
             context.errors.error("'\{t.displayName}' cannot possibly be an " +
                     "instance of '\{type.displayName}'", position)

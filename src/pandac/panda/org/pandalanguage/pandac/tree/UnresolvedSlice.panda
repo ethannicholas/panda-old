@@ -1,6 +1,7 @@
 package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.compiler.ErrorReporter
 uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.stubs.MethodStub
@@ -11,105 +12,116 @@ uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
 ================================================================================
-Represents an index or slice which has not yet been fully resolved. This is used
-(as opposed to immediately returning a finished [Value]) to make overloaded
-assignments easier. When processing a[1 .. 5], we return an `UnresolvedIndex`
-to represent it, so if the next token is `:=` we can easily perform the
-appropriate lookup.
+Represents a slice which has not yet been fully resolved.
 ================================================================================
 class UnresolvedSlice : UnresolvedValue {
-    constant UNRESOLVED_SLICE := new UnresolvedType("<unresolved slice>")
-
     def contextValue:Value
     def left:Value?
     def right:Value?
     def step:Value?
-    def inclusive:Bit
-    def methodStub:MethodStub?
+    def endInclusive:Bit
 
-    constructor(contextValue:Value, left:Value?, right:Value?, step:Value?,
-            inclusive:Bit, methodStub:MethodStub?) {
-        super.constructor(contextValue.position, UNRESOLVED_SLICE)
+    constructor(context:Context, position:Position, contextValue:Value, 
+            left:Value?, right:Value?, step:Value?, endInclusive:Bit) {
+        super.constructor(position, "<unresolved slice>", getCall(context,
+                position, contextValue, left, right, step, endInclusive))
         self.contextValue := contextValue
         self.left := left
         self.right := right
         self.step := step
-        self.inclusive := inclusive
-        self.methodStub := methodStub
+        self.endInclusive := endInclusive
     }
 
-    -- FIXME remove this when final array syntax is in
     @private
     @class
-    function wrap(contextValue:Value):ListView<Node> {
-        def result := new Array<Node>()
-        result.add(contextValue)
+    method getCall(context:Context, position:Position, contextValue:Value,
+            params:Array<Value>, endInclusive:Bit):Value? {
+        def name:String
+        if endInclusive
+            name := "[...]"
+        else
+            name := "[..]"
+        def result := context.testCall(position, contextValue, name, params)
         return result
     }
 
-    @override
-    method checkValid(errors:ErrorReporter):Bit {
-        if methodStub = null {
-            def name:String
-            if inclusive
-                name := "[...]"
-            else
-                name := "[..]"
-            def parameters := new MutableString("[")
-            if left != null
-                parameters.append("'\{left.type.displayName}'")
-            else
-                parameters.append("'null'")
-            parameters.append(", ")
-            if right != null
-                parameters.append("'\{right.type.displayName}'")
-            else
-                parameters.append("'null'")
-            parameters.append(", ")
-            if step != null
-                parameters.append("'\{step.type.displayName}'")
-            else
-                parameters.append("'null'")
-            parameters.append("]")
-            errors.error("'\{contextValue.type.displayName}' does not " +
-                    "implement the '\{name}' operator for \{parameters}", 
-                    position)
-            return false
+    @private
+    @class
+    method getCall(context:Context, position:Position, contextValue:Value, 
+            left:Value?, right:Value?, step:Value?, endInclusive:Bit):Value? {
+        if left = null & right = null & step = null {
+            def test := getCall(context, position, contextValue, 
+                    new Array<Value>(), endInclusive)
+            if test != null
+                return test
         }
-        return true
+        if right = null & step = null {
+            def params := new Array<Value>()
+            if left != null
+                params.add(left)
+            else
+                params.add(new NullLiteral(position))
+            def test := getCall(context, position, contextValue, params, 
+                    endInclusive)
+            if test != null
+                return test
+        }
+        if step = null {
+            def params := new Array<Value>()
+            if left != null
+                params.add(left)
+            else
+                params.add(new NullLiteral(position))
+            if right != null
+                params.add(right)
+            else
+                params.add(new NullLiteral(position))
+            def test := getCall(context, position, contextValue, params, 
+                    endInclusive)
+            if test != null
+                return test
+        }
+        def params := new Array<Value>()
+        if left != null
+            params.add(left)
+        else
+            params.add(new NullLiteral(position))
+        if right != null
+            params.add(right)
+        else
+            params.add(new NullLiteral(position))
+        if step != null
+            params.add(step)
+        else
+            params.add(new IntegerLiteral(position, 1))
+        return getCall(context, position, contextValue, params, endInclusive)
     }
 
     @override
-    @unsafeFunction
-    function implicitCast(position:Position, context:Context, t:Type):Value {
-        def stub := methodStub
-        if stub = null
-            return self
-        def params := new Array<Value>()
-        params.add(contextValue)
-        if stub.parameters.length >= 2 {
-            if left != null
-                params.add(left->(Value))
-            else
-                params.add(new NullLiteral(position))
-            if stub.parameters.length >= 3 {
-                if right != null
-                    params.add(right->(Value))
-                else
-                    params.add(new NullLiteral(position))
-                if stub.parameters.length >= 4 {
-                    if step != null
-                        params.add(step->(Value))
-                    else
-                        params.add(new NullLiteral(position))
-                }
-            }
-        }
-        throw new NotSupportedException()
--*        var result := new IRGenerator().call(context, position, 
-                    methodStub->(MethodStub), false, params)
-        if result = null
-            result := self
-        return result*-
+    method reportError(context:Context) {
+        def name:String
+        if endInclusive
+            name := "[...]"
+        else
+            name := "[..]"
+        def parameters := new MutableString("[")
+        if left != null
+            parameters.append("'\{left.type.displayName}'")
+        else
+            parameters.append("'null'")
+        parameters.append(", ")
+        if right != null
+            parameters.append("'\{right.type.displayName}'")
+        else
+            parameters.append("'null'")
+        parameters.append(", ")
+        if step != null
+            parameters.append("'\{step.type.displayName}'")
+        else
+            parameters.append("'null'")
+        parameters.append("]")
+        context.errors.error("'\{contextValue.type.displayName}' does not " +
+                "implement the '\{name}' operator for \{parameters}", 
+                position)
     }
 }

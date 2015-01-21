@@ -100,9 +100,12 @@ class GenericType : ClassType {
             else
                 type := getType(p.type, context, lookupContext)
             parameters.add(new FormalParameter(p.position, p.name, 
-                    type, !p.isVar, p.isConvert, p.isVarArg))
+                    type, p.isVar, p.isConvert, p.isVarArg))
         }
-        return new MethodStub(m.position, m.name, m.annotations,
+        var annotations := m.annotations
+        if m.body = null
+            annotations += AnnotationType.ABSTRACT
+        return new MethodStub(m.position, m.name, annotations,
                 m.methodType, parameters, getType(m.returnType, context,
                     lookupContext), 
                 m.body, self)
@@ -125,13 +128,6 @@ class GenericType : ClassType {
         }
         def lookupContext := new LookupContext(
                 baseStub.lookupContext.packageUses, aliases)
-        def fields := new Array<FieldNode>()
-        for f in baseStub.fields.filter(f => !f.annotations.isClass &
-                !f.annotations.isThread)
-            fields.add(instantiateField(f, context, lookupContext))
-        def methods := new Array<MethodStub>()
-        for m in baseStub.methods.filter(m => !m.annotations.isClass)
-            methods.add(instantiateMethod(m, context, lookupContext))
         var superclass := baseStub.superclass
         if superclass != null {
             def resolved:Type?
@@ -144,16 +140,29 @@ class GenericType : ClassType {
         for intf in baseStub.interfaces {
             var type:Type?
             type := getType(intf, context, lookupContext)
-            if type != null
-                interfaces.add(type->>(ClassType))
+            if type != null {
+                def intfClass := type->>(ClassType)
+                interfaces.add(intfClass)
+            }
         }
+        def fields := new Array<FieldNode>()
+        for f in baseStub.fields {
+            if f.annotations.isClass | f.annotations.isThread
+                context.symbolTable[f.name] := f
+            else {
+                def newField := instantiateField(f, context, lookupContext)
+                context.symbolTable[newField.name] := newField
+                fields.add(newField)
+            }
+        }
+        def methods := new Array<MethodStub>()
+        for m in baseStub.methods.filter(m => !m.annotations.isClass)
+            methods.add(instantiateMethod(m, context, lookupContext))
         var annotations := baseStub.annotations - AnnotationType.UNSPECIFIED
         for i, p in parameters {
-            def unspecified:Bit
-            if p-?>(GenericParameterType)
-                unspecified := true
+            var unspecified := p-?>(GenericParameterType)
             def stub := parameterStubs[i]
-            unspecified := stub != null & stub.annotations.isUnspecified
+            unspecified |= stub != null & stub.annotations.isUnspecified
             if unspecified {
                 annotations += AnnotationType.UNSPECIFIED
                 break
@@ -161,6 +170,6 @@ class GenericType : ClassType {
         }
         return new ClassStub(position, self, baseStub.isInterface, annotations, 
                 lookupContext, superclass, interfaces, methods, fields, 
-                baseStub.invariants, null, baseStub.isExternal)
+                baseStub.invariants, null, false)
     }
 }

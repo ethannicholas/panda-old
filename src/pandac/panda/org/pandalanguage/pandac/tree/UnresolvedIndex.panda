@@ -18,57 +18,28 @@ represent it, so if the next token is `:=` we can easily perform the appropriate
 lookup.
 ================================================================================
 class UnresolvedIndex : UnresolvedValue {
-    constant UNRESOLVED_INDEX := new UnresolvedType(
-            "<unimplemented index operator>")
-
     def contextValue:Value
     
     def index:Value
 
-    def methodStub:MethodStub?
-
-    constructor(position:Position, contextValue:Value, index:Value, 
-            methodStub:MethodStub?) {
-        super.constructor(position, getType(methodStub))
+    constructor(context:Context, position:Position, contextValue:Value, 
+            index:Value) {
+        super.constructor(position, "<unimplemented index operator>",
+                context.callOverloadedOperator(position, "[]", contextValue, 
+                    index))
         self.contextValue := contextValue
         self.index := index
-        self.methodStub := methodStub
-    }
-
-    @class
-    function getType(methodStub:MethodStub?):Type {
-        if methodStub = null
-            return UNRESOLVED_INDEX
-        return methodStub.returnType
     }
 
     @override
-    method checkValid(errors:ErrorReporter):Bit {
-        if methodStub = null {
-            errors.error("'\{contextValue.type.displayName}' does not " + 
-                    "implement the '[]' operator with parameter " +
-                    "'\{index.type.displayName}'", position)
-            return false
-        }
-        return true
+    method reportError(context:Context) {
+        context.errors.error("'\{contextValue.type.displayName}' does " + 
+                "not implement the '[]' operator for " +
+                "'\{index.type.displayName}'", position)
     }
 
     @override
-    method implicitCast(position:Position, context:Context, t:Type):Value {
-        if methodStub = null {
-            -- this will generate an error
-            return super.implicitCast(position, context, t)
-        }
-        def m := methodStub
-        assert m != null : "methodStub is null"
-        def params := new Array<Value>()
-        var contextValue := self.contextValue.implicitCast(context,
-                m.parameters[0].type)
-        params.add(contextValue)
-        def index:Value
-        index := self.index.implicitCast(context, m.parameters[1].type)
-        params.add(index)
-        return new MethodCall(position, m, false, params).implicitCast(context,
-                t)
+    function format(fmt:String):String {
+        return contextValue + "[" + index + "]"
     }
 }

@@ -1,14 +1,23 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.ast.ASTAnnotation
+uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.ast.ASTIdentifier
 uses org.pandalanguage.pandac.ast.ASTInvariant
+uses org.pandalanguage.pandac.ast.ASTReturn
+uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
+uses org.pandalanguage.pandac.ast.ASTStatement
 uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.compiler.CompilerException
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
 uses org.pandalanguage.pandac.compiler.PandaCompiler
-uses org.pandalanguage.pandac.compiler.StubMap
+uses org.pandalanguage.pandac.compiler.StubGenerator
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.Add
 uses org.pandalanguage.pandac.tree.Annotations
@@ -30,12 +39,14 @@ uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.Statement
 uses org.pandalanguage.pandac.tree.SymbolTable
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.tree.VariableType
+uses org.pandalanguage.pandac.types.IntType
 
 ================================================================================
 A primitive array (mutable or immutable) of another type.
@@ -75,11 +86,11 @@ class PrimitiveArrayType : GenericType {
         return true
     }
 
-    method createStub(elementStub:ClassStub?):ClassStub {
+    method createStub(elementStub:ClassStub?, context:Context):ClassStub {
         def position := new Position(name, -1, -1)
         def final := new Array<AnnotationType>()
         final.add(AnnotationType.FINAL)
-        def length := new FieldNode(position, self, "length", 
+        def length := new FieldNode(position, self, "$length", 
                 new Annotations(position, final), VariableType.DEF, 
                 IntType.INT32, null, null)
         def maxLength := new FieldNode(position, self, "$maxLength", 
@@ -95,13 +106,146 @@ class PrimitiveArrayType : GenericType {
         def classAnnotations := new Array<AnnotationType>()
         if elementStub != null & elementStub.annotations.isUnspecified
             classAnnotations.add(AnnotationType.UNSPECIFIED)
+        def methods := new Array<MethodStub>()
+        def lengthParameters := new Array<FormalParameter>()
+        def selfParam := new FormalParameter(position, Parameter.SELF_NAME, 
+                    self, false, false, false)
+        lengthParameters.add(selfParam)
+        def lengthStatements := new Array<ASTStatement>()
+        lengthStatements.add(new ASTReturn(position, new ASTIdentifier(position,
+                length.name)))
+        def lengthBody := new ASTBlock(position, lengthStatements)
+        def lengthFunction := new MethodStub(position, "length", 
+                new Annotations(position, new Array<AnnotationType>()),
+                MethodNodeType.FUNCTION, lengthParameters, IntType.INT32, 
+                lengthBody, self)
+        methods.add(lengthFunction)
+
+        def stubGenerator := new StubGenerator(
+                    new Array<ASTFile>(), context.typeResolver, context.errors)
+        def lookupContext := new LookupContext(new Array<String>(), 
+                    new HashMap<String, String>())
+        def annotations := new Array<ASTAnnotation>()
+        annotations.add(new ASTSimpleAnnotation(position, "synthetic"))
+        annotations.add(new ASTSimpleAnnotation(position, "safeReturn"))
+        def parser := new PandaParser(new FatalErrorReporter())
+        def immutable := 
+                name.startsWith(class(ImmutablePrimitiveArray).name)
+        def mutableVersion:String
+        if immutable {
+            mutableVersion := class(PrimitiveArray).name + 
+                    name[name.indexOf("<")->(Int)..]
+        }
+        else
+            mutableVersion := name
+        def convert:String
+        if immutable
+            convert := "->>(\{name})"
+        else
+            convert := ""
+        def sle1 := parser.parseMethodDeclaration(
+                "function [..](left:panda.core.Int32," +
+                "right:panda.core.Int32):\{name} {\n" +
+                "var result := new \{mutableVersion}(right - left)\n" +
+                "for i, v in left .. right\n" +
+                "    result[i] := self[v]\n" +
+                "return result\{convert}\n" +
+                "}", null, annotations, position)
+        assert sle1 != null
+        methods.add(stubGenerator.convertMethod(false, sle1, self, 
+                lookupContext)->(MethodStub))
+
+        def sle2 := parser.parseMethodDeclaration(
+                "function [..](rawLeft:panda.core.Int32?," +
+                "rawRight:panda.core.Int32?):\{name} {\n" +
+                "def left:panda.core.Int32\n" +
+                "if rawLeft = null\n" +
+                "    left := -1\n" +
+                "else\n" +
+                "    left := rawLeft\n" +
+                "def right:panda.core.Int32\n" +
+                "if rawRight = null\n" +
+                "    right := length\n" +
+                "else\n" +
+                "    right := rawRight\n" +
+                "var result := new \{mutableVersion}(right - left)\n" +
+                "for i, v in left .. right\n" +
+                "    result[i] := self[v]\n" +
+                "return result\{convert}\n" +
+                "}", null, annotations, position)
+        assert sle2 != null
+        methods.add(stubGenerator.convertMethod(false, sle2, self, 
+                lookupContext)->(MethodStub))
+
+        def sli1 := parser.parseMethodDeclaration(
+                "function [...](left:panda.core.Int32," +
+                "right:panda.core.Int32):\{name} {\n" +
+                "var result := new \{mutableVersion}(right - left + 1)\n" +
+                "for i, v in left ... right\n" +
+                "    result[i] := self[v]\n" +
+                "return result\{convert}\n" +
+                "}", null, annotations, position)
+        assert sli1 != null
+        methods.add(stubGenerator.convertMethod(false, sli1, self, 
+                lookupContext)->(MethodStub))
+
+        def sli2 := parser.parseMethodDeclaration(
+                "function [...](rawLeft:panda.core.Int32?," +
+                "rawRight:panda.core.Int32?):\{name} {\n" +
+                "def left:panda.core.Int32\n" +
+                "if rawLeft = null\n" +
+                "    left := 0\n" +
+                "else\n" +
+                "    left := rawLeft\n" +
+                "def right:panda.core.Int32\n" +
+                "if rawRight = null\n" +
+                "    right := length - 1\n" +
+                "else\n" +
+                "    right := rawRight\n" +
+                "var result := new \{mutableVersion}(right - left + 1)\n" +
+                "for i, v in left ... right\n" +
+                "    result[i] := self[v]\n" +
+                "return result\{convert}\n" +
+                "}", null, annotations, position)
+        assert sli2 != null
+        methods.add(stubGenerator.convertMethod(false, sli2, self, 
+                lookupContext)->(MethodStub))
+
+        if !immutable {
+            def immutableVersion := class(ImmutablePrimitiveArray).name + 
+                    name[name.indexOf("<")->(Int)..]
+            def cnv := parser.parseMethodDeclaration(
+                "function ->>():\{immutableVersion} {\n" +
+                "    return new \{immutableVersion}(self)\n" +
+                "}", null, annotations, position)
+            assert cnv != null
+            methods.add(stubGenerator.convertMethod(false, cnv, self, 
+                    lookupContext)->(MethodStub))
+        }
+        else {
+            -- HACK, leaving this in only until new compiler is finished
+            def convertAnnotations := new Array<ASTAnnotation>()
+            convertAnnotations.add(new ASTSimpleAnnotation(position, "class"))
+            def immutableVersion := class(ImmutablePrimitiveArray).name + 
+                    name[name.indexOf("<")->(Int)..]
+            def cnv := parser.parseMethodDeclaration(
+                "function ->>(arr:\{mutableVersion}):\{name} {\n" +
+                "    return new \{name}(arr)\n" +
+                "}", null, convertAnnotations, position)
+            assert cnv != null
+            methods.add(stubGenerator.convertMethod(false, cnv, self, 
+                    lookupContext)->(MethodStub))
+        }
+
+        def superclass:ClassType
+        if immutable
+            superclass := ClassType.IMMUTABLE_PRIMITIVE_ARRAY
+        else
+            superclass := ClassType.PRIMITIVE_ARRAY
         return new ClassStub(position, self, false, 
                 new Annotations(position, classAnnotations), 
-                new LookupContext(new Array<String>(), 
-                    new HashMap<String, String>()), 
-                ClassType.OBJECT, new Array<ClassType>(), 
-                new Array<MethodStub>(), fields, 
-                new Array<ASTInvariant>(), null, false)
+                lookupContext, superclass, new Array<ClassType>(), 
+                methods, fields, new Array<ASTInvariant>(), null, false)
     }
 
     @override

@@ -42,7 +42,7 @@ uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodValue
-uses org.pandalanguage.pandac.tree.NewPrimitiveArray
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
 uses org.pandalanguage.pandac.tree.NullLiteral
@@ -101,19 +101,6 @@ class ClassConstant : Immutable {
     }
 }
 
-@private
-class FatalErrorReporter : ErrorReporter {
-    @override
-    method error(message:String, position:Position) {
-        throw new CompilerException(message, position)
-    }
-
-    @override
-    method warning(message:String, position:Position) {
-        throw new CompilerException(message, position)
-    }    
-}
-
 class LLVMCodeGenerator (CodeGenerator) {
     constant POINTER_SIZE := 8
 
@@ -149,6 +136,8 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     var tempVariable := 0
 
+    def variableNames := new HashMap<Variable, String>()
+
     var currentBlockLabel:String := "0"
 
     def classes:MapView<String, ClassNode>
@@ -179,9 +168,6 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def methodNamer:MethodNamer
 
-    @private
-    def promotedParameters := new HashMap<Variable, Variable>()
-    
     var currentMethod:MethodNode?
 
     var context:Context
@@ -220,6 +206,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     corresponding to a method.
     ============================================================================
     method getLLVMType(t:Type):String {
+        if t.isNullable
+            return getLLVMType(t.unwrapNullable)
         switch t {
             case IntType.INT8:  return "i8"
             case IntType.INT16: return "i16"
@@ -245,6 +233,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             -- making stubs for classes referenced by such methods, but due to 
             -- the current lack of dead code elimination we still write the 
             -- method signature. This hack gets things working for now.
+            Console.writeLine("LLVM warning: no stub for '\{t}'")
             return getLLVMType(ClassType.OBJECT)
         }
     }
@@ -302,16 +291,24 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function getName(v:Variable):String {
-        if v-?>(FieldNode) {
-            def field := v->(FieldNode)
-            def name := getName(getStub(field.owner)) + "$" + v.name
-            if field.annotations.isClass
-                return "class_" + name
+    method getName(v:Variable):String {
+        var result := variableNames[v]
+        if result = null {
+            if v-?>(FieldNode) {
+                def field := v->(FieldNode)
+                def name := getName(getStub(field.owner)) + "$" + v.name
+                if field.annotations.isClass
+                    result := "class_" + name
+                else
+                    result := name
+            }
             else
-                return name
+                result := v.name
+            if v-?>(LocalVariable)
+                result += variableNames.length
+            variableNames[v] := result
         }
-        return v.name
+        return result
     }
 
     @private
@@ -355,8 +352,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function isImmutable(t:Type):Bit {
-        return t.isPrimitive
+    method isImmutable(t:Type):Bit {
+        return getStub(t->>(ClassType)).isImmutable(context)
     }
 
     @protected
@@ -626,9 +623,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createVariableAssignmentReference(va:VariableAssignment):String {
-        var variable := promotedParameters[va.variable]
-        if variable = null
-            variable := va.variable
+        var variable := va.variable
         def lref := getLLVMType(variable.type) + "* %" + getName(variable)
         def result := getReference(va.value)
         assert result != null : 
@@ -995,7 +990,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
     }
 
-    method createNewPrimitiveArrayReference(na:NewPrimitiveArray):String {
+    method createNewPrimitiveArrayWithLengthReference(na:NewPrimitiveArrayWithLength):String {
         def arrayClass := getStub(na.type->(ClassType))
         def cc := getClassConstant(arrayClass)
         def cast := getTempVariable()
@@ -1109,7 +1104,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 else
                     return createBinaryOperationReference(b, "lshr", null)
             }
-            case BinaryOperationType.ADD: 
+            case BinaryOperationType.AND: 
                 return createAndReference(b)
             case BinaryOperationType.OR:
                 return createOrReference(b)
@@ -1145,8 +1140,10 @@ class LLVMCodeGenerator (CodeGenerator) {
                 return createBinaryOperationReference(b, "icmp ne", "fcmp one")
             case BinaryOperationType.NOT_IDENTITY:
                 return createBinaryOperationReference(b, "icmp ne")
-            default:
+            default: {
+                Console.writeLine("no support for binary operation \{b.operation}")
                 unreachable
+            }
         }
     }
 
@@ -1365,10 +1362,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @protected
     method createVariableReference(vr:VariableReference):String {
-        var variable := promotedParameters[vr.variable]
-        if variable = null
-            variable := vr.variable
-        if variable-?>(Parameter)
+        var variable := vr.variable
+        if variable-?>(Parameter) & variable.varType = VariableType.DEF
             return "%" + getName(variable)
         return createCommandReference("load " + getLLVMType(vr.type) + "* %" + 
                 getName(variable), vr->>(String))
@@ -1473,7 +1468,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(NotIdentity): return createBinaryOperationReference(v->(BinaryOperation), "icmp ne")
     *-
             case class(BitLiteral): return v->(BitLiteral).value->>(String)
-            case class(NewPrimitiveArray): return createNewPrimitiveArrayReference(v->(NewPrimitiveArray))
+            case class(NewPrimitiveArrayWithLength): return createNewPrimitiveArrayWithLengthReference(v->(NewPrimitiveArrayWithLength))
             case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
             case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->(PrimitiveArrayIndexValue))
             case class(NullLiteral): return "null"
@@ -1487,8 +1482,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
             case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) 
             default: {
-                throw new InternalCompilerException("unsupported value class: " + 
-                        v.class.name, v.position)
+                throw new CompilerException("unsupported value class: " + 
+                        "\{v.class.name}: \{v}", v.position)
             }
         }
     }
@@ -1766,8 +1761,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             if error.type = ClassType.STRING
                 call("void \{FAIL_ASSERT_NAME}(\{getTypedReference(error)})")
             else {
-                assert error.type = ClassType.ERROR : 
-                        "expected error.type = ERROR but found \{error.type}"
+                assert error.type = ClassType.SAFETY_ERROR : 
+                        "expected error.type = SAFETY_ERROR but found " + 
+                        error.type
                 call("void @pandaThrow(\{getTypedReference(error)})")
             }
         }
@@ -1889,33 +1885,6 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine()
     }
 
-    ============================================================================
-    Recursively scan the tree, looking for parameters which have been assigned
-    to and therefore need to be promoted to actual variables.
-    
-    @param node the node to scan
-    ============================================================================
-    @protected
-    @pre(node-!>(MethodNode))
-    method findPromotedParameters(node:Node) {
--*        if node-?>(MethodNode)
-            throw new AssertionError("FIXME")
-        if node-?>(VariableAssignment) {
-            var variable := node->(VariableAssignment).variable
-            if variable-?>(Parameter) {
-                if promotedParameters[variable] = null {
-                    promotedParameters[variable] := new LocalVariable(
-                            variable.position, variable.name + "_promoted", 
-                            variable.type, VariableType.VAR)
-                }
-            }
-        }
-        else {
-            for child in node
-                findPromotedParameters(child)
-        }*-
-    }
-
     @protected
     method generateMethodCode(m:MethodNode) {
         if m.stub.annotations.isAbstract
@@ -1924,8 +1893,6 @@ class LLVMCodeGenerator (CodeGenerator) {
         tempVariable := 1
         def private := m.stub.annotations.isPrivate
         def external := m.stub.annotations.isExternal
-        promotedParameters.clear()
-        findPromotedParameters(m.body)
         body.writeLine()
         if debug
             body.writeLine("; " + m)
@@ -1943,6 +1910,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             if !external {
                 body.write(" %") 
                 body.write(getName(p))
+                if p.varType = VariableType.VAR
+                    body.write("$PARAM")
             }
         }
         body.write(")")
@@ -1957,14 +1926,14 @@ class LLVMCodeGenerator (CodeGenerator) {
             currentBlockLabel := "0"
             for v in m.localVariables
                 body.writeLine("%\{getName(v)} = alloca \{getLLVMType(v.type)}")
-            for (source, promoted) in promotedParameters {
-                body.writeLine("%" + getName(promoted) + " = alloca " + 
-                        getLLVMType(promoted.type))
-                body.writeLine("store " + getLLVMType(promoted.type) +
-                        " %" + getName(source) + ", " + 
-                        getLLVMType(promoted.type) + "* %" + getName(promoted))
+            for p in m.parameters.filter(p => p.varType = VariableType.VAR) {
+                body.writeLine("%" + getName(p) + " = alloca " + 
+                        getLLVMType(p.type))
+                body.writeLine("store " + getLLVMType(p.type) + " %" + 
+                        getName(p) + "$PARAM, " + getLLVMType(p.type) + "* %" + 
+                        getName(p))
             }
-            
+
             def block := m.body
             generateBlockCode(block)
             if !endsInBranch(block) {
@@ -2001,7 +1970,9 @@ class LLVMCodeGenerator (CodeGenerator) {
                 writeTypeDescriptor(cl)
         }
         for (_, cl) in context.classes {
-            if classes[cl.name] = null {
+            if cl.isExternal {
+                assert !classes.contains(cl.name)
+                -- write external stubs
                 for m in cl.methods {
                     if !cl.annotations.isUnspecified | m.annotations.isClass
                         writeMethodDeclaration(m)
@@ -2017,9 +1988,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             if cl.live & !cl.annotations.isUnspecified()
                 getClassConstant(cl)
         }*-
-        for (_, cl) in classes {
+        for (_, cl) in classes
             generateClassCode(cl)
-        }
 
         body.writeLine("declare void @pandaInit()")
         body.writeLine("declare void @pandaCheckLibVersion(i32)")
@@ -2054,7 +2024,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("declare {i32, i1} @llvm.umul.with.overflow.i32(i32 %a, i32 %b)")
         body.writeLine("declare {i64, i1} @llvm.umul.with.overflow.i64(i64 %a, i64 %b)")
 
-        body.writeLine("declare void @pandaThrow(\{getLLVMType(ClassType.ERROR)})")
+        body.writeLine("declare void @pandaThrow(\{getLLVMType(ClassType.SAFETY_ERROR)})")
         body.writeLine("declare void @llvm.trap() noreturn nounwind")
         body.writeLine("declare void @pandaCheckSignCasti8(i8)")
         body.writeLine("declare void @pandaCheckSignCasti16(i16)")

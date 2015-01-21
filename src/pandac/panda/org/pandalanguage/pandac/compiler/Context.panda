@@ -8,21 +8,35 @@ uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.ClassObjectLiteral
+uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.LocalVariable
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.PrimitiveArrayCopy
 uses org.pandalanguage.pandac.tree.Super
+uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.UnaryOperationType
+uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
+uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
 class Context {
@@ -95,7 +109,7 @@ class Context {
                 elementStub := null
             else
                 elementStub := getStub(array.elementType.name)
-            return array.createStub(elementStub)
+            return array.createStub(elementStub, self)
         }
         else if type-?>(GenericType) {
             def generic := type->(GenericType)
@@ -278,5 +292,370 @@ class Context {
             }
         }
         return max
+    }
+
+    method testCall(position:Position, var contextValue:Value?, 
+            methodName:String, var params:ListView<Value>):Value? {
+        if contextValue = null {
+            if isInstance {
+                -- bare identifier, could be either instance or class
+                var result := getMethod(null, methodName, params)
+                if result != null {
+                    if result.annotations.isClass {
+                        -- class method, update the contextValue
+                        contextValue := new ClassLiteral(position, 
+                                currentClass.type)
+                    }
+                }
+                if contextValue = null
+                    contextValue := getSelf(position)
+            }
+            else {
+                -- in a class context
+                contextValue := new ClassLiteral(position,
+                        currentClass.type)
+            }
+        }
+        var classMethod:Bit
+        var supercall:Bit
+        if contextValue-?>(UnresolvedClassLiteral) {
+            contextValue := new ClassLiteral(position, 
+                    contextValue->(UnresolvedClassLiteral).value)
+        }
+        if contextValue-?>(ClassLiteral) {
+            classMethod := true
+            supercall := false
+        }
+        else if contextValue-?>(ClassObjectLiteral) {
+            classMethod := false
+            supercall := false
+        }
+        else {
+            classMethod := false
+            var newParams := new Array<Value>()
+            if contextValue-?>(Super) {
+                def cl := currentClass
+                def superclass := cl.superclass
+                if superclass = null {
+                    errors.error("class '\{cl}' has no superclass", 
+                            contextValue.position)
+                    return null
+                }
+                def cast := getSelf(position).implicitCast(
+                        self, superclass)
+                newParams.add(cast)
+                supercall := true
+            }
+            else {
+                newParams.add(contextValue)
+                supercall := false
+            }
+            newParams.addAll(params)
+            params := newParams
+        }
+        var methodStub := getMethod(contextValue, methodName, params)
+        if methodStub = null {
+            if classMethod & methodName = MethodNode.CONSTRUCTOR_NAME {
+                -- check for a constructor, which is called like a class method
+                -- but implemented as an instance method
+                def type:Type
+                if contextValue-?>(ClassLiteral)
+                    type := contextValue->(ClassLiteral).value
+                else {
+                    assert contextValue-?>(Super)
+                    def sc := currentClass->(ClassStub).superclass
+                    assert sc != null
+                    type := sc
+                }
+                if type.isPrimitiveArray {
+                    if params.length = 1 &
+                            params[0].canImplicitCastTo(self, IntType.INT32) {
+                        def cast := params[0].implicitCast(self, IntType.INT32)
+                        return new NewPrimitiveArrayWithLength(position, 
+                                type->>(PrimitiveArrayType), cast)
+                    }
+                    else if params.length = 1 & 
+                            params[0].type.isPrimitiveArray {
+                        return new PrimitiveArrayCopy(position, 
+                                type->(PrimitiveArrayType), params[0])
+                    }
+                    else {
+                        errors.error("invalid arguments to " +
+                                "PrimitiveArray constructor", position)
+                        return null
+                    }
+                }
+                if params.length = 0 | params[0]-!>(Dummy) {
+                    def newParams := new Array<Value>()
+                    newParams.add(new Dummy(contextValue.position, type))
+                    newParams.addAll(params)
+                    params := newParams
+                    def construct := call(position, contextValue, 
+                            methodName, params)
+                    if construct != null {
+                        def stub := construct->(Construct).constructorCall.methodStub
+                        if stub.methodType != 
+                                MethodNodeType.CONSTRUCTOR {
+                            errors.error(
+                                    "instance method '\{stub.name}' cannot " +
+                                    "be accessed from a class context", 
+                                    position)
+                        }
+                        return construct
+                    }
+                }
+            }
+        }
+        if methodStub != null {
+            def result := call(position, methodStub, supercall, params)
+            if methodStub.methodType = MethodNodeType.CONSTRUCTOR & !supercall {
+                def type:Type?
+                if contextValue-?>(ClassLiteral)
+                    type := contextValue->(ClassLiteral).value
+                else
+                    type := currentClass->(ClassStub).superclass
+                return new Construct(type->(ClassType), result->(MethodCall))
+            }
+            else
+                return result
+        }
+        else
+            return null
+    }
+
+    ============================================================================
+    Looks for an overloaded version of `name` (which could be `"="`, `"+"`, 
+    etc.) and returns a call to it, or `null` if no such overloaded operator was
+    found.
+    
+    @param position the position of the call in the source code
+    @param name the name of the method to call
+    @param left the left argument
+    @param right the right argument
+    @returns a method call, or `null`
+    ============================================================================
+    method callOverloadedOperator(position:Position, var name:String, 
+            left:Value, right:Value):Value? {
+        -- avoid calling the various "fake" operators we define in the wrapper
+        -- classes
+        if name = "=" | name = "!=" {
+            if left.type.isPrimitive & right.type.isPrimitive
+                return null
+        }
+        else if !name.startsWith("[") & (left.type.isNumber | 
+                left.type.isWrapper) & (right.type.isNumber | 
+                right.type.isWrapper)
+            return null
+        if left.type = NullType.NULL | right.type = NullType.NULL
+            return null -- force this to be compiled as ==, which is quicker 
+                        -- than calling nullableEquals.
+        if name != "=" {
+            if left.type = StringOrCharType.STRING_OR_CHAR {
+                def cast:Value?
+                cast := left.implicitCast(self, ClassType.STRING)
+                return callOverloadedOperator(position, name, cast, right)
+            }
+            if right.type = StringOrCharType.STRING_OR_CHAR {
+                def cast:Value?
+                cast := right.implicitCast(self, ClassType.STRING)
+                return callOverloadedOperator(position, name, left, cast)
+            }
+        }
+
+        def rawName := name
+        -- map != and !== to = and ==. We'll invert the answer on return.
+        if name.startsWith("!")
+            name := name[1..]
+        var result:Value? := null
+        def parameters := new Array<Value>()
+        parameters.add(left)
+        parameters.add(right)
+        if name = "=" & (left.type.isNullable | right.type.isNullable) {
+            -- for equality, if one or both parameters are null, we need to
+            -- funnel this through Panda.nullableEquals
+            result := testCall(position, new ClassLiteral(
+                    position, ClassType.PANDA), "nullableEquals", parameters)
+            assert result != null : "failed to call nullableEquals"
+        }
+        if result = null {
+            -- check for overload on left (both instance & class)
+            def rightParam := new Array<Value>()
+            rightParam.add(right)
+            result := testCall(position, left, name, rightParam)
+            if result = null {
+                result := testCall(position, new ClassLiteral(
+                        position, left.type->>(ClassType)), name, parameters)
+            }
+        }
+        if result = null {
+            -- check for overload on right (class only)
+            parameters.clear()
+            parameters.add(right)
+            parameters.add(left)
+            result := testCall(position, new ClassLiteral(position, 
+                    right.type->>(ClassType)), name, parameters)
+        }
+        if rawName.startsWith("!") & result != null {
+            result := new UnaryOperation(position, UnaryOperationType.NOT,
+                    result)
+        }
+        return result
+    }
+
+    @private
+    method getMethodNotFoundMessage(contextValue:Value?, methodName:String, 
+            params:ListView<Value>):String {
+        def msg := "no match found for method "->>(MutableString)
+        msg.append(methodName)
+        msg.append("(")
+        var first := true
+        for i, p in params {
+            if p-?>(Dummy)
+                continue
+            if first
+                first := false
+            else
+                msg.append(", ")
+            msg.append(p.type.displayName)
+        }
+        msg.append(")")
+        if contextValue != null {
+            if contextValue-?>(Super)
+                msg.append(" in \{currentClass->(ClassStub).superclass->(Type).displayName}")
+            else if contextValue-?>(ClassLiteral)
+                msg.append(" in \{contextValue}")
+            else
+                msg.append(" in \{contextValue.type.displayName}")
+        }
+        for p in params {
+-*            if p-?>(UnresolvedLambda) {
+                def lambda := p->(UnresolvedLambda)
+                if lambda.errors.length > 0 {
+                    msg.append("\n    possible error in lambda at " +
+                            "\{lambda.position}:")
+                    def entries := new PrimitiveArray<Object>()
+                    for e in lambda.errors
+                        entries.append(e)
+                    Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
+                        def e1 := eo1->((Object?, Object?))[0]->(PrimitiveArray<Type>)
+                        def e2 := eo2->((Object?, Object?))[0]->(PrimitiveArray<Type>)
+                        assert e1.length = e2.length
+                        for i in 0 .. e1.length {
+                            def n1 := e1[i].name
+                            def n2 := e2[i].name
+                            if n1 > n2
+                                return true
+                            if n2 > n1
+                                return false
+                        }
+                        return false
+                    })
+                    for raw in entries {
+                        def e := raw->((Object?, Object?))
+                        def types := e[0]->(PrimitiveArray<Type>)
+                        def typeString := new MutableString()
+                        typeString.append("(")
+                        for i, type in types {
+                            if i > 0
+                                typeString.append(",")
+                            typeString.append(type.displayName)
+                        }
+                        typeString.append(")=>(...)")
+                        var error, errorPos := e[1]->((String, Position?))
+                        if errorPos = null
+                            errorPos := Position.INTERNAL
+                        msg.append("\n        when interpreted as \{typeString}:\n")
+                        msg.append("            \{error}")
+                        if errorPos != lambda.position
+                            msg.append(" at \{errorPos}")
+                    }
+                }
+            }*-
+        }
+        return msg->>(String)
+    }
+
+    method call(position:Position, var m:MethodStub, isSuper:Bit, 
+            params:ListView<Value>):Value? {
+        def methodParams := m.parameters
+        var isVarArg := methodParams.length > 0 &
+                methodParams[methodParams.length - 1].isVarArg
+        for i, p in params {
+            if p-?>(Unwrap) {
+                if !isVarArg {
+                    errors.error("'...' may not be used with " +
+                            "non-variadic \{m}", position)
+                    return null
+                }
+                if i < params.length - 1 {
+                    errors.error("'...' may only be used " +
+                            "with the last parameter of a call", position)
+                    return null
+                }
+            }
+        }
+        if isVarArg & params.length > 0 & params[params.length - 1]-?>(Unwrap)
+            isVarArg := false
+        def count:Int
+        if isVarArg
+            count := methodParams.length - 1
+        else
+            count := methodParams.length
+        def finalParams := new Array<Value>()
+        for i in 0 .. count {
+            def target := m.parameters[i].type
+            if params[i].canImplicitCastTo(self, target) {
+                def cast := params[i].implicitCast(self, target)
+                finalParams.add(cast)
+            }
+            else if m.parameters[i].isConvert & 
+                    params[i].canConvertTo(self, target) {
+                def converted := params[i].convert(self, target)
+                finalParams.add(converted)
+            }
+            else {
+                errors.error("expected value of type " +
+                        "'\{target.displayName}', but found " +
+                        "'\{params[i].type.displayName}'", params[i].position)
+            }
+        }
+        if isVarArg {
+            def values := new Array<Value>()
+            def isConvert := methodParams[methodParams.length - 1].isConvert
+            def arrayType := methodParams[methodParams.length - 1].type->(PrimitiveArrayType)
+            def elementType := arrayType.elementType
+            for i in count .. params.length {
+                if isConvert {
+                    def convert := params[i].convert(self, elementType)
+                    values.add(convert)
+                }
+                else {
+                    def cast := params[i].implicitCast(self, elementType)
+                    values.add(cast)
+                }
+            }
+            def varParams := new NewPrimitiveArrayWithValues(position,
+                    arrayType, values)
+            finalParams.add(varParams)
+            getStub(varParams.type->(ClassType)) -- force stub creation
+        }
+        if m.returnType != VoidType.VOID
+            getStub(m.returnType->>(ClassType))
+        return new MethodCall(position, m, isSuper, finalParams)
+    }
+
+    method call(position:Position, var contextValue:Value?, 
+            methodName:String, var params:ListView<Value>):Value? {
+        for p in params {
+            if !p.checkValid(self)
+                return null
+        }
+        def result := testCall(position, contextValue, methodName, 
+                params)
+        if result = null {
+            errors.error(getMethodNotFoundMessage(contextValue, methodName, 
+                    params), position)
+        }
+        return result
     }
 }

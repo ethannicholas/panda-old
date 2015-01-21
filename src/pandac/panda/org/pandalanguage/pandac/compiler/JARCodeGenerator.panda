@@ -1,0 +1,156 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.SymbolTable
+
+class JARCodeGenerator (CodeGenerator) {
+    constant PANDA_JAR := "PandaCoreClasses.jar"
+
+    def program:Program
+
+    def compilerSettings:CompilerSettings
+
+    def jcg:JavaCodeGenerator
+
+    constructor(p:Program, compilerSettings:CompilerSettings) {
+        self.program := p
+        self.compilerSettings := compilerSettings
+        self.jcg := new JavaCodeGenerator(program, compilerSettings)
+    }
+
+    @override
+    function defaultExtension():String {
+        return ".jar"
+    }
+
+    method getMainClass():String? {
+        for cl in program.classes.values {
+            for m in cl.methods {
+                if m.stub.name = MethodNode.MAIN_NAME
+                    return jcg.getName(cl.stub)
+            }
+        }
+        return null
+    }
+
+    method writeManifest(manifest:File, classPath:String) {
+        var out := new BufferedOutputStream(manifest.openOutputStream())
+        out.writeLine("Manifest-Version: 1.0")
+        out.writeLine("Class-Path: " + classPath)
+        var main := getMainClass()
+        if main != null
+            out.writeLine("Main-Class: " + main)
+        out.close()
+    }
+
+    @private
+    @pre(f.path.startsWith(prefix))
+    method deleteTree(prefix:String, f:File) {
+        try {
+            if !f.exists()
+                return
+            if f.isDirectory() {
+                var files := f.list()
+                for file in files
+                    deleteTree(prefix, file)
+            }
+            f.delete()
+        }
+        catch e:IOException {
+        }
+    }
+    @post(!f.exists())
+
+    method deleteTree(f:File) {
+        deleteTree(f.path, f)
+    }
+
+    @private
+    method listTree(f:File, suffix:String, result:PrimitiveArray<File>) {
+        if f.isDirectory() {
+            var files := f.list()
+            for i in 0 ... files.length - 1
+                listTree(files[i], suffix, result)
+        }
+        else if f.name.endsWith(suffix)
+            result.append(f)
+    }
+
+    method listTree(f:File, suffix:String):PrimitiveArray<File> {
+        var result := new PrimitiveArray<File>()
+        listTree(f, suffix, result)
+        return result
+    }
+
+    method copyJAR(relativePath:String, target:File, classPath:MutableString,
+            manifestClassPath:MutableString) {
+        var srcFile := PandaCompiler.PANDA_HOME.resolve(relativePath)
+        var inStream := srcFile.openInputStream()
+        var destFile := target.resolve(srcFile.name)
+        var out := destFile.openOutputStream()
+        inStream.sendTo(out)
+        out.close()
+        classPath.append(":" + srcFile.path)
+        if manifestClassPath.length > 0
+            manifestClassPath.append(" ")
+        manifestClassPath.append(srcFile.name)
+    }
+
+    @override
+    method generateCode(target:File) {
+        def tmpDir := File.TEMP.resolve("pandaJavaTmp")
+        deleteTree(tmpDir)
+        def javaDir := tmpDir.resolve("src")
+        jcg.generateCode(javaDir)
+        def javaFiles := listTree(javaDir, ".java")
+        def classPath := javaDir.path->>(MutableString)
+        def manifestClassPath := new MutableString()
+        def parent := target.parent()
+        if parent = null {
+            throw new CompilerException("could not determine parent of " +
+                    target)
+        }
+        copyJAR("java/core/lib/" + PANDA_JAR, parent, classPath,
+                manifestClassPath)
+        def classesDir := tmpDir.resolve("classes")
+        classesDir.createDirectories()
+        def modules := compilerSettings.modules
+        for m in modules {
+            for jar in m.javaJars
+                copyJAR(jar, parent, classPath, manifestClassPath) 
+        }
+        def javac := compilerSettings.javac
+        var params := new PrimitiveArray<String>("-d", classesDir.absolutePath(), "-cp", 
+                classPath->>(String), "-source", "1.8")
+        for i in 0 .. javaFiles.length {
+            var p := javaFiles[i].path
+            assert p.startsWith(javaDir.path)
+            p := p[javaDir.path.length + 1..]
+            params.append(p)
+        }
+        System.exec(javac, javaDir, params...)
+
+        def manifest := tmpDir.resolve("manifest.mf")
+        writeManifest(manifest, manifestClassPath->>(String))
+        def jar := compilerSettings.jar
+        params := new PrimitiveArray<String>("cfm", target.absolutePath(),
+                manifest.absolutePath())
+        var classFiles := listTree(classesDir, ".class")
+        for i in 0 ... classFiles.length - 1 {
+            var p := classFiles[i].path
+            assert p.startsWith(classesDir.path)
+            p := p[classesDir.path.length + 1..]
+            params.append(p)
+        }
+        System.exec(jar, classesDir, params...)
+
+-*        if getMainClass() = null {
+            new PLinkCodeGenerator().generateCode(parent.resolve(
+                    target.simpleName + ".plink"))
+        }*-
+
+        if !compilerSettings.preserveTempArtifacts
+            deleteTree(tmpDir)        
+    }
+}

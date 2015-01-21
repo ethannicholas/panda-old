@@ -58,20 +58,20 @@ class StubGenerator {
             for ann in annotations {
                 if ann-?>(ASTSimpleAnnotation) {
                     switch ann->(ASTSimpleAnnotation).name {
-                        case "@protected":  result.add(AnnotationType.PROTECTED)
-                        case "@private":  result.add(AnnotationType.PRIVATE)
-                        case "@abstract":  result.add(AnnotationType.ABSTRACT)
-                        case "@class":  result.add(AnnotationType.CLASS)
-                        case "@thread":  result.add(AnnotationType.THREAD)
-                        case "@external":  result.add(AnnotationType.EXTERNAL)
-                        case "@final":  result.add(AnnotationType.FINAL)
-                        case "@override":  result.add(AnnotationType.OVERRIDE)
-                        case "@readonly":  result.add(AnnotationType.READONLY)
-                        case "@limited":  result.add(AnnotationType.LIMITED)
-                        case "@self":  result.add(AnnotationType.SELF)
-                        case "@safeReturn":  result.add(AnnotationType.SAFERETURN)
-                        case "@unsafeFunction":  result.add(AnnotationType.UNSAFEFUNCTION)
-                        case "@$wrapperMethod":  result.add(AnnotationType.WRAPPER_METHOD)
+                        case "protected":  result.add(AnnotationType.PROTECTED)
+                        case "private":  result.add(AnnotationType.PRIVATE)
+                        case "abstract":  result.add(AnnotationType.ABSTRACT)
+                        case "class":  result.add(AnnotationType.CLASS)
+                        case "thread":  result.add(AnnotationType.THREAD)
+                        case "external":  result.add(AnnotationType.EXTERNAL)
+                        case "final":  result.add(AnnotationType.FINAL)
+                        case "override":  result.add(AnnotationType.OVERRIDE)
+                        case "readonly":  result.add(AnnotationType.READONLY)
+                        case "limited":  result.add(AnnotationType.LIMITED)
+                        case "self":  result.add(AnnotationType.SELF)
+                        case "safeReturn":  result.add(AnnotationType.SAFERETURN)
+                        case "unsafeFunction":  result.add(AnnotationType.UNSAFEFUNCTION)
+                        case "$wrapperMethod":  result.add(AnnotationType.WRAPPER_METHOD)
                         default: errors.warning("unsupported annotation: \{ann}", 
                                 ann.position)
                     }
@@ -92,10 +92,12 @@ class StubGenerator {
         return result
     }
 
-    method convertMethod(m:ASTMethod, owner:ClassType,
+    method convertMethod(isExternal:Bit, m:ASTMethod, owner:ClassType,
             lookupContext:LookupContext):MethodStub? {
         def parameters := new Array<FormalParameter>()
-        def annotations := convertAnnotations(m.position, m.annotations)
+        var annotations := convertAnnotations(m.position, m.annotations)
+        if m.body = null & !isExternal
+            annotations += AnnotationType.ABSTRACT
         if !annotations.isClass {
             def type:Type
             if annotations.isWrapperMethod
@@ -127,6 +129,11 @@ class StubGenerator {
         else
             returnType := VoidType.VOID
 
+        var original:String
+        if m.annotations = null
+            original := "<none>"
+        else
+            original := m.annotations->(Object)->>(String)
         return new MethodStub(m.position, m.name, 
                 annotations, m.methodType, parameters, returnType, m.body, 
                 owner)
@@ -261,7 +268,8 @@ class StubGenerator {
         }
         def methods := new Array<MethodStub>()
         for m in cl.methods {
-            def converted := convertMethod(m, classType, lookupContext)
+            def converted := convertMethod(cl.isExternal, m, classType, 
+                    lookupContext)
             if converted != null
                 methods.add(converted)
         }

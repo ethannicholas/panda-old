@@ -2,8 +2,10 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ArrowOperationType
 uses org.pandalanguage.pandac.ast.ASTArrowExpression
+uses org.pandalanguage.pandac.ast.ASTAssert
 uses org.pandalanguage.pandac.ast.ASTAssignment
 uses org.pandalanguage.pandac.ast.ASTBinaryExpression
+uses org.pandalanguage.pandac.ast.ASTBitLiteral
 uses org.pandalanguage.pandac.ast.ASTBlock
 uses org.pandalanguage.pandac.ast.ASTBreak
 uses org.pandalanguage.pandac.ast.ASTCallExpression
@@ -23,20 +25,23 @@ uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTLoop
 uses org.pandalanguage.pandac.ast.ASTNew
 uses org.pandalanguage.pandac.ast.ASTNullLiteral
+uses org.pandalanguage.pandac.ast.ASTRangeExpression
 uses org.pandalanguage.pandac.ast.ASTReturn
 uses org.pandalanguage.pandac.ast.ASTSelf
 uses org.pandalanguage.pandac.ast.ASTStatement
 uses org.pandalanguage.pandac.ast.ASTStringLiteral
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
+uses org.pandalanguage.pandac.ast.ASTUnaryExpression
+uses org.pandalanguage.pandac.ast.ASTUnreachable
 uses org.pandalanguage.pandac.ast.ASTVarDeclaration
 uses org.pandalanguage.pandac.ast.ASTWhile
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
-uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.Assert
 uses org.pandalanguage.pandac.tree.BinaryOperation
 uses org.pandalanguage.pandac.tree.BinaryOperationType
 uses org.pandalanguage.pandac.tree.BitLiteral
@@ -50,6 +55,7 @@ uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.Continue
 uses org.pandalanguage.pandac.tree.Do
+uses org.pandalanguage.pandac.tree.DynamicCall
 uses org.pandalanguage.pandac.tree.FieldAssignment
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.FieldReference
@@ -57,11 +63,10 @@ uses org.pandalanguage.pandac.tree.If
 uses org.pandalanguage.pandac.tree.IntegerLiteral
 uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.Loop
+uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
-uses org.pandalanguage.pandac.tree.NewPrimitiveArray
-uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Not
 uses org.pandalanguage.pandac.tree.NullLiteral
 uses org.pandalanguage.pandac.tree.Parameter
@@ -76,10 +81,13 @@ uses org.pandalanguage.pandac.tree.StringLiteral
 uses org.pandalanguage.pandac.tree.Super
 uses org.pandalanguage.pandac.tree.UnaryOperation
 uses org.pandalanguage.pandac.tree.UnaryOperationType
+uses org.pandalanguage.pandac.tree.Unreachable
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedDotExpression
 uses org.pandalanguage.pandac.tree.UnresolvedIdentifier
 uses org.pandalanguage.pandac.tree.UnresolvedIndex
+uses org.pandalanguage.pandac.tree.UnresolvedRange
+uses org.pandalanguage.pandac.tree.UnresolvedSlice
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.ValueStatement
@@ -89,10 +97,12 @@ uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.tree.VariableType
 uses org.pandalanguage.pandac.tree.While
+uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
@@ -120,8 +130,10 @@ class IRGenerator {
 
     @class
     function makeExplicit(v:Value):Value {
-        if v-?>(Cast)
-            return new Cast(v->(Cast).value, v.type, CastType.EXPLICIT)
+        if v-?>(Cast) {
+            return new Cast(v.position, v->(Cast).value, v.type, 
+                    CastType.EXPLICIT)
+        }
         return v
     }
     
@@ -135,7 +147,7 @@ class IRGenerator {
             f:FieldNode, allowNoArgFunctions:Bit):Value {
         inferFieldType(f)
         if allowNoArgFunctions {
-            def result := testCall(position, contextValue, f.name, 
+            def result := context.testCall(position, contextValue, f.name, 
                     new Array<Value>())
             if result != null & result->(MethodCall).methodStub.methodType =
                     MethodNodeType.FUNCTION
@@ -155,15 +167,16 @@ class IRGenerator {
         if name = "class"
             name := "$class"
         var cl:ClassStub
+        def resolved := resolve(contextValue)
+        if resolved != null
+            contextValue := resolved
+        else
+            return null
         if contextValue.type = StringOrCharType.STRING_OR_CHAR {
             contextValue := contextValue.implicitCast(context, 
                     CharType.CHAR)
         }
         if contextValue-!>(Super) {
-            def resolved := resolve(contextValue)
-            if resolved = null
-                return null
-            contextValue := resolved 
             if contextValue.type.isPrimitive {
                 def casted:Value?
                 casted := contextValue.implicitCast(context,
@@ -176,7 +189,7 @@ class IRGenerator {
                 cl := contextValueClass
             }
             if contextValue-!>(ClassLiteral) {
-                def noArg := testCall(position, contextValue, name, 
+                def noArg := context.testCall(position, contextValue, name, 
                         new Array<Value>())
                 if noArg != null & noArg->(MethodCall).methodStub.methodType =
                         MethodNodeType.FUNCTION
@@ -217,319 +230,70 @@ class IRGenerator {
                 }
             }
         }
-        return new UnresolvedDotExpression(contextValue, name)
-    }
-
-    @private
-    method getMethodNotFoundMessage(context:Context, contextValue:Value?, 
-            methodName:String, params:ListView<Value>):String {
-        def msg := "no match found for method "->>(MutableString)
-        msg.append(methodName)
-        msg.append("(")
-        var first := true
-        for i, p in params {
-            if p-?>(Dummy)
-                continue
-            if first
-                first := false
-            else
-                msg.append(", ")
-            msg.append(p.type.displayName)
-        }
-        msg.append(")")
-        if contextValue != null {
-            if contextValue-?>(Super)
-                msg.append(" in \{context.currentClass->(ClassStub).superclass->(Type).displayName}")
-            else if contextValue-?>(ClassLiteral)
-                msg.append(" in \{contextValue}")
-            else
-                msg.append(" in \{contextValue.type.displayName}")
-        }
-        Console.writeLine("\{methodName} not found in \{contextValue->(Value).type}")
-        Console.writeLine("\{methodName} not found in \{context.getStub(contextValue->(Value).type->>(ClassType)).methods}")
-        for p in params {
--*            if p-?>(UnresolvedLambda) {
-                def lambda := p->(UnresolvedLambda)
-                if lambda.errors.length > 0 {
-                    msg.append("\n    possible error in lambda at " +
-                            "\{lambda.position}:")
-                    def entries := new PrimitiveArray<Object>()
-                    for e in lambda.errors
-                        entries.append(e)
-                    Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
-                        def e1 := eo1->((Object?, Object?))[0]->(PrimitiveArray<Type>)
-                        def e2 := eo2->((Object?, Object?))[0]->(PrimitiveArray<Type>)
-                        assert e1.length = e2.length
-                        for i in 0 .. e1.length {
-                            def n1 := e1[i].name
-                            def n2 := e2[i].name
-                            if n1 > n2
-                                return true
-                            if n2 > n1
-                                return false
-                        }
-                        return false
-                    })
-                    for raw in entries {
-                        def e := raw->((Object?, Object?))
-                        def types := e[0]->(PrimitiveArray<Type>)
-                        def typeString := new MutableString()
-                        typeString.append("(")
-                        for i, type in types {
-                            if i > 0
-                                typeString.append(",")
-                            typeString.append(type.displayName)
-                        }
-                        typeString.append(")=>(...)")
-                        var error, errorPos := e[1]->((String, Position?))
-                        if errorPos = null
-                            errorPos := Position.INTERNAL
-                        msg.append("\n        when interpreted as \{typeString}:\n")
-                        msg.append("            \{error}")
-                        if errorPos != lambda.position
-                            msg.append(" at \{errorPos}")
-                    }
-                }
-            }*-
-        }
-        return msg->>(String)
-    }
-
-    method call(position:Position, var m:MethodStub, isSuper:Bit, 
-            params:ListView<Value>):Value? {
-        def methodParams := m.parameters
-        var isVarArg := methodParams.length > 0 &
-                methodParams[methodParams.length - 1].isVarArg
-        for i, p in params {
-            if p-?>(Unwrap) {
-                if !isVarArg {
-                    context.errors.error("'...' may not be used with " +
-                            "non-variadic \{m}", position)
-                    return null
-                }
-                if i < params.length - 1 {
-                    context.errors.error("'...' may only be used " +
-                            "with the last parameter of a call", position)
-                    return null
-                }
-            }
-        }
-        if isVarArg & params.length > 0 & params[params.length - 1]-?>(Unwrap)
-            isVarArg := false
-        def count:Int
-        if isVarArg
-            count := methodParams.length - 1
-        else
-            count := methodParams.length
-        def finalParams := new Array<Value>()
-        for i in 0 .. count {
-            def target := m.parameters[i].type
-            if params[i].canImplicitCastTo(context, target) {
-                def cast := params[i].implicitCast(context, target)
-                finalParams.add(cast)
-            }
-            else if m.parameters[i].isConvert & 
-                    params[i].canConvertTo(context, target) {
-                def converted := params[i].convert(context, target)
-                finalParams.add(converted)
-            }
-            else {
-                context.errors.error("expected value of type " +
-                        "'\{target.displayName}', but found " +
-                        "'\{params[i].type.displayName}'", params[i].position)
-            }
-        }
-        if isVarArg {
-            def values := new Array<Value>()
-            def isConvert := methodParams[methodParams.length - 1].isConvert
-            def arrayType := methodParams[methodParams.length - 1].type->(PrimitiveArrayType)
-            def elementType := arrayType.elementType
-            for i in count .. params.length {
-                if isConvert {
-                    def convert := params[i].convert(context, elementType)
-                    values.add(convert)
-                }
-                else {
-                    def cast := params[i].implicitCast(context, elementType)
-                    values.add(cast)
-                }
-            }
-            finalParams.add(new NewPrimitiveArrayWithValues(position,
-                    arrayType, values))
-        }
-        return new MethodCall(position, m, isSuper, finalParams)
-    }
-
-    method testCall(position:Position, var contextValue:Value?, 
-            methodName:String, var params:ListView<Value>):Value? {
-        for p in params {
-            if !p.checkValid(context.errors)
-                return null
-        }
-        if contextValue = null {
-            if context.isInstance {
-                -- bare identifier, could be either instance or class
-                var result := context.getMethod(null, methodName, params)
-                if result != null {
-                    if result.annotations.isClass {
-                        -- class method, update the contextValue
-                        contextValue := new ClassLiteral(position, 
-                                context.currentClass.type)
-                    }
-                }
-                if contextValue = null
-                    contextValue := context.getSelf(position)
-            }
-            else {
-                -- in a class context
-                contextValue := new ClassLiteral(position,
-                        context.currentClass.type)
-            }
-        }
-        var classMethod:Bit
-        var supercall:Bit
-        if contextValue-?>(UnresolvedClassLiteral) {
-            contextValue := new ClassLiteral(position, 
-                    contextValue->(UnresolvedClassLiteral).value)
-        }
-        if contextValue-?>(ClassLiteral) {
-            classMethod := true
-            supercall := false
-        }
-        else if contextValue-?>(ClassObjectLiteral) {
-            classMethod := false
-            supercall := false
-        }
-        else {
-            classMethod := false
-            var newParams := new Array<Value>()
-            if contextValue-?>(Super) {
-                def cl := context.currentClass
-                def superclass := cl.superclass
-                if superclass = null {
-                    context.errors.error("class '\{cl}' has no superclass", 
-                            contextValue.position)
-                    return null
-                }
-                def cast := context.getSelf(position).implicitCast(
-                        context, superclass)
-                newParams.add(cast)
-                supercall := true
-            }
-            else {
-                newParams.add(contextValue)
-                supercall := false
-            }
-            newParams.addAll(params)
-            params := newParams
-        }
-        var methodStub := context.getMethod(contextValue, methodName, params)
-        if methodStub = null {
-            if classMethod & methodName = MethodNode.CONSTRUCTOR_NAME {
-                -- check for a constructor, which is called like a class method
-                -- but implemented as an instance method
-                def type:Type
-                if contextValue-?>(ClassLiteral)
-                    type := contextValue->(ClassLiteral).value
-                else {
-                    assert contextValue-?>(Super)
-                    def sc := context.currentClass->(ClassStub).superclass
-                    assert sc != null
-                    type := sc
-                }
-                if type.isPrimitiveArray {
-                    if params.length = 1 &
-                            params[0].canImplicitCastTo(context, IntType.INT32) {
-                        def cast := params[0].implicitCast(context,
-                                IntType.INT32)
-                        return new NewPrimitiveArray(position, 
-                                type->>(PrimitiveArrayType), cast)
-                    }
-                    else {
-                        context.errors.error("invalid arguments to " +
-                                "PrimitiveArray constructor", position)
-                        return null
-                    }
-                }
-                if params.length = 0 | params[0]-!>(Dummy) {
-                    def newParams := new Array<Value>()
-                    newParams.add(new Dummy(contextValue.position, type))
-                    newParams.addAll(params)
-                    params := newParams
-                    def construct := call(position, contextValue, 
-                            methodName, params)
-                    if construct != null {
-                        def stub := construct->(Construct).constructorCall.methodStub
-                        if stub.methodType != 
-                                MethodNodeType.CONSTRUCTOR {
-                            context.errors.error(
-                                    "instance method '\{stub.name}' cannot " +
-                                    "be accessed from a class context", 
-                                    position)
-                        }
-                        return construct
-                    }
-                }
-            }
-        }
-        if methodStub != null {
-            def result := call(position, methodStub, supercall, params)
-            if methodStub.methodType = MethodNodeType.CONSTRUCTOR & !supercall {
-                def type:Type?
-                if contextValue-?>(ClassLiteral)
-                    type := contextValue->(ClassLiteral).value
-                else
-                    type := context.currentClass->(ClassStub).superclass
-                return new Construct(type->(ClassType), result->(MethodCall))
-            }
-            else
-                return result
-        }
-        else
-            return null
-    }
-
-    method call(position:Position, var contextValue:Value?, 
-            methodName:String, var params:ListView<Value>):Value? {
-        def result := testCall(position, contextValue, methodName, params)
-        if result = null {
-            context.errors.error(getMethodNotFoundMessage(context, contextValue,
-                    methodName, params), position)
-        }
-        return result
+        return new UnresolvedDotExpression(position, contextValue, name, null)
     }
 
     method convertCallExpression(c:ASTCallExpression):Value? {
-        def target := convertExpression(c.target)
+        var target := convertExpression(c.target)
         if target = null
             return null
+        if c.parameters.length = 0 & target-?>(MethodCall) {
+            Console.writeLine("no arg method hack")
+            return target
+        }
         def parameters := new Array<Value>()
         for p in c.parameters {
-            def resolved := resolve(p)
-            if resolved = null
+            def converted := convertExpression(p)
+            if converted = null
                 return null
-            parameters.add(resolved)
+            parameters.add(converted)
         }
         if target-?>(UnresolvedIdentifier) {
             if context.isInstance {
-                def test := testCall(c.position, context.getSelf(c.position),
+                def test := context.testCall(c.position, context.getSelf(
+                            c.position),
                         target->(UnresolvedIdentifier).name, parameters)
                 if test != null
                     return test
             }
-            def test := testCall(c.position, new ClassLiteral(c.position,
-                        context.currentClass.type),
+            def test := context.testCall(c.position, new ClassLiteral(
+                    c.position, context.currentClass.type),
                     target->(UnresolvedIdentifier).name, parameters)
             if test != null
                 return test
         }
         if target-?>(UnresolvedDotExpression) {
             def u := target->(UnresolvedDotExpression)
-            return call(c.position, u.left, u.right, parameters)
+            def left := resolve(u.left)
+            if left = null
+                return null
+            return context.call(c.position, left, u.right, parameters)
         }
-        context.errors.error("expected a method, but found '\{target.type}'",
-                target.position)
-        return null
+        target := resolve(target)
+        if target = null
+            return null
+        def type := target.type.unwrapNullable
+        if type-!>(MethodType) {
+            context.errors.error("expected a method, but found " +
+                    "'\{target.type.displayName}'", target.position)
+            return null
+        }
+        def unwrapped := target.implicitCast(context, type)
+        def parameterTypes := type->(MethodType).methodParameters
+        if parameters.length != parameterTypes.length {
+            def expected:String
+            if parameterTypes.length = 1
+                expected := "1 parameter"
+            else
+                expected := parameterTypes.length + " parameters"
+            context.errors.error("'\{type.displayName}' expects \{expected}, " +
+                    "but found \{parameters.length}", c.position)
+            return null
+        }
+        def finalParams := new Array<Value>()
+        for i, p in parameters
+            finalParams.add(p.implicitCast(context, parameterTypes[i]))
+        return new DynamicCall(unwrapped, finalParams)
     }
 
     method resolveClass(position:Position, name:String):Value? {
@@ -551,22 +315,33 @@ class IRGenerator {
                 def resolved := resolve(left)
                 if resolved = null
                     return resolved
-                return new UnresolvedDotExpression(resolved, d.right)
+                def field := getField(d.position, resolved, d.right, true)
+                if field-?>(UnresolvedDotExpression) {
+                    return new UnresolvedDotExpression(d.position, resolved, 
+                            d.right, null)
+                }
+                else {
+                    return new UnresolvedDotExpression(d.position, resolved, 
+                            d.right, field)
+                }
             }
             def name := left->(UnresolvedIdentifier).name + "." + d.right
             def cl := resolveClass(d.position, name)
             if cl != null
                 return cl
-            return new UnresolvedIdentifier(d.position, name)
+            return new UnresolvedIdentifier(d.position, name, null)
         }
-        return new UnresolvedDotExpression(left, d.right)
+        def resolved := resolve(left)
+        if resolved = null
+            return null
+        return getField(d.position, left, d.right)
     }
 
     method convertIdentifier(id:ASTIdentifier):Value? {
         def cl := resolveClass(id.position, id.identifier)
         if cl != null
             return cl
-        return new UnresolvedIdentifier(id.position, id.identifier)
+        return getIdentifier(id.position, id.identifier)
     }
 
     method convertIntegerLiteral(i:ASTIntegerLiteral):Value? {
@@ -662,8 +437,8 @@ class IRGenerator {
                 result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
             s := result->>(String)
             values.insert(0, new StringLiteral(string.position, s))
-            return call(string.position, new ClassLiteral(string.position, 
-                    ClassType.STRING), "format", values)
+            return context.call(string.position, new ClassLiteral(
+                    string.position, ClassType.STRING), "format", values)
         }
         else {
             def chars := convertStringChars(string.position, s, false)
@@ -671,6 +446,17 @@ class IRGenerator {
                 return null
             return new StringLiteral(string.position, chars)
         }
+    }
+
+    method convertBitLiteral(b:ASTBitLiteral):Value? {
+        return new BitLiteral(b.position, b.value)
+    }
+
+    method convertUnaryExpression(u:ASTUnaryExpression):Value? {
+        def operand := resolve(u.expression)
+        if operand = null
+            return null
+        return new UnaryOperation(u.position, u.operation, operand)
     }
 
     method convertBinaryExpression(b:ASTBinaryExpression):Value? {
@@ -741,7 +527,7 @@ class IRGenerator {
             instanceOf := context.getMethod(panda, methodName, parameters)
         }
         assert instanceOf != null
-        return call(position, instanceOf, false, parameters)
+        return context.call(position, instanceOf, false, parameters)
     }
 
     method convertArrowExpression(a:ASTArrowExpression):Value? {
@@ -753,8 +539,23 @@ class IRGenerator {
         if right = null
             return null
         switch a.operation {
+            case ArrowOperationType.CAST: {
+                if !left.canExplicitCastTo(context, right) {
+                    context.errors.error("'\{left.type.displayName}' cannot " +
+                            "possibly be an instance of '\{right.displayName}'",
+                            a.position)
+                }
+                return left.explicitCast(a.position, context, right)
+            }
             case ArrowOperationType.INSTANCE_OF:
                 return convertInstanceOf(a.position, left, right)
+            case ArrowOperationType.NOT_INSTANCE_OF: {
+                def instanceOf := convertInstanceOf(a.position, left, right)
+                if instanceOf = null
+                    return null
+                return new UnaryOperation(a.position, UnaryOperationType.NOT,
+                        instanceOf)
+            }
             case ArrowOperationType.CONVERT:
                 return left.convert(context, right)
             default:
@@ -762,50 +563,52 @@ class IRGenerator {
         }
     }
 
-    method resolve(v:Value):Value? {
-        if v-?>(UnresolvedIdentifier) {
-            def name := v->(UnresolvedIdentifier).name
-            def result := context.symbolTable[name]
-            if result != null {
-                if result-?>(FieldNode) {
-                    def f := result->(FieldNode)
-                    if !f.annotations.isClass & !f.annotations.isThread {
-                        if !context.isInstance {
-                            context.errors.error("cannot reference field '" +
-                                    f.name + "' from a class context",
-                                    v.position)
-                            return new Dummy(v.position, f.type)
-                        }
-                        return new FieldReference(v.position, 
-                                context.getSelf(v.position), f)
+    function check(v:Value?):Bit {
+        if v = null
+            return true
+        return v.type-!>(UnresolvedType)
+    }
+
+    method getIdentifier(position:Position, name:String):Value? {
+        def result := context.symbolTable[name]
+        if result != null {
+            if result-?>(FieldNode) {
+                def f := result->(FieldNode)
+                if !f.annotations.isClass & !f.annotations.isThread {
+                    if !context.isInstance {
+                        context.errors.error("cannot reference field '" +
+                                f.name + "' from a class context",
+                                position)
+                        return new UnresolvedIdentifier(position, name,
+                                new Dummy(position, f.type))
                     }
-                    return new FieldReference(v.position, 
-                            new ClassLiteral(v.position, f.owner), f)
+                    return new UnresolvedIdentifier(position, name,
+                            new FieldReference(position, 
+                                context.getSelf(position), f))
                 }
-                return new VariableReference(v.position, result)
+                return new UnresolvedIdentifier(position, name,
+                        new FieldReference(position, 
+                            new ClassLiteral(position, f.owner), f))
             }
-            else {
-                context.errors.error("unknown identifier '\{name}'", v.position)
-                return null
-            }
+            return new UnresolvedIdentifier(position, name,
+                    new VariableReference(position, result))
         }
-        if v-?>(UnresolvedDotExpression) {
-            def u := v->(UnresolvedDotExpression)
-            def result := getField(v.position, u.left, u.right, true)
-            if result-?>(UnresolvedDotExpression) {
-                context.errors.error("'\{u.left.type.displayName}' does not " +
-                        " have a field or no-argument function named " +
-                        "'\{u.right}'",
-                        u.position)
+        -- call getField, so as to allow for no-argument functions
+        if context.isInstance()
+            return getField(position, context.getSelf(position), name)
+        return new UnresolvedIdentifier(position, name, null)
+    }
+
+    method resolve(v:Value):Value? {
+        if v.type-?>(UnresolvedType) {
+            if !v.checkValid(context)
                 return null
-            }
-            return result
+            def type := v.preferredVariableType(context)
+            return v.implicitCast(context, type)
         }
-        if v.type-?>(UnresolvedType)
-            return v.implicitCast(context, v.preferredVariableType())
         return v
     }
-    @post(@return = null | @return.type-!>(UnresolvedType))
+--    @post(@return = null | @return.type-!>(UnresolvedType))
 
     method resolve(e:ASTExpression):Value? {
         var result := convertExpression(e)
@@ -826,12 +629,12 @@ class IRGenerator {
             return null
         def parameters := new Array<Value>()
         for p in n.parameters {
-            def converted := convertExpression(p)
-            if converted = null
+            def resolved := resolve(p)
+            if resolved = null
                 return null
-            parameters.add(converted)
+            parameters.add(resolved)
         }
-        return call(n.position, new ClassLiteral(n.position, type), 
+        return context.call(n.position, new ClassLiteral(n.position, type), 
                 MethodNode.CONSTRUCTOR_NAME, parameters)
     }
 
@@ -839,16 +642,50 @@ class IRGenerator {
         def target := resolve(i.target)
         if target = null
             return null
-        def index := resolve(i.index)
+        var index := convertExpression(i.index)
         if index = null
-            return index
-        def call := callOverloadedOperator(i.position, "[]", target, index)
-        def stub:MethodStub?
-        if call != null
-            stub := call->(MethodCall).methodStub
+            return null
+        if index-?>(UnresolvedRange) {
+            def range := index->(UnresolvedRange)
+            return new UnresolvedSlice(context, i.position, target, range.left, 
+                    range.right, range.step, range.endInclusive)
+        }
+        index := resolve(index)
+        if index = null
+            return null
+        if target.type.unwrapNullable-?>(PrimitiveArrayType)
+            return new PrimitiveArrayIndexValue(target, 
+                    index.implicitCast(context, IntType.INT32))
+        return new UnresolvedIndex(context, i.position, target, index)
+    }
+
+    method convertRangeExpression(r:ASTRangeExpression):Value? {
+        def left:Value?
+        if r.left != null {
+            left := resolve(r.left->(ASTExpression))
+            if left = null
+                return null
+        }
         else
-            stub := null
-        return new UnresolvedIndex(i.position, target, index, stub)
+            left := null
+        def right:Value?
+        if r.right != null {
+            right := resolve(r.right->(ASTExpression))
+            if right = null
+                return null
+        }
+        else
+            right := null
+        def step:Value?
+        if r.step != null {
+            step := resolve(r.step->(ASTExpression))
+            if step = null
+                return null
+        }
+        else
+            step := null
+        return new UnresolvedRange(context, r.position, left, right, step, 
+                r.endInclusive)
     }
 
     method convertExpression(e:ASTExpression):Value? {
@@ -863,8 +700,12 @@ class IRGenerator {
                 return convertIntegerLiteral(e->(ASTIntegerLiteral))
             case class(ASTStringLiteral):
                 return convertStringLiteral(e->(ASTStringLiteral))
+            case class(ASTBitLiteral):
+                return convertBitLiteral(e->(ASTBitLiteral))
             case class(ASTNullLiteral):
                 return new NullLiteral(e.position)
+            case class(ASTUnaryExpression):
+                return convertUnaryExpression(e->(ASTUnaryExpression))
             case class(ASTBinaryExpression):
                 return convertBinaryExpression(e->(ASTBinaryExpression))
             case class(ASTArrowExpression):
@@ -872,9 +713,11 @@ class IRGenerator {
             case class(ASTNew):
                 return convertNew(e->(ASTNew))
             case class(ASTSelf):
-                return new UnresolvedIdentifier(e.position, "self")
+                return getIdentifier(e.position, "self")
             case class(ASTIndex):
                 return convertIndex(e->(ASTIndex))
+            case class(ASTRangeExpression):
+                return convertRangeExpression(e->(ASTRangeExpression))
             default:
                 throw new InternalCompilerException("unsupported expression: " +
                         e.class.name, e.position)
@@ -882,9 +725,9 @@ class IRGenerator {
     }
 
     method convertVarDeclaration(v:ASTVarDeclaration):Statement? {
-        def initializer:Value?
+        var initializer:Value?
         if v.initializer != null {
-            initializer := resolve(v.initializer->(ASTExpression))
+            initializer := convertExpression(v.initializer->(ASTExpression))
             if initializer = null
                 return null
         }
@@ -907,25 +750,29 @@ class IRGenerator {
                             "initializer nor a type", decl.position)
                     return null
                 }
-                type := initializer.type
+                initializer := resolve(initializer)
+                if initializer = null
+                    return null
+                type := initializer.preferredVariableType(context)
             }
             def local := new LocalVariable(decl.position, decl.identifier, type,
                     v.varType)
-            context.symbolTable[local.name] := local
             context.localVariables.add(local)
+            context.symbolTable[local.name] := local
             if initializer != null {
                 -- no support for tuples yet!
                 return new ValueStatement(new VariableAssignment(decl.position, 
-                        local, initializer, true))
+                        local, initializer.implicitCast(context, type), true))
             }
         }
         return null
     }
 
     method convertIf(i:ASTIf):Statement? {
-        def test := convertExpression(i.test)
+        var test := resolve(i.test)
         if test = null
             return null
+        test := test.implicitCast(context, BitType.BIT)
         def thenStatement := convertStatement(i.thenStatement)
         if thenStatement = null
             return null
@@ -952,29 +799,9 @@ class IRGenerator {
         return null
     }
 
-    method convertFor(f:ASTFor):Statement? {
-        def indexVar:LocalVariable?
-        if f.indexVar != null {
-            def astVar := f.indexVar->(ASTTypedIdentifier)
-            def type:Type?
-            if astVar.type != null {
-                type := resolve(astVar.type->(ASTType))
-                if type = null
-                    return null
-            }
-            else
-                type := IntType.INT32
-            indexVar := new LocalVariable(astVar.position, astVar.identifier, 
-                    type, VariableType.DEF)
-            context.localVariables.add(indexVar)
-            context.symbolTable[indexVar.name] := indexVar
-        }
-        else
-            indexVar := null
-        var list := resolve(f.list)
-        if list = null
-            return null
-        list := castToIterable(list)
+    method convertIterableFor(f:ASTFor, rawList:Value, 
+            indexVar:Variable?):Statement? {
+        def list := castToIterable(rawList)
         if list = null
             return null
         def elementType := list.type->(GenericType).parameters[0]
@@ -1005,39 +832,137 @@ class IRGenerator {
         def iteratorVar := new LocalVariable(f.position, "$iterator", 
                 new GenericType(new ClassType("panda.collections.Iterator"), 
                 typeParams), VariableType.DEF)
-        def getIterator := call(f.position, list, "iterator", 
+        def getIterator := context.call(f.position, list, "iterator", 
                 new Array<Value>())
         assert getIterator != null
         statements.add(new ValueStatement(new VariableAssignment(f.position, 
                 iteratorVar, getIterator, true)))
         context.localVariables.add(iteratorVar)
         def bodyStatements := new Array<Statement>()
+        def done := context.call(f.position, new VariableReference(f.position, 
+                iteratorVar), "done", new Array<Value>())
+        assert done != null
+        def test := new If(f.position, done, new Break(f.position), null)
+        bodyStatements.add(test)
+        def next := context.call(f.position, new VariableReference(f.position, 
+                iteratorVar), "next", new Array<Value>())
+        assert next != null
+        bodyStatements.add(new ValueStatement(new VariableAssignment(
+                f.position, valueVars[0], next, false)))
+        def bodyStatement := convertStatement(f.statement)
+        if bodyStatement = null
+            return null
+        bodyStatements.add(bodyStatement)
+        def continueStatements := new Array<Statement>()
         if indexVar != null {
             def plusOne := new BinaryOperation(f.position, 
                     BinaryOperationType.ADD, new VariableReference(f.position,
                             indexVar), new IntegerLiteral(f.position, 1, 
                             indexVar.type, true))
-            bodyStatements.add(new ValueStatement(new VariableAssignment(
+            continueStatements.add(new ValueStatement(new VariableAssignment(
                     f.position, indexVar, plusOne, false)))
         }
-        def next := call(f.position, new VariableReference(f.position, 
-                iteratorVar), "next", new Array<Value>())
-        assert next != null
+        def w := new LoopWithContinueBlock(f.position, f.label, 
+                new Block(f.position, bodyStatements), new Block(f.position,
+                continueStatements))
+        statements.add(w)
+        return new Block(f.position, statements)
+    }
+
+    method convertPrimitiveArrayFor(f:ASTFor, rawArray:Value,
+            var indexVar:LocalVariable?):Statement? {
+        def array := new ReusedValueDefinition(rawArray)
+        def elementType := array.type->>(PrimitiveArrayType).elementType
+        def valueVars := new Array<Variable>()
+        for v in f.valueVars {
+            var type:Type?
+            if v.type != null {
+                type := resolve(v.type->(ASTType))
+                if type = null
+                    return null
+            }
+            else
+                type := elementType
+            def valueVar := new LocalVariable(v.position, v.identifier, type,
+                    VariableType.DEF)
+            valueVars.add(valueVar)
+            context.localVariables.add(valueVar)
+            context.symbolTable[valueVar.name] := valueVar
+        }
+        def statements := new Array<Statement>()
+        statements.add(new ValueStatement(array))
+        if indexVar = null {
+            indexVar := new LocalVariable(f.position, "$index", IntType.INT32,
+                    VariableType.VAR)
+            context.localVariables.add(indexVar)
+        }
+        statements.add(new ValueStatement(new VariableAssignment(f.position, 
+                indexVar, new IntegerLiteral(f.position, 0, indexVar.type, 
+                true), true)))
+        def lengthVar := new LocalVariable(f.position, "$length", IntType.INT32,
+                    VariableType.VAR)
+        context.localVariables.add(lengthVar)
+        statements.add(new ValueStatement(new VariableAssignment(f.position, 
+                lengthVar, getField(f.position, array.createReference(), 
+                    "length")->(Value), 
+                true)))
+        def typeParams := new Array<Type>()
+        typeParams.add(elementType)
+        def bodyStatements := new Array<Statement>()
+        def done := new BinaryOperation(f.position, 
+                BinaryOperationType.GREATER_THAN_OR_EQUAL, 
+                    new VariableReference(f.position, indexVar),
+                    new VariableReference(f.position, lengthVar))
+        def test := new If(f.position, done, new Break(f.position), null)
+        bodyStatements.add(test)
         bodyStatements.add(new ValueStatement(new VariableAssignment(f.position,
-                valueVars[0], next, false)))
+                valueVars[0], new PrimitiveArrayIndexValue(
+                        array.createReference(), 
+                        new VariableReference(f.position, indexVar)))))
         def bodyStatement := convertStatement(f.statement)
         if bodyStatement = null
             return null
         bodyStatements.add(bodyStatement)
-        def done := call(f.position, new VariableReference(f.position, 
-                iteratorVar), "done", new Array<Value>())
-        assert done != null
-        def test := new UnaryOperation(f.position, UnaryOperationType.NOT, done)
-        def w := new While(f.position, f.label, test, new Block(f.position,
-                bodyStatements))
+        def continueStatements := new Array<Statement>()
+        def plusOne := new BinaryOperation(f.position, 
+                BinaryOperationType.ADD, new VariableReference(f.position,
+                        indexVar), new IntegerLiteral(f.position, 1, 
+                        indexVar.type, true))
+        continueStatements.add(new ValueStatement(new VariableAssignment(
+                f.position, indexVar, plusOne, false)))
+        def w := new LoopWithContinueBlock(f.position, f.label, 
+                new Block(f.position, bodyStatements), new Block(f.position,
+                continueStatements))
         statements.add(w)
-        Console.writeLine(statements)
         return new Block(f.position, statements)
+    }
+
+    method convertFor(f:ASTFor):Statement? {
+        def indexVar:LocalVariable?
+        if f.indexVar != null {
+            def astVar := f.indexVar->(ASTTypedIdentifier)
+            def type:Type?
+            if astVar.type != null {
+                type := resolve(astVar.type->(ASTType))
+                if type = null
+                    return null
+            }
+            else
+                type := IntType.INT32
+            indexVar := new LocalVariable(astVar.position, astVar.identifier, 
+                    type, VariableType.DEF)
+            context.localVariables.add(indexVar)
+            context.symbolTable[indexVar.name] := indexVar
+        }
+        else
+            indexVar := null
+        var list := resolve(f.list)
+        if list = null
+            return null
+        if list.type.name.startsWith("panda.collections.PrimitiveArray<") |
+                list.type.name.startsWith("panda.collections.ImmutablePrimitiveArray<")
+            return convertPrimitiveArrayFor(f, list, indexVar)
+        return convertIterableFor(f, list, indexVar)
     }
 
     method convertLoop(l:ASTLoop):Statement? {
@@ -1048,9 +973,10 @@ class IRGenerator {
     }
 
     method convertWhile(w:ASTWhile):Statement? {
-        def test := convertExpression(w.test)
+        var test := resolve(w.test)
         if test = null
             return null
+        test := test.implicitCast(context, BitType.BIT)
         def statement := convertStatement(w.statement)
         if statement = null
             return null
@@ -1058,9 +984,10 @@ class IRGenerator {
     }
 
     method convertDo(d:ASTDo):Statement? {
-        def test := convertExpression(d.test)
+        var test := resolve(d.test)
         if test = null
             return null
+        test := test.implicitCast(context, BitType.BIT)
         def statement := convertStatement(d.statement)
         if statement = null
             return null
@@ -1073,85 +1000,6 @@ class IRGenerator {
 
     method convertContinue(c:ASTContinue):Statement? {
         return new Continue(c.position, c.label)
-    }
-
-    ============================================================================
-    Looks for an overloaded version of `name` (which could be `"="`, `"+"`, 
-    etc.) and returns a call to it, or `null` if no such overloaded operator was
-    found.
-    
-    @param position the position of the call in the source code
-    @param name the name of the method to call
-    @param left the left argument
-    @param right the right argument
-    @returns a method call, or `null`
-    ============================================================================
-    method callOverloadedOperator(position:Position, var name:String, 
-            left:Value, right:Value):Value? {
-        -- avoid calling the various "fake" operators we define in the wrapper
-        -- classes
-        if name = "=" | name = "!=" {
-            if left.type.isPrimitive & right.type.isPrimitive
-                return null
-        }
-        else if !name.startsWith("[") & (left.type.isNumber | 
-                left.type.isWrapper) & (right.type.isNumber | 
-                right.type.isWrapper)
-            return null
-        if left.type = NullType.NULL | right.type = NullType.NULL
-            return null -- force this to be compiled as ==, which is quicker 
-                        -- than calling nullableEquals.
-        if name != "=" {
-            if left.type = StringOrCharType.STRING_OR_CHAR {
-                def cast:Value?
-                cast := left.implicitCast(context, ClassType.STRING)
-                return callOverloadedOperator(position, name, cast, right)
-            }
-            if right.type = StringOrCharType.STRING_OR_CHAR {
-                def cast:Value?
-                cast := right.implicitCast(context, ClassType.STRING)
-                return callOverloadedOperator(position, name, left, cast)
-            }
-        }
-
-        def rawName := name
-        -- map != and !== to = and ==. We'll invert the answer on return.
-        if name.startsWith("!")
-            name := name[1..]
-        var result:Value? := null
-        def parameters := new Array<Value>()
-        parameters.add(left)
-        parameters.add(right)
-        if name = "=" & (left.type.isNullable | right.type.isNullable) {
-            -- for equality, if one or both parameters are null, we need to
-            -- funnel this through Panda.nullableEquals
-            result := testCall(position, new ClassLiteral(
-                    position, ClassType.PANDA), "nullableEquals", parameters)
-            assert result != null : "failed to call nullableEquals"
-        }
-        if result = null {
-            -- check for overload on left (both instance & class)
-            def rightParam := new Array<Value>()
-            rightParam.add(right)
-            result := testCall(position, left, name, rightParam)
-            if result = null {
-                result := testCall(position, new ClassLiteral(
-                        position, left.type->>(ClassType)), name, parameters)
-            }
-        }
-        if result = null {
-            -- check for overload on right (class only)
-            parameters.clear()
-            parameters.add(right)
-            parameters.add(left)
-            result := testCall(position, new ClassLiteral(position, 
-                    right.type->>(ClassType)), name, parameters)
-        }
-        if rawName.startsWith("!") & result != null {
-            result := new UnaryOperation(position, UnaryOperationType.NOT,
-                    result)
-        }
-        return result
     }
 
     ============================================================================
@@ -1228,7 +1076,7 @@ class IRGenerator {
             right := resolvedRight
         else
             return null
-        var value := callOverloadedOperator(position, methodName, left,
+        var value := context.callOverloadedOperator(position, methodName, left,
                 right)
         if value = null {
             def operandType := BinaryOperation.operandType(context, op, left, 
@@ -1254,6 +1102,76 @@ class IRGenerator {
             value := new BinaryOperation(position, op, left, right)
         }
         return value
+    }
+
+    method unwrapCast(v:Value):Value {
+        if v-?>(Cast)
+            return unwrapCast(v->(Cast).value)
+        return v
+    }
+
+    @private
+    method getSliceAssignmentCall(u:UnresolvedSlice, 
+            params:Array<Value>):Value? {
+        def name:String
+        if u.endInclusive
+            name := "[...]:="
+        else
+            name := "[..]:="
+        return context.testCall(u.position, u.contextValue, name, 
+                params)
+    }
+
+    @private
+    method getSliceAssignmentCall(u:UnresolvedSlice, v:Value):Value? {
+        if u.left = null & u.right = null & u.step = null {
+            def params := new Array<Value>()
+            params.add(v)
+            def test := getSliceAssignmentCall(u, params)
+            if test != null
+                return null
+        }
+        if u.right = null & u.step = null {
+            def params := new Array<Value>()
+            if u.left != null
+                params.add(u.left->(Value))
+            else
+                params.add(new NullLiteral(u.position))
+            params.add(v)
+            def test := getSliceAssignmentCall(u, params)
+            if test != null
+                return null
+        }
+        if u.step = null {
+            def params := new Array<Value>()
+            if u.left != null
+                params.add(u.left->(Value))
+            else
+                params.add(new NullLiteral(u.position))
+            if u.right != null
+                params.add(u.right->(Value))
+            else
+                params.add(new NullLiteral(u.position))
+            params.add(v)
+            def test := getSliceAssignmentCall(u, params)
+            if test != null
+                return null
+        }
+        def params := new Array<Value>()
+        if u.left != null
+            params.add(u.left->(Value))
+        else
+            params.add(new NullLiteral(u.position))
+        if u.right != null
+            params.add(u.right->(Value))
+        else
+            params.add(new NullLiteral(u.position))
+        if u.step != null
+            params.add(u.step->(Value))
+        else
+            params.add(new IntegerLiteral(u.position, 1))
+        params.add(v)
+        return getSliceAssignmentCall(u, params)
     }
 
     -- FIXME refactoring required! I did this all wrong and dumb. When I first
@@ -1286,10 +1204,54 @@ class IRGenerator {
     -- be done simpler than it's being done, but I don't think it's possible to
     -- eliminate quite as much complexity as I had hoped.
     method processSingleAssignment(var left:Value, right:Value, 
-            reuse:Bit):Statement {
-        def resolved := resolve(left)
-        if resolved != null
-            left := resolved
+            reuse:Bit):Statement? {
+        if left-?>(UnresolvedIndex) {
+            def index := left->(UnresolvedIndex)
+            def params := new Array<Value>()
+            params.add(index.index)
+            params.add(right)
+            def call := context.testCall(index.position, index.contextValue, 
+                    "[]:=", params)
+            if call != null
+                return new ValueStatement(call)
+            context.errors.error("'\{index.contextValue.type.displayName}' " +
+                    "does not define the '[]' operator for '" +
+                    index.index.type.displayName + "'", index.index.position)
+            return null
+        }
+        else if left-?>(UnresolvedSlice) {
+            def slice := left->(UnresolvedSlice)
+            def call := getSliceAssignmentCall(slice, right)
+            if call != null
+                return new ValueStatement(call)
+            def name:String
+            if slice.endInclusive
+                name := "'[...]:=' (inclusive slice assignment)"
+            else
+                name := "'[..]:=' (exclusive slice assignment)"
+            def types := new Array<String>()
+            if slice.left != null
+                types.add(slice.left->(Value).type.displayName)
+            else
+                types.add("null")
+            if slice.right != null
+                types.add(slice.right->(Value).type.displayName)
+            else
+                types.add("null")
+            if slice.step != null
+                types.add(slice.step->(Value).type.displayName)
+            else
+                types.add("null")
+            types.add(right.type.displayName)
+            context.errors.error("'\{slice.contextValue.type.displayName}' " +
+                    "does not define the \{name} operator for \{types}",
+                    right.position)
+            return null
+        }
+
+        def resolvedLeft := resolve(left)
+        if resolvedLeft = null
+            return null
 -*        if left-?>(Unresolved) {
             -- could be an assignment method
             var contextValue := left->(Unresolved).contextValue
@@ -1326,19 +1288,19 @@ class IRGenerator {
             currentNode.add(implicitCast(right.position, right, a.type))
             close(class(FieldAssignment))
         } *-
-        if left-?>(VariableReference) {
-            def variable := left->(VariableReference).variable
+        if resolvedLeft-?>(VariableReference) {
+            def variable := resolvedLeft->(VariableReference).variable
             def cast := right.implicitCast(context, variable.type)
             def assignment := new VariableAssignment(left.position,
                     variable, cast)
             return new ValueStatement(assignment)
         }
-        else if left-?>(FieldReference) {
-            def fv := left->(FieldReference)
+        else if resolvedLeft-?>(FieldReference) {
+            def fv := resolvedLeft->(FieldReference)
             def object:Value
             def finalRight:Value
             if reuse {
-                def old := right->(BinaryOperation)
+                def old := unwrapCast(right)->(BinaryOperation)
                 assert old.left = fv
                 object := new ReusedValueDefinition(fv.object)
                 def newRight := new BinaryOperation(old.position, old.operation,
@@ -1349,10 +1311,9 @@ class IRGenerator {
             }
             else {
                 object := fv.object
-                finalRight := right
+                finalRight := right.implicitCast(context, fv.field.type)
             }
             def name := fv.field.name
-            Console.writeLine("skipping field ambiguity check")
 -*            var call := callAssignmentMethod(object, name, 
                     new PrimitiveArray<Value>(right))
             if call != null {
@@ -1369,10 +1330,10 @@ class IRGenerator {
             return new FieldAssignment(fv.position, object, fv.field,
                     finalRight)
         }
-        else if left-?>(PrimitiveArrayIndexValue) {
+        else if resolvedLeft-?>(PrimitiveArrayIndexValue) {
             def iv := left->(PrimitiveArrayIndexValue)
             if reuse {
-                def old := right->(BinaryOperation)
+                def old := unwrapCast(right)->(BinaryOperation)
                 assert old.left = iv
                 def array := new ReusedValueDefinition(iv.array)
                 def index := new ReusedValueDefinition(iv.index)
@@ -1409,30 +1370,6 @@ class IRGenerator {
                         "for \{types}", pia.position)
             }
         }
-        else if left-?>(PossibleSliceAssignment) {
-            var psa := left->(PossibleSliceAssignment)
-            var params := [psa.left, psa.right, psa.step, right]
-            var name:String
-            if psa.endInclusive
-                name := "[...]"
-            else
-                name := "[..]"
-            var call := callAssignmentMethod(psa.context, name, params)
-            if call != null
-                currentNode.add(call)
-            else {
-                var types := new PrimitiveArray<String>()
-                for p in params
-                    types.append(p.type.displayName)
-                if psa.endInclusive
-                    name := "inclusive slice assignment ([...]:=)"
-                else
-                    name := "exclusive slice assignment ([..]:=)"
-                throw new CompilerException("\{psa.context.type.displayName} does " +
-                        "not define the \{name} operator for \{types}", 
-                        psa.position)
-            }
-        }
         else if left-?>(MethodCall) {
             -- assigning to a method call. We need to look for a corresponding
             -- assignment method / field.
@@ -1447,7 +1384,7 @@ class IRGenerator {
                 -- undo implicit casts that happened as part of setting up the
                 -- original method call
                 for i, p in testParams {
-                    testParams[i] := unwrapImplicitCast(p)
+                    testParams[i] := unwrapCast(p)
                 }
                 if methodNode.name = "[..]" | methodNode.name = "[...]" {
                     -- restore parameters that might have been stripped when we
@@ -1460,7 +1397,7 @@ class IRGenerator {
                         testParams.append(new IntegerLiteral(left.position, 1))
                 }
                 testParams.append(right)
-                def src := unwrapImplicitCast(oldParams[0])
+                def src := unwrapCast(oldParams[0])
                 def m := findAssignmentMethod(src, methodNode.name, 
                         testParams, mc.isSuper)
                 if m != null {
@@ -1492,7 +1429,7 @@ class IRGenerator {
                     else
                         mc.removeFromParent()
                     params.append(right)
-                    currentNode.add(new ValueStatement(call(
+                    currentNode.add(new ValueStatement(context.call(
                             left.position, m.methodNode, 
                             m.methodNode.isDeclaredVirtual() & !mc.isSuper, 
                             params)))
@@ -1550,10 +1487,11 @@ class IRGenerator {
             }
             else
                 error("cannot assign to '\{left}'", left.position)
+        }*-
+        else {
+            context.errors.error("cannot assign to '\{left}'", left.position)
+            return null
         }
-        else
-            error("cannot assign to '\{left}'", left.position)*-
-        throw new NotSupportedException("special assignment")
     }
 
     method processAssignment(position:Position, var left:ListView<Value?>, 
@@ -1578,9 +1516,6 @@ class IRGenerator {
                         position)
                 return null
             }
-            lvalue := resolve(lvalue)
-            if lvalue = null
-                return null
             def finalRight := getBinaryValue(position, lvalue, assignmentOp, 
                     right)
             if finalRight = null
@@ -1624,10 +1559,10 @@ class IRGenerator {
     method convertAssignment(a:ASTAssignment):Statement? {
         def lvalues := new Array<Value?>()
         for lvalue in a.lvalues {
-            def resolved := resolve(lvalue)
-            if resolved = null
+            def converted := convertExpression(lvalue)
+            if converted = null
                 return null
-            lvalues.add(resolved)
+            lvalues.add(converted)
         }
         assert lvalues.length = 1 : "tuples not supported"
         def rvalue := convertExpression(a.rvalue)
@@ -1637,7 +1572,6 @@ class IRGenerator {
     }
 
     method convertReturn(r:ASTReturn):Statement? {
-        Console.writeLine("converting \{r}:\{r.position}")
         if r.value = null
             return new Return(r.position)
         def resolved := resolve(r.value->(ASTExpression))
@@ -1648,11 +1582,34 @@ class IRGenerator {
         return new Return(r.position, cast)
     }
 
+    method convertAssert(a:ASTAssert):Statement? {
+        def test := resolve(a.test->(ASTExpression))
+        if test = null
+            return null
+        def error:Value?
+        if a.error != null {
+            def resolved := resolve(a.error->(ASTExpression))
+            if resolved = null
+                return null
+            if resolved.canImplicitCastTo(context, ClassType.STRING)
+                error := resolved.implicitCast(context, ClassType.STRING)
+            else
+                error := resolved.implicitCast(context, ClassType.SAFETY_ERROR)
+        }
+        else
+            error := null
+        return new Assert(a.position, test.implicitCast(context, BitType.BIT),
+                error)
+    }
+
+    method convertUnreachable(u:ASTUnreachable):Statement? {
+        return new Unreachable(u.position)
+    }
+
     method convertStatement(s:ASTStatement):Statement? {
         switch s.class {
             case class(ASTExpressionStatement): {
-                def expr := convertExpression(
-                        s->(ASTExpressionStatement).expression)
+                def expr := resolve(s->(ASTExpressionStatement).expression)
                 if expr != null
                     return new ValueStatement(expr)
                 return null
@@ -1679,6 +1636,10 @@ class IRGenerator {
                 return convertReturn(s->(ASTReturn))
             case class(ASTBlock):
                 return convertBlock(s->(ASTBlock))
+            case class(ASTAssert):
+                return convertAssert(s->(ASTAssert))
+            case class(ASTUnreachable):
+                return convertUnreachable(s->(ASTUnreachable))
             default:
                 throw new InternalCompilerException("unsupported statement: " +
                         s.class.name, s.position)
@@ -1745,11 +1706,11 @@ class IRGenerator {
             for f in context.currentClass.fields {
                 if !f.annotations.isClass & !f.annotations.isThread {
                     if f.initialValue != null {
-                        def initialValue := convertExpression(f.initialValue->(ASTExpression))
+                        def initialValue := resolve(f.initialValue->(ASTExpression))
                         if initialValue != null {
                             statements.add(new FieldAssignment(f.position,
                                     context.getSelf(f.position), f,
-                                    initialValue))
+                                    initialValue.implicitCast(context, f.type)))
                         }
                     }
                 }
@@ -1763,17 +1724,29 @@ class IRGenerator {
         return result
     }
 
+    method addFields(type:ClassType) {
+        def stub := context.getStub(type)
+        def superclass := stub.superclass
+        if superclass != null
+            addFields(superclass)
+        for intf in stub.interfaces
+            addFields(intf)
+        if type-?>(GenericType)
+            addFields(type->(GenericType).base)
+        for f in stub.fields
+            context.symbolTable[f.name] := f
+    }
+
     method convertClass(cl:ClassStub):ClassNode {
         def methods := new Array<MethodNode>()
         context.currentClass := cl
         context.pushSymbolTable()
-        for f in cl.fields {
-            context.symbolTable[f.name] := f
-        }
+        addFields(cl.type)
         for f in cl.fields
             inferFieldType(f)
         for m in cl.methods.filter(m => m.body != null)
             methods.add(convertMethod(m))
+        context.popSymbolTable()
         return new ClassNode(cl, methods)
     }
 
@@ -1795,17 +1768,28 @@ class IRGenerator {
             return
         }
         currentlyInferring.add(f)
-        def expr := convertExpression(f.initialValue->(ASTExpression))
-        if expr != null
-            f.type := expr.preferredVariableType()
+        def expr := resolve(f.initialValue->(ASTExpression))
+        if expr != null {
+            if expr.checkValid(context)
+                f.type := expr.preferredVariableType(context)
+        }
         currentlyInferring.remove(f)
     }
 
     method generateProgram():Program {
-        def classes := new Array<ClassNode>()
-        for cl in context.classes.values.filter(cl => !cl.isExternal)
-            classes.add(convertClass(cl))
-        return new Program(context.classes.values, classes, 
+        def classes := new HashMap<String, ClassNode>()
+        var madeProgress:Bit
+        do {
+            madeProgress := false
+            def filtered := context.classes.values.filter(cl => !cl.isExternal & 
+                    !classes.contains(cl.name) & !cl.annotations.isUnspecified)
+            for cl in filtered {
+                classes[cl.name] := convertClass(cl)
+                madeProgress := true
+            }
+        }
+        while madeProgress
+        return new Program(context.classes.values, classes.values, 
                 context.typeResolver)
     }
 }

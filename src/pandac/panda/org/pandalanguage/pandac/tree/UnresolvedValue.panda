@@ -1,31 +1,84 @@
 package org.pandalanguage.pandac.tree
 
-uses org.pandalanguage.pandac.types.PrimitiveArrayType
-uses org.pandalanguage.pandac.types.ClassType
-uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
 ================================================================================
-Represents a value which has not yet been converted to a concrete object. For
-instance, when parsing `[1, 2]`, this could be an array of Ints, or Reals, or
-Objects, or various other things depending on context. This is complicated by
-the fact that we need to have some type information about the array in order to
-determine the context in the first place: for instance, what if we call 
-`process([1, 2])` and there are multiple overloads of `process`? We have enough
-information to determine already that, say, `process(Array<String>)` isn't a
-valid match despite not yet knowing whether we are dealing with an `Array<Int>`
-or `Array<Object>` or whatnot. We use the available type information (in the 
-form of an `UnresolvedArray`) to match the method, and then once the context is 
-determined we resolve the `UnresolvedArray` into its final form.
+Represents a value which has not yet been resolved into its final form. 
+Unresolved values generally depend upon context (for instance, '[1]' could be an
+Array<Int>, a ListView<Object>, or any of countless other types depending on 
+context), and may not even be valid at all without further context (for 
+instance, 'panda.core' by itself is not generally valid, and depends upon us 
+running into something like '.String' next).
 ================================================================================
+@abstract
 class UnresolvedValue : Value {
-    constructor(position:Position, type:Type) {
-        super.constructor(position, type)
-    }
+    ============================================================================
+    The value this Unresolved should resolve to if it turns out there is no 
+    additional context. If value is null, then this Unresolved is not valid at
+    all without additional context.
+    ============================================================================
+    def value:Value?
     
+    constructor(position:Position, description:String, value:Value?) {
+        super.constructor(position, new UnresolvedType(
+                "unresolved:\{description}", position))
+        self.value := value
+    }
+
+    ============================================================================
+    Reports an attempt to use this Unresolved in an invalid state.
+    ============================================================================
+    @abstract
+    method reportError(context:Context)
+
     @override
-    function isResolved():Bit {
+    method checkValid(context:Context):Bit {
+        if value != null
+            return true
+        reportError(context)
         return false
+    }
+
+    @override
+    method preferredVariableType(context:Context, preferImmutable:Bit):Type {
+        return value->(Value).preferredVariableType(context)
+    }
+
+    @override
+    function implicitCastCost(context:Context, t:Type):Int? {
+        if value = null
+            return null
+        return value.type.implicitCastCost(context, t)
+    }
+
+    @override
+    method implicitCast(position:Position, context:Context, t:Type):Value {
+        if !checkValid(context)
+            return new Dummy(position, t)
+        return value->(Value).implicitCast(position, context, t)
+    }
+
+    @override
+    function canExplicitCastTo(context:Context, t:Type):Bit {
+        return value != null & value.canExplicitCastTo(context, t)
+    }
+
+    @override
+    method explicitCast(position:Position, context:Context, t:Type):Value {
+        if !checkValid(context)
+            return new Dummy(position, t)
+        return value->(Value).explicitCast(position, context, t)
+    }
+
+    @protected
+    @override
+    function findConverter(context:Context, t:Type):MethodStub? {
+        if value = null
+            return null
+        return value.findConverter(context, t)
     }
 }
