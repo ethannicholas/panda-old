@@ -159,7 +159,6 @@ class PandaCompiler {
         def workQueue := new MessageQueue()
         def responseQueue := new MessageQueue()
         constant THREADS := 1
-        Console.writeLine("parsing: \{settings.sources}")
         for f in settings.sources
             workQueue.post(f)
         def errorReporter := self.errors
@@ -217,8 +216,18 @@ class PandaCompiler {
                             errors).generateProgram()
                     processMessages()
                     if errorCount = 0 {
-                        def cg := new JARCodeGenerator(program, settings)
-                        cg.generateCode(new File("/tmp/foo"))
+                        def cg:CodeGenerator
+                        switch settings.outputFormat {
+                            case OutputFormat.EXECUTABLE:
+                                cg := new ExecutableCodeGenerator(program, 
+                                        settings)
+                            case OutputFormat.JAR:
+                                cg := new JARCodeGenerator(program, settings)
+--                            case OutputFormat.HEADERS:
+--                                cg := new HeaderCodeGenerator(program, settings)
+                            default: unreachable
+                        } 
+                        cg.generateCode(settings.target)
                     }
                 }
             }
@@ -237,13 +246,85 @@ class PandaCompiler {
         }
     }
 
-    function processArguments(args:PrimitiveArray<String>):CompilerSettings {
+    method processArguments(args:PrimitiveArray<String>):CompilerSettings {
         def sources := new Array<File>()
-        sources.add(PANDA_HOME.resolve(
-                "shared/core/lib/PandaCoreClasses.plink"))
-        for arg in args.filter(arg => arg.endsWith(".panda"))
-            sources.add(new File(arg))
-        return new CompilerSettings(sources)
+        def librarySearchPaths := new Array<File>() 
+        librarySearchPaths.add(new File("/opt/local/lib"))
+        librarySearchPaths.add(PandaCompiler.PANDA_HOME.resolve(
+                "native/core/lib"))
+        var target:File? := null
+        var loadCoreLibraries := true
+        var outputFormat := OutputFormat.EXECUTABLE
+        var i := 0
+        while i < args.length {
+            def arg := args[i]
+            switch arg {
+                case "-o": {
+                    i += 1
+                    if i >= args.length {
+                        Console.writeLine("expected file path after '-o'")
+                        System.exit(1)
+                    }
+                    if target != null {
+                        Console.writeLine("'-o' specified multiple times")
+                        System.exit(1)
+                    }
+                    target := new File(args[i])
+                }
+                case "-f": {
+                    i += 1
+                    if i >= args.length {
+                        Console.writeLine("expected output format after '-f'")
+                        System.exit(1)
+                    }
+                    switch args[i] {
+                        case "jar": outputFormat := OutputFormat.JAR
+                        case "exec": outputFormat := OutputFormat.EXECUTABLE
+                        case "h": outputFormat := OutputFormat.HEADERS
+                        default: {
+                            Console.writeLine("unsupported output format " +
+                                    "'\{args[i]}'")
+                            System.exit(1)                        
+                        }
+                    }
+                }
+                case "-L": {
+                    i += 1
+                    if i >= args.length {
+                        Console.writeLine("expected file path after '-L'")
+                        System.exit(1)
+                    }
+                    librarySearchPaths.add(new File(args[i]))
+                }
+                case "-XnoCoreLib":
+                    loadCoreLibraries := false
+                default:
+                    if arg.endsWith(".panda")
+                        sources.add(new File(arg))
+                    else {
+                        Console.writeLine("unsupported argument '\{arg}'")
+                        System.exit(1)
+                    }
+            }
+            i += 1
+        }
+        if target = null {
+            if sources.length = 1 & sources[0].path.endsWith(".panda") {
+                def path := sources[0].path
+                target := new File(path[0 .. path.length - ".panda".length])
+            }
+            else {
+                Console.writeLine("multiple input files specified, use " +
+                        "'-o <path>' to specify output path")
+                System.exit(1)
+            }
+        }
+        if loadCoreLibraries {
+            sources.add(PANDA_HOME.resolve(
+                    "shared/core/lib/PandaCoreClasses.plink"))
+        }
+        return new CompilerSettings(sources, librarySearchPaths, outputFormat,
+                target->(File))
     }
 
     method runWithArgs(args:PrimitiveArray<String>) {

@@ -1,5 +1,22 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.ast.ASTInvariant
+uses org.pandalanguage.pandac.ast.ASTStatement
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.LookupContext
+uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.FormalParameter
+uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.tree.Annotations
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.VariableType
+
 ================================================================================
 A tuple; there is a `TupleType` for each different combination of types. Tuples
 must have at least two values.
@@ -33,4 +50,55 @@ class TupleType : ClassType {
     function ->>():TupleType {
         return self
     }
+
+    method createStub(elementStubs:Array<ClassStub?>, 
+            context:Context):ClassStub {
+        var isImmutable := true
+        for t in types {
+            if !t.isImmutable(context) {
+                isImmutable := false
+                break
+            }
+        }
+        def superclass:ClassType
+        if isImmutable
+            superclass := ClassType.IMMUTABLE_TUPLE
+        else
+            superclass := ClassType.TUPLE
+        def classAnnotations := new Array<AnnotationType>()
+        classAnnotations.add(AnnotationType.FINAL)
+        for st in elementStubs {
+            if st != null & st.annotations.isUnspecified
+                classAnnotations.add(AnnotationType.UNSPECIFIED)
+        }
+        def position := Position.INTERNAL
+        def fields := new Array<FieldNode>()
+        def finalAnnotation := new Array<AnnotationType>()
+        finalAnnotation.add(AnnotationType.FINAL)
+        def finalAnnotations := new Annotations(position, finalAnnotation)
+        def parameters := new Array<FormalParameter>()
+        parameters.add(new FormalParameter(position, Parameter.SELF_NAME,
+                self, false, false, false))
+        for i, type in types {
+            def field := new FieldNode(position, self, "$field" + i, 
+                    finalAnnotations, VariableType.DEF, type, null, null)
+            fields.add(field)
+
+            parameters.add(new FormalParameter(position, field.name, field.type, 
+                    false, false, false))
+        }
+        def methods := new Array<MethodStub>()
+        def statements := new Array<ASTStatement>()
+        def body := new ASTBlock(position, statements)
+        methods.add(new MethodStub(position, MethodNode.CONSTRUCTOR_NAME, 
+                new Annotations(position, new Array<AnnotationType>()),
+                MethodNodeType.CONSTRUCTOR, parameters, VoidType.VOID, body,
+                self))
+        return new ClassStub(position, self, false, new Annotations(position, 
+                    classAnnotations), 
+                new LookupContext(new Array<String>(), 
+                    new HashMap<String, String>()), 
+                superclass, new Array<ClassType>(), methods, fields, 
+                new Array<ASTInvariant>(), null, false)
+    }    
 }

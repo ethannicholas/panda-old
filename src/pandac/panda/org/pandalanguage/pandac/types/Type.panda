@@ -141,6 +141,74 @@ class Type : Immutable {
         return result
     }
 
+    method isImmutable(context:Context):Bit {
+        return context.getStub(self->>(ClassType)).isImmutable(context)
+    }
+
+    @class
+    method union(context:Context, var type1:Type, var type2:Type):Type {
+        if type1 = type2
+            return type1
+        if type1 = NullType.NULL
+            return type2.nullableVersion(context)
+        if type2 = NullType.NULL
+            return type1.nullableVersion(context)
+        if type1 = StringOrCharType.STRING_OR_CHAR {
+            if type2 = ClassType.STRING | type2 = CharType.CHAR
+                return type2
+            type1 := CharType.CHAR
+        }
+        if type2 = StringOrCharType.STRING_OR_CHAR {
+            if type1 = ClassType.STRING | type2 = CharType.CHAR
+                return type1
+            type2 := CharType.CHAR
+        }
+        var nullable := false
+        if type1.isNullable {
+            type1 := type1.unwrapNullable
+            nullable := true
+        }
+        if type2.isNullable {
+            type2 := type2.unwrapNullable
+            nullable := true
+        }
+        if type1 = RealLiteralType.REAL_LITERAL
+            type1 := RealType.REAL32
+        if type2 = RealLiteralType.REAL_LITERAL
+            type2 := RealType.REAL32
+        if type1-?>(PrimitiveType)
+            type1 := type1->>(WrapperType)
+        if type2-?>(PrimitiveType)
+            type2 := type2->>(WrapperType)
+        var ancestors1 := new PrimitiveArray<Type>()
+        var test1:Type? := type1
+        while test1 != null {
+            ancestors1.append(test1)
+            var cl := context.getStub(test1->>(ClassType))
+            test1 := cl.superclass
+        }
+        var ancestors2 := new PrimitiveArray<Type>()
+        var test2:Type? := type2
+        while test2 != null {
+            ancestors2.append(test2)
+            def cl := context.getStub(test2->>(ClassType))
+            test2 := cl.superclass
+        }
+        var index := 0
+        while index < ancestors1.length & index < ancestors2.length &
+                ancestors1[ancestors1.length - index - 1] = 
+                    ancestors2[ancestors2.length - index - 1]
+            index += 1
+        var type := ancestors1[ancestors1.length - index]
+        while !type.isPrimitive & 
+                context.getStub(type->(ClassType)).annotations.isUnspecified
+            type := context.getStub(type->(ClassType)).superclass->(Type)
+        if nullable
+            type := type.nullableVersion(context)
+
+        return type
+    }
+
     @override
     @final
     function hash():Int {

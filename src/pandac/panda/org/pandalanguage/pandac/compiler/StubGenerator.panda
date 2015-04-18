@@ -3,15 +3,20 @@ package org.pandalanguage.pandac.compiler
 uses org.pandalanguage.pandac.ast.ASTAnnotation
 uses org.pandalanguage.pandac.ast.ASTAssignment
 uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.ast.ASTCallExpression
 uses org.pandalanguage.pandac.ast.ASTClass
+uses org.pandalanguage.pandac.ast.ASTDotExpression
 uses org.pandalanguage.pandac.ast.ASTExpression
+uses org.pandalanguage.pandac.ast.ASTExpressionStatement
 uses org.pandalanguage.pandac.ast.ASTField
 uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTIdentifier
+uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTMethod
 uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
 uses org.pandalanguage.pandac.ast.ASTParameter
 uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
+uses org.pandalanguage.pandac.ast.ASTSuper
 uses org.pandalanguage.pandac.ast.ASTStatement
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
@@ -30,6 +35,7 @@ uses org.pandalanguage.pandac.tree.VariableType
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
@@ -71,14 +77,13 @@ class StubGenerator {
                         case "self":  result.add(AnnotationType.SELF)
                         case "safeReturn":  result.add(AnnotationType.SAFERETURN)
                         case "unsafeFunction":  result.add(AnnotationType.UNSAFEFUNCTION)
+                        case "synthetic":  result.add(AnnotationType.SYNTHETIC)
                         case "$wrapperMethod":  result.add(AnnotationType.WRAPPER_METHOD)
-                        default: errors.warning("unsupported annotation: \{ann}", 
-                                ann.position)
+                        -- default: handle math(overflow)
                     }
                 }
                 else {
-                    errors.warning("unsupported annotation: \{ann}", 
-                            ann.position)
+                    -- handle pre / post / invariant
                 }
             }
         }
@@ -90,6 +95,252 @@ class StubGenerator {
         if result = null
             errors.error("type '\{type}' not found", type.position)
         return result
+    }
+
+    @private
+    function getBaseType(var t:Type):Type {
+        t := t.unwrapNullable
+        if t-?>(GenericType)
+            return t->(GenericType).base
+        return t
+    }
+
+    ============================================================================
+    Verify that a method has a legal signature. In the case of overloaded
+    operators, there are many constraints (such as addition must be a function
+    rather than a method) which could result in a method not being legal.
+    ============================================================================
+    @private
+    method checkMethodSignature(m:MethodStub) {
+        -- wrappers are allowed to have overloads applying to their primitive
+        -- equivalents, so don't bother checking them
+        if m.owner.isWrapper
+            return
+        switch m.name {
+            case "+", "-", "*", "/", "//", "^", ">", "<", ">=", "<=", "%",
+                    "&", "&&", "|", "||", "~", "~~", "<<", ">>": {
+                var name:String
+                if m.annotations.isClass {
+                    name := "@class operator '\{m.name}'"
+                    if m.parameters.length != 2 {
+                        errors.error("expected \{name} " +
+                                "to have exactly two parameters", m.position)
+                    }
+                    else if m.parameters[0].type != m.owner & 
+                            m.parameters[1].type != m.owner {
+                        errors.error("expected \{name} to " +
+                                "take \{m.owner} as at least one of " +
+                                "its two parameters", m.position)
+                    }
+                }
+                else {
+                    name := "operator '" + m.name + "'"
+                    if m.parameters.length != 2 {
+                        errors.error("expected \{name} to " + 
+                                "have exactly one parameter", m.position)
+                    }
+                }
+                if m.methodType != MethodNodeType.FUNCTION {
+                    errors.error("expected \{name} to be a " +
+                            "function", m.position)
+                }
+            }
+            case "=": {
+                if m.annotations.isClass {
+                    errors.error("operator '=' cannot be " +
+                            "declared '@class'", m.position)
+                }
+                if m.parameters.length != 2 | 
+                        m.parameters[1].type != ClassType.OBJECT {
+                    errors.error("operator '=' must take " +
+                            "exactly one parameter of type 'panda.core.Object'",
+                            m.position)
+                }
+                if m.methodType != MethodNodeType.FUNCTION {
+                    errors.error("expected operator '=' to " +
+                            "be a function", m.position)
+                }
+            }
+            case "[]": {
+                var name:String
+                var start:Int
+                if m.annotations.isClass {
+                    name := "@class operator '\{m.name}'"
+                    start := 0
+                }
+                else {
+                    name := "operator '\{m.name}'"
+                    start := 1
+                }
+                if m.parameters.length - start != 1 {
+                    errors.error("expected \{name} to have " +
+                            "exactly one parameter", m.position)
+                }
+                if m.methodType != MethodNodeType.FUNCTION {
+                    errors.error("expected \{name} to be a " +
+                            "function", m.position)
+                }
+            }
+            case "[]:=": {
+                var name:String
+                var start:Int
+                if m.annotations.isClass {
+                    errors.error("indexed assignment is not " + 
+                            "permitted on classes", m.position)
+                    return
+                }
+                else {
+                    name := "operator '\{m.name}'"
+                    start := 1
+                }
+                if m.parameters.length - start != 2 {
+                    errors.error("expected \{name} to have " +
+                            "exactly two parameters", m.position)
+                }
+                if m.methodType = MethodNodeType.FUNCTION {
+                    errors.error("\{name} may not be a function", m.position)
+                }
+                if m.returnType != VoidType.VOID {
+                    errors.error("\{name} may not return a value", m.position)
+                }
+            }
+            case "[..]", "[...]": {
+                var name:String
+                var start:Int
+                if m.annotations.isClass {
+                    name := "@class operator '\{m.name}'"
+                    start := 0
+                }
+                else {
+                    name := "operator '\{m.name}'"
+                    start := 1
+                }
+                if m.parameters.length - start > 3 {
+                    errors.error("expected \{name} to have " +
+                            "zero to three parameters", m.position)
+                    return
+                }
+                if m.parameters.length - start = 3 & 
+                        m.parameters[start + 2].type.isNullable {
+                    errors.error("expected parameter " + 
+                            "'\{m.parameters[start + 2].name}' of \{name} " + 
+                            "to be non-nullable", m.position)
+                }
+                if m.methodType != MethodNodeType.FUNCTION {
+                    errors.error("expected \{name} to be a function", 
+                            m.position)
+                }
+            }
+            case "[..]:=", "[...]:=": {
+                var name:String
+                var start:Int
+                if m.annotations.isClass {
+                    errors.error("slice assignment is not permitted on classes",
+                            m.position)
+                    return
+                }
+                else {
+                    name := "operator '\{m.name}'"
+                    start := 1
+                }
+                if m.parameters.length - start < 1 | 
+                        m.parameters.length - start > 4 {
+                    errors.error("expected \{name} to have one to four " +
+                            "parameters", m.position)
+                    return
+                }
+                if m.parameters.length - start = 4 & 
+                        m.parameters[start + 2].type.isNullable {
+                    errors.error("expected parameter " + 
+                            "'\{m.parameters[start + 2].name}' of \{name} " +
+                            "to be non-nullable", m.position)
+                }
+                if m.methodType = MethodNodeType.FUNCTION {
+                    errors.error("\{name} may not be a function", m.position)
+                }
+                if m.returnType != VoidType.VOID {
+                    errors.error("\{name} may not return a value", m.position)
+                }
+            }
+            case "->>": {
+                if m.annotations.isClass {
+                    constant name := "@class operator '->>'"
+                    if m.parameters.length != 1 {
+                        errors.error("expected \{name} to " +
+                                "take a single parameter", m.position)
+                    }
+                    if m.returnType != m.owner & 
+                            getBaseType(m.returnType) != m.owner {
+                        errors.error("expected \{name} to " +
+                                "return '\{m.owner.displayName}'", 
+                                m.position)
+                    }
+                    if m.parameters[0].type = m.owner {
+                        errors.error("parameter type and " + 
+                                "return types of \{name} must be different", 
+                                m.position)
+                    }
+                }
+                else {
+                    constant name := "operator '->>'"
+                    if m.parameters.length != 1 {
+                        errors.error("expected \{name} to take " +
+                                "no parameters", m.position)
+                    }
+                }
+                if m.methodType = MethodNodeType.METHOD & 
+                        !m.annotations.isSelf {
+                    errors.error("convert methods must " + 
+                            "have the '@self' annotation", m.position)
+                }
+            }
+            case "main": {
+                if m.returnType != VoidType.VOID {
+                    errors.error("method 'main' may not return a value", 
+                            m.position)
+                }
+                if !m.annotations.isClass {
+                    errors.error("method 'main' must be declared '@class'", 
+                            m.position)
+                }
+-*                if m.parameters.length > 1 | (m.parameters.length = 1 &
+                        m.parameters[0].type != ClassType.ARRAY_STRING) {
+                    errors.error("method 'main' must accept " +
+                            "either no parameters or one parameter of type " +
+                            "'\{class(PrimitiveArray<String>).name}'", m.position)
+                }*-
+            }
+            default: {
+                if m.name.endsWith(":=") {
+                    var name:String
+                    var start:Int
+                    if m.annotations.isClass {
+                        name := "@class operator '\{m.name}'"
+                        start := 0
+                    }
+                    else {
+                        name := "operator '\{m.name}'"
+                        start := 1
+                    }
+                    if m.parameters.length - start != 1 {
+                        errors.error("expected \{name} to " +
+                                "have exactly one parameter", m.position)
+                    }
+                    if m.methodType = MethodNodeType.FUNCTION {
+                        errors.error("\{name} may not be a " +
+                                "function", m.position)
+                    }
+                    if m.returnType != VoidType.VOID {
+                        errors.error("\{name} may not return " +
+                                "a value", m.position)
+                    }
+                    if !m.annotations.isSelf {
+                        errors.error("\{name} must be " +
+                                "declared '@self'", m.position)
+                    }
+                }
+            }
+        }
     }
 
     method convertMethod(isExternal:Bit, m:ASTMethod, owner:ClassType,
@@ -134,9 +385,11 @@ class StubGenerator {
             original := "<none>"
         else
             original := m.annotations->(Object)->>(String)
-        return new MethodStub(m.position, m.name, 
+        def result := new MethodStub(m.position, m.name, 
                 annotations, m.methodType, parameters, returnType, m.body, 
                 owner)
+        checkMethodSignature(result)
+        return result
     }
 
     method convertFields(f:ASTField, owner:ClassType, 
@@ -207,6 +460,20 @@ class StubGenerator {
         return null
     }
 
+    function isAbstract(cl:ASTClass):Bit {
+        if cl.isInterface 
+            return true
+        def annotations := cl.annotations
+        if annotations != null {
+            for a in annotations {
+                if a-?>(ASTSimpleAnnotation) & 
+                        a->(ASTSimpleAnnotation).name = "abstract"
+                    return true
+            }
+        }
+        return false
+    }
+
     method convertClass(cl:ASTClass, currentPackage:String?,
             var lookupContext:LookupContext):ClassStub {
         def className:String
@@ -267,11 +534,30 @@ class StubGenerator {
             }
         }
         def methods := new Array<MethodStub>()
+        var foundConstructor := false
         for m in cl.methods {
             def converted := convertMethod(cl.isExternal, m, classType, 
                     lookupContext)
-            if converted != null
+            if converted != null {
                 methods.add(converted)
+                foundConstructor |= converted.methodType = 
+                        MethodNodeType.CONSTRUCTOR
+            }
+        }
+        if !foundConstructor & !isAbstract(cl) {
+            def statements := new Array<ASTStatement>()
+            def superConstructor := new ASTDotExpression(
+                    new ASTSuper(cl.position), MethodNode.CONSTRUCTOR_NAME)
+            statements.add(new ASTExpressionStatement(new ASTCallExpression(
+                    superConstructor, new Array<ASTExpression>())))
+            def block := new ASTBlock(cl.position, statements)
+            def params := new Array<FormalParameter>()
+            params.add(new FormalParameter(cl.position, 
+                    Parameter.SELF_NAME, classType, false, false, false))
+            def c := new MethodStub(cl.position, MethodNode.CONSTRUCTOR_NAME, 
+                    new Annotations(cl.position), MethodNodeType.CONSTRUCTOR, 
+                    params, VoidType.VOID, block, classType)
+            methods.add(c)
         }
         def fields := new Array<FieldNode>()
         for f in cl.fields
@@ -286,7 +572,7 @@ class StubGenerator {
                 methods.add(init[1])
             }
         }
-        return new ClassStub(cl.position, new ClassType(className), 
+        return new ClassStub(cl.position, classType, 
                 cl.isInterface, annotations, lookupContext, 
                 superclass->(ClassType?), interfaces, methods, fields, 
                 cl.invariants, cl.genericParameters, cl.isExternal)
@@ -296,7 +582,9 @@ class StubGenerator {
         def result := new Array<ClassStub>()
         var currentPackage:String? := null
         def classAliases := new HashMap<String, String>()
-        def packageUses := new Array<String>() 
+        def packageUses := new Array<String>()
+        def mainStatements := new Array<ASTStatement>()
+        def implicitClassMethods := new Array<MethodStub>()
         packageUses.add("panda.collections")
         packageUses.add("panda.core")
         packageUses.add("panda.io")
@@ -327,6 +615,34 @@ class StubGenerator {
                 result.add(convertClass(cl, currentPackage, 
                         new LookupContext(packageUses, classAliases)))
             }
+            else if e-?>(ASTStatement)
+                mainStatements.add(e->(ASTStatement))
+            else {
+                throw new InternalCompilerException("unsupported file entry: " +
+                        e)
+            }
+        }
+        def implicitType := new ClassType("$Implicit")
+        if mainStatements.length > 0 {
+            def position := new Position(f.name, 1, 1)
+            def classAnnotations := new Array<AnnotationType>()
+            classAnnotations.add(AnnotationType.CLASS)
+            implicitClassMethods.add(new MethodStub(position, 
+                    MethodNode.MAIN_NAME, new Annotations(
+                        position, classAnnotations),
+                    MethodNodeType.METHOD, new Array<FormalParameter>(), 
+                    VoidType.VOID, new ASTBlock(Position.INTERNAL, 
+                    mainStatements), implicitType))
+        }
+        if implicitClassMethods.length > 0 {
+            def implicitClass := new ClassStub(Position.INTERNAL, 
+                    implicitType, false, 
+                    new Annotations(Position.INTERNAL), 
+                    new LookupContext(packageUses, classAliases), 
+                    null, new Array<ClassType>(), implicitClassMethods, 
+                    new Array<FieldNode>(), new Array<ASTInvariant>(),
+                    null, false)
+            result.add(implicitClass)
         }
         return result
     }

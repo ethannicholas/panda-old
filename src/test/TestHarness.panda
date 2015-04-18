@@ -1,4 +1,5 @@
 class TestHarness {
+    var passed:Int
     var pandac:String
     var src:File
     var target:File
@@ -10,22 +11,22 @@ class TestHarness {
         self.target := target
     }
     
-    method runTest(name:String) {
+    method runTest(name:String):Bit {
         Console.writeLine("### compiling test " + name + "...")
-        var panda := src.resolve("test/" + name + "/" + name + ".panda")
-        var exe := target.resolve("test/" + name + "/" + name)
+        def panda := src.resolve("test/" + name + "/" + name + ".panda")
+        def exe := target.resolve("test/" + name + "/" + name)
         if exe.exists()
             exe.delete()
-        var parent := exe.parent()
+        def parent := exe.parent()
         if parent != null
             parent.createDirectories()
-        var output := target.resolve("test/" + name + "/" + name + ".out")
+        def output := target.resolve("test/" + name + "/" + name + ".out")
         if output.exists()
             output.delete()
-        var outputStream := output.openOutputStream()
-        var pandacParsed := pandac.parse(#/([^ ]+)\s+(.+)/#)
-        var pandacExe:String
-        var params:Array<String>
+        def outputStream := output.openOutputStream()
+        def pandacParsed := pandac.parse(#/([^ ]+)\s+(.+)/#)
+        def pandacExe:String
+        def params:Array<String>
         if pandacParsed != null {
             pandacExe := pandacParsed[0]
             params := new Array<String>(pandacParsed[1].split(#/\s+/#))
@@ -61,20 +62,29 @@ class TestHarness {
         var expected := src.resolve("test/" + name + "/" + name + ".expected")
         var expectedData := expected.readAsString()
         var actualData := output.readAsString()
-        if expectedData = actualData
+        if expectedData = actualData {
             Console.writeLine("passed")
+            return true
+        }
         else {
-            Console.writeLine("failed with output: '" + actualData + "'")
-            unreachable
+            Console.writeLine("failed with output: '\{actualData}'")
+            Console.writeLine("expected output: '\{expectedData}'")
+            return false
         }
     }
     
     method runAllTests() {
-        var files := src.resolve("test").list()
-        for i in 0 ... files.length - 1 {
-            if files[i].isDirectory()
-                runTest(files[i].name)
+        passed := 0
+        var total := 0
+        def files := src.resolve("test").list()
+        for f in files {
+            if f.isDirectory() {
+                total += 1
+                if runTest(f.name)
+                    passed += 1
+            }
         }
+        Console.writeLine("\{passed} of \{total} tests passed.")
     }
     
     @class

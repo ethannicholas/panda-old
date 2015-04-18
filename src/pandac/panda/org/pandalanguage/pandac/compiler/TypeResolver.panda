@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ASTClass
 uses org.pandalanguage.pandac.ast.ASTClassType
+uses org.pandalanguage.pandac.ast.ASTEnum
 uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTMethodType
 uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
@@ -79,11 +80,24 @@ class TypeResolver {
                     }
                     types[name] := new ClassType(name)
                 }
+                else if decl-?>(ASTEnum) {
+                    var name := decl->(ASTEnum).name
+                    if currentPackage != null
+                        name := currentPackage + "." + name
+                    def existing := types[name]
+                    if existing != null {
+                        if existing-!>(WrapperType) {
+                            errors.error("duplicate definition of type " +
+                                    "'\{name}'", decl.position)
+                        }
+                        continue
+                    }
+                    types[name] := new ClassType(name)
+                }
                 else if decl-?>(ASTPackageDeclaration)
                     currentPackage := decl->(ASTPackageDeclaration).name
             }
         }
-
         self.errors := errors
     }
 
@@ -166,7 +180,7 @@ class TypeResolver {
                     m.isImmutable)
         }
         if raw-?>(ASTTupleType) {
--*            def tuple := raw->(ASTTupleType)
+            def tuple := raw->(ASTTupleType)
             def types := new Array<Type>()
             for t in tuple.types {
                 def resolved := resolve(t, context)
@@ -174,8 +188,7 @@ class TypeResolver {
                     return null
                 types.add(resolved)
             }
-            return new TupleType(types)*-
-            return ClassType.OBJECT
+            return new TupleType(types)
         }
         throw new InternalCompilerException("Unsupported type: " + raw + ":" + 
                 raw.class.name)

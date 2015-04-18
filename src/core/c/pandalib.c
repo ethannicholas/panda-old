@@ -218,22 +218,19 @@ Array* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int32 length,
 // Creates a new Panda Array copied from a subrange of an existing array.
 // class_ptr - the specific Array class to create
 // array - the array to copy from
-// offset - the initial element to copy from
-// length - the number of elements to copy
 // elementSize - size of each element
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
-Array* pandaNewPrimitiveArrayWithRange(Class* class_ptr, Array* array, Int32 offset, 
-        Int32 length, Int32 elementSize, Bit elementsArePointers) {
-    if ((elementSize < 0) || (length < 0))
+Array* pandaNewPrimitiveArrayCopy(Class* class_ptr, Array* array, 
+            Int32 elementSize, Bit elementsArePointers) {
+    if (elementSize < 0)
        pandaFatalError("creating array with negative size");
     Array* result = (Array*) _pandaNew(class_ptr, sizeof(Array));
-    result->$length = length;
-    result->$maxLength = length;
-    int size = length * elementSize;
+    result->$length = array->$length;
+    result->$maxLength = array->$length;
+    int size = result->$maxLength * elementSize;
     result->contents = pandaAlloc(size, elementsArePointers);
-    memcpy(result->contents, ((Int8*) array->contents) + offset * elementSize, 
-            size);
+    memcpy(result->contents, ((Int8*) array->contents), size);
     return result;
 }
 

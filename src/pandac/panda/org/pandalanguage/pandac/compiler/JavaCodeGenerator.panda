@@ -97,6 +97,7 @@ uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
@@ -205,11 +206,6 @@ class JavaCodeGenerator (CodeGenerator) {
                 m.annotations.isWrapperMethod
     }
 
-    @private
-    method isImmutable(t:Type):Bit {
-        return context.getStub(t->>(ClassType)).isImmutable(context)
-    }
-
     method getJavaReferenceType(t:Type):String {
         switch t {
             case IntType.INT8, IntType.UINT8:   return "Byte"
@@ -270,6 +266,8 @@ class JavaCodeGenerator (CodeGenerator) {
             case VoidType.VOID:   return "void"
             case NativePointerType.NATIVE_POINTER: return "java.lang.Object"
         }
+        if t-?>(GenericParameterType)
+            return getJavaType(t->(GenericParameterType).bound)
         var result:String
         if t.isPrimitiveArray {
             var eType := t.unwrapNullable->(PrimitiveArrayType).elementType
@@ -282,13 +280,13 @@ class JavaCodeGenerator (CodeGenerator) {
                 eName := getJavaType(eType)
             if eType.isNullable
                 eName += "$Z"
-            if isImmutable(t)
+            if t.isImmutable(context)
                 result := class(ImmutablePrimitiveArray).name + "<" + eName + ">"
             else
                 result := class(PrimitiveArray).name + "<" + eName + ">"
         } 
         else if t.unwrapNullable-?>(MethodType) {
-            if context.getStub(t->>(ClassType)).isImmutable(context)
+            if t.isImmutable(context)
                 return getJavaType(ClassType.METHOD)
             else
                 return getJavaType(ClassType.MUTABLE_METHOD)
@@ -346,10 +344,23 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateMethodCallCode(mc:MethodCall) {
-        var m := mc.methodStub
-        var start := 0
-        if isClass(m)
+        def m := mc.methodStub
+        def start:Int
+        if mc.isSuper {
+            if m.methodType = MethodNodeType.CONSTRUCTOR {
+                def stub := context.getStub(m.owner->>(ClassType))
+                out.write(getName(stub))
+                start := 0
+            }
+            else {
+                out.write("super")
+                start := 1
+            }
+        }
+        else if isClass(m) {
             out.write(getName(context.getStub(m.owner->>(ClassType))))
+            start := 0
+        }
         else {
             generateValueCode(mc.parameters[0])
             start := 1
@@ -464,6 +475,13 @@ class JavaCodeGenerator (CodeGenerator) {
         def op:String
         switch b.operation {
             case BinaryOperationType.EQUAL: op := "=="
+            case BinaryOperationType.INT_DIVIDE: op := "/"
+            case BinaryOperationType.AND: op := "&&"
+            case BinaryOperationType.OR:  op := "||"
+            case BinaryOperationType.XOR: op := "^^"
+            case BinaryOperationType.BITWISE_AND: op := "&"
+            case BinaryOperationType.BITWISE_OR:  op := "|"
+            case BinaryOperationType.BITWISE_XOR: op := "^"
             default: op := BinaryOperation.operatorSymbol(b.operation)
         }
         generateBinaryCode(b, op)
@@ -736,8 +754,9 @@ class JavaCodeGenerator (CodeGenerator) {
     method generateIfCode(i:If) {
         out.write("if (")
         generateValueCode(i.test)
-        out.write(") " )
+        out.write(") /* then start: \{i.thenStatement.class.name} */")
         generateStatementCode(i.thenStatement)
+        out.write("/* then end */")
         var elseStatement := i.elseStatement
         if elseStatement != null {
             out.write("else ")
@@ -923,13 +942,18 @@ class JavaCodeGenerator (CodeGenerator) {
     
     method generateContinueCode(c:Continue) {
         def target := findLoop(c.label)
-        if target-?>(LoopWithContinueBlock)
+        if target-?>(LoopWithContinueBlock) {
+            out.write("{")
             generateBlockCode(target->(LoopWithContinueBlock).continueBlock)
+        }
         out.write("continue")
         var label := c.label
         if label != null
             out.write(" " + label)
         out.writeLine(";")
+        if target-?>(LoopWithContinueBlock) {
+            out.write("}")
+        }
     }
     
     method generateStatementCode(s:Statement) {
@@ -1086,7 +1110,6 @@ class JavaCodeGenerator (CodeGenerator) {
         if currentClass->(ClassNode).stub.annotations.isUnspecified & 
                 !m.stub.annotations.isClass
             return
-        Console.writeLine("METHOD CODE: " + m.stub.owner.name + ":" + m + ":" + m.stub.annotations)
         currentMethod := m
         if m.stub.name = MethodNode.CLASS_INIT_NAME
             hasClassInit := true
@@ -1210,7 +1233,6 @@ class JavaCodeGenerator (CodeGenerator) {
             return
         if cl.stub.annotations.isUnspecified & cl.stub.type.isPrimitiveArray()
             return
-        Console.writeLine("generating code: \{cl}:\{cl.hash} \{cl.stub}:\{cl.stub.hash}")
         currentClass := cl
         hasClassInit := false
         stringConstants := new PrimitiveArray<String>()
@@ -1218,7 +1240,6 @@ class JavaCodeGenerator (CodeGenerator) {
         assert rootPath != null
         def dest := rootPath.resolve(getName(cl.stub).replace(".", "/") + 
                 ".java")
-        Console.writeLine("writing \{cl.stub.name} into \{dest}")
         var parent := dest.parent()
         if parent = null {
             throw new CompilerException("could not determine parent of '" + 

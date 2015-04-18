@@ -24,6 +24,7 @@ uses org.pandalanguage.pandac.tree.Super
 uses org.pandalanguage.pandac.tree.UnaryOperation
 uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
+uses org.pandalanguage.pandac.tree.UnresolvedRange
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.VariableReference
@@ -36,6 +37,7 @@ uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.TupleType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
@@ -121,8 +123,19 @@ class Context {
                 else
                     parameterStubs.add(null)
             }
-            return type->(GenericType).createStub(self, baseStub,
+            return generic.createStub(self, baseStub,
                     parameterStubs)
+        }
+        else if type-?>(TupleType) {
+            def tuple := type->(TupleType)
+            def stubs := new Array<ClassStub?>()
+            for t in tuple.types {
+                if t.isPrimitive | t-?>(GenericParameterType)
+                    stubs.add(null)
+                else
+                    stubs.add(getStub(t.name))
+            }
+            return tuple.createStub(stubs, self)
         }
         return null
     }
@@ -163,7 +176,7 @@ class Context {
 
     constant CONVERT_COST := 10
 
-    function matchCost(m:MethodStub, params:ListView<Value>):Int? {
+    function matchCost(m:MethodStub, var params:ListView<Value>):Int? {
         if m.methodType = MethodNodeType.CONSTRUCTOR & params.length > 0 &
                 m.parameters[0].type != params[0].type {
             -- constructor called on mismatched type means we're in a subclass,
@@ -181,6 +194,16 @@ class Context {
             -- by simply turning off varargs; the last parameter is already an
             -- array and we just let it be treated as such
             isVarArg := false
+            -- ...but we do need to handle primitive arrays for legacy code
+            -- right now
+            def lastType := m.parameters[m.parameters.length - 1].type
+            if lastType-?>(PrimitiveArrayType) {
+                def newParams := new Array<Value>()
+                newParams.addAll(params[0 .. params.length - 1])
+                newParams.add(new Dummy(params[params.length - 1].position,
+                        lastType))
+                params := newParams
+            }
         }
         if isVarArg {
             -- strip off vararg parameter, it's not required
@@ -231,7 +254,7 @@ class Context {
             CollectionView<MethodStub> {
         def result := new Array<MethodStub>()
         def superclass := searchClass.superclass
-        if superclass != null
+        if superclass != null & name != MethodNode.CONSTRUCTOR_NAME
             result.addAll(getMethodsNamed(name, getStub(superclass)))
         for intf in searchClass.interfaces
             result.addAll(getMethodsNamed(name, getStub(intf)))
@@ -374,7 +397,7 @@ class Context {
                         return new NewPrimitiveArrayWithLength(position, 
                                 type->>(PrimitiveArrayType), cast)
                     }
-                    else if params.length = 1 & 
+                    else if -*params.length = 1 & *-
                             params[0].type.isPrimitiveArray {
                         return new PrimitiveArrayCopy(position, 
                                 type->(PrimitiveArrayType), params[0])
@@ -413,7 +436,7 @@ class Context {
                 if contextValue-?>(ClassLiteral)
                     type := contextValue->(ClassLiteral).value
                 else
-                    type := currentClass->(ClassStub).superclass
+                    type := currentClass.type
                 return new Construct(type->(ClassType), result->(MethodCall))
             }
             else
@@ -613,6 +636,11 @@ class Context {
                 def converted := params[i].convert(self, target)
                 finalParams.add(converted)
             }
+            else if params[i]-?>(Unwrap) & target-?>(PrimitiveArrayType) {
+                -- temporary, until new compiler is done and we stop using
+                -- PrimitiveArrays outside of Array. FIXME remove this case.
+                finalParams.add(params[i].convert(self, target))
+            }
             else {
                 errors.error("expected value of type " +
                         "'\{target.displayName}', but found " +
@@ -644,8 +672,36 @@ class Context {
         return new MethodCall(position, m, isSuper, finalParams)
     }
 
+    @private
+    function isListView(value:Value?):Bit {
+        if value = null
+            return false
+        def cl := getStub(value.type->>(ClassType))
+        for intf in cl.allInterfaces(self) {
+            if intf.name.startsWith("panda.collections.ListView<")
+                return true
+        }
+        return false
+    }
+
     method call(position:Position, var contextValue:Value?, 
             methodName:String, var params:ListView<Value>):Value? {
+        def types := new Array<String>()
+        for p in params types.add(p.type->>(String))
+        if params.length > 0 {
+            def last := params[params.length - 1]
+            if last-?>(UnresolvedRange) {
+                def range := last->(UnresolvedRange)
+                def left := range.left
+                if isListView(left) & range.right = null {
+                    assert left != null
+                    def newParams := new Array<Value>()
+                    newParams.addAll(params[0 .. params.length - 1])
+                    newParams.add(new Unwrap(left))
+                    params := newParams
+                }
+            }
+        }
         for p in params {
             if !p.checkValid(self)
                 return null

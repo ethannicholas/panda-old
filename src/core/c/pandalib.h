@@ -61,8 +61,8 @@ String* pandaNewString(const char* chars, int byteLength);
 Array* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int32 length, Int32 elementSize,
         Bit elementsArePointers);
 
-Array* pandaNewPrimitiveArrayWithRange(Class* class_ptr, Array* array, Int32 offset, 
-        Int32 length, Int32 elementSize, Bit elementsArePointers);
+Array* pandaNewPrimitiveArrayCopy(Class* class_ptr, Array* array, 
+        Int32 elementSize, Bit elementsArePointers);
 
 Array* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int32 length, 
         Int32 elementType, ...);
