@@ -385,11 +385,9 @@ class StubGenerator {
             original := "<none>"
         else
             original := m.annotations->(Object)->>(String)
-        def result := new MethodStub(m.position, m.name, 
+        return new MethodStub(m.position, m.name, 
                 annotations, m.methodType, parameters, returnType, m.body, 
                 owner)
-        checkMethodSignature(result)
-        return result
     }
 
     method convertFields(f:ASTField, owner:ClassType, 
@@ -539,6 +537,7 @@ class StubGenerator {
             def converted := convertMethod(cl.isExternal, m, classType, 
                     lookupContext)
             if converted != null {
+                checkMethodSignature(converted)
                 methods.add(converted)
                 foundConstructor |= converted.methodType = 
                         MethodNodeType.CONSTRUCTOR
@@ -590,6 +589,7 @@ class StubGenerator {
         packageUses.add("panda.io")
         packageUses.add("panda.math")
         packageUses.add("panda.threads")
+        def implicitType := new ClassType("$Implicit")
         for e in f.entries {
             if e-?>(ASTPackageDeclaration) {
                 currentPackage := e->(ASTPackageDeclaration).name
@@ -615,6 +615,18 @@ class StubGenerator {
                 result.add(convertClass(cl, currentPackage, 
                         new LookupContext(packageUses, classAliases)))
             }
+            else if e-?>(ASTMethod) {
+                var m := convertMethod(false, e->(ASTMethod), implicitType, 
+                        new LookupContext(packageUses, classAliases))
+                if m != null {
+                    m := new MethodStub(m.position, m.name, 
+                            m.annotations + AnnotationType.CLASS,
+                            m.methodType, m.parameters[1..], m.returnType,
+                            m.body, m.owner)
+                    checkMethodSignature(m)
+                    implicitClassMethods.add(m)
+                }
+            }
             else if e-?>(ASTStatement)
                 mainStatements.add(e->(ASTStatement))
             else {
@@ -622,7 +634,6 @@ class StubGenerator {
                         e)
             }
         }
-        def implicitType := new ClassType("$Implicit")
         if mainStatements.length > 0 {
             def position := new Position(f.name, 1, 1)
             def classAnnotations := new Array<AnnotationType>()

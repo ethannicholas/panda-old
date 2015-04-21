@@ -84,24 +84,28 @@ class Value : Node {
         if t = type
             return self
         if type.isPrimitive & !t.isPrimitive
-            return wrapped(context, t)
-        if type.isWrapper & t.isPrimitive
-            return unwrap(context).implicitCast(position, context, t)
+            return wrapped(context, t, false)
         if type.isNullable & !t.isNullable {
             def base := type->(NullableType).base
             if base != t {
                 def nonNull := implicitCast(position, context, base)
                 return nonNull.implicitCast(position, context, t)
             }
+            return new Cast(position, self, t, CastType.IMPLICIT)
         }
+        if !type.isNullable & t.isNullable {
+            def first := implicitCast(position, context, t->(NullableType).base)
+            return new Cast(position, first, t, CastType.IMPLICIT)
+        }
+        if type.isWrapper & (t.isPrimitive | t.isWrapper)
+            return unwrap(context).implicitCast(position, context, t)
         def result := new Cast(position, self, t, CastType.IMPLICIT)
         if implicitCastCost(context, t) != null
             return result
         else {
             context.errors.error("expected '\{t.displayName}', but found " +
                     "'\{type.displayName}'", position)
-            if position->>(String) = "PandaCoreClasses.plink:3624:49"
-                Panda.dumpStack()
+            Panda.dumpStack()
             return result
         }
     }
@@ -122,8 +126,13 @@ class Value : Node {
             def cast := implicitCast(position, context, t)
             return IRGenerator.makeExplicit(cast)
         }
+        if type.isPrimitive & !t.isPrimitive
+            return wrapped(context, t, true)
+        if type.isWrapper & (t.isPrimitive | t.isWrapper)
+            return unwrap(context).explicitCast(position, context, t)
         def result := new Cast(position, self, t, CastType.EXPLICIT)
         if !canExplicitCastTo(context, t) {
+            Panda.dumpStack()
             context.errors.error("'\{t.displayName}' cannot possibly be an " +
                     "instance of '\{type.displayName}'", position)
             
@@ -145,8 +154,8 @@ class Value : Node {
         def params := new Array<Value>()
         params.add(self)
         for m in targetStub.methods {
-            if m.annotations.isClass & canImplicitCastTo(context, 
-                    m.parameters[0].type) {
+            if m.name = MethodNode.CONVERT_NAME & m.annotations.isClass & 
+                    canImplicitCastTo(context, m.parameters[0].type) {
                 def score := context.matchCost(m, params)
                 if score != null & score < best {
                     best := score
@@ -159,10 +168,23 @@ class Value : Node {
     @post(@return = null | @return.returnType = t)
 
     function canConvertTo(context:Context, t:Type):Bit {
+        if type.isPrimitive & t.isPrimitive {
+            return canExplicitCastTo(context, t) |
+                    t.canExplicitCastTo(context, type)
+        }
+        if type = org.pandalanguage.pandac.types.RealLiteralType.REAL_LITERAL {
+            def result := findConverter(context, t)
+            if result != null
+                Panda.log("converter from \{type} to \{t}: \{result}")
+            else
+                Panda.log("converter from \{type} to \{t}: null")
+        }
         return findConverter(context, t) != null
     }
 
     method convert(context:Context, t:Type):Value {
+        if type.isPrimitive & t.isPrimitive
+            return explicitCast(context, t)
         def converter := findConverter(context, t)
         if converter != null {
             def params := new Array<Value>()
@@ -178,7 +200,7 @@ class Value : Node {
 
     @private
     @pre(type.isPrimitive)
-    method wrapped(context:Context, t:Type):Value {
+    method wrapped(context:Context, t:Type, explicit:Bit):Value {
         def wrapper:WrapperType
         if t.isWrapper
             wrapper := t->>(WrapperType)
@@ -186,7 +208,11 @@ class Value : Node {
             wrapper := type->>(WrapperType)
         def params := new Array<Value>()
         params.add(new Dummy(position, wrapper))
-        def cast := implicitCast(context, wrapper->>(PrimitiveType))
+        def cast:Value
+        if explicit
+            cast := explicitCast(context, wrapper->>(PrimitiveType))
+        else
+            cast := implicitCast(context, wrapper->>(PrimitiveType))
         params.add(cast)
         def constructorStub := context.getMethod(new ClassLiteral(position, 
                 wrapper), MethodNode.CONSTRUCTOR_NAME, params)
@@ -194,7 +220,10 @@ class Value : Node {
                 "constructor for \{type}"
         def wrapperObject := new Construct(wrapper, new MethodCall(position, 
                 constructorStub, false, params))
-        return wrapperObject.implicitCast(position, context, t)
+        if explicit
+            return wrapperObject.explicitCast(position, context, t)
+        else
+            return wrapperObject.implicitCast(position, context, t)
     }
 
     @private
