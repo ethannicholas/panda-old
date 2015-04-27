@@ -7,6 +7,7 @@ uses org.pandalanguage.pandac.tree.Add
 uses org.pandalanguage.pandac.tree.And
 uses org.pandalanguage.pandac.tree.AndLeft
 uses org.pandalanguage.pandac.tree.Annotation
+uses org.pandalanguage.pandac.tree.ArrayLiteral
 uses org.pandalanguage.pandac.tree.Assert
 uses org.pandalanguage.pandac.tree.BinaryOperation
 uses org.pandalanguage.pandac.tree.BinaryOperationType
@@ -96,8 +97,9 @@ uses org.pandalanguage.pandac.tree.Xor
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
-uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.ClassType 
 uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
@@ -391,9 +393,13 @@ class JavaCodeGenerator (CodeGenerator) {
             case UnaryOperationType.BITWISE_NOT: op := "~"
             default: unreachable
         }
-        out.write("((\{getJavaType(u.type)}) \{op}(")
+        out.write("((\{getJavaType(u.type)}) \{op}")
+        if u.operand-!>(IntegerLiteral)
+            out.write("(")
         generateValueCode(u.operand)
-        out.write("))")
+        if u.operand-!>(IntegerLiteral)
+            out.write(")")
+        out.write(")")
     }
     
     @pre(b.left.type = IntType.UINT64)
@@ -525,12 +531,28 @@ class JavaCodeGenerator (CodeGenerator) {
     
     method generateNewPrimitiveArrayWithValuesCode(n:NewPrimitiveArrayWithValues) {
         out.write("(" + getJavaType(n.type) + ".newWithValues(")
-        for i in 0 ... n.values.length - 1 {
+        for i, v in n.values {
             if i > 0
                 out.write(", ")
-            generateValueCode(n.values[i])
+            generateValueCode(v)
         }
         out.write("))")
+    }
+    
+    method generateArrayLiteralCode(a:ArrayLiteral) {
+        out.write("new " + getJavaType(a.type) + "(")
+        if a.values.length > 0 {
+            for i, v in a.values {
+                if i > 0
+                    out.write(", ")
+                generateValueCode(v)
+            }
+        }
+        else {
+            def elementType := a.type->(GenericType).parameters[0]
+            out.write("new \{getJavaType(elementType)}[0]")
+        }
+        out.write(")")
     }
     
     method generatePrimitiveArrayCopy(c:PrimitiveArrayCopy) {
@@ -729,6 +751,8 @@ class JavaCodeGenerator (CodeGenerator) {
             generateNewPrimitiveArrayWithLengthCode(v->(NewPrimitiveArrayWithLength))
         else if v-?>(NewPrimitiveArrayWithValues)
             generateNewPrimitiveArrayWithValuesCode(v->(NewPrimitiveArrayWithValues))
+        else if v-?>(ArrayLiteral)
+            generateArrayLiteralCode(v->(ArrayLiteral))
         else if v-?>(PrimitiveArrayCopy)
             generatePrimitiveArrayCopy(v->(PrimitiveArrayCopy))
         else if v-?>(Unwrap)
@@ -754,13 +778,20 @@ class JavaCodeGenerator (CodeGenerator) {
     method generateIfCode(i:If) {
         out.write("if (")
         generateValueCode(i.test)
-        out.write(") /* then start: \{i.thenStatement.class.name} */")
+        out.write(") ")
+        if i.thenStatement-!>(Block)
+            out.writeLine("{")
         generateStatementCode(i.thenStatement)
-        out.write("/* then end */")
+        if i.thenStatement-!>(Block)
+            out.writeLine("}")
         var elseStatement := i.elseStatement
         if elseStatement != null {
             out.write("else ")
+            if i.elseStatement-!>(Block)
+                out.writeLine("{")
             generateStatementCode(elseStatement)
+            if i.elseStatement-!>(Block)
+                out.writeLine("}")
         }
     }
     
@@ -1165,6 +1196,10 @@ class JavaCodeGenerator (CodeGenerator) {
                 def buffer := new MemoryOutputStream()
                 def oldOut := out
                 out := new IndentedOutputStream(buffer)
+
+                -- DEBUG:temp
+                out.indentSize := 0
+
                 reusedValueDefinitions.clear()
                 generateBlockCode(m.body, true)
                 out := oldOut
@@ -1248,6 +1283,10 @@ class JavaCodeGenerator (CodeGenerator) {
         parent.createDirectories()
         out := new IndentedOutputStream(new BufferedOutputStream(
                 dest.openOutputStream()))
+
+        -- DEBUG:temp
+        out.indentSize := 0
+
         var packageName := getJavaType(cl.stub.type)
         var index := packageName.indexOf("<")
         if index != null
@@ -1327,6 +1366,25 @@ class JavaCodeGenerator (CodeGenerator) {
                 out.writeLine("    private static final " + className + 
                         " $external = new " + className + "Impl();")
                 break
+            }
+        }
+
+        -- add array constructor
+        if cl.stub.type-?>(GenericType) {
+            def g := cl.stub.type->(GenericType)
+            def elementType := g.parameters[0]
+            if g.base = ClassType.ARRAY | g.base = ClassType.IMMUTABLE_ARRAY {
+                out.writeLine("public \{simpleName}() { }")
+                out.writeLine("public \{simpleName}(\{getJavaType(elementType)}... values) {")
+                out.level += 1
+                out.writeLine("new$constructor(this);")
+                out.writeLine("ensureCapacity(values.length);")
+                out.writeLine("$_length = values.length;")
+                out.writeLine("for (int i = 0; i < values.length; i++)")
+                out.level += 1
+                out.writeLine("$contents.set(i, values[i]);")
+                out.level -= 2
+                out.writeLine("}")
             }
         }
 
@@ -1442,6 +1500,10 @@ class JavaCodeGenerator (CodeGenerator) {
         var oldOut := out
         var buffer := new MemoryOutputStream()
         out := new IndentedOutputStream(buffer)
+
+        -- DEBUG:temp
+        out.indentSize := 0
+
         for m in cl.methods
             generateMethodCode(m)
         for m in cl.stub.methods.filter(m => m.annotations.isAbstract)

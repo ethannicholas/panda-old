@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.StringOrCharType
@@ -33,7 +34,61 @@ class UnresolvedArray : UnresolvedValue {
         	for i in 1 .. values.length
         		type := Type.union(context, type, values[i].type)
         }
+        def typeList := new Array<Type>()
+        typeList.add(type)
+        type := new GenericType(ClassType.ARRAY, typeList)
         return new ArrayLiteral(position, type, values)
+    }
+
+    @override
+    function implicitCastCost(context:Context, t:Type):Int? {
+        if !t.isPrimitive {
+            var stub := context.getStub(t->>(ClassType))
+            loop {
+                if stub.type-?>(GenericType) {
+                    def g := stub.type->(GenericType).base
+                    if g = ClassType.ARRAY |  
+                            g = ClassType.IMMUTABLE_ARRAY {
+                        return 0
+                    }
+                }
+                def parent := stub.superclass
+                if parent != null
+                    stub := context.getStub(parent)
+                else
+                    break
+            }
+        }
+        return value->(Value).type.implicitCastCost(context, t)
+    }
+
+    @override
+    method implicitCast(position:Position, context:Context, t:Type):Value {
+        if !t.isPrimitive {
+            var stub := context.getStub(t->>(ClassType))
+            loop {
+                if stub.type-?>(GenericType) {
+                    def g := stub.type->(GenericType).base
+                    if g = ClassType.ARRAY |  
+                            g = ClassType.IMMUTABLE_ARRAY {
+                        def elementType := 
+                                stub.type->(GenericType).parameters[0]
+                        def casted := new Array<Value>()
+                        for v in values {
+                            casted.add(v.implicitCast(position, context, 
+                                    elementType))
+                        }
+                        return new ArrayLiteral(position, t, casted)
+                    }
+                }
+                def parent := stub.superclass
+                if parent != null
+                    stub := context.getStub(parent)
+                else
+                    break
+            }
+        }
+        return value->(Value).implicitCast(position, context, t)
     }
 
     @override

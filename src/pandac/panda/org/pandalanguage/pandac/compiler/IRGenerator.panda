@@ -34,6 +34,7 @@ uses org.pandalanguage.pandac.ast.ASTSelf
 uses org.pandalanguage.pandac.ast.ASTStatement
 uses org.pandalanguage.pandac.ast.ASTStringLiteral
 uses org.pandalanguage.pandac.ast.ASTSuper
+uses org.pandalanguage.pandac.ast.ASTSwitch
 uses org.pandalanguage.pandac.ast.ASTTupleExpression
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
@@ -484,9 +485,22 @@ class IRGenerator {
     }
 
     method convertUnaryExpression(u:ASTUnaryExpression):Value? {
-        def operand := resolve(u.expression)
+        var operand := resolve(u.expression)
         if operand = null
             return null
+        if u.operation = UnaryOperationType.MINUS & operand-?>(IntegerLiteral) {
+            def i := operand->(IntegerLiteral)
+            switch i.value {
+                case 128: operand := new IntegerLiteral(i.position, i.value, 
+                        IntType.INT8, false)
+                case 32768: operand := new IntegerLiteral(i.position, i.value, 
+                        IntType.INT16, false)
+                case 2147483648: operand := new IntegerLiteral(i.position, 
+                        i.value, IntType.INT32, false)
+                case 9223372036854775808: operand := new IntegerLiteral(
+                        i.position, i.value, IntType.INT64, false)
+            }
+        }
         return new UnaryOperation(u.position, u.operation, operand)
     }
 
@@ -759,6 +773,67 @@ class IRGenerator {
             return new Super(s.position)
         }
         context.errors.error(SuperType.ERROR_MESSAGE, s.position)
+        return null
+    }
+
+    method convertSwitch(s:ASTSwitch):Statement? {
+        def resolved := resolve(s.value)
+        if resolved != null {
+            def switchObject := new ReusedValueDefinition(resolved)
+            def statements := new Array<Statement>()
+            statements.add(new ValueStatement(switchObject))
+            var lastCase:Statement? := null
+            def cases := new Array<If>()
+            if s.defaultCase != null {
+                def defaultStatement := convertStatement(s.defaultCase->(ASTStatement))
+                if defaultStatement != null
+                    lastCase := defaultStatement
+                else
+                    return null
+            }
+            for i in s.cases.length - 1 ... 0 by -1 {
+                def c := s.cases[i]
+                def start := resolve(c.values[0])
+                if start != null {
+                    var test := getBinaryValue(start.position, 
+                            switchObject.createReference(), 
+                            BinaryOperationType.EQUAL, 
+                            start)
+                    if test = null
+                        return null
+                    for v in c.values[1..] {
+                        def next := resolve(v)
+                        if next != null {
+                            def equal := getBinaryValue(start.position, 
+                                        switchObject.createReference(), 
+                                        BinaryOperationType.EQUAL, 
+                                        next)
+                            if equal = null
+                                return null
+                            test := getBinaryValue(v.position, 
+                                    test, BinaryOperationType.OR,
+                                    equal)
+                            if test = null
+                                return null
+                        }
+                        else
+                            return null
+                    }
+                    def statement := convertStatement(c.statement)
+                    if statement != null {
+                        lastCase := new If(statement.position, test, 
+                                statement, lastCase)
+                    }
+                    else
+                        return null
+                }
+                else
+                    return null
+            }
+            assert lastCase != null
+            statements.add(lastCase)
+            return new Block(s.position, statements)
+        }
         return null
     }
 
@@ -1643,8 +1718,9 @@ class IRGenerator {
             -- deal with situations like int8 += 1 (which resolves into
             -- int8 := int8 + 1, and the right side promotes to an Int32, so we
             -- need to downcast)
-            if right.type.isInteger & lvalue.type.isInteger
-                right := right.explicitCast(context, lvalue.type)
+            def resolved := resolve(lvalue)->(Value)
+            if right.type.isInteger & resolved.type.isInteger
+                right := right.explicitCast(context, resolved.type)
             def newLeft := new Array<Value?>()
             newLeft.add(lvalue)
             left := newLeft
@@ -1743,6 +1819,8 @@ class IRGenerator {
                 return convertWhile(s->(ASTWhile))
             case class(ASTDo):
                 return convertDo(s->(ASTDo))
+            case class(ASTSwitch):
+                return convertSwitch(s->(ASTSwitch))
             case class(ASTBreak):
                 return convertBreak(s->(ASTBreak))
             case class(ASTContinue):
