@@ -19,6 +19,8 @@ uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.stubs.Methods
+uses org.pandalanguage.pandac.stubs.Symbol
 uses org.pandalanguage.pandac.tree.Add
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
@@ -99,10 +101,10 @@ class PrimitiveArrayType : GenericType {
         def elements := new FieldNode(position, self, FieldNode.ELEMENTS_NAME, 
                 new Annotations(position, final), VariableType.DEF,
                 elementType, null, null)
-        def fields := new Array<FieldNode>()
-        fields.add(length)
-        fields.add(maxLength)
-        fields.add(elements)
+        def symbols := new HashMap<String, Symbol>()
+        addSymbol(length, symbols)
+        addSymbol(maxLength, symbols)
+        addSymbol(elements, symbols)
         def classAnnotations := new Array<AnnotationType>()
         if elementStub != null & elementStub.annotations.isUnspecified
             classAnnotations.add(AnnotationType.UNSPECIFIED)
@@ -119,7 +121,7 @@ class PrimitiveArrayType : GenericType {
                 new Annotations(position, new Array<AnnotationType>()),
                 MethodNodeType.FUNCTION, lengthParameters, IntType.INT32, 
                 lengthBody, self)
-        methods.add(lengthFunction)
+        addSymbol(lengthFunction, symbols)
 
         def stubGenerator := new StubGenerator(
                     new Array<ASTFile>(), context.typeResolver, context.errors)
@@ -152,8 +154,8 @@ class PrimitiveArrayType : GenericType {
                 "return result\{convert}\n" +
                 "}", null, annotations, position)
         assert sle1 != null
-        methods.add(stubGenerator.convertMethod(false, sle1, self, 
-                lookupContext)->(MethodStub))
+        addSymbol(stubGenerator.convertMethod(false, sle1, self, 
+                lookupContext)->(MethodStub), symbols)
 
         def sle2 := parser.parseMethodDeclaration(
                 "function [..](rawLeft:panda.core.Int32?," +
@@ -174,8 +176,8 @@ class PrimitiveArrayType : GenericType {
                 "return result\{convert}\n" +
                 "}", null, annotations, position)
         assert sle2 != null
-        methods.add(stubGenerator.convertMethod(false, sle2, self, 
-                lookupContext)->(MethodStub))
+        addSymbol(stubGenerator.convertMethod(false, sle2, self, 
+                lookupContext)->(MethodStub), symbols)
 
         def sli1 := parser.parseMethodDeclaration(
                 "function [...](left:panda.core.Int32," +
@@ -186,8 +188,8 @@ class PrimitiveArrayType : GenericType {
                 "return result\{convert}\n" +
                 "}", null, annotations, position)
         assert sli1 != null
-        methods.add(stubGenerator.convertMethod(false, sli1, self, 
-                lookupContext)->(MethodStub))
+        addSymbol(stubGenerator.convertMethod(false, sli1, self, 
+                lookupContext)->(MethodStub), symbols)
 
         def sli2 := parser.parseMethodDeclaration(
                 "function [...](rawLeft:panda.core.Int32?," +
@@ -208,8 +210,8 @@ class PrimitiveArrayType : GenericType {
                 "return result\{convert}\n" +
                 "}", null, annotations, position)
         assert sli2 != null
-        methods.add(stubGenerator.convertMethod(false, sli2, self, 
-                lookupContext)->(MethodStub))
+        addSymbol(stubGenerator.convertMethod(false, sli2, self, 
+                lookupContext)->(MethodStub), symbols)
 
         -- FIXME: remove this convert method when new compiler is finished, it's
         -- only necessary for legacy varargs
@@ -222,8 +224,8 @@ class PrimitiveArrayType : GenericType {
             "    return result\n" +
             "}", null, oldConvertAnnotations, position)
         assert oldCnv != null
-        methods.add(stubGenerator.convertMethod(false, oldCnv, self, 
-                lookupContext)->(MethodStub))
+        addSymbol(stubGenerator.convertMethod(false, oldCnv, self, 
+                lookupContext)->(MethodStub), symbols)
 
         if !immutable {
             def immutableVersion := class(ImmutablePrimitiveArray).name + 
@@ -233,8 +235,8 @@ class PrimitiveArrayType : GenericType {
                 "    return new \{immutableVersion}(self)\n" +
                 "}", null, annotations, position)
             assert cnv != null
-            methods.add(stubGenerator.convertMethod(false, cnv, self, 
-                    lookupContext)->(MethodStub))
+            addSymbol(stubGenerator.convertMethod(false, cnv, self, 
+                    lookupContext)->(MethodStub), symbols)
         }
         else {
             -- HACK, leaving this in only until new compiler is finished
@@ -247,8 +249,8 @@ class PrimitiveArrayType : GenericType {
                 "    return new \{name}(arr)\n" +
                 "}", null, convertAnnotations, position)
             assert cnv != null
-            methods.add(stubGenerator.convertMethod(false, cnv, self, 
-                    lookupContext)->(MethodStub))
+            addSymbol(stubGenerator.convertMethod(false, cnv, self, 
+                    lookupContext)->(MethodStub), symbols)
         }
 
         def superclass:ClassType
@@ -258,8 +260,8 @@ class PrimitiveArrayType : GenericType {
             superclass := ClassType.PRIMITIVE_ARRAY
         return new ClassStub(position, self, false, 
                 new Annotations(position, classAnnotations), 
-                lookupContext, superclass, new Array<ClassType>(), 
-                methods, fields, new Array<ASTInvariant>(), null, false)
+                lookupContext, superclass, new Array<ClassType>(), symbols, 
+                new Array<ASTInvariant>(), null, false)
     }
 
     @override

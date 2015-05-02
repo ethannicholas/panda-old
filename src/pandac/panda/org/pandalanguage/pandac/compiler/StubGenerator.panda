@@ -23,7 +23,10 @@ uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
+uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.stubs.Package
+uses org.pandalanguage.pandac.stubs.Symbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -42,6 +45,36 @@ uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.VoidType
+
+class MutablePackage (Symbol) {
+    property name:String
+
+    @private
+    def symbols := new HashMap<String, Symbol>()
+
+    constructor(name:String) {
+        self.name := name
+    }
+
+    function [](name:String):Symbol? {
+        return symbols[name]
+    }
+
+    method []:=(name:String, symbol:Symbol) {
+        symbols[name] := symbol
+    }
+
+    function ->>():Package {
+        def children := new HashMap<String, Symbol>()
+        for (name, symbol) in symbols {
+            if symbol-?>(MutablePackage)
+                children[name] := symbol->(MutablePackage)->>(Package)
+            else
+                children[name] := symbol
+        }
+        return new Package(name, children)
+    }
+}
 
 class StubGenerator {
     def files:CollectionView<ASTFile>
@@ -411,23 +444,26 @@ class StubGenerator {
     }
 
     method createClassInit(position:Position, owner:ClassType,
-            fields:ListView<FieldNode>):(FieldNode, MethodStub)? {
+            symbols:MapView<String, Symbol>):(FieldNode, MethodStub)? {
         var createInit := false
         def body := new Array<ASTStatement>()
-        for f in fields {
-            if f.annotations.isClass | 
-                    f.annotations.isThread {
-                -- for isThread, we just ensure that the class init method
-                -- exists (it doesn't have to contain anything). This is so
-                -- code generators can easily do required thread local 
-                -- setup.
-                createInit := true
-                if f.annotations.isClass {
-                    def value := f.initialValue
-                    if value != null {
-                        def target := new Array<ASTExpression>()
-                        target.add(new ASTIdentifier(f.position, f.name))
-                        body.add(new ASTAssignment(target, null, value))
+        for s in symbols.values {
+            if s-?>(FieldNode) {
+                def f := s->(FieldNode)
+                if f.annotations.isClass | 
+                        f.annotations.isThread {
+                    -- for isThread, we just ensure that the class init method
+                    -- exists (it doesn't have to contain anything). This is so
+                    -- code generators can easily do required thread local 
+                    -- setup.
+                    createInit := true
+                    if f.annotations.isClass {
+                        def value := f.initialValue
+                        if value != null {
+                            def target := new Array<ASTExpression>()
+                            target.add(new ASTIdentifier(f.position, f.name))
+                            body.add(new ASTAssignment(target, null, value))
+                        }
                     }
                 }
             }
@@ -531,14 +567,14 @@ class StubGenerator {
                 }
             }
         }
-        def methods := new Array<MethodStub>()
+        def symbols := new HashMap<String, Symbol>()
         var foundConstructor := false
         for m in cl.methods {
             def converted := convertMethod(cl.isExternal, m, classType, 
                     lookupContext)
             if converted != null {
                 checkMethodSignature(converted)
-                methods.add(converted)
+                addSymbol(converted, symbols)
                 foundConstructor |= converted.methodType = 
                         MethodNodeType.CONSTRUCTOR
             }
@@ -556,25 +592,48 @@ class StubGenerator {
             def c := new MethodStub(cl.position, MethodNode.CONSTRUCTOR_NAME, 
                     new Annotations(cl.position), MethodNodeType.CONSTRUCTOR, 
                     params, VoidType.VOID, block, classType)
-            methods.add(c)
+            addSymbol(c, symbols)
         }
-        def fields := new Array<FieldNode>()
-        for f in cl.fields
-            fields.addAll(convertFields(f, classType, lookupContext))
+        for decl in cl.fields {
+            for f in convertFields(decl, classType, lookupContext)
+                addSymbol(f, symbols)
+        }
         var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null
             annotations += AnnotationType.UNSPECIFIED
         if !cl.isExternal {
-            def init := createClassInit(cl.position, classType, fields)
+            def init := createClassInit(cl.position, classType, symbols)
             if init != null {
-                fields.add(init[0])
-                methods.add(init[1])
+                addSymbol(init[0], symbols)
+                addSymbol(init[1], symbols)
             }
         }
         return new ClassStub(cl.position, classType, 
                 cl.isInterface, annotations, lookupContext, 
-                superclass->(ClassType?), interfaces, methods, fields, 
-                cl.invariants, cl.genericParameters, cl.isExternal)
+                superclass->(ClassType?), interfaces, symbols, cl.invariants, 
+                cl.genericParameters, cl.isExternal)
+    }
+
+    method addSymbol(s:Symbol, map:Map<String, Symbol>) {
+        if s-?>(MethodStub) {
+            def m := s->(MethodStub)
+            def methods := map[m.name]
+            if methods = null {
+                def list := new Array<MethodStub>()
+                list.add(m)
+                map[m.name] := new Methods(list)
+            }
+            else if methods-?>(Methods)
+                map[m.name] := methods->(Methods) + m
+            else {
+                errors.error("invalid redefinition of symbol '\{m.name}'",
+                        m.position)
+            }
+        }
+        else {
+            assert(map[s.name] = null)
+            map[s.name] := s
+        }
     }
 
     method generateStubs(f:ASTFile):CollectionView<ClassStub> {
@@ -583,7 +642,7 @@ class StubGenerator {
         def classAliases := new HashMap<String, String>()
         def packageUses := new Array<String>()
         def mainStatements := new Array<ASTStatement>()
-        def implicitClassMethods := new Array<MethodStub>()
+        def implicitClassSymbols := new HashMap<String, Symbol>()
         packageUses.add("panda.collections")
         packageUses.add("panda.core")
         packageUses.add("panda.io")
@@ -624,7 +683,7 @@ class StubGenerator {
                             m.methodType, m.parameters[1..], m.returnType,
                             m.body, m.owner)
                     checkMethodSignature(m)
-                    implicitClassMethods.add(m)
+                    addSymbol(m, implicitClassSymbols)
                 }
             }
             else if e-?>(ASTStatement)
@@ -638,33 +697,59 @@ class StubGenerator {
             def position := new Position(f.name, 1, 1)
             def classAnnotations := new Array<AnnotationType>()
             classAnnotations.add(AnnotationType.CLASS)
-            implicitClassMethods.add(new MethodStub(position, 
+            addSymbol(new MethodStub(position, 
                     MethodNode.MAIN_NAME, new Annotations(
                         position, classAnnotations),
                     MethodNodeType.METHOD, new Array<FormalParameter>(), 
                     VoidType.VOID, new ASTBlock(Position.INTERNAL, 
-                    mainStatements), implicitType))
+                    mainStatements), implicitType), implicitClassSymbols)
         }
-        if implicitClassMethods.length > 0 {
+        if implicitClassSymbols.length > 0 {
             def implicitClass := new ClassStub(Position.INTERNAL, 
                     implicitType, false, 
                     new Annotations(Position.INTERNAL), 
                     new LookupContext(packageUses, classAliases), 
-                    null, new Array<ClassType>(), implicitClassMethods, 
-                    new Array<FieldNode>(), new Array<ASTInvariant>(),
-                    null, false)
+                    null, new Array<ClassType>(), implicitClassSymbols, 
+                    new Array<ASTInvariant>(), null, false)
             result.add(implicitClass)
         }
         return result
     }
 
-    method generateStubs():ImmutableHashMap<String, ClassStub> {
-        def result := new HashMap<String, ClassStub>()
+    method addClass(cl:ClassStub, root:MutablePackage) {
+        var currentPackage := root
+        def components := cl.name.split(".")
+        def currentName := new MutableString()
+        for i, c in components {
+            if i > 0
+                currentName.append(".")
+            currentName.append(c)
+            if i < components.length - 1 {
+                var next := currentPackage[c]
+                if next = null {
+                    next := new MutablePackage(currentName->>(String))
+                    currentPackage[c] := next
+                }
+                else if next-!>(MutablePackage) {
+                    errors.error("name conflict between class '\{currentName}'" +
+                            "and package '\{currentName}'", cl.position)
+                }
+                currentPackage := next->(MutablePackage)
+            }
+            else {
+                assert currentPackage[c] = null
+                currentPackage[c] := cl
+            }
+        }
+    }
+
+    method generateStubs():Package {
+        def root := new MutablePackage("")
         for f in files {
             def classes := generateStubs(f)
             for cl in classes
-                result[cl.name] := cl
+                addClass(cl, root)
         }
-        return new ImmutableHashMap<String, ClassStub>(result)
+        return root->>(Package)
     }
 }

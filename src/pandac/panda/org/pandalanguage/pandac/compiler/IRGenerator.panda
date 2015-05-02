@@ -45,6 +45,7 @@ uses org.pandalanguage.pandac.ast.ASTWhile
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.stubs.Package
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.Assert
@@ -134,10 +135,10 @@ class IRGenerator {
 
     def currentlyInferring := new HashSet<FieldNode>()
 
-    constructor(classes:ImmutableHashMap<String, ClassStub>, 
-            typeResolver:TypeResolver, compilerSettings:CompilerSettings,
+    constructor(root:Package, typeResolver:TypeResolver, 
+            compilerSettings:CompilerSettings,
             errors:ErrorReporter) {
-        context := new Context(typeResolver, classes, errors, compilerSettings)
+        context := new Context(typeResolver, root, errors, compilerSettings)
     }
 
     @class
@@ -636,7 +637,7 @@ class IRGenerator {
                             new ClassLiteral(position, f.owner), f))
             }
             return new UnresolvedIdentifier(position, name,
-                    new VariableReference(position, result))
+                    new VariableReference(position, result->(Variable)))
         }
         -- call getField, so as to allow for no-argument functions
         if context.isInstance()
@@ -2010,6 +2011,31 @@ class IRGenerator {
         while progress
     }
 
+    method addClass(cl:ClassStub, root:MutablePackage) {
+        var currentPackage := root
+        def components := cl.name.split(".")
+        def currentName := new MutableString()
+        for i, c in components {
+            if i > 0
+                currentName.append(".")
+            currentName.append(c)
+            if i < components.length - 1 {
+                var next := currentPackage[c]
+                if next = null {
+                    next := new MutablePackage(currentName->>(String))
+                    currentPackage[c] := next
+                }
+                else if next-!>(MutablePackage)
+                    unreachable
+                currentPackage := next->(MutablePackage)
+            }
+            else {
+                assert currentPackage[c] = null
+                currentPackage[c] := cl
+            }
+        }
+    }
+
     method generateProgram():Program {
         def classes := new HashMap<String, ClassNode>()
         var madeProgress:Bit
@@ -2024,7 +2050,10 @@ class IRGenerator {
             }
         }
         while madeProgress
-        return new Program(context.classes.values, classes.values, 
+        def root := new MutablePackage("")
+        for cl in context.classes.values
+            addClass(cl, root)
+        return new Program(root->>(Package), classes.values, 
                 context.typeResolver)
     }
 }

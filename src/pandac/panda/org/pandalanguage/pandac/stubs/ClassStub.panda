@@ -20,10 +20,8 @@ uses org.pandalanguage.pandac.types.UnresolvedType
 ================================================================================
 Represents a parsed but not-yet-compiled class.
 ================================================================================
-class ClassStub : Immutable {
+class ClassStub : Immutable (Symbol) {
     def position:Position
-
-    def name:String
 
     def type:ClassType
 
@@ -39,11 +37,9 @@ class ClassStub : Immutable {
 
     def interfaces:ImmutableArray<ClassType>
 
-    def methods:ImmutableArray<MethodStub>
-
-    def fields:ImmutableArray<FieldNode>
-
     def fullyResolved:Bit
+
+    def symbols:ImmutableHashMap<String, Symbol>
 
     def invariants:ImmutableArray<ASTInvariant>
 
@@ -55,11 +51,11 @@ class ClassStub : Immutable {
     constructor(position:Position, type:ClassType, isInterface:Bit, 
             annotations:Annotations, lookupContext:LookupContext, 
             superclass:ClassType?, interfaces:CollectionView<ClassType>, 
-            methods:CollectionView<MethodStub>, fields:CollectionView<FieldNode>, 
+            symbols:MapView<String, Symbol>, 
             invariants:CollectionView<ASTInvariant>,
             genericParameters:ListView<ASTTypedIdentifier>?, isExternal:Bit) {
+        super.constructor()
         self.position := position
-        self.name := type.name
         self.type := type
         self.isInterface := isInterface
         self.annotations := annotations
@@ -68,8 +64,7 @@ class ClassStub : Immutable {
         self.isExternal := isExternal
         self.superclass := superclass
         self.interfaces := new ImmutableArray<ClassType>(interfaces)
-        self.methods := new ImmutableArray<MethodStub>(methods)
-        self.fields := new ImmutableArray<FieldNode>(fields)
+        self.symbols := new ImmutableHashMap<String, Symbol>(symbols)
         def filter := f:FieldNode => f.type-?>(UnresolvedType)
         self.fullyResolved := fields.filter(filter).length = 0
         if genericParameters != null {
@@ -77,6 +72,29 @@ class ClassStub : Immutable {
                     new ImmutableArray<ASTTypedIdentifier>(
                         genericParameters)
         }
+    }
+
+    @override
+    function name():String {
+        return type.name
+    }
+
+    function fields():ListView<FieldNode> {
+        def result := new Array<FieldNode>()
+        for (_, s) in symbols {
+            if s-?>(FieldNode)
+                result.add(s->(FieldNode))
+        }
+        return result
+    }
+
+    function methods():ListView<MethodStub> {
+        def result := new Array<MethodStub>()
+        for (_, s) in symbols {
+            if s-?>(Methods)
+                result.addAll(s->(Methods).methods)
+        }
+        return result
     }
 
     ============================================================================

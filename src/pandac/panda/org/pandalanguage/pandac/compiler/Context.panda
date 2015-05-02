@@ -5,6 +5,8 @@ uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.stubs.Package
+uses org.pandalanguage.pandac.stubs.Symbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.ClassLiteral
@@ -27,6 +29,7 @@ uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedRange
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableReference
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
@@ -44,7 +47,9 @@ uses org.pandalanguage.pandac.types.VoidType
 class Context {
     def typeResolver:TypeResolver
 
-    var classes:Map<String, ClassStub>
+    var root:Package
+
+    def classes := new HashMap<String, ClassStub>()
 
     def errors:ErrorReporter
 
@@ -58,10 +63,11 @@ class Context {
 
     def localVariables := new Array<LocalVariable>()
 
-    constructor(typeResolver:TypeResolver, classes:MapView<String, ClassStub>, 
-            errors:ErrorReporter, compilerSettings:CompilerSettings) {
+    constructor(typeResolver:TypeResolver, root:Package, errors:ErrorReporter, 
+            compilerSettings:CompilerSettings) {
         self.typeResolver := typeResolver
-        self.classes := new HashMap<String, ClassStub>(classes)
+        self.root := root
+        loadClasses(root)
         self.errors := errors
         self.compilerSettings := compilerSettings
         self.currentClass := new ClassStub(Position.INTERNAL, 
@@ -70,7 +76,7 @@ class Context {
                 new LookupContext(new Array<String>(), 
                     new HashMap<String, String>()), 
                 null, new Array<ClassType>(),
-                new Array<MethodStub>(), new Array<FieldNode>(), 
+                new HashMap<String, Symbol>(),
                 new Array<ASTInvariant>(), null, true)
         def classAnnotation := new Array<AnnotationType>()
         classAnnotation.add(AnnotationType.CLASS)
@@ -82,6 +88,18 @@ class Context {
         -- force IMMUTABLE_CHAR_ARRAY to have a stub so that String constants
         -- work
         getStub(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
+    }
+
+    @private
+    method loadClasses(p:Package) {
+        for s in p {
+            if s-?>(Package)
+                loadClasses(s->(Package))
+            else {
+                def cl := s->(ClassStub)
+                classes[cl.name] := cl
+            }
+        }
     }
 
     method pushSymbolTable() {
@@ -167,8 +185,7 @@ class Context {
     @pre(isInstance)
     function getSelf(position:Position):Value {
         def v := symbolTable[Parameter.SELF_NAME]
-        assert v != null
-        return new VariableReference(position, v)
+        return new VariableReference(position, v->(Variable))
     }
 
     @private
