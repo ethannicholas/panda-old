@@ -134,7 +134,7 @@ class JavaCodeGenerator (CodeGenerator) {
     constructor(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         def errors := new FatalErrorReporter()
-        self.context := new Context(p.typeResolver, p.root, errors, 
+        self.context := new Context(p.stubGenerator, p.root, p.stubs, errors, 
                 compilerSettings)
         self.methodNamer := new MethodNamer(context, 
                 new JavaMethodNamingStrategy())
@@ -347,33 +347,36 @@ class JavaCodeGenerator (CodeGenerator) {
     
     method generateMethodCallCode(mc:MethodCall) {
         def m := mc.methodStub
-        def start:Int
-        if mc.isSuper {
+        if mc.target-?>(Super) {
             if m.methodType = MethodNodeType.CONSTRUCTOR {
                 def stub := context.getStub(m.owner->>(ClassType))
                 out.write(getName(stub))
-                start := 0
             }
-            else {
+            else
                 out.write("super")
-                start := 1
-            }
         }
-        else if isClass(m) {
+        else if isClass(m)
             out.write(getName(context.getStub(m.owner->>(ClassType))))
-            start := 0
-        }
-        else {
-            generateValueCode(mc.parameters[0])
-            start := 1
-        }
+        else
+            generateValueCode(mc.target->(Value))
         out.write(".")
         out.write(getName(m))
         out.write("(")
-        for i in start ... mc.parameters.length - 1 {
-            if i > start
+        if m.methodType = MethodNodeType.CONSTRUCTOR {
+            out.write("$this")
+            if mc.parameters.length > 0
                 out.write(", ")
-            generateValueCode(mc.parameters[i])
+        }
+        if m.annotations.isWrapperMethod {
+            generateValueCode(mc.target->(Value).implicitCast(context,
+                    m.owner->>(PrimitiveType)))
+            if mc.parameters.length > 0
+                out.write(", ")
+        }
+        for i, v in mc.parameters {
+            if i > 0
+                out.write(", ")
+            generateValueCode(v)
         }
         out.write(")")
     }
@@ -515,10 +518,10 @@ class JavaCodeGenerator (CodeGenerator) {
         out.write(".create")
         out.write(getName(m))
         out.write("(")
-        for i in 1 ... c.constructorCall.parameters.length - 1 {
-            if i > 1
+        for i, p in c.constructorCall.parameters {
+            if i > 0
                 out.write(", ")
-            generateValueCode(c.constructorCall.parameters[i])
+            generateValueCode(p)
         }
         out.write(")")
     }
@@ -1121,13 +1124,19 @@ class JavaCodeGenerator (CodeGenerator) {
         else
             returnType := getJavaType(m.returnType)
         out.write("\{returnType} \{methodNamer.getName(m)}(")
-        var start := 0
-        if !isClass(m)
-            start := 1
-        for i in start .. m.parameters.length {
-            if i > start
+        if m.methodType = MethodNodeType.CONSTRUCTOR {
+            out.write("\{getJavaType(m.owner)} $this")
+            if m.parameters.length > 0
                 out.write(", ")
-            def p := m.parameters[i]
+        }
+        if m.annotations.isWrapperMethod {
+            out.write("\{getJavaType(m.owner->>(PrimitiveType))} $this")
+            if m.parameters.length > 0
+                out.write(", ")
+        }
+        for i, p in m.parameters {
+            if i > 0
+                out.write(", ")
             out.write(getJavaType(p.type) + " " + p.name)
         }
         if m.parameters.length = 0 & getName(m) = 
@@ -1161,13 +1170,14 @@ class JavaCodeGenerator (CodeGenerator) {
         else
             returnType := getJavaType(m.stub.returnType)
         out.write("\{returnType} \{methodNamer.getName(m.stub)}(")
-        var start := 0
-        if !isClass(m.stub)
-            start := 1
-        for i in start .. m.parameters.length {
-            if i > start
+        if m.stub.methodType = MethodNodeType.CONSTRUCTOR {
+            out.write("\{getJavaType(m.stub.owner)} $this")
+            if m.stub.parameters.length > 0
                 out.write(", ")
-            var p := m.parameters[i]
+        }
+        for i, p in m.parameters {
+            if i > 0
+                out.write(", ")
             out.write(getJavaType(p.type) + " " + getName(p))
         }
         if m.parameters.length = 0 & getName(m.stub) = 
@@ -1182,10 +1192,9 @@ class JavaCodeGenerator (CodeGenerator) {
                 if m.stub.returnType != VoidType.VOID
                     out.write("return ")
                 out.write("$external." + getName(m.stub) + "(")
-                for i in 0 ... m.parameters.length - 1 {
+                for i, p in m.parameters {
                     if i > 0
                         out.write(", ")
-                    var p := m.parameters[i]
                     out.write(getName(p))
                 }
                 out.writeLine(");")
@@ -1213,10 +1222,9 @@ class JavaCodeGenerator (CodeGenerator) {
                 !context.getStub(m.stub.owner).annotations.isAbstract() {
             def type := getJavaType(m.stub.owner)
             out.write("public static \{type} create\{getName(m.stub)}(")
-            for i in 1 ... m.parameters.length - 1 {
-                if i > 1
+            for i, p in m.parameters {
+                if i > 0
                     out.write(", ")
-                var p := m.parameters[i]
                 out.write(getJavaType(p.type) + " " + getName(p))
             }
             out.writeLine(") {")
@@ -1226,10 +1234,8 @@ class JavaCodeGenerator (CodeGenerator) {
                     getName(m.stub) + '", "' +
                     getDisplayName(context.getStub(m.stub.owner)) + '");')
             out.write(getName(m.stub) + "($this")
-            for i in 1 ... m.parameters.length - 1 {
-                var p := m.parameters[i]
+            for i, p in m.parameters
                 out.write(", " + getName(p))
-            }
             out.writeLine(");")
             out.writeLine("return $this;")
             out.level -= 1

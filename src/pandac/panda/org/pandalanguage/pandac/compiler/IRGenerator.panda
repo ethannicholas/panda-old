@@ -45,7 +45,10 @@ uses org.pandalanguage.pandac.ast.ASTWhile
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.Package
+uses org.pandalanguage.pandac.stubs.Symbol
+uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.Assert
@@ -67,6 +70,7 @@ uses org.pandalanguage.pandac.tree.FieldAssignment
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.FieldReference
 uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.InstanceContext
 uses org.pandalanguage.pandac.tree.IntegerLiteral
 uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.Loop
@@ -74,10 +78,14 @@ uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.MethodReference
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
 uses org.pandalanguage.pandac.tree.Not
 uses org.pandalanguage.pandac.tree.NullLiteral
+uses org.pandalanguage.pandac.tree.PackageReference
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.PrimitiveArrayCopy
 uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexAssignment
 uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexValue
 uses org.pandalanguage.pandac.tree.RealLiteral
@@ -95,6 +103,7 @@ uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedDotExpression
 uses org.pandalanguage.pandac.tree.UnresolvedIdentifier
 uses org.pandalanguage.pandac.tree.UnresolvedIndex
+uses org.pandalanguage.pandac.tree.UnresolvedMethod
 uses org.pandalanguage.pandac.tree.UnresolvedRange
 uses org.pandalanguage.pandac.tree.UnresolvedSlice
 uses org.pandalanguage.pandac.tree.UnresolvedTuple
@@ -135,10 +144,11 @@ class IRGenerator {
 
     def currentlyInferring := new HashSet<FieldNode>()
 
-    constructor(root:Package, typeResolver:TypeResolver, 
-            compilerSettings:CompilerSettings,
+    constructor(root:Package, classes:MapView<String, ClassStub>,
+            stubGenerator:StubGenerator, compilerSettings:CompilerSettings,
             errors:ErrorReporter) {
-        context := new Context(typeResolver, root, errors, compilerSettings)
+        context := new Context(stubGenerator, root, classes, errors, 
+                compilerSettings)
     }
 
     @class
@@ -170,94 +180,46 @@ class IRGenerator {
         return result
     }
 
-    method getField(position:Position, var contextValue:Value,
+    method getMember(position:Position, var contextValue:Value,
             var name:String):Value? {
-        return getField(position, contextValue, name, true)
+        return getMember(position, contextValue, name, true)
     }
 
-    method getField(position:Position, var contextValue:Value,
+    method getMember(position:Position, var contextValue:Value,
             var name:String, allowNoArgFunctions:Bit):Value? {
-        if name = "class"
-            name := "$class"
-        var cl:ClassStub
-        def resolved:Value?
-        if contextValue-!>(Super)
-            resolved := resolve(contextValue)
-        else
-            resolved := contextValue
+        if contextValue-?>(Super) {
+            def stub := context.getStub(context.currentClass.type)
+            contextValue := context.getSelf(position).implicitCast(context,
+                    stub.superclass->(ClassType))
+        }
+        if contextValue-?>(ClassLiteral) {
+            def type := contextValue->(ClassLiteral).value->>(ClassType)
+            def member := context.getSymbolTable(context.getStub(type))[name]
+            if member != null
+                return symbolReference(position, contextValue, member)
+        }
+        def resolved := resolve(contextValue)
         if resolved != null
             contextValue := resolved
         else
             return null
-        if contextValue.type = StringOrCharType.STRING_OR_CHAR {
-            contextValue := contextValue.implicitCast(context, 
-                    CharType.CHAR)
+        def type := contextValue.type->>(ClassType)
+        def member := context.getSymbolTable(context.getStub(type))[name]
+        if member != null {
+            return symbolReference(position, contextValue.implicitCast(context,
+                    type), member)
         }
-        if contextValue-!>(Super) {
-            if contextValue.type.isPrimitive {
-                def casted:Value?
-                casted := contextValue.implicitCast(context,
-                        contextValue.type->>(ClassType))
-                return getField(position, casted, name, allowNoArgFunctions)
-            }
-            else {
-                var contextValueClass := context.getStub(
-                        contextValue.type->>(ClassType))
-                cl := contextValueClass
-            }
-            if contextValue-!>(ClassLiteral) {
-                def noArg := context.testCall(position, contextValue, name, 
-                        new Array<Value>())
-                if noArg-?>(MethodCall) & noArg->(MethodCall).methodStub.methodType =
-                        MethodNodeType.FUNCTION
-                    return noArg
-                def fields := cl.instanceFields(context)
-                -- need to search backwards since ancestor classes are at the
-                -- beginning of the array, and we may be shadowing fields
-                for i in fields.length - 1  ... 0 by -1 {
-                    def f := fields[i]
-                    if f.name = name & !f.annotations.isClass &
-                            !f.annotations.isThread & isAccessible(f) {
-                        if contextValue-?>(UnresolvedClassLiteral) {
-                            contextValue := new ClassObjectLiteral(
-                                    contextValue.position,
-                                    contextValue->(UnresolvedClassLiteral).value)
-                        }
-                        return createFieldReference(position, contextValue, f, 
-                                allowNoArgFunctions)
-                    }
-                }
-            }
-            if contextValue-?>(UnresolvedClassLiteral) {
-                contextValue := new ClassLiteral(contextValue.position,
-                        contextValue->(UnresolvedClassLiteral).value)
-            }
-            if contextValue-?>(ClassLiteral) {
-                var type := contextValue->(ClassLiteral).value
-                if type.isPrimitive
-                    type := type->>(ClassType)
-                cl := context.getStub(type->>(ClassType))
-                for f in cl.fields {
-                    if f.name = name & (f.annotations.isClass |
-                            f.annotations.isThread) &
-                            isAccessible(f) {
-                        return createFieldReference(position, contextValue, f, 
-                                allowNoArgFunctions)
-                    }
-                }
-            }
-        }
-        return new UnresolvedDotExpression(position, contextValue, name, null)
+        context.errors.error("'\{contextValue.type.displayName}' does not " +
+                "have a member named '\{name}'", position)
+        return null
     }
 
     method convertCallExpression(c:ASTCallExpression):Value? {
         var target := convertExpression(c.target)
         if target = null
             return null
-        if c.parameters.length = 0 & target-?>(MethodCall) {
-            Console.writeLine("no arg method hack")
+        if c.parameters.length = 0 & target-?>(MethodCall)
             return target
-        }
         def parameters := new Array<Value>()
         for p in c.parameters {
             def converted := convertExpression(p)
@@ -294,6 +256,25 @@ class IRGenerator {
                 return null
             return context.call(c.position, left, u.right, parameters)
         }
+        if target-?>(UnresolvedMethod) {
+            def u := target->(UnresolvedMethod)
+            def finalTarget:Value
+            if u.target != null 
+                finalTarget := u.target->(Value)
+            else if context.isInstance {
+                finalTarget := new InstanceContext(c.position, 
+                        context.getSelf(c.position))
+            }
+            else {
+                finalTarget := new ClassLiteral(c.position, 
+                        context.currentClass.type)
+            }
+            return context.call(c.position, finalTarget, u.methods, parameters)
+        }
+        if target-?>(MethodReference) {
+            def m := target->(MethodReference)
+            return context.call(c.position, m.target, m.methodStub, parameters)
+        }
         target := resolve(target)
         if target = null
             return null
@@ -323,8 +304,7 @@ class IRGenerator {
 
     method resolveClass(position:Position, name:String):Value? {
         def type := new ASTClassType(position, name, null, false) 
-        def resolved := context.typeResolver.resolve(type, 
-                context.currentClass.lookupContext)
+        def resolved := context.resolveType(type)
         if resolved != null
             return new ClassLiteral(position, resolved)
         return null
@@ -334,27 +314,16 @@ class IRGenerator {
         def left := convertExpression(d.left)
         if left = null
             return null
-        if left-?>(UnresolvedIdentifier) {
-            def v := context.symbolTable[left->(UnresolvedIdentifier).name]
-            if v != null {
-                def resolved := resolve(left)
-                if resolved = null
-                    return resolved
-                def field := getField(d.position, resolved, d.right, true)
-                if field-?>(UnresolvedDotExpression) {
-                    return new UnresolvedDotExpression(d.position, resolved, 
-                            d.right, null)
-                }
-                else {
-                    return new UnresolvedDotExpression(d.position, resolved, 
-                            d.right, field)
-                }
+        if left-?>(PackageReference) {
+            def p := left->(PackageReference).value
+            def child := p[d.right]
+            if child != null
+                return symbolReference(d.position, child)
+            else {
+                context.errors.error("package '\{p.name}' does not contain a " +
+                        "member named '\{d.right}'", d.position)
+                return null
             }
-            def name := left->(UnresolvedIdentifier).name + "." + d.right
-            def cl := resolveClass(d.position, name)
-            if cl != null
-                return cl
-            return new UnresolvedIdentifier(d.position, name, null)
         }
         def resolved:Value?
         if left-!>(Super)
@@ -363,13 +332,10 @@ class IRGenerator {
             resolved := left
         if resolved = null
             return null
-        return getField(d.position, left, d.right)
+        return getMember(d.position, left, d.right)
     }
 
     method convertIdentifier(id:ASTIdentifier):Value? {
-        def cl := resolveClass(id.position, id.identifier)
-        if cl != null
-            return cl
         return getIdentifier(id.position, id.identifier)
     }
 
@@ -573,15 +539,14 @@ class IRGenerator {
             instanceOf := context.getMethod(panda, methodName, parameters)
         }
         assert instanceOf != null
-        return context.call(position, instanceOf, false, parameters)
+        return context.call(position, panda, instanceOf, parameters)
     }
 
     method convertArrowExpression(a:ASTArrowExpression):Value? {
         def left := resolve(a.left)
         if left = null
             return null
-        def right := context.typeResolver.resolve(a.right, 
-                context.currentClass.lookupContext)
+        def right := context.resolveType(a.right)
         if right = null
             return null
         switch a.operation {
@@ -615,33 +580,68 @@ class IRGenerator {
         return v.type-!>(UnresolvedType)
     }
 
+    method symbolReference(position:Position, s:Symbol):Value? {
+        return symbolReference(position, null, s)
+    }
+
+    method symbolReference(position:Position, var target:Value?, 
+            s:Symbol):Value? {
+        if s-?>(FieldNode) {
+            def f := s->(FieldNode)
+            inferFieldType(f)
+            if f.annotations.isClass {
+                if target != null {
+                    context.errors.error("cannot reference class field " +
+                            "'\{f}' from an instance context", position)
+                }
+                return new FieldReference(position, 
+                            new ClassLiteral(position, f.owner), f)
+            }
+            else {
+                if target = null {
+                    return new FieldReference(position, 
+                            context.getSelf(position), f)
+                }
+                return new FieldReference(position, target, f)
+            }
+        }
+        if s-?>(Methods) {
+            def methods := s->(Methods).methods
+            if methods.length = 1 {
+                if target = null {
+                    if context.isInstance
+                        target := context.getSelf(position)
+                    else {
+                        target := new ClassLiteral(position,
+                                context.currentClass.type)
+                    }
+                }
+                if methods[0].methodType = MethodNodeType.FUNCTION &
+                        methods[0].parameters.length = 0 {
+                    return context.call(position, target, methods[0], 
+                            new Array<Value>())
+                }
+                return new MethodReference(context, position, target, 
+                        methods[0])
+            }
+            return new UnresolvedMethod(position, target, methods)
+        }
+        assert target = null
+        if s-?>(Variable)
+            return new VariableReference(position, s->(Variable))
+        if s-?>(Package)
+            return new PackageReference(position, s->(Package))
+        if s-?>(TypeSymbol)
+            return new ClassLiteral(position, s->(TypeSymbol).type)
+        unreachable
+    }
+
     method getIdentifier(position:Position, name:String):Value? {
         def result := context.symbolTable[name]
-        if result != null {
-            if result-?>(FieldNode) {
-                def f := result->(FieldNode)
-                if !f.annotations.isClass & !f.annotations.isThread {
-                    if !context.isInstance {
-                        context.errors.error("cannot reference field '" +
-                                f.name + "' from a class context",
-                                position)
-                        return new UnresolvedIdentifier(position, name,
-                                new Dummy(position, f.type))
-                    }
-                    return new UnresolvedIdentifier(position, name,
-                            new FieldReference(position, 
-                                context.getSelf(position), f))
-                }
-                return new UnresolvedIdentifier(position, name,
-                        new FieldReference(position, 
-                            new ClassLiteral(position, f.owner), f))
-            }
-            return new UnresolvedIdentifier(position, name,
-                    new VariableReference(position, result->(Variable)))
-        }
-        -- call getField, so as to allow for no-argument functions
-        if context.isInstance()
-            return getField(position, context.getSelf(position), name)
+        if result != null
+            return symbolReference(position, result)
+        if context.isInstance
+            return getMember(position, context.getSelf(position), name)
         return new UnresolvedIdentifier(position, name, null)
     }
 
@@ -664,13 +664,11 @@ class IRGenerator {
     }
 
     method resolve(t:ASTType):Type? {
-        return context.typeResolver.resolve(t, 
-                context.currentClass.lookupContext) 
+        return context.resolveType(t) 
     }
 
     method convertNew(n:ASTNew):Value? {
-        def type := context.typeResolver.resolve(n.type, 
-                context.currentClass.lookupContext)
+        def type := resolve(n.type)
         if type = null
             return null
         def parameters := new Array<Value>()
@@ -680,8 +678,37 @@ class IRGenerator {
                 return null
             parameters.add(resolved)
         }
-        return context.call(n.position, new ClassLiteral(n.position, type), 
-                MethodNode.CONSTRUCTOR_NAME, parameters)
+        if type-?>(PrimitiveArrayType) {
+            if parameters.length = 1 &
+                    parameters[0].canImplicitCastTo(context, IntType.INT32) {
+                def cast := parameters[0].implicitCast(context, IntType.INT32)
+                return new NewPrimitiveArrayWithLength(n.position, 
+                        type->>(PrimitiveArrayType), cast)
+            }
+            else if parameters.length > 0 &
+                    parameters[0].type.isPrimitiveArray {
+                return new PrimitiveArrayCopy(n.position, 
+                        type->(PrimitiveArrayType), parameters[0])
+            }
+            else if parameters.length = 0 {
+                return new NewPrimitiveArrayWithLength(n.position, 
+                        type->>(PrimitiveArrayType), new IntegerLiteral(
+                            n.position, 0, IntType.INT32, true))
+            }
+            else {
+                context.errors.error("invalid arguments \{parameters} to " +
+                        "PrimitiveArray constructor", n.position)
+                return null
+            }
+        }
+        def constructors := context.getSymbolTable(
+                context.getStub(type->>(ClassType)))[MethodNode.CONSTRUCTOR_NAME]
+        def call := context.call(n.position, new ClassLiteral(n.position, type), 
+                constructors->(Methods).methods, parameters)
+        if call != null
+            return new Construct(call->(MethodCall))
+        else
+            return null
     }
 
     method convertIndex(i:ASTIndex):Value? {
@@ -740,9 +767,12 @@ class IRGenerator {
             s := s[1 .. s.length - 1]
             def parameters := new Array<Value>()
             parameters.add(new StringLiteral(p.position, s))
-            return context.call(p.position, new ClassLiteral(p.position,
+            def result := context.call(p.position, new ClassLiteral(p.position,
                     ClassType.REGULAR_EXPRESSION), MethodNode.CONSTRUCTOR_NAME,
                     parameters)
+            if result = null
+                return null
+            return new Construct(result->(MethodCall))
         }
         throw new CompilerException("unsupported plugin: \{s}", p.position)    
     }
@@ -831,7 +861,8 @@ class IRGenerator {
                 else
                     return null
             }
-            assert lastCase != null
+            if lastCase = null
+                return null
             statements.add(lastCase)
             return new Block(s.position, statements)
         }
@@ -896,8 +927,7 @@ class IRGenerator {
         for decl in v.vars {
             def type:Type?
             if decl.type != null {
-                type := context.typeResolver.resolve(decl.type->(ASTType),
-                        context.currentClass.lookupContext)
+                type := resolve(decl.type->(ASTType))
                 if type = null {
                     context.errors.error("unknown class '\{decl.type->(ASTType)}'",
                             decl.type->(ASTType).position)
@@ -1035,7 +1065,7 @@ class IRGenerator {
                 f.position, tupleVar, next, true)))
         if valueVars.length > 1 {
             for i, v in valueVars {
-                def value := getField(f.position,
+                def value := getMember(f.position,
                         new VariableReference(tupleVar.position, tupleVar), 
                         "$field" + i)
                 assert value != null
@@ -1097,7 +1127,7 @@ class IRGenerator {
                     VariableType.VAR)
         context.localVariables.add(lengthVar)
         statements.add(new ValueStatement(new VariableAssignment(f.position, 
-                lengthVar, getField(f.position, array.createReference(), 
+                lengthVar, getMember(f.position, array.createReference(), 
                     "length")->(Value), 
                 true)))
         def typeParams := new Array<Type>()
@@ -1112,7 +1142,7 @@ class IRGenerator {
         bodyStatements.add(new ValueStatement(new VariableAssignment(f.position,
                 valueVars[0], new PrimitiveArrayIndexValue(
                         array.createReference(), 
-                        new VariableReference(f.position, indexVar)))))
+                        new VariableReference(f.position, indexVar)).implicitCast(context, valueVars[0].type))))
         def bodyStatement := convertStatement(f.statement)
         if bodyStatement = null
             return null
@@ -1653,7 +1683,7 @@ class IRGenerator {
                         -- check for a field by this name
                         if oldParams.length = 1 {
                             var object := oldParams[0]
-                            def field := getField(left.position, 
+                            def field := getMember(left.position, 
                                     new Dummy(object.type), 
                                     mc.methodNode.name, false)
                             if field-?>(FieldReference) {
@@ -1733,7 +1763,7 @@ class IRGenerator {
             result.add(new ValueStatement(reused))
             for i, lvalue in left {
                 if lvalue != null {
-                    def tupleValue := getField(right.position, 
+                    def tupleValue := getMember(right.position, 
                             reused.createReference(), "$field" + i)
                     assert tupleValue != null : "can't-happen tuple failure"
                     def assignment := processSingleAssignment(lvalue, 
@@ -1864,7 +1894,7 @@ class IRGenerator {
                 if value-?>(MethodCall) {
                     var call := value->(MethodCall)
                     if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
-                        return call.parameters[0].type = owner
+                        return call.methodStub.owner = owner
                 }
             }
         }
@@ -1897,6 +1927,11 @@ class IRGenerator {
             parameters.add(p)
             context.symbolTable[p.name] := p
         }
+        if !m.annotations.isClass {
+            def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
+                    m.owner, false, false, false)
+            context.symbolTable[selfParam.name] := selfParam
+        }
         var body := convertBlock(m.body->(ASTBlock))
         if m.methodType = MethodNodeType.CONSTRUCTOR & 
                 !callsOtherSelfConstructor(m.owner, body.statements) {
@@ -1922,24 +1957,15 @@ class IRGenerator {
         return result
     }
 
-    method addFields(type:ClassType) {
-        def stub := context.getStub(type)
-        def superclass := stub.superclass
-        if superclass != null
-            addFields(superclass)
-        for intf in stub.interfaces
-            addFields(intf)
-        if type-?>(GenericType)
-            addFields(type->(GenericType).base)
-        for f in stub.fields
-            context.symbolTable[f.name] := f
+    method pushSymbols(cl:ClassStub) {
+        context.currentClass := cl
+        context.pushSymbolTable()
+        context.symbolTable.addAll(context.getSymbolTable(cl))
     }
 
     method convertClass(cl:ClassStub):ClassNode {
         def methods := new Array<MethodNode>()
-        context.currentClass := cl
-        context.pushSymbolTable()
-        addFields(cl.type)
+        pushSymbols(cl)
         for f in cl.fields
             inferFieldType(f)
         for m in cl.methods.filter(m => m.body != null)
@@ -1966,11 +1992,17 @@ class IRGenerator {
             return
         }
         currentlyInferring.add(f)
+        def old := context.currentClass
+        pushSymbols(context.getStub(f.owner))
         def expr := resolve(f.initialValue->(ASTExpression))
+        context.popSymbolTable()
+        context.currentClass := old
         if expr != null {
             if expr.checkValid(context)
                 f.type := expr.preferredVariableType(context)
         }
+        else
+            f.type := VoidType.VOID
         currentlyInferring.remove(f)
     }
 
@@ -2031,12 +2063,16 @@ class IRGenerator {
             }
             else {
                 assert currentPackage[c] = null
-                currentPackage[c] := cl
+                currentPackage[c] := new TypeSymbol(cl.type)
             }
         }
     }
 
     method generateProgram():Program {
+        for symbol in context.root {
+            def simpleName := symbol.name[0 .. symbol.name.indexOf(".")]
+            context.symbolTable[simpleName] := symbol
+        }
         def classes := new HashMap<String, ClassNode>()
         var madeProgress:Bit
         do {
@@ -2053,7 +2089,7 @@ class IRGenerator {
         def root := new MutablePackage("")
         for cl in context.classes.values
             addClass(cl, root)
-        return new Program(root->>(Package), classes.values, 
-                context.typeResolver)
+        return new Program(root->>(Package), context.classes, classes, 
+                context.stubGenerator)
     }
 }

@@ -154,7 +154,7 @@ class Value : Node {
         for m in targetStub.methods {
             if m.name = MethodNode.CONVERT_NAME & m.annotations.isClass & 
                     canImplicitCastTo(context, m.parameters[0].type) {
-                def score := context.matchCost(m, params)
+                def score := context.matchCost(self, m, params)
                 if score != null & score < best {
                     best := score
                     bestMatch := m
@@ -181,11 +181,19 @@ class Value : Node {
         }
         def converter := findConverter(context, t)
         if converter != null {
-            def params := new Array<Value>()
-            def cast := implicitCast(context, 
-                    converter.parameters[0].type)
-            params.add(cast)
-            return new MethodCall(position, converter, false, params)
+            if converter.annotations.isClass {
+                def params := new Array<Value>()
+                def cast := implicitCast(context, 
+                        converter.parameters[0].type)
+                params.add(cast)
+                return new MethodCall(position, new ClassLiteral(position,
+                        converter.owner), converter, params)
+            }
+            else {
+                def cast := implicitCast(context, converter.owner)
+                return new MethodCall(position, cast, converter, 
+                        new Array<Value>())
+            }
         }
         context.errors.error("cannot convert '\{type.displayName}' to " +
                 "'\{t.displayName}'", position)
@@ -201,7 +209,6 @@ class Value : Node {
         else
             wrapper := type->>(WrapperType)
         def params := new Array<Value>()
-        params.add(new Dummy(position, wrapper))
         def cast:Value
         if explicit
             cast := explicitCast(context, wrapper->>(PrimitiveType))
@@ -212,8 +219,8 @@ class Value : Node {
                 wrapper), MethodNode.CONSTRUCTOR_NAME, params)
         assert constructorStub != null : "could not find \{wrapper} " +
                 "constructor for \{type}"
-        def wrapperObject := new Construct(wrapper, new MethodCall(position, 
-                constructorStub, false, params))
+        def wrapperObject := new Construct(new MethodCall(position, 
+                new ClassLiteral(position, wrapper), constructorStub, params))
         if explicit
             return wrapperObject.explicitCast(position, context, t)
         else

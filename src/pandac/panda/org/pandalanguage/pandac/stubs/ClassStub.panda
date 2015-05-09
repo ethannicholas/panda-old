@@ -6,6 +6,7 @@ uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
 uses org.pandalanguage.pandac.compiler.StubMap
+uses org.pandalanguage.pandac.compiler.SymbolTable
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -20,7 +21,7 @@ uses org.pandalanguage.pandac.types.UnresolvedType
 ================================================================================
 Represents a parsed but not-yet-compiled class.
 ================================================================================
-class ClassStub : Immutable (Symbol) {
+class ClassStub : Immutable {
     def position:Position
 
     def type:ClassType
@@ -28,6 +29,8 @@ class ClassStub : Immutable (Symbol) {
     def isInterface:Bit
 
     def annotations:Annotations
+
+    def symbols:ImmutableHashMap<String, Symbol>
 
     def lookupContext:LookupContext
 
@@ -39,8 +42,6 @@ class ClassStub : Immutable (Symbol) {
 
     def fullyResolved:Bit
 
-    def symbols:ImmutableHashMap<String, Symbol>
-
     def invariants:ImmutableArray<ASTInvariant>
 
     def genericParameters:ImmutableArray<ASTTypedIdentifier>?
@@ -49,9 +50,9 @@ class ClassStub : Immutable (Symbol) {
 
     @pre(genericParameters = null | genericParameters.length > 0)
     constructor(position:Position, type:ClassType, isInterface:Bit, 
-            annotations:Annotations, lookupContext:LookupContext, 
-            superclass:ClassType?, interfaces:CollectionView<ClassType>, 
-            symbols:MapView<String, Symbol>, 
+            annotations:Annotations, superclass:ClassType?, 
+            interfaces:CollectionView<ClassType>, 
+            symbols:MapView<String, Symbol>, lookupContext:LookupContext,
             invariants:CollectionView<ASTInvariant>,
             genericParameters:ListView<ASTTypedIdentifier>?, isExternal:Bit) {
         super.constructor()
@@ -59,12 +60,12 @@ class ClassStub : Immutable (Symbol) {
         self.type := type
         self.isInterface := isInterface
         self.annotations := annotations
-        self.lookupContext := lookupContext
         self.invariants := new ImmutableArray<ASTInvariant>(invariants)
         self.isExternal := isExternal
         self.superclass := superclass
         self.interfaces := new ImmutableArray<ClassType>(interfaces)
         self.symbols := new ImmutableHashMap<String, Symbol>(symbols)
+        self.lookupContext := lookupContext
         def filter := f:FieldNode => f.type-?>(UnresolvedType)
         self.fullyResolved := fields.filter(filter).length = 0
         if genericParameters != null {
@@ -74,7 +75,6 @@ class ClassStub : Immutable (Symbol) {
         }
     }
 
-    @override
     function name():String {
         return type.name
     }

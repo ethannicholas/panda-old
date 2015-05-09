@@ -15,6 +15,7 @@ uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.Symbol
+uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.ClassNodeState
@@ -23,7 +24,6 @@ uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
-uses org.pandalanguage.pandac.tree.SymbolTable
 uses org.pandalanguage.pandac.types.UnresolvedType
 
 ================================================================================
@@ -67,14 +67,14 @@ class GenericType : ClassType {
 
     @private
     method getType(type:Type, context:Context, 
-            lookupContext:LookupContext):Type {
+            symbols:MapView<String, Symbol>):Type {
         if type-?>(UnresolvedType)
             return type
         if type = VoidType.VOID
             return type
-        def result := context.typeResolver.resolve(
+        def result := context.stubGenerator.resolveType(
                 new PandaParser(context.errors).parseType(type.name,
-                    context.currentClass.position), lookupContext)
+                    context.currentClass.position), symbols)
         if result != null
             return result
         throw new CompilerException("unable to resolve type '\{type.name}'",
@@ -83,22 +83,18 @@ class GenericType : ClassType {
 
     @private
     method instantiateField(f:FieldNode, context:Context, 
-            lookupContext:LookupContext):FieldNode {
+            symbols:MapView<String, Symbol>):FieldNode {
         return new FieldNode(f.position, self, f.name, f.annotations, f.varType,
-                getType(f.type, context, lookupContext), f.initialValue, 
+                getType(f.type, context, symbols), f.initialValue, 
                 f.tuplePosition)
     }
 
     @private
     method instantiateMethod(m:MethodStub, context:Context, 
-            lookupContext:LookupContext):MethodStub {
+            symbols:MapView<String, Symbol>):MethodStub {
         def parameters := new Array<FormalParameter>()
         for p in m.parameters {
-            def type:Type
-            if p.name = Parameter.SELF_NAME
-                type := self
-            else
-                type := getType(p.type, context, lookupContext)
+            def type := getType(p.type, context, symbols)
             parameters.add(new FormalParameter(p.position, p.name, 
                     type, p.isVar, p.isConvert, p.isVarArg))
         }
@@ -107,29 +103,27 @@ class GenericType : ClassType {
             annotations += AnnotationType.ABSTRACT
         return new MethodStub(m.position, m.name, annotations,
                 m.methodType, parameters, getType(m.returnType, context,
-                    lookupContext), 
+                    symbols), 
                 m.body, self)
     }
 
     @protected
-    method addSymbol(s:Symbol, map:Map<String, Symbol>) {
+    method addSymbol(s:Symbol, symbols:Map<String, Symbol>) {
         if s-?>(MethodStub) {
             def m := s->(MethodStub)
-            def methods := map[m.name]
+            def methods := symbols[m.name]
             if methods = null {
                 def list := new Array<MethodStub>()
                 list.add(m)
-                map[m.name] := new Methods(list)
+                symbols[m.name] := new Methods(list)
             }
             else if methods-?>(Methods)
-                map[m.name] := methods->(Methods) + m
+                symbols[m.name] := methods->(Methods) + m
             else
                 unreachable
         }
-        else {
-            assert(map[s.name] = null)
-            map[s.name] := s
-        }
+        else
+            symbols[s.name] := s
     }
 
     method createStub(context:Context, baseStub:ClassStub,
@@ -140,19 +134,17 @@ class GenericType : ClassType {
         assert baseParameters.length = parameters.length : 
                 "parameter mismatch (\{baseParameters} vs. \{parameters})"
         def position := new Position(name, -1, -1)
-        def aliases := new HashMap<String, String>(
-                baseStub.lookupContext.classAliases)
+        def symbols := new HashMap<String, Symbol>()
         for i, p in parameters {
-            aliases[baseParameters[i].identifier] := p.name
+            def symbol := new TypeSymbol(p)
+            symbols[baseParameters[i].identifier] := symbol
             def fullName := baseStub.name + "." + baseParameters[i].identifier
-            aliases[fullName] := p.name
-        }
-        def lookupContext := new LookupContext(
-                baseStub.lookupContext.packageUses, aliases)
+            symbols[fullName] := symbol
+        }        
         var superclass := baseStub.superclass
         if superclass != null {
             def resolved:Type?
-            resolved := getType(superclass, context, lookupContext)
+            resolved := getType(superclass, context, symbols)
             superclass := resolved->(ClassType)
         }
         else
@@ -160,25 +152,23 @@ class GenericType : ClassType {
         def interfaces := new Array<ClassType>()
         for intf in baseStub.interfaces {
             var type:Type?
-            type := getType(intf, context, lookupContext)
+            type := getType(intf, context, symbols)
             if type != null {
                 def intfClass := type->>(ClassType)
                 interfaces.add(intfClass)
             }
         }
-        context.pushSymbolTable()
-        def symbols := new HashMap<String, Symbol>()
         for f in baseStub.fields {
             if f.annotations.isClass | f.annotations.isThread
-                context.symbolTable[f.name] := f
+                symbols[f.name] := f
             else {
-                def newField := instantiateField(f, context, lookupContext)
-                context.symbolTable[newField.name] := newField
+                def newField := instantiateField(f, context, symbols)
+                symbols[newField.name] := newField
                 addSymbol(newField, symbols)
             }
         }
         for m in baseStub.methods.filter(m => !m.annotations.isClass)
-            addSymbol(instantiateMethod(m, context, lookupContext), symbols)
+            addSymbol(instantiateMethod(m, context, symbols), symbols)
         var annotations := baseStub.annotations - AnnotationType.UNSPECIFIED
         for i, p in parameters {
             var unspecified := p-?>(GenericParameterType)
@@ -189,9 +179,8 @@ class GenericType : ClassType {
                 break
             }
         }
-        context.popSymbolTable()
         return new ClassStub(position, self, baseStub.isInterface, annotations, 
-                lookupContext, superclass, interfaces, symbols, 
+                superclass, interfaces, symbols, baseStub.lookupContext, 
                 baseStub.invariants, null, false)
     }
 }

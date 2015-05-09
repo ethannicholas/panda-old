@@ -180,8 +180,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     constructor(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         def errors := new FatalErrorReporter()
-        self.context := new Context(p.typeResolver, p.root, errors, 
-                compilerSettings)
+        self.context := new Context(p.stubGenerator, p.root, p.stubs, 
+                errors, compilerSettings)
         self.classes := p.classes
         self.methodNamer := new MethodNamer(context, 
                 new CMethodNamingStrategy())
@@ -468,7 +468,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method createConstructReference(construct:Construct):String {
         def targetType := construct.type
-        def target := getStub(targetType)
+        def target := getStub(targetType->(ClassType))
         def cc := getClassConstant(target)
         def cast := getTempVariable()
         def classType := getLLVMType(ClassType.CLASS)
@@ -621,10 +621,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     method createMethodCallReference(mc:MethodCall):String? {
         def m := mc.methodStub
         def methodRef:String
-        if program.isEffectivelyVirtual(m) & !mc.isSuper {
+        if program.isEffectivelyVirtual(m) & mc.target-!>(Super) {
             assert !m.annotations.isClass : "expected method not to be @class"
-            assert mc.parameters.length >= 1 : "expected method to have a self parameter"
-            def target := mc.parameters[0]
+            def target := mc.target->(Value)
             def classStub := getStub(target.type->(ClassType))
             if classStub.isInterface
                 methodRef := getInterfaceMethodReference(mc)
@@ -635,6 +634,11 @@ class LLVMCodeGenerator (CodeGenerator) {
             methodRef := "@" + getName(m)
         def text := new MutableString("fastcc \{getLLVMMethodType(m)} \{methodRef}(")
         def parameters := mc.parameters
+        if !m.annotations.isClass {
+            text.append(getTypedReference(mc.target->(Value)))
+            if parameters.length > 0
+                text.append(", ")
+        }
         for i, p in parameters {
             if i > 0
                 text.append(", ")

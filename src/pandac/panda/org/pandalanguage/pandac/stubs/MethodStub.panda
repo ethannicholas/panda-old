@@ -1,12 +1,14 @@
 package org.pandalanguage.pandac.stubs
 
 uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
@@ -30,8 +32,6 @@ class MethodStub : Immutable (Symbol) {
 
     def returnType:Type
 
-    @pre(annotations.isClass | methodType = MethodNodeType.CONSTRUCTOR |
-            (parameters.length > 0 & parameters[0].name = Parameter.SELF_NAME))
     constructor(position:Position, name:String, annotations:Annotations,
             methodType:MethodNodeType, parameters:ListView<FormalParameter>, 
             returnType:Type, body:ASTBlock?, owner:ClassType) {
@@ -62,16 +62,7 @@ class MethodStub : Immutable (Symbol) {
         if parentParams.length != parameters.length
             return false
         def start:Int
-        if isClass
-            start := 0
-        else {
-            -- skip 0; self will not match because we are looking at two
-            -- different classes
-            start := 1
-            assert parentParams[0].name = Parameter.SELF_NAME
-            assert parameters[0].name = Parameter.SELF_NAME
-        }
-        for i in start .. parentParams.length {
+        for i in 0 .. parentParams.length {
             if parentParams[i].type != parameters[i].type
                 return false
         }
@@ -88,6 +79,15 @@ class MethodStub : Immutable (Symbol) {
                 methodType != MethodNodeType.CONSTRUCTOR
     }
 
+    method type(context:Context):MethodType {
+        def types := new Array<Type>()
+        for p in parameters
+            types.add(p.type)
+        def result := new MethodType(types, returnType, 
+                methodType = MethodNodeType.FUNCTION, true)
+        return context.resolveType(result.name)->(MethodType)
+    }
+
     @override
     function format(fmt:String):String {
         def result := new MutableString()
@@ -100,20 +100,16 @@ class MethodStub : Immutable (Symbol) {
         result.append(name)
         result.append("(")
         var start:Int
-        if annotations.isClass
-            start := 0
-        else
-            start := 1
-        for i in start .. parameters.length {
-            if i > start
+        for i, p in parameters {
+            if i > 0
                 result.append(", ")
-            result.append(parameters[i].name)
-            if parameters[i].isConvert
+            result.append(p.name)
+            if p.isConvert
                 result.append("->>")
             else
                 result.append(":")
-            result.append(parameters[i].type.name)
-            if parameters[i].isVarArg
+            result.append(p.type.name)
+            if p.isVarArg
                 result.append("...")
         }
         result.append(")")

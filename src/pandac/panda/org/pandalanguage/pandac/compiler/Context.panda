@@ -1,9 +1,12 @@
 package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ASTInvariant
+uses org.pandalanguage.pandac.ast.ASTClassType
+uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
+uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.stubs.Package
 uses org.pandalanguage.pandac.stubs.Symbol
@@ -13,6 +16,7 @@ uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.InstanceContext
 uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
@@ -45,11 +49,11 @@ uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
 class Context {
-    def typeResolver:TypeResolver
+    def stubGenerator:StubGenerator
 
     var root:Package
 
-    def classes := new HashMap<String, ClassStub>()
+    def classes:Map<String, ClassStub>
 
     def errors:ErrorReporter
 
@@ -59,71 +63,68 @@ class Context {
 
     var currentMethod:MethodStub
 
-    var symbolTable:SymbolTable
+    var symbolTableStack := new Stack<SymbolTable>()
 
     def localVariables := new Array<LocalVariable>()
 
-    constructor(typeResolver:TypeResolver, root:Package, errors:ErrorReporter, 
+    def symbolTables := new HashMap<ClassStub, SymbolTable>()
+
+    constructor(stubGenerator:StubGenerator, root:Package, 
+            classes:MapView<String, ClassStub>, errors:ErrorReporter, 
             compilerSettings:CompilerSettings) {
-        self.typeResolver := typeResolver
+        self.stubGenerator := stubGenerator
         self.root := root
-        loadClasses(root)
+        self.classes := new HashMap<String, ClassStub>(classes)
         self.errors := errors
         self.compilerSettings := compilerSettings
         self.currentClass := new ClassStub(Position.INTERNAL, 
                 new ClassType("ContextDummy"), false, new Annotations(
                     Position.INTERNAL, new Array<AnnotationType>()), 
-                new LookupContext(new Array<String>(), 
-                    new HashMap<String, String>()), 
-                null, new Array<ClassType>(),
-                new HashMap<String, Symbol>(),
-                new Array<ASTInvariant>(), null, true)
+                null, new Array<ClassType>(), stubGenerator.masterSymbolTable,
+                new LookupContext(), new Array<ASTInvariant>(), null, true)
         def classAnnotation := new Array<AnnotationType>()
         classAnnotation.add(AnnotationType.CLASS)
         self.currentMethod := new MethodStub(Position.INTERNAL, "<dummy>",
                 new Annotations(Position.INTERNAL, classAnnotation),
                 MethodNodeType.METHOD, new Array<FormalParameter>(), 
                 VoidType.VOID, null, ClassType.OBJECT)
-        self.symbolTable := new SymbolTable()
+        symbolTableStack.push(stubGenerator.masterSymbolTable)
         -- force IMMUTABLE_CHAR_ARRAY to have a stub so that String constants
         -- work
         getStub(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
     }
 
-    @private
-    method loadClasses(p:Package) {
-        for s in p {
-            if s-?>(Package)
-                loadClasses(s->(Package))
-            else {
-                def cl := s->(ClassStub)
-                classes[cl.name] := cl
-            }
-        }
+    function symbolTable():SymbolTable {
+        return symbolTableStack.peek()
     }
 
     method pushSymbolTable() {
-        def newSymbolTable := new SymbolTable(symbolTable)
-        symbolTable := newSymbolTable
+        symbolTableStack.push(new SymbolTable(symbolTable))
     }
 
     method popSymbolTable() {
-        def newSymbolTable := symbolTable.parent
-        assert newSymbolTable != null : "empty SymbolTable stack"
-        symbolTable := newSymbolTable
+        symbolTableStack.pop()
+    }
+
+    method resolveType(type:ASTType):Type? {
+        return stubGenerator.resolveType(type, symbolTable)
+    }
+
+    method resolveType(name:String):Type? {
+        return stubGenerator.resolveType(
+                new PandaParser(errors).parseType(name, Position.INTERNAL), 
+                symbolTable)
     }
 
     @private
     method createStub(name:String):ClassStub? {
-        def type := typeResolver.resolve(new PandaParser(errors).parseType(name,
-                Position.INTERNAL), new LookupContext(new Array<String>(),
-                    new HashMap<String, String>()))
+        def type := stubGenerator.resolveType(
+                new PandaParser(errors).parseType(name, Position.INTERNAL), 
+                symbolTable)
         if type = null
             return null
         if type-?>(PrimitiveArrayType) {
             def array := type->(PrimitiveArrayType)
-            if array.elementType-?>(GenericParameterType)
-                return null
             def elementStub:ClassStub?
             if array.elementType.isPrimitive
                 elementStub := null
@@ -144,6 +145,9 @@ class Context {
             return generic.createStub(self, baseStub,
                     parameterStubs)
         }
+        else if type-?>(GenericParameterType) {
+            return getStub(type->(GenericParameterType).bound.name)
+        }
         else if type-?>(TupleType) {
             def tuple := type->(TupleType)
             def stubs := new Array<ClassStub?>()
@@ -155,7 +159,8 @@ class Context {
             }
             return tuple.createStub(stubs, self)
         }
-        return null
+        else
+            throw new InternalCompilerException("cannot create stub for \{type}")
     }
 
     @private
@@ -193,13 +198,8 @@ class Context {
 
     constant CONVERT_COST := 10
 
-    function matchCost(m:MethodStub, var params:ListView<Value>):Int? {
-        if m.methodType = MethodNodeType.CONSTRUCTOR & params.length > 0 &
-                m.parameters[0].type != params[0].type {
-            -- constructor called on mismatched type means we're in a subclass,
-            -- and since constructors are not inherited we need to ignore it
-            return null
-        }
+    function matchCost(target:Value, m:MethodStub, 
+            var params:ListView<Value>):Int? {
         var result := 0
         var methodParams:ListView<FormalParameter> := m.parameters
         var isVarArg := methodParams.length > 0 & 
@@ -232,8 +232,6 @@ class Context {
             return null
 
         for i, param in methodParams {
-            if i = 0 & !m.annotations.isClass
-                continue
             def targetType := param.type
             def cost := params[i].implicitCastCost(self, targetType)
             if cost = null {
@@ -267,48 +265,64 @@ class Context {
         return result
     }
 
-    function getMethodsNamed(name:String, searchClass:ClassStub):
+    method getSymbolTable(cl:ClassStub):SymbolTable {
+        var result := symbolTables[cl]
+        if result = null {
+            result := new SymbolTable(stubGenerator.masterSymbolTable)
+            for p in cl.lookupContext.packageUses
+                stubGenerator.usePackage(p, result, cl.position)
+            for (alias, target) in cl.lookupContext.classAliases {
+                def resolved := resolveType(new ASTClassType(
+                        cl.position, target, null, false))
+                assert resolved != null
+                stubGenerator.aliasType(alias, resolved, result)
+            }
+            def superclass := cl.superclass
+            if superclass != null
+                result.addAll(getSymbolTable(getStub(superclass)))
+            for intf in cl.interfaces
+                result.addAll(getSymbolTable(getStub(intf)))
+            result.addAll(cl.symbols)
+            symbolTables[cl] := result
+        }
+        return result
+    }
+
+    method getMethodsNamed(name:String, searchClass:ClassStub):
             CollectionView<MethodStub> {
+        def symbol := getSymbolTable(searchClass)[name]
+        if symbol-?>(Methods)
+            return symbol->(Methods).methods
         def result := new Array<MethodStub>()
-        def superclass := searchClass.superclass
-        if superclass != null & name != MethodNode.CONSTRUCTOR_NAME
-            result.addAll(getMethodsNamed(name, getStub(superclass)))
-        for intf in searchClass.interfaces
-            result.addAll(getMethodsNamed(name, getStub(intf)))
-        result.addAll(searchClass.methods.filter(m => m.name = name))
+        if symbol-?>(MethodStub)
+            result.add(symbol->(MethodStub))
         return result
     }
 
     ============================================================================
     Finds the best match for the given method.
 
-    @param contextValue the object the method is being called on, or `null` if
+    @param target the object the method is being called on, or `null` if
             it is a bare method name
     @param name the name of the method
     @param params the method parameters
     ============================================================================
-    function getMethod(contextValue:Value?, name:String, 
+    method getMethod(target:Value, name:String, 
             params:ListView<Value>):MethodStub? {
         def searchClass:ClassStub
-        def classMethod:Bit?
-        if contextValue != null {
-            if contextValue-?>(ClassLiteral) {
-                searchClass := getStub(contextValue->(ClassLiteral).value)
-                classMethod := true
-            }
-            else if contextValue-?>(Super) {
-                def cc := currentClass
-                searchClass := getStub(cc.superclass->(ClassType))
-                classMethod := false
-            }
-            else {
-                classMethod := false
-                searchClass := getStub(contextValue.type->>(ClassType))
-            }
+        def classMethod:Bit
+        if target-?>(ClassLiteral) {
+            searchClass := getStub(target->(ClassLiteral).value)
+            classMethod := true
+        }
+        else if target-?>(Super) {
+            def cc := currentClass
+            searchClass := getStub(cc.superclass->(ClassType))
+            classMethod := false
         }
         else {
-            searchClass := currentClass->(ClassStub)
-            classMethod := null
+            classMethod := false
+            searchClass := getStub(target.type->>(ClassType))
         }
         def methods:CollectionView<MethodStub>
         if classMethod = true {
@@ -325,7 +339,7 @@ class Context {
         var maxCost := Int.MAX
         var max:MethodStub? := null
         for m in methods {
-            def cost := matchCost(m, params)
+            def cost := matchCost(target, m, params)
             if cost != null & cost < maxCost {
                 maxCost := cost
                 max := m
@@ -334,131 +348,11 @@ class Context {
         return max
     }
 
-    method testCall(position:Position, var contextValue:Value?, 
+    method testCall(position:Position, var target:Value, 
             methodName:String, var params:ListView<Value>):Value? {
-        if contextValue = null {
-            if isInstance {
-                -- bare identifier, could be either instance or class
-                var result := getMethod(null, methodName, params)
-                if result != null {
-                    if result.annotations.isClass {
-                        -- class method, update the contextValue
-                        contextValue := new ClassLiteral(position, 
-                                currentClass.type)
-                    }
-                }
-                if contextValue = null
-                    contextValue := getSelf(position)
-            }
-            else {
-                -- in a class context
-                contextValue := new ClassLiteral(position,
-                        currentClass.type)
-            }
-        }
-        var classMethod:Bit
-        var supercall:Bit
-        if contextValue-?>(UnresolvedClassLiteral) {
-            contextValue := new ClassLiteral(position, 
-                    contextValue->(UnresolvedClassLiteral).value)
-        }
-        if contextValue-?>(ClassLiteral) {
-            classMethod := true
-            supercall := false
-        }
-        else if contextValue-?>(ClassObjectLiteral) {
-            classMethod := false
-            supercall := false
-        }
-        else {
-            classMethod := false
-            var newParams := new Array<Value>()
-            if contextValue-?>(Super) {
-                def cl := currentClass
-                def superclass := cl.superclass
-                if superclass = null {
-                    errors.error("class '\{cl}' has no superclass", 
-                            contextValue.position)
-                    return null
-                }
-                def cast := getSelf(position).implicitCast(
-                        self, superclass)
-                newParams.add(cast)
-                supercall := true
-            }
-            else {
-                newParams.add(contextValue)
-                supercall := false
-            }
-            newParams.addAll(params)
-            params := newParams
-        }
-        var methodStub := getMethod(contextValue, methodName, params)
-        if methodStub = null {
-            if classMethod & methodName = MethodNode.CONSTRUCTOR_NAME {
-                -- check for a constructor, which is called like a class method
-                -- but implemented as an instance method
-                def type:Type
-                if contextValue-?>(ClassLiteral)
-                    type := contextValue->(ClassLiteral).value
-                else {
-                    assert contextValue-?>(Super)
-                    def sc := currentClass->(ClassStub).superclass
-                    assert sc != null
-                    type := sc
-                }
-                if type.isPrimitiveArray {
-                    if params.length = 1 &
-                            params[0].canImplicitCastTo(self, IntType.INT32) {
-                        def cast := params[0].implicitCast(self, IntType.INT32)
-                        return new NewPrimitiveArrayWithLength(position, 
-                                type->>(PrimitiveArrayType), cast)
-                    }
-                    else if -*params.length = 1 & *-
-                            params[0].type.isPrimitiveArray {
-                        return new PrimitiveArrayCopy(position, 
-                                type->(PrimitiveArrayType), params[0])
-                    }
-                    else {
-                        errors.error("invalid arguments to " +
-                                "PrimitiveArray constructor", position)
-                        return null
-                    }
-                }
-                if params.length = 0 | params[0]-!>(Dummy) {
-                    def newParams := new Array<Value>()
-                    newParams.add(new Dummy(contextValue.position, type))
-                    newParams.addAll(params)
-                    params := newParams
-                    def construct := call(position, contextValue, 
-                            methodName, params)
-                    if construct != null {
-                        def stub := construct->(Construct).constructorCall.methodStub
-                        if stub.methodType != 
-                                MethodNodeType.CONSTRUCTOR {
-                            errors.error(
-                                    "instance method '\{stub.name}' cannot " +
-                                    "be accessed from a class context", 
-                                    position)
-                        }
-                        return construct
-                    }
-                }
-            }
-        }
-        if methodStub != null {
-            def result := call(position, methodStub, supercall, params)
-            if methodStub.methodType = MethodNodeType.CONSTRUCTOR & !supercall {
-                def type:Type?
-                if contextValue-?>(ClassLiteral)
-                    type := contextValue->(ClassLiteral).value
-                else
-                    type := currentClass.type
-                return new Construct(type->(ClassType), result->(MethodCall))
-            }
-            else
-                return result
-        }
+        def methodStub := getMethod(target, methodName, params)
+        if methodStub != null
+            return call(position, target, methodStub, params)
         else
             return null
     }
@@ -543,7 +437,7 @@ class Context {
     }
 
     @private
-    method getMethodNotFoundMessage(contextValue:Value?, methodName:String, 
+    method getMethodNotFoundMessage(target:Value, methodName:String, 
             params:ListView<Value>):String {
         def msg := "no match found for method "->>(MutableString)
         msg.append(methodName)
@@ -559,14 +453,12 @@ class Context {
             msg.append(p.type.displayName)
         }
         msg.append(")")
-        if contextValue != null {
-            if contextValue-?>(Super)
-                msg.append(" in \{currentClass->(ClassStub).superclass->(Type).displayName}")
-            else if contextValue-?>(ClassLiteral)
-                msg.append(" in \{contextValue}")
-            else
-                msg.append(" in \{contextValue.type.displayName}")
-        }
+        if target-?>(Super)
+            msg.append(" in \{currentClass->(ClassStub).superclass->(Type).displayName}")
+        else if target-?>(ClassLiteral)
+            msg.append(" in \{target}")
+        else
+            msg.append(" in \{target.type.displayName}")
         for p in params {
 -*            if p-?>(UnresolvedLambda) {
                 def lambda := p->(UnresolvedLambda)
@@ -615,7 +507,7 @@ class Context {
         return msg->>(String)
     }
 
-    method call(position:Position, var m:MethodStub, isSuper:Bit, 
+    method call(position:Position, target:Value, m:MethodStub,
             params:ListView<Value>):Value? {
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
@@ -643,25 +535,26 @@ class Context {
             count := methodParams.length
         def finalParams := new Array<Value>()
         for i in 0 .. count {
-            def target := m.parameters[i].type
-            if params[i].canImplicitCastTo(self, target) {
-                def cast := params[i].implicitCast(self, target)
+            def targetType := m.parameters[i].type
+            if params[i].canImplicitCastTo(self, targetType) {
+                def cast := params[i].implicitCast(self, targetType)
                 finalParams.add(cast)
             }
             else if m.parameters[i].isConvert & 
-                    params[i].canConvertTo(self, target) {
-                def converted := params[i].convert(self, target)
+                    params[i].canConvertTo(self, targetType) {
+                def converted := params[i].convert(self, targetType)
                 finalParams.add(converted)
             }
-            else if params[i]-?>(Unwrap) & target-?>(PrimitiveArrayType) {
+            else if params[i]-?>(Unwrap) & targetType-?>(PrimitiveArrayType) {
                 -- temporary, until new compiler is done and we stop using
                 -- PrimitiveArrays outside of Array. FIXME remove this case.
-                finalParams.add(params[i].convert(self, target))
+                finalParams.add(params[i].convert(self, targetType))
             }
             else {
                 errors.error("expected value of type " +
-                        "'\{target.displayName}', but found " +
+                        "'\{targetType.displayName}', but found " +
                         "'\{params[i].type.displayName}'", params[i].position)
+                return null
             }
         }
         if isVarArg {
@@ -682,11 +575,8 @@ class Context {
             def varParams := new NewPrimitiveArrayWithValues(position,
                     arrayType, values)
             finalParams.add(varParams)
-            getStub(varParams.type->(ClassType)) -- force stub creation
         }
-        if m.returnType != VoidType.VOID
-            getStub(m.returnType->>(ClassType))
-        return new MethodCall(position, m, isSuper, finalParams)
+        return new MethodCall(position, target, m, finalParams)
     }
 
     @private
@@ -701,10 +591,8 @@ class Context {
         return false
     }
 
-    method call(position:Position, var contextValue:Value?, 
-            methodName:String, var params:ListView<Value>):Value? {
-        def types := new Array<String>()
-        for p in params types.add(p.type->>(String))
+    method call(position:Position, target:Value, methodName:String, 
+            var params:ListView<Value>):Value? {
         if params.length > 0 {
             def last := params[params.length - 1]
             if last-?>(UnresolvedRange) {
@@ -723,12 +611,61 @@ class Context {
             if !p.checkValid(self)
                 return null
         }
-        def result := testCall(position, contextValue, methodName, 
+        def result := testCall(position, target, methodName, 
                 params)
         if result = null {
-            errors.error(getMethodNotFoundMessage(contextValue, methodName, 
+            errors.error(getMethodNotFoundMessage(target, methodName, 
                     params), position)
         }
         return result
     }
+
+    @private
+    function getEffectiveTarget(m:MethodStub, target:Value):Value {
+        if target-?>(InstanceContext) {
+            if m.annotations.isClass
+                return new ClassLiteral(target.position, m.owner)
+            else
+                return target->(InstanceContext).selfParam
+        }
+        else
+            return target
+    }
+
+    method call(position:Position, target:Value, 
+            methods:ListView<MethodStub>, var params:ListView<Value>):Value? {
+        if params.length > 0 {
+            def last := params[params.length - 1]
+            if last-?>(UnresolvedRange) {
+                def range := last->(UnresolvedRange)
+                def left := range.left
+                if isListView(left) & range.right = null {
+                    assert left != null
+                    def newParams := new Array<Value>()
+                    newParams.addAll(params[0 .. params.length - 1])
+                    newParams.add(new Unwrap(left))
+                    params := newParams
+                }
+            }
+        }
+        var maxCost := Int.MAX
+        var max:MethodStub? := null
+        for m in methods {
+            def cost := matchCost(getEffectiveTarget(m, target), m, params)
+            if cost != null & cost < maxCost {
+                maxCost := cost
+                max := m
+            }
+        }
+        if max != null
+            return call(position, getEffectiveTarget(max, target), max, params)
+        else {
+            def types := new Array<String>()
+            for p in params
+                types.add(p.type.displayName)
+            errors.error("no match for \{methods[0].owner.name}." +
+                    "\{methods[0].name}(\{types.join(', ')})", position)
+            return null
+        }
+   }
 }

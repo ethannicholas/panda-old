@@ -7,6 +7,12 @@ Represents a method call.
 ================================================================================
 class MethodCall : Value {
     ============================================================================
+    The object on which the method is being called (a `ClassLiteral` for a 
+    `@class` method).
+    ============================================================================
+    def target:Value
+
+    ============================================================================
     The method being called.
     ============================================================================
     def methodStub:MethodStub
@@ -14,28 +20,24 @@ class MethodCall : Value {
     ============================================================================
     The method parameters.
     ============================================================================
-    def parameters:Array<Value>
-
-    ============================================================================
-    True if the method was called on 'super'.
-    ============================================================================
-    def isSuper:Bit
+    def parameters:ListView<Value>
 
     ============================================================================
     Creates a new `MethodCall`.
 
     @param position the call's position
+    @param target the object on which the method is being called (a 
+            `ClassLiteral` for a `@class` method)
     @param methodStub the method being called
-    @param isSuper `true` if this is a call to a superclass method
     @param params the parameters to the method (including 'self', if applicable)
     ============================================================================
---    @pre(parameters.length = methodStub.parameters.length)
---    @pre(valid(methodStub, parameters))
-    constructor(position:Position, methodStub:MethodStub, isSuper:Bit, 
+    @pre(target-!>(InstanceContext))
+    @pre(parameters.length = methodStub.parameters.length)
+    constructor(position:Position, target:Value, methodStub:MethodStub,
             parameters:ListView<Value>) {
         super.constructor(position, methodStub.returnType)
+        self.target := target
         self.methodStub := methodStub
-        self.isSuper := isSuper
         self.parameters := new Array<Value>(parameters)
     }
 
@@ -52,38 +54,16 @@ class MethodCall : Value {
     @override
     function format(fmt:String):String {
         def result := new MutableString()
-        if methodStub.annotations.isClass {
-            result.append(methodStub.owner.name)
-            result.append(".")
-            result.append(methodStub.name)
-            result.add("(")
-            for i, p in parameters {
-                if i > 0
-                    result.append(", ")
-                result.append(p)
-            }
-            result.add(")")
+        result.append(target)
+        result.append(".")
+        result.append(methodStub.name)
+        result.add("(")
+        for i, p in parameters {
+            if i > 0
+                result.append(", ")
+            result.append(p)
         }
-        else {
-            if parameters[0]->>(String) != "self" {
-                if isSuper
-                    result.append("super.")
-                else {
-                    result.append(parameters[0])
-                    result.append(".")
-                }
-            }
-            result.append(methodStub.name)
-            result.add("(")
-            for i, p in parameters {
-                if i = 0
-                    continue
-                if i > 1
-                    result.append(", ")
-                result.append(p)
-            }
-            result.add(")")        
-        }
+        result.add(")")        
         return result->>(String)
     }
 }
