@@ -8,6 +8,7 @@ uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.WrapperType
@@ -77,8 +78,17 @@ class UnresolvedRange : UnresolvedValue {
             name := "[...]"
         else
             name := "[..]"
-        return context.testCall(position, new ClassLiteral(position, 
+        var result := context.testCall(position, new ClassLiteral(position, 
                 WrapperType.INT32_WRAPPER), name, params)
+        if result = null {
+            result := context.testCall(position, new ClassLiteral(position, 
+                WrapperType.CHAR_WRAPPER), name, params)
+        }
+        if result = null {
+            result := context.testCall(position, new ClassLiteral(position, 
+                WrapperType.REAL64_WRAPPER), name, params)
+        }
+        return result
     }
 
     @override
@@ -115,20 +125,12 @@ class UnresolvedRange : UnresolvedValue {
     }
 
     @override
+    @unsafeFunction
     function preferredVariableType(context:Context, preferImmutable:Bit):Type {
-        var type:Type? := null
-        if left != null & right != null {
-            type := BinaryOperation.mathOperandType(context, left, right, 
-                    true)
-        }
-        if type = null {
+        if value = null {
             throw new CompilerException("range operator cannot operate " +
                     "on these types", position)
         }
-        type := type.preferredVariableType()
-        def parameters := new Array<Type>()
-        parameters.add(type)
-        return new GenericType(new ClassType("panda.collections.PrimitiveArray"),
-                parameters)
+        return value->(Value).preferredVariableType(context, preferImmutable)
     }
 }

@@ -126,6 +126,7 @@ uses org.pandalanguage.pandac.types.NativePointerType
 uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.SuperType
 uses org.pandalanguage.pandac.types.TupleType
@@ -1093,6 +1094,360 @@ class IRGenerator {
         return new Block(f.position, statements)
     }
 
+    @private
+    function getLiteral(i:Int64, t:Type):Value {
+        if t.isReal
+            return new RealLiteral(Position.INTERNAL, i, t->(RealType))
+        if i < 0 {
+            return new UnaryOperation(Position.INTERNAL, 
+                    UnaryOperationType.MINUS,
+                    new IntegerLiteral(Position.INTERNAL, i.abs->(UInt64), 
+                    t->(IntType), true))
+        }        
+        return new IntegerLiteral(Position.INTERNAL, i->(UInt64), t->(IntType),
+                true)
+    }
+
+    @private
+    function unsignedVersion(var t:Type):Type {
+        t := t->>(PrimitiveType)
+        switch t {
+            case IntType.INT8: return IntType.UINT8
+            case IntType.INT16: return IntType.UINT16
+            case IntType.INT32: return IntType.UINT32
+            case IntType.INT64: return IntType.UINT64
+        }
+        return t
+    }
+
+    -- "What the...? Why is this so complicated?!?"
+    -- There's probably a simpler way to do this, but the problem of "loop from
+    -- left to right by step" is harder than it sounds. Overflows are a real
+    -- problem, particularly when you're looping to the minimum / maximum value
+    -- supported by the type you're using, and even moreso when the step is
+    -- greater than 1. So I have to jump through a lot of hoops to ensure that
+    -- we correctly detect the end of the loop, never going past it and 
+    -- overflowing. Feel free to figure out a better approach.
+
+    ============================================================================
+    Converts a numeric range `for` loop where the step is a compile-time 
+    constant.
+    ============================================================================
+    method convertRangeForConstantStep(f:ASTFor, loopVar:Variable, start:Value, 
+            rawEnd:Value, step:Int, endInclusive:Bit):Statement? {
+        def statements := new Array<Statement>()
+        statements.add(new ValueStatement(new VariableAssignment(f.position, 
+                loopVar, start.implicitCast(context, loopVar.type))))
+        def end := new ReusedValueDefinition(rawEnd.implicitCast(context, 
+                loopVar.type))
+        def testType:BinaryOperationType
+        if endInclusive
+            testType := BinaryOperationType.LESS_THAN_OR_EQUAL
+        else        
+            testType := BinaryOperationType.LESS_THAN
+        def testLeft:Value
+        def testRight:Value
+        if step > 0 {
+            testLeft := new VariableReference(f.position, loopVar)
+            testRight := end
+        }
+        else {
+            testLeft := end
+            testRight := new VariableReference(f.position, loopVar)
+        }
+        def test := new BinaryOperation(f.position, testType,
+                testLeft, testRight)
+
+        def bodyStatement := convertStatement(f.statement)
+        if bodyStatement = null
+            return null
+
+        def breakTestType:BinaryOperationType
+        if endInclusive
+            breakTestType := BinaryOperationType.LESS_THAN
+        else
+            breakTestType := BinaryOperationType.LESS_THAN_OR_EQUAL
+        def sub1 := new Cast(f.position, end.createReference(),
+                unsignedVersion(loopVar.type), CastType.CONVERT)
+        def sub2 := new Cast(f.position, new VariableReference(f.position,
+                loopVar), unsignedVersion(loopVar.type),
+                CastType.CONVERT)
+        def left:Value
+        def right:Value
+        if step > 0 {
+            left := sub1
+            right := sub2
+        }
+        else {
+            left := sub2
+            right := sub1
+        }
+        def sub := new BinaryOperation(f.position, BinaryOperationType.SUBTRACT,
+                left, right)
+        def stepLiteral := getLiteral(step.abs, 
+                unsignedVersion(loopVar.type))
+        def breakTest := new BinaryOperation(f.position, breakTestType, sub,
+                stepLiteral)
+        def label:String
+        if f.label != null
+            label := f.label->(String)
+        else
+            label := "$numericForLoops\{f.hash}"
+        def breakIf := new If(f.position, breakTest, new Break(f.position, 
+                label), null)
+        def nextOp:BinaryOperationType
+        if step > 0
+            nextOp := BinaryOperationType.ADD
+        else
+            nextOp := BinaryOperationType.SUBTRACT
+        def next := new BinaryOperation(f.position, nextOp, 
+                new VariableReference(f.position, loopVar),
+                getLiteral(step.abs, loopVar.type))
+        def continueStatements := new Array<Statement>()
+        continueStatements.add(breakIf)
+        continueStatements.add(new ValueStatement(new VariableAssignment(
+                f.position, loopVar, next)))
+        statements.add(new If(f.position, test, new LoopWithContinueBlock(
+                f.position, label, bodyStatement, 
+                new Block(f.position, continueStatements)), null))
+        return new Block(f.position, statements)
+    }
+
+    ============================================================================
+    Converts a numeric range `for` loop where the step is not a compile-time 
+    constant.
+    ============================================================================
+    method convertRangeForVariableStep(f:ASTFor, loopVar:Variable, start:Value,
+            rawEnd:Value, rawStep:Value, endInclusive:Bit):Statement? {
+        def end := new ReusedValueDefinition(rawEnd.implicitCast(context, 
+                loopVar.type))
+        def step := new ReusedValueDefinition(rawStep.implicitCast(context, 
+                loopVar.type))
+        def statements := new Array<Statement>()
+        statements.add(new ValueStatement(new VariableAssignment(f.position, 
+                loopVar, start.implicitCast(context, loopVar.type))))
+        statements.add(new ValueStatement(end))
+        statements.add(new ValueStatement(step))
+        def testLeftLeft := new BinaryOperation(f.position,
+                BinaryOperationType.GREATER_THAN, step.createReference(), 
+                getLiteral(0, step.type))
+        def testLeftRightType:BinaryOperationType
+        if endInclusive
+            testLeftRightType := BinaryOperationType.LESS_THAN_OR_EQUAL
+        else
+            testLeftRightType := BinaryOperationType.LESS_THAN
+        def testLeftRight := new BinaryOperation(f.position, testLeftRightType,
+                new VariableReference(f.position, loopVar), 
+                end.createReference())
+        def testLeft := new BinaryOperation(f.position, BinaryOperationType.AND,
+                testLeftLeft, testLeftRight)
+        def testRightLeft := new BinaryOperation(f.position,
+                BinaryOperationType.LESS_THAN, step.createReference(), 
+                getLiteral(0, step.type))
+        def testRightRight := new BinaryOperation(f.position,
+                testLeftRightType, end.createReference(), 
+                new VariableReference(f.position, loopVar))
+        def testRight := new BinaryOperation(f.position, BinaryOperationType.AND,
+                testRightLeft, testRightRight)
+        def test := new BinaryOperation(f.position, BinaryOperationType.OR,
+                testLeft, testRight)
+
+        def bodyStatement := convertStatement(f.statement)
+        if bodyStatement = null
+            return null
+
+        def label:String
+        if f.label != null
+            label := f.label->(String)
+        else
+            label := "$numericForLoops\{f.hash}"
+
+        def continueStatements := new Array<Statement>()
+
+        def breakLeftLeft := new BinaryOperation(f.position,
+                BinaryOperationType.GREATER_THAN, step.createReference(),
+                getLiteral(0, step.type))
+        def breakLeftRightType:BinaryOperationType
+        if endInclusive
+            breakLeftRightType := BinaryOperationType.LESS_THAN
+        else
+            breakLeftRightType := BinaryOperationType.LESS_THAN_OR_EQUAL
+        def unsigned := unsignedVersion(loopVar.type)
+        def leftSub := new BinaryOperation(f.position, 
+                BinaryOperationType.SUBTRACT, new Cast(f.position, 
+                    end.createReference(), unsigned, CastType.CONVERT),
+                new Cast(f.position, new VariableReference(f.position, loopVar),
+                    unsigned, CastType.CONVERT))
+        def breakLeftRight := new BinaryOperation(f.position, 
+                breakLeftRightType, leftSub, new Cast(f.position, 
+                    step.createReference(), unsigned, CastType.CONVERT))
+        def breakLeft := new BinaryOperation(f.position, 
+                BinaryOperationType.AND, breakLeftLeft, breakLeftRight)
+        def breakRightLeft := new BinaryOperation(f.position,
+                BinaryOperationType.LESS_THAN, step.createReference(),
+                getLiteral(0, step.type))
+        def rightSub := new BinaryOperation(f.position, 
+                BinaryOperationType.SUBTRACT, new Cast(f.position, 
+                    new VariableReference(f.position, loopVar), unsigned, 
+                    CastType.CONVERT),
+                new Cast(f.position, end.createReference(), unsigned,
+                    CastType.CONVERT))
+        def breakRightRight := new BinaryOperation(f.position, 
+                breakLeftRightType, rightSub, new UnaryOperation(f.position,
+                    UnaryOperationType.MINUS, new Cast(f.position,
+                    step.createReference(), unsigned, CastType.CONVERT)))
+        def breakRight := new BinaryOperation(f.position, 
+                BinaryOperationType.AND, breakRightLeft, breakRightRight)
+        def breakTest := new BinaryOperation(f.position, BinaryOperationType.OR,
+                breakLeft, breakRight)
+        def breakIf := new If(f.position, breakTest, new Break(f.position, 
+                label), null)
+        continueStatements.add(breakIf)
+        def next := new BinaryOperation(f.position, BinaryOperationType.ADD,
+                new VariableReference(f.position, loopVar), 
+                step.createReference())
+        continueStatements.add(new ValueStatement(new VariableAssignment(
+                f.position, loopVar, next)))
+
+        statements.add(new If(f.position, test, new LoopWithContinueBlock(
+                f.position, label, bodyStatement, 
+                new Block(f.position, continueStatements)), null))
+        return new Block(f.position, statements)
+    }
+
+    ============================================================================
+    Converts a numeric range `for` loop where the step is not specified.
+    ============================================================================
+    method convertRangeFor(f:ASTFor, loopVar:Variable, start:Value, 
+            rawEnd:Value, endInclusive:Bit):Statement? {
+        def statements := new Array<Statement>()
+        statements.add(new ValueStatement(new VariableAssignment(f.position, 
+                loopVar, start.implicitCast(context, loopVar.type))))
+        def end := new ReusedValueDefinition(rawEnd.implicitCast(context, 
+                loopVar.type))
+        def testType:BinaryOperationType
+        if endInclusive
+            testType := BinaryOperationType.LESS_THAN_OR_EQUAL
+        else        
+            testType := BinaryOperationType.LESS_THAN
+        def test := new BinaryOperation(f.position, testType,
+                new VariableReference(f.position, loopVar),
+                end)
+
+        def bodyStatement := convertStatement(f.statement)
+        if bodyStatement = null
+            return null
+
+        def inc := new BinaryOperation(f.position, BinaryOperationType.ADD,
+                new VariableReference(f.position, loopVar), 
+                getLiteral(1, loopVar.type))
+        def continueStatements := new Array<Statement>()
+        def label:String
+        if f.label != null
+            label := f.label->(String)
+        else
+            label := "$numericForLoops\{f.hash}"
+        if loopVar.type.isReal {
+            -- reals are simpler: we can just add 1 and then check whether we've
+            -- gone past our bounds (since we can safely assume that the loop
+            -- bound is nowhere near the max real). For ints, that wouldn't work 
+            -- if we were iterating to, say, 127 in an Int8: we can't actually 
+            -- go past our bound because it would overflow, so we need to handle
+            -- things a bit differently there (and the handling we do there 
+            -- won't work for reals, because you can skip past a real when
+            -- incrementing by 1, and that isn't true for ints)
+            def breakTestType:BinaryOperationType
+            if endInclusive
+                breakTestType := BinaryOperationType.GREATER_THAN
+            else
+                breakTestType := BinaryOperationType.GREATER_THAN_OR_EQUAL
+            def breakTest := new BinaryOperation(f.position, breakTestType,
+                    new VariableReference(f.position, loopVar), 
+                    end.createReference())
+            def breakIf := new If(f.position, breakTest, 
+                    new Break(f.position, label), null)
+            continueStatements.add(new ValueStatement(new VariableAssignment(
+                    f.position, loopVar, inc)))
+            continueStatements.add(breakIf)
+        }
+        else {
+            def breakTest := new BinaryOperation(f.position, 
+                    BinaryOperationType.EQUAL, 
+                    new VariableReference(f.position, loopVar),
+                    end.createReference())
+            def breakIf := new If(f.position, breakTest, 
+                    new Break(f.position, label), null)
+            if endInclusive
+                continueStatements.add(breakIf)
+            continueStatements.add(new ValueStatement(new VariableAssignment(
+                    f.position, loopVar, inc)))
+            if !endInclusive
+                continueStatements.add(breakIf)
+        }
+        statements.add(new If(f.position, test, new LoopWithContinueBlock(
+                f.position, label, bodyStatement, 
+                new Block(f.position, continueStatements)), null))
+        return new Block(f.position, statements)
+    }
+
+    ============================================================================
+    Converts a numeric range `for` loop (a loop which operates over an 
+    numeric range, such as `for i in 1 ... 10`). This is essentially an
+    optimization, as obviously the "normal" mechanism of expanding `1 ... 10` to
+    a call to the range operator defined in `Int` and then iterating over the
+    resulting list would work, but would be very slow.
+
+    However, this particular transformation is *required*, so it's a bit more
+    than just "an optimization". The range operators in the various `Int` 
+    classes are actually defined using numeric `for` loops, trusting the 
+    compiler to convert the ranges to this sort of loop. If this transformation
+    were disabled, the various range operators would be defined in terms of the
+    various range operators, which would not be good.
+    ============================================================================
+    method convertRangeFor(f:ASTFor, range:UnresolvedRange):Statement? {
+        if f.valueVars.length > 1 {
+            context.errors.error("'for' loop expected a list of tuples " +
+                    "containing \{f.valueVars.length} elements each, found " +
+                    "'\{range.type}'", f.position)
+            return null
+        }
+        def v := f.valueVars[0]
+        var type:Type?
+        if v.type != null {
+            type := resolve(v.type->(ASTType))
+            if type = null
+                return null
+        }
+        else
+            type := range.value->(Value).type->(GenericType).parameters[0]
+        def loopVar := new LocalVariable(v.position, v.identifier, type,
+                VariableType.DEF)
+        context.localVariables.add(loopVar)
+        context.symbolTable[loopVar.name] := loopVar
+        def step := range.step
+        if step = null {
+            return convertRangeFor(f, loopVar, range.left->(Value), 
+                    range.right->(Value), range.endInclusive)
+        }
+        else if step-?>(IntegerLiteral) {
+            return convertRangeForConstantStep(f, loopVar, range.left->(Value), 
+                    range.right->(Value), 
+                    step->(IntegerLiteral).value->>(Int32), range.endInclusive)
+        }
+        else if step-?>(UnaryOperation) {
+            def u := step->(UnaryOperation)
+            if u.operation = UnaryOperationType.MINUS & 
+                    u.operand-?>(IntegerLiteral) {
+                return convertRangeForConstantStep(f, loopVar, 
+                        range.left->(Value), range.right->(Value), 
+                        -u.operand->(IntegerLiteral).value->>(Int32),
+                        range.endInclusive)
+            }
+        }
+        return convertRangeForVariableStep(f, loopVar, range.left->(Value), 
+                range.right->(Value), step, range.endInclusive)
+    }
+
     method convertPrimitiveArrayFor(f:ASTFor, rawArray:Value,
             var indexVar:LocalVariable?):Statement? {
         def array := new ReusedValueDefinition(rawArray)
@@ -1180,7 +1535,12 @@ class IRGenerator {
         }
         else
             indexVar := null
-        var list := resolve(f.list)
+        var list := convertExpression(f.list)
+        if list = null
+            return null
+        if indexVar = null & list-?>(UnresolvedRange)
+            return convertRangeFor(f, list->(UnresolvedRange))
+        list := resolve(list)
         if list = null
             return null
         if list.type.name.startsWith("panda.collections.PrimitiveArray<") |
