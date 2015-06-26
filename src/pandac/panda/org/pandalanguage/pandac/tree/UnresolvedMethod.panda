@@ -15,17 +15,40 @@ class UnresolvedMethod : UnresolvedValue {
     def methods:ListView<MethodStub>
 
     @pre(methods.length > 1)
-    constructor(position:Position, target:Value?, 
+    constructor(position:Position, target:Value, 
             methods:ListView<MethodStub>) {
-        super.constructor(position, methods[0].name, null)
+        super.constructor(position, methods[0].name, getValue(position, target, 
+                methods))
         self.target := target
         self.methods := methods
     }
 
+    @private
+    function getValue(position:Position, target:Value, 
+            methods:ListView<MethodStub>):Value? {
+        for m in methods {
+            if m.methodType = MethodNodeType.FUNCTION & !m.annotations.isClass &
+                    m.parameters.length = 0 {
+                def effectiveTarget:Value
+                if target-?>(InstanceContext)
+                    effectiveTarget := target->(InstanceContext).selfParam
+                else
+                    effectiveTarget := target
+                return new MethodCall(position, effectiveTarget, m, 
+                        new Array<Value>())
+            }
+        }
+        return null
+    }
+
     @override
     method reportError(context:Context) {
-        context.errors.error("ambiguous reference to method " +
-                "'\{methods[0].name}'", position)
+        def text := new MutableString("ambiguous reference to method " +
+                "'\{methods[0].name}', the following methods are all equally " +
+                "good matches:\n")
+        for m in methods
+            text.append("    \{m} (\{m.position})\n")
+        context.errors.error(text->>(String), position)
         Panda.dumpStack()
     }
 

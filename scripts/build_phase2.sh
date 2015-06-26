@@ -18,6 +18,58 @@ CORE_FILES="src/core/panda/panda/core/*.panda\
         src/core/panda/panda/io/*.panda src/core/panda/panda/math/*.panda"
 STATIC_SETTINGS="$SHARED_TARGET/StaticSettings.panda"
 
+
+
+
+
+echo DEBUG CLEANUPS
+$PANDAC -XnoCoreLib -f plink -o $SHARED_TARGET/core/lib/PandaCoreClasses.plink $CORE_FILES
+STATIC_SETTINGS=$SHARED_TARGET/StaticSettings.panda
+echo "package org.pandalanguage.pandac.compiler" > "$STATIC_SETTINGS"
+echo "class StaticSettings {" >> "$STATIC_SETTINGS"
+echo "constant TARGET_TRIPLE := " >> "$STATIC_SETTINGS"
+if [ `uname` = "Darwin" ]; then
+    echo "'x86_64-apple-macosx10.8.0'" >> "$STATIC_SETTINGS"
+else
+    echo "'x86_64-pc-linux-gnu'" >> "$STATIC_SETTINGS"
+fi
+echo "constant GCC_EXE_ARGS:ImmutableArray<String> := [" >> "$STATIC_SETTINGS"
+if [ `uname` != "Darwin" ]; then
+    echo "'-lunwind'" >> "$STATIC_SETTINGS"
+fi
+echo "]" >> "$STATIC_SETTINGS"
+echo "constant GCC_LIBRARY_ARGS:ImmutableArray<String> := [" >> "$STATIC_SETTINGS"
+echo "]" >> "$STATIC_SETTINGS"
+echo "constant LLC_EXE_ARGS := ['-O3'" >> "$STATIC_SETTINGS"
+if [ `uname` = "Darwin" ]; then
+    echo ", '-mattr=-avx'" >> "$STATIC_SETTINGS"
+fi
+echo "]" >> "$STATIC_SETTINGS"
+echo "constant LLC_LIBRARY_ARGS:ImmutableArray<String> := ['-O3'" >> "$STATIC_SETTINGS"
+if [ `uname` = "Darwin" ]; then
+    echo ", '-mattr=-avx'" >> "$STATIC_SETTINGS"
+else
+    echo ", '-relocation-model=pic'" >> "$STATIC_SETTINGS"
+fi
+echo "]" >> "$STATIC_SETTINGS"
+echo "constant PANDAGL_GCC_ARGS:ImmutableArray<String> := [" >> "$STATIC_SETTINGS"
+if [ `uname` = "Darwin" ]; then
+    echo "'-l', 'pandagl', '-framework', 'SDL2', '-framework', 'SDL2_image', " >> "$STATIC_SETTINGS"
+    echo "'-L/opt/local/lib', '-lcairo', " >> "$STATIC_SETTINGS"
+    echo "'-L', '/opt/local/lib', '-L', '\$PANDA_HOME/native/gl/lib/'" >> "$STATIC_SETTINGS"
+else
+    echo "'-lpandagl', '-lSDL2', '-lSDL2_image', '-L/usr/lib/SDL2', '-L/usr/lib/x86_64-linux-gnu/', " >> "$STATIC_SETTINGS"
+    echo "'-L', '/opt/local/lib', '-L', '\$PANDA_HOME/native/gl/lib/'" >> "$STATIC_SETTINGS"
+fi
+echo "]" >> "$STATIC_SETTINGS"
+echo "}" >> "$STATIC_SETTINGS"
+
+
+
+
+
+
+
 echo "Compiling core (native)..."
 
 mkdir -p $NATIVE_TARGET/core/c
@@ -39,8 +91,6 @@ else
 fi
 
 echo "Compiling pandac (native)..."
-
-cp $NATIVE_TARGET/core/lib/PandaCoreClasses.plink $SHARED_TARGET/core/lib/PandaCoreClasses.plink
 
 mkdir -p $NATIVE_TARGET/pandac/bin
 $PANDAC -XpreserveTempArtifacts -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \

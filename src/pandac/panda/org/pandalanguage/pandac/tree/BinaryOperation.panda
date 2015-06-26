@@ -2,8 +2,6 @@ package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.InternalCompilerException
-uses org.pandalanguage.pandac.compiler.Message
-uses org.pandalanguage.pandac.compiler.TypeMap
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.IntType
@@ -12,6 +10,7 @@ uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.RealLiteralType
 uses org.pandalanguage.pandac.types.RealType
+uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.Type
 
 enum BinaryOperationType {
@@ -178,6 +177,24 @@ class BinaryOperation : Value {
     }
 
     @class
+    function divideOperandType(context:Context, leftValue:Value, 
+            rightValue:Value):Type? {
+        if !leftValue.type.isPrimitive & !leftValue.type.isWrapper
+            return null
+        def left := leftValue.type->>(PrimitiveType)
+        if !left.isNumber
+            return null
+        if !rightValue.type.isPrimitive & !rightValue.type.isWrapper
+            return null
+        def right := rightValue.type->>(PrimitiveType)
+        if !right.isNumber
+            return null
+        if left->>(PrimitiveType).size = 8 | right->>(PrimitiveType).size = 8
+            return RealType.REAL64
+        return RealType.REAL32
+    }
+
+    @class
     method logicalOperandType(context:Context, leftValue:Value, 
             rightValue:Value):Type? {
         var left := leftValue.type
@@ -195,7 +212,9 @@ class BinaryOperation : Value {
             right := right->>(PrimitiveType)
         if left = BitType.BIT & right = BitType.BIT
             return BitType.BIT
-        if left = CharType.CHAR & right = CharType.CHAR
+        if (left = CharType.CHAR | left = StringOrCharType.STRING_OR_CHAR) &
+                    (right = CharType.CHAR | 
+                        right = StringOrCharType.STRING_OR_CHAR)
             return CharType.CHAR
         var result := mathOperandType(context, leftValue, rightValue, true)
         if result = RealLiteralType.REAL_LITERAL
@@ -208,24 +227,27 @@ class BinaryOperation : Value {
             left:Value, right:Value):Type? {
         switch operation {
             case BinaryOperationType.ADD, BinaryOperationType.SUBTRACT, 
-                    BinaryOperationType.MULTIPLY, BinaryOperationType.DIVIDE,
+                    BinaryOperationType.MULTIPLY,
                     BinaryOperationType.INT_DIVIDE, 
                     BinaryOperationType.REMAINDER,
-                    BinaryOperationType.GREATER_THAN,
-                    BinaryOperationType.GREATER_THAN_OR_EQUAL,
-                    BinaryOperationType.LESS_THAN,
-                    BinaryOperationType.LESS_THAN_OR_EQUAL,
-                    BinaryOperationType.SHIFT_LEFT,
-                    BinaryOperationType.SHIFT_RIGHT:
+                    BinaryOperationType.POWER:
                 return mathOperandType(context, left, right, true)
+            case BinaryOperationType.DIVIDE:
+                return divideOperandType(context, left, right)
             case BinaryOperationType.BITWISE_AND,
                     BinaryOperationType.BITWISE_OR,
-                    BinaryOperationType.BITWISE_XOR:
+                    BinaryOperationType.BITWISE_XOR,
+                    BinaryOperationType.SHIFT_LEFT,
+                    BinaryOperationType.SHIFT_RIGHT:
                 return mathOperandType(context, left, right, false)
             case BinaryOperationType.AND, BinaryOperationType.OR,
                     BinaryOperationType.XOR:
                 return BitType.BIT
-            case BinaryOperationType.EQUAL, BinaryOperationType.NOT_EQUAL:
+            case BinaryOperationType.EQUAL, BinaryOperationType.NOT_EQUAL,
+                    BinaryOperationType.GREATER_THAN,
+                    BinaryOperationType.GREATER_THAN_OR_EQUAL,
+                    BinaryOperationType.LESS_THAN,
+                    BinaryOperationType.LESS_THAN_OR_EQUAL:
                 return logicalOperandType(context, left, right)
             case BinaryOperationType.IDENTITY, 
                     BinaryOperationType.NOT_IDENTITY:
@@ -234,10 +256,6 @@ class BinaryOperation : Value {
                 Console.writeLine("unsupported binary operation: \{operation}")
                 unreachable
             }
--*    
-    SHIFT_LEFT,
-    SHIFT_RIGHT
-*-
         }
     }
 
@@ -274,7 +292,11 @@ class BinaryOperation : Value {
 
     @class
     function signMatters(operation:BinaryOperationType):Bit {
-        return true
+        return operation != BinaryOperationType.SHIFT_LEFT &
+                operation != BinaryOperationType.SHIFT_RIGHT &
+                operation != BinaryOperationType.BITWISE_AND &
+                operation != BinaryOperationType.BITWISE_OR &
+                operation != BinaryOperationType.BITWISE_XOR
     }
 
     @override

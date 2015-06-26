@@ -1,17 +1,18 @@
--*package org.pandalanguage.pandac.compiler
+package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.stubs.ClassStub
-uses org.pandalanguage.pandac.tree.Annotation
+uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.ClassNode
-uses org.pandalanguage.pandac.tree.ClassNodeState
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
-uses org.pandalanguage.pandac.tree.SymbolTable
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.NativePointerType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
@@ -28,11 +29,11 @@ class HeaderCodeGenerator (CodeGenerator) {
 
     def context:Context
 
-    constructor(program:Program, compilerSettings:CompilerSettings) {
-        self.program := program
+    constructor(p:Program, compilerSettings:CompilerSettings) {
+        self.program := p
         self.compilerSettings := compilerSettings
         def errors := new FatalErrorReporter()
-        self.context := new Context(program.typeResolver, program.stubs, errors, 
+        self.context := new Context(p.stubGenerator, p.root, p.stubs, errors, 
                 compilerSettings)
         self.methodNamer := new MethodNamer(context, 
                 new CMethodNamingStrategy())
@@ -44,7 +45,7 @@ class HeaderCodeGenerator (CodeGenerator) {
     }
     
     method getName(cl:ClassStub):String {
-        return getName(cl.type())
+        return getName(cl.type)
     }
 
     function getName(f:FieldNode):String {
@@ -53,7 +54,7 @@ class HeaderCodeGenerator (CodeGenerator) {
         return f.name
     }
     
-    function getName(m:MethodNode):String {
+    method getName(m:MethodStub):String {
         return methodNamer.getName(m)
     }
     
@@ -73,13 +74,13 @@ class HeaderCodeGenerator (CodeGenerator) {
         }
     }
     
-    function getName(t:Type):String {
+    method getName(t:Type):String {
         if t.isNullable
             return getName(t.unwrapNullable)
         if t.isPrimitiveArray {
-            var e := t.elementType
-            var suffix:String
-            if t.isImmutable
+            def e := t->(PrimitiveArrayType).elementType
+            def suffix:String
+            if t.isImmutable(context)
                 suffix := "$ImmutableArray"
             else
                 suffix := "$Array"
@@ -96,50 +97,61 @@ class HeaderCodeGenerator (CodeGenerator) {
         if t = VoidType.VOID
             return "void"
         if t.isPrimitive {
-            assert t.name.startsWith(ClassNode.CORE)
-            return t.name[ClassNode.CORE.length..]
+            constant CORE := "panda.core."
+            assert t.name.startsWith(CORE)
+            return t.name[CORE.length..]
         }
+        if t-?>(GenericParameterType)
+            return getName(t->(GenericParameterType).bound)
         return MethodNamer.escapeTypeName(t.name)
     }
     
-    function getCType(t:Type):String {
+    method getCType(t:Type):String {
         var name := getName(t)
-        if !t.isPrimitive & t != VoidType.VOID
+        if !t.isPrimitive & t != VoidType.VOID & 
+                t != NativePointerType.NATIVE_POINTER
             name += "*"
         return name
     }
 
-    method writeFields(cl:ClassNode, out:OutputStream) {
-        var superclass := cl.superclass
+    method writeFields(cl:ClassStub, out:OutputStream) {
+        def superclass := cl.superclass
         if superclass != null
-            writeFields(superclass, out)
-        for i in 0 ... cl.length - 1 {
-            if cl[i]-?>(FieldNode) {
-                var f := cl[i]->(FieldNode)
-                if !f.annotations.isClass {
-                    out.write("    " + getCType(f.type))
-                    if f.name = FieldNode.ELEMENTS_NAME
-                        out.write("*")
-                    out.writeLine(" " + getName(f) + ";")
-                }
+            writeFields(context.getStub(superclass), out)
+        for f in cl.fields {
+            if !f.annotations.isClass & !f.annotations.isThread {
+                out.write("    " + getCType(f.type))
+                if f.name = FieldNode.ELEMENTS_NAME
+                    out.write("*")
+                out.writeLine(" " + getName(f) + ";")
             }
         }
     }
     
-    method writeMethods(cl:ClassNode, out:OutputStream) {
-        var methods := cl.virtualMethods
+    method writeMethods(cl:ClassStub, out:OutputStream) {
+        def methods := cl.virtualMethods(context)
         for i, m in methods {
-            if m.parent = cl {
+            if m.owner = cl.type {
                 def name := getName(m)
                 out.writeLine("#define " + name + "_INDEX " + i)
                 out.write("typedef ")
                 out.write(getCType(m.returnType))
                 out.write("(" + name + "_TYPE)")
                 out.write("(")
-                for j in 0 ... m.parameters.length - 1 {
-                    if j > 0
+                var first := true
+                if !m.annotations.isClass {
+                    if m.annotations.isWrapperMethod
+                        out.write("\{getCType(m.owner->>(PrimitiveType))} self")
+                    else
+                        out.write("\{getCType(m.owner)} self")
+                    first := false
+                }
+                for j, p in m.parameters {
+                    if first
+                        first := false
+                    else
                         out.write(", ")
-                    out.write(getCType(m.parameters[j].type))
+                    out.write(getCType(p.type))
                 }
                 out.writeLine(");")
             }
@@ -151,8 +163,18 @@ class HeaderCodeGenerator (CodeGenerator) {
                     m.methodType = MethodNodeType.CONSTRUCTOR {
                 out.write(getCType(m.returnType))
                 out.write(" " + getName(m) + "(")
+                var first := true
+                if !m.annotations.isClass {
+                    if m.annotations.isWrapperMethod
+                        out.write("\{getCType(m.owner->>(PrimitiveType))} self")
+                    else
+                        out.write("\{getCType(m.owner)} self")
+                    first := false
+                }
                 for i, p in m.parameters {
-                    if i > 0
+                    if first
+                        first := false
+                    else
                         out.write(", ")
                     out.write(getCType(p.type))
                 }
@@ -161,22 +183,22 @@ class HeaderCodeGenerator (CodeGenerator) {
         }
     }
 
-    method generateStruct(cl:ClassNode, out:OutputStream) {
+    method generateStruct(cl:ClassStub, out:OutputStream) {
         out.writeLine("struct " + getName(cl) + " {")
         writeFields(cl, out)
-        if cl.name = ClassNode.PRIMITIVE_ARRAY_NAME {
+        if cl.name = class(PrimitiveArray).name {
             out.writeLine("    Int32 $length;")
             out.writeLine("    Int32 $maxLength;")
             out.writeLine("    void* contents;")
         }
-        if cl.name = ClassNode.CLASS_NAME {
+        if cl.name = class(Class).name {
             out.writeLine("    struct itable* itables;")
             out.writeLine("    void** vtable;")
         }
         out.writeLine("};")
     }
 
-    method generateHeader(cl:ClassNode, dest:File) {
+    method generateHeader(cl:ClassStub, dest:File) {
         var out := new BufferedOutputStream(dest.openOutputStream())
         out.writeLine(HEADER)
         out.writeLine("#ifndef " + getName(cl) + "_H")
@@ -186,14 +208,11 @@ class HeaderCodeGenerator (CodeGenerator) {
         out.writeLine("extern panda$core$Class " + 
                 getName(cl) + "_class;")
         writeMethods(cl, out)
-        for child in cl.children {
-            if child-?>(FieldNode) {
-                def f := child->(FieldNode)
-                if f.annotations.isClass {
-                    def t := f.parent->(ClassNode).type()
-                    out.writeLine("extern " + getCType(f.type) + " class_" + 
-                            getName(t) + "$" + getName(f) + ";")
-                }
+        for f in cl.fields {
+            if f.annotations.isClass | f.annotations.isThread {
+                def t := f.owner
+                out.writeLine("extern " + getCType(f.type) + " class_" + 
+                        getName(t) + "$" + getName(f) + ";")
             }
         }
         out.writeLine("#endif")
@@ -202,13 +221,12 @@ class HeaderCodeGenerator (CodeGenerator) {
     
     @override
     method generateCode(target:File) {
-        MethodNamer.nameMethods(new CMethodNamingStrategy())
         def out := new BufferedOutputStream(target.openOutputStream())
         out.writeLine(HEADER)
         if target.name = "panda.h"
             out.writeLine('#include "panda_base.h"')
-        for cl in program.classes {
-            if cl.state = ClassNodeState.DEFINED & !cl.annotations.isUnspecified {
+        for cl in program.stubs.values {
+            if !cl.isExternal & !cl.annotations.isUnspecified {
                 out.writeLine("#ifndef " + getName(cl) + "_TYPEDEF")
                 out.writeLine("#define " +  getName(cl) + "_TYPEDEF")
                 out.writeLine("typedef struct " + getName(cl) + " " + 
@@ -221,8 +239,8 @@ class HeaderCodeGenerator (CodeGenerator) {
             throw new CompilerException("could not determine parent of " + 
                     target)
         }
-        for cl in classes {
-            if cl.state = ClassNodeState.DEFINED & !cl.annotations.isUnspecified {
+        for cl in program.stubs.values {
+            if !cl.isExternal & !cl.annotations.isUnspecified {
                 out.writeLine('#include "' + getName(cl) + '.h"')
                 var dest := parent.resolve(getName(cl) + ".h")
                 generateHeader(cl, dest)
@@ -230,4 +248,4 @@ class HeaderCodeGenerator (CodeGenerator) {
         }
         out.close()
     }
-}*-
+}

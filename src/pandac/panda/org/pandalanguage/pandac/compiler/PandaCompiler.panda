@@ -1,12 +1,6 @@
 package org.pandalanguage.pandac.compiler
 
-uses org.pandalanguage.pandac.analysis.DataFlowAnalyzer
-uses org.pandalanguage.pandac.analysis.SafetyChecker
 uses org.pandalanguage.pandac.ast.ASTFile
-uses org.pandalanguage.pandac.compiler.Message
-uses org.pandalanguage.pandac.pandadoc.PandaDoc
-uses org.pandalanguage.pandac.pandadoc.HTMLFragmentGenerator
-uses org.pandalanguage.pandac.pandadoc.HTMLGenerator
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.tree.ClassNode
@@ -31,7 +25,6 @@ class CompilerErrorReporter : ErrorReporter {
     method error(message:String, position:Position) {
         Console.writeLine("error: \{position}: \{message}")
         queue.post(ERROR_MESSAGE)
-        Panda.dumpStack()
     }
 
     @override
@@ -173,7 +166,7 @@ class PandaCompiler {
                         break
                     def input := new BufferedInputStream(f.openInputStream())
                     def parsed := new PandaParser(errorReporter).parseFile(
-                            f.name, input)
+                            f.path, input)
                     if parsed != null
                         result.add(parsed)
                     input.close()
@@ -223,8 +216,14 @@ class PandaCompiler {
                                         settings)
                             case OutputFormat.JAR:
                                 cg := new JARCodeGenerator(program, settings)
---                            case OutputFormat.HEADERS:
---                                cg := new HeaderCodeGenerator(program, settings)
+                            case OutputFormat.HEADERS:
+                                cg := new HeaderCodeGenerator(program, settings)
+                            case OutputFormat.LIB: {
+                                cg := new LibraryCodeGenerator(program, 
+                                    settings)
+                            }
+                            case OutputFormat.PLINK:
+                                cg := new PLinkCodeGenerator(program, settings)
                             default: unreachable
                         } 
                         cg.generateCode(settings.target)
@@ -255,6 +254,7 @@ class PandaCompiler {
         var target:File? := null
         var loadCoreLibraries := true
         var outputFormat := OutputFormat.EXECUTABLE
+        var preserveTempArtifacts := false
         var i := 0
         while i < args.length {
             def arg := args[i]
@@ -281,6 +281,8 @@ class PandaCompiler {
                         case "jar": outputFormat := OutputFormat.JAR
                         case "exec": outputFormat := OutputFormat.EXECUTABLE
                         case "h": outputFormat := OutputFormat.HEADERS
+                        case "lib": outputFormat := OutputFormat.LIB
+                        case "plink": outputFormat := OutputFormat.PLINK
                         default: {
                             Console.writeLine("unsupported output format " +
                                     "'\{args[i]}'")
@@ -298,6 +300,8 @@ class PandaCompiler {
                 }
                 case "-XnoCoreLib":
                     loadCoreLibraries := false
+                case "-XpreserveTempArtifacts":
+                    preserveTempArtifacts := true
                 default:
                     if arg.endsWith(".panda")
                         sources.add(new File(arg))
@@ -324,7 +328,7 @@ class PandaCompiler {
                     "shared/core/lib/PandaCoreClasses.plink"))
         }
         return new CompilerSettings(sources, librarySearchPaths, outputFormat,
-                target->(File))
+                target->(File), preserveTempArtifacts)
     }
 
     method runWithArgs(args:PrimitiveArray<String>) {
@@ -334,6 +338,8 @@ class PandaCompiler {
 
     @class
     method main(args:PrimitiveArray<String>) {
+        Console.writeLine("switch back to list.remove(key) in OrderedMap.remove")
+        Console.writeLine("remove redundant addAll implementations in OrderedMap and SymbolTable")
         try {
             if args.length < 1 {
                 Console.writeLine("usage: pandac <input.panda>")

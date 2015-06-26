@@ -509,16 +509,25 @@ panda$core$OperatingSystemInfo* panda$core$System$operatingSystem() {
 
 void panda$core$System$execStream(
         String* program, String* dir, void* inHandleArg, void* outHandleArg, 
-        String$Array* pandaArgs) {
+        panda$collections$ListView$LTpanda$core$String$GT* pandaArgs) {
     FILE* inHandle = (FILE*) inHandleArg;
     FILE* outHandle = (FILE*) outHandleArg;
     char* path = pandaGetString(program);
-    char* args[pandaArgs->$length + 2];
+    panda$collections$CollectionView$LTpanda$core$String$GT$length_TYPE* length =
+            (panda$collections$CollectionView$LTpanda$core$String$GT$length_TYPE*) 
+                *(&pandaArgs->cl->vtable + 
+                panda$collections$CollectionView$LTpanda$core$String$GT$length_INDEX);    
+    panda$collections$ListView$LTpanda$core$String$GT$$ARR_TYPE* subscript =
+            (panda$collections$ListView$LTpanda$core$String$GT$$ARR_TYPE*) 
+                *(&pandaArgs->cl->vtable + 
+                panda$collections$ListView$LTpanda$core$String$GT$$ARR_INDEX);    
+    int argLength = length((panda$collections$CollectionView$LTpanda$core$String$GT*) pandaArgs);
+    char* args[argLength + 2];
     args[0] = path;
     int i;
-    for (i = 0; i < pandaArgs->$length; i++)
-        args[i + 1] = pandaGetString(pandaArgs->contents[i]);
-    args[pandaArgs->$length + 1] = NULL;
+    for (i = 0; i < argLength; i++)
+        args[i + 1] = pandaGetString(subscript(pandaArgs, i));
+    args[argLength + 1] = NULL;
     pid_t pid = fork();
     if (!pid) {
         if (inHandle != NULL)
@@ -540,8 +549,10 @@ void panda$core$System$execStream(
     }
 }
 
-void panda$core$System$exec_File_File_PrimitiveArray$LTpanda$core$String$GT(
-        File* program, File* dir, String$Array* pandaArgs) {
+void panda$core$System$exec_File_File_ListView$LTString$GT(
+        panda$io$File* program, 
+        panda$io$File* dir, 
+        panda$collections$ListView$LTpanda$core$String$GT* pandaArgs) {
     panda$core$System$execStream(program->path, dir->path, NULL, stdout, 
                 pandaArgs);
 }
@@ -668,23 +679,33 @@ void panda$io$FileOutputStream$writeInt8(void* handle, Int8 b) {
     fwrite(&b, 1, 1, (FILE*) handle);
 }
 
-void panda$io$FileOutputStream$writeInt8Array(
-        void* handle, Int8$Array* b, Int32 offset, Int32 length) {
+void panda$io$FileOutputStream$writeInt8Array(void* handle, 
+        panda$collections$ListView$LTpanda$core$Int8$GT* b, Int32 offset, 
+        Int32 length) {
+    panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_TYPE* subscript =
+            (panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_TYPE*) 
+                *(&b->cl->vtable + 
+                panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_INDEX);    
+    Int8 data[length];
+    for (int i = offset; i < offset + length; i++)
+        data[i] = subscript(b, i);
     // FIXME check for errors
-    fwrite(b->contents + offset, length, 1, (FILE*) handle);
+    fwrite(data, length, 1, (FILE*) handle);
 }
 
-File$Array* panda$io$File$list(File* file) {
+panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list(File* file) {
     unsigned int MAX_LENGTH = PATH_MAX;
     char buffer[MAX_LENGTH];
     char* path = pandaGetString(file->path);
-    File$Array* result;
+    panda$collections$Array$LTpanda$io$File$GT* result;
     DIR *dir;
     struct dirent *ent;
     if ((dir = opendir(path)) != NULL) {
-        result = (File$Array*) pandaNewPrimitiveArrayWithLength(
-                &panda$io$File$Array_class, 
-                0, sizeof(File*), true);        
+        result = pandaNew(panda$collections$Array$LTpanda$io$File$GT);
+        panda$collections$Array$LTpanda$io$File$GT$add_TYPE* add =
+                (panda$collections$Array$LTpanda$io$File$GT$add_TYPE*) 
+                    *(&result->cl->vtable + 
+                    panda$collections$Array$LTpanda$io$File$GT$add_INDEX);    
         while ((ent = readdir(dir)) != NULL) {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
                 continue;
@@ -695,15 +716,13 @@ File$Array* panda$io$File$list(File* file) {
             String* filename = pandaNewString(buffer, namelength);
             File* file = pandaNew(panda$io$File);
             file->path = filename;
-            panda$collections$PrimitiveArray$setLength((Object*) result, sizeof(File*), 
-                    true, result->$length + 1);
-            result->contents[result->$length - 1] = file;
+            add(result, file);
         }
         closedir(dir);
     } 
     else
         result = NULL;
-    return result;
+    return (panda$collections$ListView$LTpanda$io$File$GT*) result;
 }
 
 String* panda$io$File$absolutePath(File* file) {

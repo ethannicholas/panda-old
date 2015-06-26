@@ -104,7 +104,7 @@ class Value : Node {
             return result
         else {
             context.errors.error("expected '\{t.displayName}', but found " +
-                    "'\{type.displayName}' (\{class.name})", position)
+                    "'\{type.displayName}'", position)
             return result
         }
     }
@@ -118,7 +118,7 @@ class Value : Node {
         return explicitCast(position, context, t)
     }
 
-    method explicitCast(position:Position, context:Context, t:Type):Value {
+    method explicitCast(position:Position, context:Context, var t:Type):Value {
         if t = type
             return self
         if canImplicitCastTo(context, t) {
@@ -129,6 +129,8 @@ class Value : Node {
             return wrapped(context, t, true)
         if type.isWrapper & (t.isPrimitive | t.isWrapper)
             return unwrap(context).explicitCast(position, context, t)
+        if !type.isPrimitive & t.isPrimitive
+            t := t->>(WrapperType)
         def result := new Cast(position, self, t, CastType.EXPLICIT)
         if !canExplicitCastTo(context, t) {
             context.errors.error("'\{type.displayName}' cannot possibly be " +
@@ -175,8 +177,11 @@ class Value : Node {
 
     method convert(context:Context, t:Type):Value {
         if type.isNumeric & t.isNumeric {
-            return new Cast(position, implicitCast(context, 
-                    type->>(PrimitiveType)), t->>(PrimitiveType), 
+            def initial := implicitCast(context, type->>(PrimitiveType))
+            def target := t->>(PrimitiveType)
+            if initial.type = target
+                return initial
+            return new Cast(position, initial, target, 
                     CastType.CONVERT).implicitCast(context, t)
         }
         def converter := findConverter(context, t)

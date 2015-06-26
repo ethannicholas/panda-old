@@ -10,8 +10,10 @@ uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.stubs.Package
 uses org.pandalanguage.pandac.stubs.Symbol
+uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.ArrayLiteral
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.Construct
@@ -80,7 +82,8 @@ class Context {
         self.currentClass := new ClassStub(Position.INTERNAL, 
                 new ClassType("ContextDummy"), false, new Annotations(
                     Position.INTERNAL, new Array<AnnotationType>()), 
-                null, new Array<ClassType>(), stubGenerator.masterSymbolTable,
+                null, new Array<ClassType>(), 
+                new OrderedMap<String, Symbol>(stubGenerator.masterSymbolTable),
                 new LookupContext(), new Array<ASTInvariant>(), null, true)
         def classAnnotation := new Array<AnnotationType>()
         classAnnotation.add(AnnotationType.CLASS)
@@ -184,7 +187,7 @@ class Context {
     }
 
     function isInstance():Bit {
-        return !currentMethod.annotations.isClass
+        return symbolTable.contains(Parameter.SELF_NAME)
     }
 
     @pre(isInstance)
@@ -248,7 +251,7 @@ class Context {
         if isVarArg {
             -- verify that all remaining parameters match the vararg
             def varArg := m.parameters[m.parameters.length - 1]
-            def varArgType := varArg.type->>(PrimitiveArrayType).elementType
+            def varArgType := varArg.type->(GenericType).parameters[0]
             for i in methodParams.length .. params.length {
                 def cost := params[i].implicitCastCost(self, varArgType)
                 if cost = null {
@@ -271,17 +274,30 @@ class Context {
             result := new SymbolTable(stubGenerator.masterSymbolTable)
             for p in cl.lookupContext.packageUses
                 stubGenerator.usePackage(p, result, cl.position)
+            for i in cl.interfaces.length - 1 ... 0 by -1 {
+                def filtered := new HashMap<String, Symbol>()
+                for (k, v) in getSymbolTable(getStub(cl.interfaces[i])) {
+                    if v-!>(TypeSymbol)
+                        filtered[k] := v
+                }
+                result.addAll(filtered)
+            }
+            def superclass := cl.superclass
+            if superclass != null {
+                def filtered := new HashMap<String, Symbol>()
+                for (k, v) in getSymbolTable(getStub(superclass)) {
+                    if v-!>(TypeSymbol)
+                        filtered[k] := v
+                }
+                result.addAll(filtered)
+            }
+            result.remove(MethodNode.CONSTRUCTOR_NAME)
             for (alias, target) in cl.lookupContext.classAliases {
                 def resolved := resolveType(new ASTClassType(
                         cl.position, target, null, false))
                 assert resolved != null
                 stubGenerator.aliasType(alias, resolved, result)
             }
-            def superclass := cl.superclass
-            if superclass != null
-                result.addAll(getSymbolTable(getStub(superclass)))
-            for intf in cl.interfaces
-                result.addAll(getSymbolTable(getStub(intf)))
             result.addAll(cl.symbols)
             symbolTables[cl] := result
         }
@@ -507,8 +523,22 @@ class Context {
         return msg->>(String)
     }
 
-    method call(position:Position, target:Value, m:MethodStub,
+    method call(position:Position, var target:Value, m:MethodStub,
             params:ListView<Value>):Value? {
+        def finalTarget := getEffectiveTarget(m, target)
+        if finalTarget != null 
+            target := finalTarget
+        else {
+            if m.annotations.isClass {
+                errors.error("cannot call @class method on an instance",
+                        position)
+            }
+            else {
+                errors.error("cannot call instance method from a class context",
+                        position)
+            }
+            return null
+        }
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
                 methodParams[methodParams.length - 1].isVarArg
@@ -551,7 +581,6 @@ class Context {
                 finalParams.add(params[i].convert(self, targetType))
             }
             else {
-                Console.writeLine("calling \{m} with \{params}")
                 errors.error("expected value of type " +
                         "'\{targetType.displayName}', but found " +
                         "'\{params[i].type.displayName}'", params[i].position)
@@ -561,8 +590,8 @@ class Context {
         if isVarArg {
             def values := new Array<Value>()
             def isConvert := methodParams[methodParams.length - 1].isConvert
-            def arrayType := methodParams[methodParams.length - 1].type->(PrimitiveArrayType)
-            def elementType := arrayType.elementType
+            def arrayType := methodParams[methodParams.length - 1].type->(GenericType)
+            def elementType := arrayType.parameters[0]
             for i in count .. params.length {
                 if isConvert {
                     def convert := params[i].convert(self, elementType)
@@ -573,9 +602,16 @@ class Context {
                     values.add(cast)
                 }
             }
-            def varParams := new NewPrimitiveArrayWithValues(position,
-                    arrayType, values)
+            def varParams := new ArrayLiteral(position, arrayType, values)
             finalParams.add(varParams)
+        }
+        if target-!>(ClassLiteral) {
+            def selfType:Type
+            if m.annotations.isWrapperMethod
+                selfType := m.owner->>(PrimitiveType)
+            else
+                selfType := m.owner
+            target := target.implicitCast(self, selfType)
         }
         return new MethodCall(position, target, m, finalParams)
     }
@@ -622,15 +658,20 @@ class Context {
     }
 
     @private
-    function getEffectiveTarget(m:MethodStub, target:Value):Value {
+    function getEffectiveTarget(m:MethodStub, target:Value):Value? {
         if target-?>(InstanceContext) {
             if m.annotations.isClass
                 return new ClassLiteral(target.position, m.owner)
             else
                 return target->(InstanceContext).selfParam
         }
-        else
+        else {
+            def isConstructor := m.methodType = MethodNodeType.CONSTRUCTOR
+            if !isConstructor & 
+                    (m.annotations.isClass != target-?>(ClassLiteral))
+                return null
             return target
+        }
     }
 
     method call(position:Position, target:Value, 
@@ -652,20 +693,26 @@ class Context {
         var maxCost := Int.MAX
         var max:MethodStub? := null
         for m in methods {
-            def cost := matchCost(getEffectiveTarget(m, target), m, params)
+            def finalTarget := getEffectiveTarget(m, target)
+            if finalTarget = null
+                continue
+            def cost := matchCost(finalTarget, m, params)
             if cost != null & cost < maxCost {
                 maxCost := cost
                 max := m
             }
         }
-        if max != null
-            return call(position, getEffectiveTarget(max, target), max, params)
+        if max != null {
+            def finalTarget := getEffectiveTarget(max, target)
+            assert finalTarget != null
+            return call(position, finalTarget, max, params)
+        }
         else {
             def types := new Array<String>()
             for p in params
                 types.add(p.type.displayName)
-            errors.error("no match for \{methods[0].owner.name}." +
-                    "\{methods[0].name}(\{types.join(', ')})", position)
+            errors.error("no match for \{methods[0].name}(\{types.join(', ')})", 
+                    position)
             return null
         }
    }

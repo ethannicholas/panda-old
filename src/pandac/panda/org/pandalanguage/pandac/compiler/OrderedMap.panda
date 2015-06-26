@@ -1,0 +1,121 @@
+package org.pandalanguage.pandac.compiler
+
+@private
+class OrderedMapIterator<K, V> (Iterator<(K, V)>) {
+	def map:OrderedMap<K, V>
+
+	def iter:Iterator<K>
+
+	constructor(map:OrderedMap<K, V>) {
+		self.map := map
+		self.iter := map.list.iterator
+	}
+
+	@override
+    function done():Bit {
+    	return iter.done()
+    }
+
+    @override
+    @self
+    method next():(K, V) {
+    	def key := iter.next()
+    	return (key, map[key]->(V))
+	}
+}
+
+class OrderedMap<K, V> (Map<K, V>) {
+	@private
+	def map := new HashMap<K, V>()
+
+	@private
+	def list := new Array<K>()
+
+	constructor() {
+	}
+
+	constructor(map:MapView<K, V>) {
+		addAll(map)
+	}
+
+	@override
+	function [](key:K):V? {
+		return map[key]
+	}
+
+	@override
+	function length():Int {
+		return map.length
+	}
+
+	@override
+    function contains(key:K):Bit {
+    	return map.contains(key)
+    }
+
+    @override
+    @safeReturn
+    function iterator():Iterator<(K, V)> {
+    	return new OrderedMapIterator<K, V>(self)
+    }
+
+    @override
+    @self
+    method []:=(key:K, value:V) {
+    	if !contains(key)
+    		list.add(key)
+    	map[key] := value
+    }
+
+    @override
+    @self
+    method remove(key:K) {
+    	map.remove(key)
+    	--list.remove(key)
+        for i in 0 .. list.length {
+            if list[i] = key {
+                list.removeIndex(i)
+                break
+            }
+        }
+    }
+
+    @override
+    @self
+    method clear() {
+    	map.clear()
+    	list.clear()
+    }
+
+    @override
+    @self
+    method addAll(map:MapView<K, V>) {
+        for (key, value) in map
+            self[key] := value
+    }
+
+    @override
+    @preOr(fmt = "" | fmt = "panda")
+    function format(fmt:String):String {
+        def result := new MutableString()
+        result.append("{")
+        var first := true
+        for (key, value) in self {
+            if !first
+                result.append(", ")
+            else
+                first := false
+            if key != null
+                result.append(key.format(fmt))
+            else
+                result.append("null")
+            result.append(": ")
+            if value != null
+                result.append(value.format(fmt))
+            else
+                result.append("null")
+        }
+        result.append("}")
+        return result->>(String)
+    }
+}

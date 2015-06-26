@@ -1,0 +1,207 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.ast.ASTNode
+uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.VariableType
+uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+uses org.pandalanguage.pandac.types.VoidType
+
+-- FIXME: revamp this to use IndentedOutputStream
+class PLinkCodeGenerator (CodeGenerator) {
+    var out := new IndentedOutputStream(new MemoryOutputStream())
+    
+    var indent := 0
+
+    def program:Program
+
+    def compilerSettings:CompilerSettings
+
+    def context:Context
+
+    constructor(p:Program, compilerSettings:CompilerSettings) {
+        self.program := p
+        self.compilerSettings := compilerSettings
+        def errors := new FatalErrorReporter()
+        self.context := new Context(p.stubGenerator, p.root, p.stubs, errors, 
+                compilerSettings)
+    }
+
+    @override
+    function defaultExtension():String {
+        return ".plink"
+    }
+    
+    method generateFieldCode(f:FieldNode, owner:ClassStub) {
+        if f.annotations.isSynthetic
+            return
+        out.writeLine(f.annotations)
+        out.write("var \{f.name}")
+        if f.type-!>(UnresolvedType)
+            out.write(":\{f.type.name}")
+        if owner.annotations.isUnspecified & f.initialValue != null
+            out.write(" := \{f.initialValue->(Object)}")
+        out.writeLine()
+    }
+
+    method generateMethodCode(m:MethodStub, owner:ClassStub) {
+        out.writeLine(m.annotations)
+        switch m.methodType {
+            case MethodNodeType.METHOD: out.write("method")
+            case MethodNodeType.FUNCTION: out.write("function")
+            case MethodNodeType.CONSTRUCTOR: out.write("constructor")
+            default: unreachable
+        }
+        if m.methodType != MethodNodeType.CONSTRUCTOR
+            out.write(" \{m.name}")
+        out.write("(")
+        var first := true
+        for i, p in m.parameters {
+            if i > 0
+                out.write(", ")
+            if p.isVar
+                out.write("var ")
+            out.write(p.name)
+            if p.isConvert
+                out.write("->>")
+            else
+                out.write(":")
+            if p.isVarArg {
+                out.write(p.type->(GenericType).parameters[0].name)
+                out.write("...")
+            }
+            else
+                out.write(p.type.name)
+        }
+        out.write(")")
+        if m.returnType != VoidType.VOID
+            out.write(":\{m.returnType.name}")
+        out.writeLine()
+        if owner.annotations.isUnspecified & 
+                !m.annotations.isClass & m.body != null
+            m.body->(ASTNode).write(out)
+-*        for p in m.annotations.post {
+            if m.annotations.isOverride
+                out.writeLine("@postAnd(\{p})")
+            else
+                out.writeLine("@post(\{p})")
+        }*-
+    }
+    
+    method generateClassCode(cl:ClassStub) {
+        def packageName := cl.packageName
+        if packageName != null
+            out.writeLine("package \{packageName}")
+        out.writeLine("-- \{cl.position}")
+        out.writeLine(cl.annotations)
+        if cl.isInterface {
+            out.write("interface")
+            out.write(" \{cl.simpleName}")
+            def parameters := cl.genericParameters
+            if parameters != null {
+                out.write("<")
+                for i, p in parameters {
+                    if i > 0
+                        out.write(", ")
+                    out.write("\{p.identifier}")
+                    def type := p.type
+                    if type != null
+                        out.write(":\{type}")
+                }
+                out.write(">")
+            }
+            if cl.interfaces.length > 0 {
+                out.write(" : ")
+                for i, intf in cl.interfaces {
+                    if i > 0
+                        out.write(", ")
+                    out.write(intf.name)
+                }
+            }
+        }
+        else {
+            out.write("class")
+            out.write(" \{cl.simpleName}")
+            def parameters := cl.genericParameters
+            if parameters != null {
+                out.write("<")
+                for i, p in parameters {
+                    if i > 0
+                        out.write(", ")
+                    if p.type != null {
+                        out.write("\{p.identifier}:\{p.type->(ASTType)}")
+                    }
+                    else
+                        out.write(p.identifier)
+                }
+                out.write(">")
+            }
+            def superclass := cl.superclass
+            if superclass != null
+                out.write(":\{superclass.name}")
+            if cl.interfaces.length > 0 {
+                out.write(" (")
+                for i, intf in cl.interfaces {
+                    if i > 0
+                        out.write(", ")
+                    out.write(intf.name)
+                }
+                out.write(")")
+            }
+        }
+        out.writeLine(" {")
+        out.level += 1
+        var first := true
+        for f in cl.fields {
+            if first
+                first := false
+            else
+                out.writeLine()
+            generateFieldCode(f, cl)
+        }
+        for m in cl.methods {
+            if first
+                first := false
+            else
+                out.writeLine()
+            generateMethodCode(m, cl)
+        }
+        out.level -= 1
+        out.writeLine("}")
+    }
+
+    @override
+    method generateCode(target:File) {
+        out := new IndentedOutputStream(new BufferedOutputStream(
+                target.openOutputStream()))
+        out.writeLine("-- This file was autogenerated by the NEW Panda compiler --")
+        out.writeLine()
+        var first := true
+        Console.writeLine("remember to sort packageless classes first!")
+        for cl in program.stubs.values {
+            def type := cl.type
+            if type.isPrimitiveArray | type.isTuple | type-?>(GenericType)
+                continue
+            if first {
+                out.writeLine()
+                first := false
+            }
+            generateClassCode(cl)
+        }
+        for cl in program.stubs.values {
+            def type := cl.type
+            if (!type.isPrimitiveArray & !type.isTuple) | 
+                    cl.annotations.isUnspecified
+                continue
+            out.writeLine("@$instance \{cl.name}")
+        }
+        out.close()
+    }
+}

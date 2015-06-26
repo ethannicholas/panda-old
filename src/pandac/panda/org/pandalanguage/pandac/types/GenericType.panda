@@ -1,13 +1,10 @@
 package org.pandalanguage.pandac.types
 
-uses org.pandalanguage.pandac.compiler.ASTGenerator
 uses org.pandalanguage.pandac.compiler.CompilerException
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
-uses org.pandalanguage.pandac.compiler.Message
-uses org.pandalanguage.pandac.compiler.MessageProcessor
+uses org.pandalanguage.pandac.compiler.OrderedMap
 uses org.pandalanguage.pandac.compiler.PandaCompiler
-uses org.pandalanguage.pandac.compiler.TypeMap
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.ClassStub
@@ -18,7 +15,6 @@ uses org.pandalanguage.pandac.stubs.Symbol
 uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
-uses org.pandalanguage.pandac.tree.ClassNodeState
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
@@ -58,6 +54,18 @@ class GenericType : ClassType {
         return result->>(String)
     }
 
+    @override
+    function simpleName():String {
+        def result := new MutableString(base.simpleName())
+        result.append("<")
+        for i, p in parameters {
+            if i > 0
+                result.append(",")
+            result.append(p.simpleName)
+        }
+        result.append(">")
+        return result->>(String)
+    }    
 
     @private
     function parseType(name:String, context:Context):ParseNode {
@@ -101,10 +109,11 @@ class GenericType : ClassType {
         var annotations := m.annotations
         if m.body = null
             annotations += AnnotationType.ABSTRACT
-        return new MethodStub(m.position, m.name, annotations,
+        def result := new MethodStub(m.position, m.name, annotations,
                 m.methodType, parameters, getType(m.returnType, context,
                     symbols), 
                 m.body, self)
+                return result
     }
 
     @protected
@@ -134,7 +143,7 @@ class GenericType : ClassType {
         assert baseParameters.length = parameters.length : 
                 "parameter mismatch (\{baseParameters} vs. \{parameters})"
         def position := new Position(name, -1, -1)
-        def symbols := new HashMap<String, Symbol>()
+        def symbols := new OrderedMap<String, Symbol>()
         for i, p in parameters {
             def symbol := new TypeSymbol(p)
             symbols[baseParameters[i].identifier] := symbol

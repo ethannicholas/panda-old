@@ -5,6 +5,7 @@ uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
+uses org.pandalanguage.pandac.compiler.OrderedMap
 uses org.pandalanguage.pandac.compiler.StubMap
 uses org.pandalanguage.pandac.compiler.SymbolTable
 uses org.pandalanguage.pandac.parser.ParseNode
@@ -21,7 +22,7 @@ uses org.pandalanguage.pandac.types.UnresolvedType
 ================================================================================
 Represents a parsed but not-yet-compiled class.
 ================================================================================
-class ClassStub : Immutable {
+class ClassStub {
     def position:Position
 
     def type:ClassType
@@ -30,7 +31,7 @@ class ClassStub : Immutable {
 
     def annotations:Annotations
 
-    def symbols:ImmutableHashMap<String, Symbol>
+    def symbols:Map<String, Symbol>
 
     def lookupContext:LookupContext
 
@@ -52,7 +53,7 @@ class ClassStub : Immutable {
     constructor(position:Position, type:ClassType, isInterface:Bit, 
             annotations:Annotations, superclass:ClassType?, 
             interfaces:CollectionView<ClassType>, 
-            symbols:MapView<String, Symbol>, lookupContext:LookupContext,
+            symbols:OrderedMap<String, Symbol>, lookupContext:LookupContext,
             invariants:CollectionView<ASTInvariant>,
             genericParameters:ListView<ASTTypedIdentifier>?, isExternal:Bit) {
         super.constructor()
@@ -64,7 +65,7 @@ class ClassStub : Immutable {
         self.isExternal := isExternal
         self.superclass := superclass
         self.interfaces := new ImmutableArray<ClassType>(interfaces)
-        self.symbols := new ImmutableHashMap<String, Symbol>(symbols)
+        self.symbols := new OrderedMap<String, Symbol>(symbols)
         self.lookupContext := lookupContext
         def filter := f:FieldNode => f.type-?>(UnresolvedType)
         self.fullyResolved := fields.filter(filter).length = 0
@@ -77,6 +78,20 @@ class ClassStub : Immutable {
 
     function name():String {
         return type.name
+    }
+
+    function simpleName():String {
+        if name.contains(".")
+            return name[name.lastIndexOf(".")->(Int) + 1..]
+        else
+            return name
+    }
+
+    function packageName():String? {
+        if name.contains(".")
+            return name[..name.lastIndexOf(".")->(Int)]
+        else
+            return null
     }
 
     function fields():ListView<FieldNode> {

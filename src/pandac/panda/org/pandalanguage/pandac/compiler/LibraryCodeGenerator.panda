@@ -1,0 +1,68 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.types.Type
+
+class LibraryCodeGenerator (CodeGenerator) {
+    def program:Program
+
+    def compilerSettings:CompilerSettings
+
+    constructor(program:Program, compilerSettings:CompilerSettings) {
+        self.program := program
+        self.compilerSettings := compilerSettings
+    }
+
+    @override
+    function defaultExtension():String? {
+        return null
+    }
+
+    @override
+    method generateCode(target:File) {
+        -- compile ll file to asm using llc
+        def parent := target.parent()
+        if parent = null {
+            throw new CompilerException("could not determine parent " + 
+                    "directory of '" + target + "'")
+        }
+        def ll := parent.resolve(target.simpleName + ".ll")
+        new LLVMCodeGenerator(program, compilerSettings).generateCode(ll)
+        def asm := parent.resolve(ll.simpleName + ".s")
+        def llcArgs := new Array<String>()
+        for a in StaticSettings.LLC_LIBRARY_ARGS
+            llcArgs.add(a)
+        llcArgs.add("-o")
+        llcArgs.add(asm.path)
+        llcArgs.add(ll.path)
+        def FIXMEllcArgs := new PrimitiveArray<String>(llcArgs.length)
+        for i, v in llcArgs
+            FIXMEllcArgs[i] := v
+        System.exec(PandaCompiler.getLLVMHome().resolve("llc"), FIXMEllcArgs...)
+        if !compilerSettings.preserveTempArtifacts
+            ll.delete()
+
+        -- compile asm file
+        def cppArgs := new Array<String>()
+        cppArgs.add("-c")
+        cppArgs.add("-o")
+        cppArgs.add(target.path)
+        for arg in StaticSettings.GCC_LIBRARY_ARGS
+            cppArgs.add(arg)
+        cppArgs.add(asm.path)
+        def FIXMEcppArgs := new PrimitiveArray<String>(cppArgs.length)
+        for i, v in cppArgs
+            FIXMEcppArgs[i] := v
+        System.exec(PandaCompiler.getCPPCompiler(), FIXMEcppArgs...)
+        if !compilerSettings.preserveTempArtifacts
+            asm.delete()
+
+-*        -- almost everything is C, but we do have a bit of C++ stuff, so we use
+        -- a C++ compiler to get default linkage with the C++ libraries
+        new PLinkCodeGenerator().generateCode(
+                parent.resolve(target.simpleName + ".plink"))*-
+    }
+}

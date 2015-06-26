@@ -4,10 +4,11 @@ uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.compiler.CompilerSettings
 uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.compiler.StubGenerator
 uses org.pandalanguage.pandac.stubs.ClassStub 
+uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.MethodStub 
 uses org.pandalanguage.pandac.tree.AbstractLoop
-uses org.pandalanguage.pandac.tree.Annotation
 uses org.pandalanguage.pandac.tree.Assert
 uses org.pandalanguage.pandac.tree.BinaryOperation
 uses org.pandalanguage.pandac.tree.BinaryOperationType
@@ -17,31 +18,24 @@ uses org.pandalanguage.pandac.tree.Break
 uses org.pandalanguage.pandac.tree.Cast
 uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.Catch
-uses org.pandalanguage.pandac.tree.CatchExit
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
-uses org.pandalanguage.pandac.tree.ClassNodeState
 uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.Continue
 uses org.pandalanguage.pandac.tree.Do
 uses org.pandalanguage.pandac.tree.DynamicCall
-uses org.pandalanguage.pandac.tree.ExpressionAnnotation
 uses org.pandalanguage.pandac.tree.FieldAssignment
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.FieldReference
-uses org.pandalanguage.pandac.tree.For
-uses org.pandalanguage.pandac.tree.Identity
 uses org.pandalanguage.pandac.tree.If
 uses org.pandalanguage.pandac.tree.IntegerLiteral
-uses org.pandalanguage.pandac.tree.Finally
 uses org.pandalanguage.pandac.tree.LocalVariable
 uses org.pandalanguage.pandac.tree.Loop
 uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.MethodValue
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
@@ -58,14 +52,11 @@ uses org.pandalanguage.pandac.tree.ReusedValueDefinition
 uses org.pandalanguage.pandac.tree.Statement
 uses org.pandalanguage.pandac.tree.StringLiteral
 uses org.pandalanguage.pandac.tree.Super
-uses org.pandalanguage.pandac.tree.SymbolTable
-uses org.pandalanguage.pandac.tree.Ternary
 uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
 uses org.pandalanguage.pandac.tree.UnaryOperation
 uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.Unreachable
-uses org.pandalanguage.pandac.tree.UnresolvedType
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.ValueStatement
@@ -208,7 +199,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             writtenStubs.add(name)
             if !stub.annotations.isUnspecified
                 writeTypeDescriptor(stub)
-            if stub.isExternal {
+            if stub.isExternal | stub.annotations.isUnspecified {
                 -- write external stubs
                 for m in stub.methods {
                     if !stub.annotations.isUnspecified | m.annotations.isClass {
@@ -265,14 +256,21 @@ class LLVMCodeGenerator (CodeGenerator) {
         return "%" + getName(stub) + "*"
     }
 
-    method getLLVMMethodType(t:MethodStub):String {
+    method getLLVMMethodType(m:MethodStub):String {
         def result := new MutableString()
-        def returnType := t.returnType
+        def returnType := m.returnType
         result.append(getLLVMType(returnType))
         result.append(" (")
-        def parameters := t.parameters
+        def parameters := m.parameters
+        var first := true
+        if !m.annotations.isClass {
+            first := false
+            result.append(getSelfType(m))
+        }
         for i, p in parameters {
-            if i > 0
+            if first
+                first := false
+            else
                 result.append(", ")
             result.append(getLLVMType(p.type))
         }
@@ -293,6 +291,12 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         result.append(")*")
         return result->>(String)
+    }
+
+    method getSelfType(m:MethodStub):String {
+        if m.annotations.isWrapperMethod
+            return getLLVMType(m.owner->>(PrimitiveType))
+        return getLLVMType(m.owner)
     }
 
     @protected
@@ -468,7 +472,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method createConstructReference(construct:Construct):String {
         def targetType := construct.type
-        def target := getStub(targetType->(ClassType))
+        def target := getStub(targetType->>(ClassType))
         def cc := getClassConstant(target)
         def cast := getTempVariable()
         def classType := getLLVMType(ClassType.CLASS)
@@ -487,7 +491,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def methodRef := "@" + getName(m)
         def text := new MutableString("fastcc void \{methodRef}(")
         text.append(getLLVMType(targetType) + " " + result)
-        for i, p in parameters[1..] {
+        for i, p in parameters {
             text.append(", ")
             text.append(getTypedReference(p))
         }
@@ -497,6 +501,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
+    @pre(target-!>(ClassLiteral))
     method getVirtualMethodReference(target:Value, index:Int, 
             type:String):String {
         -- load class constant entry
@@ -529,7 +534,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method getVirtualMethodReference(mc:MethodCall):String {
         def m := mc.methodStub
         def cc := getClassConstant(getStub(m.owner))
-        return getVirtualMethodReference(mc.parameters[0], 
+        return getVirtualMethodReference(mc.target, 
                 getMethodIndex(cc, m), getLLVMMethodType(m))
     }
 
@@ -540,12 +545,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         def m := mc.methodStub
         def methodType := getLLVMMethodType(m)
         -- load class constant entry
-        def target := mc.parameters[0]
-        def cl := getStub(target.type->(ClassType))
+        def cl := getStub(mc.target.type->>(ClassType))
         def enter := createLabel()
         body.writeLine("br label %" + enter)
         createBlock(enter, "itable search entrance")
-        def targetRef := getTypedReference(target)
+        def targetRef := getTypedReference(mc.target)
         def classPointer := getTempVariable()
         writeBody(classPointer + " = getelementptr inbounds " + 
                 targetRef + ", i32 0, i32 " + CLASS_POINTER_INDEX, 
@@ -553,7 +557,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def loadedClass := getTempVariable()
         def classType := getLLVMType(ClassType.CLASS)
         writeBody(loadedClass + " = load " + classType + "* " + 
-                classPointer, "get pointer to " + cl)
+                classPointer, "get pointer to " + cl.name)
         def itableFirst := getTempVariable()
         writeBody(itableFirst + " = getelementptr inbounds " + 
                 classType + " " + loadedClass + ", i32 0, i32 " + ITABLE_INDEX, 
@@ -624,7 +628,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if program.isEffectivelyVirtual(m) & mc.target-!>(Super) {
             assert !m.annotations.isClass : "expected method not to be @class"
             def target := mc.target->(Value)
-            def classStub := getStub(target.type->(ClassType))
+            def classStub := getStub(target.type->>(ClassType))
             if classStub.isInterface
                 methodRef := getInterfaceMethodReference(mc)
             else
@@ -896,7 +900,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             op := sop
         if op = null {
             throw new CompilerException("cannot compile '" + b + 
-                    "', invalid types", b.position)
+                    "' at \{b.position}", b.position)
         }
         return createBinaryOperationReference(b, op)
     }
@@ -992,7 +996,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method createNewPrimitiveArrayWithLengthReference(na:NewPrimitiveArrayWithLength):String {
-        def arrayClass := getStub(na.type->(ClassType))
+        def arrayClass := getStub(na.type->>(ClassType))
         def cc := getClassConstant(arrayClass)
         def cast := getTempVariable()
         def elementType := na.type->>(PrimitiveArrayType).elementType
@@ -1209,46 +1213,45 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method createFieldReference(fr:FieldReference):String {
         if fr.field.annotations.isThread {
--*            var owner := fr.field.parent->(ClassNode)
-            callClassInit(owner)
+            def owner := fr.field.owner
+            callClassInit(context.getStub(owner))
             var type := fr.type
-            var suffix:String
+            def suffix:String
             if type.isPrimitive
-                suffix := fr.type.name[ClassNode.CORE.length..]
+                suffix := fr.type.name["panda.core.".length..]
             else {
                 suffix := "Object"
                 type := ClassType.OBJECT
             }
-            var threadLocalId := getTempVariable()
-            var indexField := owner.symbolTable.getVariable(fr.field.name + 
-                    IRGenerator.INDEX_SUFFIX)
-            assert indexField != null : "expected non-null indexField"
+            def threadLocalId := getTempVariable()
+            def symbolTable := context.getSymbolTable(context.getStub(owner))
+            def indexField := symbolTable[fr.field.name + 
+                    StubGenerator.INDEX_SUFFIX]->(FieldNode)
             body.writeLine("load i32* @" + getName(indexField))
-            var callString := ("fastcc " + getLLVMType(type) + 
+            def callString := new MutableString("fastcc " + getLLVMType(type) + 
                     " @panda$core$Panda$getThreadLocal" + suffix + 
-                    "(i32 " + threadLocalId + ", ")->>(MutableString)
-            var initializer := owner.symbolTable.getMethod(fr.position,
-                        IRGenerator.getThreadLocalInitializerName(fr.field),
-                        new PrimitiveArray<Value>(), true)
+                    "(i32 " + threadLocalId + ", ")
+            def initializer := symbolTable[
+                        IRGenerator.getThreadLocalInitializerName(fr.field)
+                    ]->(Methods?)
             if initializer != null {
                 callString.append(
                         getLLVMType(NativePointerType.NATIVE_POINTER) + 
                         " bitcast(" + getLLVMType(fr.type) + "()* @" + 
-                        getName(initializer->(MethodNode)) + " to " + 
+                        getName(initializer.methods[0]) + " to " + 
                         getLLVMType(NativePointerType.NATIVE_POINTER) + "))")
             }
             else
                 callString.append("i8* null)") -- no initializer function
             var ref := createCallReference(callString->>(String), fr->>(String))
-            if !fr.type.isPrimitive & fr.type != ClassType.OBJECT() {
-                var cast := getTempVariable()
+            if !fr.type.isPrimitive & fr.type != ClassType.OBJECT {
+                def cast := getTempVariable()
                 writeBody(cast + " = bitcast " + 
-                    getLLVMType(type) + " " + ref + " to " + 
-                    getLLVMType(fr.type), "cast Object to threadlocal")
+                        getLLVMType(type) + " " + ref + " to " + 
+                        getLLVMType(fr.type), "cast Object to threadlocal")
                 ref := cast
             }
-            return ref*-
-            throw new NotSupportedException("@thread field")
+            return ref
         }
         def ep := getFieldPointer(fr.object, fr.field)
         return createCommandReference(
@@ -1350,7 +1353,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 def check := panda.symbolTable.getMethod(c.position,
                         "checkCast", params, true)
                 assert check != null : "expected check to be non-null"
-                for i in 1 ... params.length - 1
+                for i in 1 .. params.length
                     getTypedReference(params[i])
                 var intermediate := tempResult
                 if actualType != ClassType.OBJECT() {
@@ -1457,6 +1460,14 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    method createClassLiteralReference(type:ClassLiteral):String {
+        def cl := getStub(type.value)
+        def cc := getClassConstant(cl)
+        def classType := getLLVMType(ClassType.CLASS)
+        return "bitcast(\{cc.type}* @\{cc.name} to \{classType})"
+    }
+
+    @protected
     method createClassObjectLiteralReference(type:ClassObjectLiteral):String {
         def cl := getStub(type.value)
         def cc := getClassConstant(cl)
@@ -1486,6 +1497,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
             case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->(PrimitiveArrayIndexValue))
             case class(NullLiteral): return "null"
+            case class(ClassLiteral): return createClassLiteralReference(v->(ClassLiteral))
             case class(ClassObjectLiteral): return createClassObjectLiteralReference(v->(ClassObjectLiteral))
             case class(Unwrap): return createReference(v->(Unwrap).value)
     -*
@@ -1526,7 +1538,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @pre(array.type.isPrimitiveArray)
     @pre(index.type = IntType.INT32)
-    method getPrimitiveArrayElementPointer(array:Value, index:Value):String {
+     method getPrimitiveArrayElementPointer(array:Value, index:Value):String {
         def arrayRef := getTypedReference(array)
         def indexRef := getTypedReference(index)
         if context.compilerSettings.boundsChecking {
@@ -1570,34 +1582,32 @@ class LLVMCodeGenerator (CodeGenerator) {
                     lref, fa->>(String))
         }
         else {
--*            var owner := fa.fieldNode.parent->(ClassNode)
+            def owner := context.getStub(fa.fieldNode.owner)
             callClassInit(owner)
-            var threadLocalId := getTempVariable()
-            var indexField := owner.symbolTable.getVariable(fa.fieldNode.name + 
-                    IRGenerator.INDEX_SUFFIX)
-            assert indexField != null
+            def threadLocalId := getTempVariable()
+            def indexField := owner.symbols[fa.fieldNode.name + 
+                    StubGenerator.INDEX_SUFFIX]->(Variable)
             body.writeLine("load i32* @" + getName(indexField))
             var ref := getReference(fa.value)
             assert ref != null : "expected non-null ref in generateFieldAssignmentCode"
             if !fa.value.type.isPrimitive & 
-                    fa.value.type != ClassType.OBJECT() {
+                    fa.value.type != ClassType.OBJECT {
                 var cast := getTempVariable()
                 writeBody(cast + " = bitcast " + 
                         getLLVMType(fa.value.type) + " " + ref + " to " + 
-                        getLLVMType(ClassType.OBJECT()), 
+                        getLLVMType(ClassType.OBJECT), 
                         "cast threadlocal to Object")
-                ref := getLLVMType(ClassType.OBJECT()) + " " + cast
+                ref := getLLVMType(ClassType.OBJECT) + " " + cast
             }
             else
                 ref := getLLVMType(fa.value.type) + " " + ref
             var suffix:String
             if fa.value.type.isPrimitive
-                suffix := fa.value.type.name[ClassNode.CORE.length..]
+                suffix := fa.value.type.name["panda.core.".length..]
             else
                 suffix := "Object"
             call("fastcc void @panda$core$Panda$setThreadLocal" + 
-                    suffix + "(i32 " + threadLocalId + ", " + ref + ")")*-
-            throw new NotSupportedException("threadlocal field")
+                    suffix + "(i32 " + threadLocalId + ", " + ref + ")")
         }
     }
 
@@ -1793,6 +1803,16 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    method generateTryCode(t:Try) {
+        generateStatementCode(t.statement)
+    }
+
+    @protected
+    method generateThrowCode(t:Throw) {
+        call("void \{FAIL_ASSERT_NAME}(\{getLLVMType(ClassType.STRING)} null)")
+    }
+
+    @protected
     method generateStatementCode(s:Statement) {
         if debug
             body.writeLine("; statement:" + s->>(String).replace("\n", "\n; (statement cont) "))
@@ -1815,10 +1835,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(Break): generateBreakCode(s->(Break))
             case class(Continue): generateContinueCode(s->(Continue))
             case class(Assert): generateAssertCode(s->(Assert))
--*
             case class(Throw): generateThrowCode(s->(Throw))
             case class(Try): generateTryCode(s->(Try))
-            case class(CatchExit): { } *-
             case class(Unreachable): generateUnreachableCode(s->(Unreachable))
             default: 
                 throw new InternalCompilerException("unsupported statement: " + 
@@ -1878,7 +1896,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method writeMethodDeclaration(m:MethodStub) {
-        if m.annotations.isAbstract
+        if m.annotations.isAbstract & !m.annotations.isExternal
             return
         def private := m.annotations.isPrivate
         def external := m.annotations.isExternal
@@ -1893,8 +1911,15 @@ class LLVMCodeGenerator (CodeGenerator) {
         if !external
             body.write("fastcc ")
         body.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
+        var first := true
+        if !m.annotations.isClass {
+            body.write("\{getSelfType(m)} %self")
+            first := false
+        }
         for i, p in m.parameters {
-            if i > 0
+            if first
+                first := false
+            else
                 body.write(", ")
             body.write(getLLVMType(p.type))
         }
@@ -1926,8 +1951,15 @@ class LLVMCodeGenerator (CodeGenerator) {
         if !external
             body.write("fastcc ")
         body.write(getLLVMType(m.stub.returnType) + " @\{getName(m.stub)}(")
+        var first := true
+        if !m.stub.annotations.isClass {
+            body.write("\{getSelfType(m.stub)} %self")
+            first := false
+        }
         for i, p in m.parameters {
-            if i > 0
+            if first
+                first := false
+            else
                 body.write(", ")
             body.write(getLLVMType(p.type))
             if !external {
@@ -1971,12 +2003,16 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method generateClassCode(cl:ClassNode) {
-        for m in cl.methods
-            generateMethodCode(m)
         for f in cl.stub.fields {
             if f.owner.name = cl.stub.name
                 writeFieldDeclaration(f)
         }
+        for m in cl.stub.methods {
+            if m.annotations.isExternal
+                writeMethodDeclaration(m)
+        }
+        for m in cl.methods
+            generateMethodCode(m)
     }
 
     @override

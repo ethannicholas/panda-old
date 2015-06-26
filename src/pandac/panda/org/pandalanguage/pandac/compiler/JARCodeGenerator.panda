@@ -2,7 +2,6 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.SymbolTable
 
 class JARCodeGenerator (CodeGenerator) {
     constant PANDA_JAR := "PandaCoreClasses.jar"
@@ -67,18 +66,18 @@ class JARCodeGenerator (CodeGenerator) {
     }
 
     @private
-    method listTree(f:File, suffix:String, result:PrimitiveArray<File>) {
+    method listTree(f:File, suffix:String, result:List<File>) {
         if f.isDirectory() {
             def files := f.list()
             for file in files
                 listTree(file, suffix, result)
         }
         else if f.name.endsWith(suffix)
-            result.append(f)
+            result.add(f)
     }
 
-    method listTree(f:File, suffix:String):PrimitiveArray<File> {
-        var result := new PrimitiveArray<File>()
+    method listTree(f:File, suffix:String):List<File> {
+        var result := new Array<File>()
         listTree(f, suffix, result)
         return result
     }
@@ -121,29 +120,43 @@ class JARCodeGenerator (CodeGenerator) {
                 copyJAR(jar, parent, classPath, manifestClassPath) 
         }
         def javac := compilerSettings.javac
-        var params := new PrimitiveArray<String>("-d", classesDir.absolutePath(), "-cp", 
-                classPath->>(String), "-source", "1.8")
-        for i in 0 .. javaFiles.length {
-            var p := javaFiles[i].path
+        def params := new Array<String>()
+        params.add("-d")
+        params.add(classesDir.absolutePath())
+        params.add("-cp")
+        params.add(classPath->>(String))
+        params.add("-source")
+        params.add("1.8")
+        for f in javaFiles {
+            var p := f.path
             assert p.startsWith(javaDir.path)
             p := p[javaDir.path.length + 1..]
-            params.append(p)
+            params.add(p)
         }
-        System.exec(javac, javaDir, params...)
+
+        def FIXMEparams := new PrimitiveArray<String>(params.length)
+        for i, v in params
+            FIXMEparams[i] := v
+        System.exec(javac, javaDir, FIXMEparams...)
 
         def manifest := tmpDir.resolve("manifest.mf")
         writeManifest(manifest, manifestClassPath->>(String))
         def jar := compilerSettings.jar
-        params := new PrimitiveArray<String>("cfm", target.absolutePath(),
-                manifest.absolutePath())
-        var classFiles := listTree(classesDir, ".class")
+        def jarParams := new Array<String>()
+        jarParams.add("cfm")
+        jarParams.add(target.absolutePath())
+        jarParams.add(manifest.absolutePath())
+        def classFiles := listTree(classesDir, ".class")
         for f in classFiles {
             var p := f.path
             assert p.startsWith(classesDir.path)
             p := p[classesDir.path.length + 1..]
-            params.append(p)
+            jarParams.add(p)
         }
-        System.exec(jar, classesDir, params...)
+        def FIXMEjarParams := new PrimitiveArray<String>(jarParams.length)
+        for i, v in jarParams
+            FIXMEjarParams[i] := v
+        System.exec(jar, classesDir, FIXMEjarParams...)
 
 -*        if getMainClass() = null {
             new PLinkCodeGenerator().generateCode(parent.resolve(
