@@ -1,5 +1,6 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.tree.ClassNode
 
 ================================================================================
@@ -96,7 +97,46 @@ class MethodType : ClassType {
     }
 
     @override
+    @unsafeFunction
+    function implicitCastCost(context:Context, var target:Type):Int? {
+        if !immutableMethod & target.isImmutable(context)
+            return null
+        var result := 0
+        if target.isNullable {
+            target := target.unwrapNullable
+            result += NullableType.TO_NULLABLE_CAST_COST
+        }
+        if self = target
+            return result
+        if target.isMethod {
+            def m := target->(MethodType)
+            if m.isFunction & !isFunction
+                return null
+            else if isFunction & !m.isFunction
+                result += 1
+            if methodParameters.length != m.methodParameters.length
+                return null
+            for i, p in methodParameters {
+                if p != m.methodParameters[i]
+                    return null
+            }
+            if returnType != m.returnType
+                return null
+            return result
+        }
+        return self->>(ClassType).implicitCastCost(context, target)
+    }
+
+    @override
     function ->>():MethodType {
         return self
+    }
+
+    @override
+    function ->>():ClassType {
+        if immutableMethod
+            return ClassType.METHOD
+        else
+            return ClassType.MUTABLE_METHOD
     }
 }

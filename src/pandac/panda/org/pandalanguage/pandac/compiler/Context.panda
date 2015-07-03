@@ -37,6 +37,7 @@ uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
 uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.GenericType
@@ -49,6 +50,7 @@ uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.TupleType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
+uses org.pandalanguage.pandac.types.WrapperType
 
 class Context {
     def stubGenerator:StubGenerator
@@ -64,6 +66,17 @@ class Context {
     var currentClass:ClassStub
 
     var currentMethod:MethodStub
+
+    ============================================================================
+    Methods to be added to the current class.
+    ============================================================================
+    def methods := new Array<MethodNode>()
+
+    ============================================================================
+    Captures we have run into while compiling closures. The topmost entry of the
+    stack is for the current (innermost) closure.
+    ============================================================================
+    def captures := new Stack<Set<Variable>>()
 
     var symbolTableStack := new Stack<SymbolTable>()
 
@@ -84,7 +97,8 @@ class Context {
                     Position.INTERNAL, new Array<AnnotationType>()), 
                 null, new Array<ClassType>(), 
                 new OrderedMap<String, Symbol>(stubGenerator.masterSymbolTable),
-                new LookupContext(), new Array<ASTInvariant>(), null, true)
+                new LookupContext(), new Array<ASTInvariant>(), null, true,
+                null)
         def classAnnotation := new Array<AnnotationType>()
         classAnnotation.add(AnnotationType.CLASS)
         self.currentMethod := new MethodStub(Position.INTERNAL, "<dummy>",
@@ -282,6 +296,28 @@ class Context {
                 }
                 result.addAll(filtered)
             }
+            def containingClass := cl.containingClass
+            if containingClass != null {
+                def filtered := new HashMap<String, Symbol>()
+                for (k, v) in getSymbolTable(getStub(containingClass)) {
+                    if v-?>(Methods) {
+                        def methods := v->(Methods)
+                        def filteredM := new Array<MethodStub>()
+                        for m in methods.methods {
+                            if m.annotations.isClass
+                                filteredM.add(m)
+                        }
+                        if filteredM.length > 0
+                            filtered[filteredM[0].name] := methods
+                    }
+                    else if v-?>(FieldNode) {
+                        def f := v->(FieldNode)
+                        if f.annotations.isClass | f.annotations.isThread
+                            filtered[f.name] := f
+                    }
+                }
+                result.addAll(filtered)
+            }
             def superclass := cl.superclass
             if superclass != null {
                 def filtered := new HashMap<String, Symbol>()
@@ -309,10 +345,7 @@ class Context {
         def symbol := getSymbolTable(searchClass)[name]
         if symbol-?>(Methods)
             return symbol->(Methods).methods
-        def result := new Array<MethodStub>()
-        if symbol-?>(MethodStub)
-            result.add(symbol->(MethodStub))
-        return result
+        return new Array<MethodStub>()
     }
 
     ============================================================================
@@ -373,6 +406,14 @@ class Context {
             return null
     }
 
+    function isNumber(type:Type):Bit {
+        if type.isNumber
+            return true
+        if type.isWrapper
+            return type->>(PrimitiveType).isNumber
+        return false
+    }
+
     ============================================================================
     Looks for an overloaded version of `name` (which could be `"="`, `"+"`, 
     etc.) and returns a call to it, or `null` if no such overloaded operator was
@@ -392,23 +433,38 @@ class Context {
             if left.type.isPrimitive & right.type.isPrimitive
                 return null
         }
-        else if !name.startsWith("[") & (left.type.isNumber | 
-                left.type.isWrapper) & (right.type.isNumber | 
-                right.type.isWrapper)
+        else if !name.startsWith("[") & isNumber(left.type) & 
+                isNumber(right.type) {
             return null
-        if left.type = NullType.NULL | right.type = NullType.NULL
+        }
+        if left.type = NullType.NULL | right.type = NullType.NULL {
             return null -- force this to be compiled as ==, which is quicker 
                         -- than calling nullableEquals.
+        }
         if name != "=" {
             if left.type = StringOrCharType.STRING_OR_CHAR {
-                def cast:Value?
-                cast := left.implicitCast(self, ClassType.STRING)
-                return callOverloadedOperator(position, name, cast, right)
+                def charCast := left.implicitCast(self, 
+                        WrapperType.CHAR_WRAPPER)
+                var result := callOverloadedOperator(position, name, charCast, 
+                        right)
+                if result = null {
+                    def stringCast := left.implicitCast(self, ClassType.STRING)
+                    result := callOverloadedOperator(position, name, stringCast, 
+                            right)
+                }
+                return result
             }
             if right.type = StringOrCharType.STRING_OR_CHAR {
-                def cast:Value?
-                cast := right.implicitCast(self, ClassType.STRING)
-                return callOverloadedOperator(position, name, left, cast)
+                def charCast := right.implicitCast(self, 
+                        WrapperType.CHAR_WRAPPER)
+                var result := callOverloadedOperator(position, name, left, 
+                        charCast)
+                if result = null {
+                    def stringCast := right.implicitCast(self, ClassType.STRING)
+                    result := callOverloadedOperator(position, name, left,
+                            stringCast)
+                }
+                return result
             }
         }
 
@@ -440,8 +496,8 @@ class Context {
         if result = null {
             -- check for overload on right (class only)
             parameters.clear()
-            parameters.add(right)
             parameters.add(left)
+            parameters.add(right)
             result := testCall(position, new ClassLiteral(position, 
                     right.type->>(ClassType)), name, parameters)
         }
@@ -602,7 +658,7 @@ class Context {
                     values.add(cast)
                 }
             }
-            def varParams := new ArrayLiteral(position, arrayType, values)
+            def varParams := createArrayLiteral(position, arrayType, values)
             finalParams.add(varParams)
         }
         if target-!>(ClassLiteral) {
@@ -628,35 +684,6 @@ class Context {
         return false
     }
 
-    method call(position:Position, target:Value, methodName:String, 
-            var params:ListView<Value>):Value? {
-        if params.length > 0 {
-            def last := params[params.length - 1]
-            if last-?>(UnresolvedRange) {
-                def range := last->(UnresolvedRange)
-                def left := range.left
-                if isListView(left) & range.right = null {
-                    assert left != null
-                    def newParams := new Array<Value>()
-                    newParams.addAll(params[0 .. params.length - 1])
-                    newParams.add(new Unwrap(left))
-                    params := newParams
-                }
-            }
-        }
-        for p in params {
-            if !p.checkValid(self)
-                return null
-        }
-        def result := testCall(position, target, methodName, 
-                params)
-        if result = null {
-            errors.error(getMethodNotFoundMessage(target, methodName, 
-                    params), position)
-        }
-        return result
-    }
-
     @private
     function getEffectiveTarget(m:MethodStub, target:Value):Value? {
         if target-?>(InstanceContext) {
@@ -675,6 +702,28 @@ class Context {
     }
 
     method call(position:Position, target:Value, 
+            methodName:String, var params:ListView<Value>):Value? {
+        def stub:ClassStub
+        if target-?>(ClassLiteral)
+            stub := getStub(target->(ClassLiteral).value)
+        else
+            stub := getStub(target.type->>(ClassType))
+        def symbolTable := getSymbolTable(stub)
+        def methods := symbolTable[methodName]
+        if methods-?>(Methods)
+            return call(position, target, methods->(Methods).methods, params)
+        if methods != null {
+            errors.error("'\{target.type.displayName}.\{methodName}' is not " +
+                    "a method", position)
+        }
+        else {
+            errors.error("'\{target.type.displayName}' has no member named " +
+                    "'\{methodName}'", position)
+        }
+        return null
+    }
+
+    method call(position:Position, target:Value, 
             methods:ListView<MethodStub>, var params:ListView<Value>):Value? {
         if params.length > 0 {
             def last := params[params.length - 1]
@@ -686,6 +735,21 @@ class Context {
                     def newParams := new Array<Value>()
                     newParams.addAll(params[0 .. params.length - 1])
                     newParams.add(new Unwrap(left))
+                    params := newParams
+                }
+                else if left != null & left.type.unwrapNullable-?>(PrimitiveArrayType) & 
+                        range.right = null {
+                    -- FIXME support for PrimitiveArrays is TEMPORARY, remove it
+                    assert left != null
+                    def newParams := new Array<Value>()
+                    newParams.addAll(params[0 .. params.length - 1])
+                    def convertParams := new Array<Value>()
+                    convertParams.add(left)
+                    def remapped := call(position, new ClassLiteral(position,
+                            ClassType.PANDA), "FIXME_TEMP_convertArray", 
+                            convertParams)
+                    assert remapped != null
+                    newParams.add(new Unwrap(remapped))
                     params := newParams
                 }
             }
@@ -715,5 +779,35 @@ class Context {
                     position)
             return null
         }
-   }
+    }
+
+    method createArrayLiteral(position:Position, type:GenericType, 
+            values:ListView<Value>):Value {
+        def params := new Array<Value>()
+        def typeParameters := new Array<ASTType>()
+        typeParameters.add(IRGenerator.toASTType(position,
+                type.parameters[0]))
+        def primName:String
+        def arrayName:String
+        if type.isImmutable(self) {
+            primName := ClassType.IMMUTABLE_PRIMITIVE_ARRAY.name
+            arrayName := ClassType.IMMUTABLE_ARRAY.name
+        }
+        else {
+            primName := ClassType.PRIMITIVE_ARRAY.name
+            arrayName := ClassType.ARRAY.name
+        }
+        def primType := resolveType(new ASTClassType(position, 
+                primName, typeParameters, false))
+        assert primType != null
+        def arrayType := resolveType(new ASTClassType(position, 
+                arrayName, typeParameters, false))
+        assert arrayType != null
+        params.add(new NewPrimitiveArrayWithValues(position, 
+                primType->(PrimitiveArrayType), values))
+        def c := call(position, new ClassLiteral(position, arrayType),
+                MethodNode.CONSTRUCTOR_NAME, params)
+        assert c != null
+        return new Construct(c->(MethodCall)).implicitCast(self, type)
+    }
 }

@@ -27,9 +27,11 @@ uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTLambdaExpression
 uses org.pandalanguage.pandac.ast.ASTLoop
+uses org.pandalanguage.pandac.ast.ASTMethodType
 uses org.pandalanguage.pandac.ast.ASTMethodValue
 uses org.pandalanguage.pandac.ast.ASTNew
 uses org.pandalanguage.pandac.ast.ASTNullLiteral
+uses org.pandalanguage.pandac.ast.ASTParameter
 uses org.pandalanguage.pandac.ast.ASTPlugin
 uses org.pandalanguage.pandac.ast.ASTRangeExpression
 uses org.pandalanguage.pandac.ast.ASTRealLiteral
@@ -42,6 +44,7 @@ uses org.pandalanguage.pandac.ast.ASTSwitch
 uses org.pandalanguage.pandac.ast.ASTThrow
 uses org.pandalanguage.pandac.ast.ASTTry
 uses org.pandalanguage.pandac.ast.ASTTupleExpression
+uses org.pandalanguage.pandac.ast.ASTTupleType
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.ast.ASTUnaryExpression
@@ -113,6 +116,7 @@ uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedDotExpression
 uses org.pandalanguage.pandac.tree.UnresolvedIdentifier
 uses org.pandalanguage.pandac.tree.UnresolvedIndex
+uses org.pandalanguage.pandac.tree.UnresolvedLambda
 uses org.pandalanguage.pandac.tree.UnresolvedMethod
 uses org.pandalanguage.pandac.tree.UnresolvedRange
 uses org.pandalanguage.pandac.tree.UnresolvedSlice
@@ -132,6 +136,7 @@ uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
+uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
@@ -154,6 +159,9 @@ class IRGenerator {
     var context:Context
 
     def currentlyInferring := new HashSet<FieldNode>()
+
+    @thread
+    var nameCount := 0
 
     constructor(root:Package, classes:MapView<String, ClassStub>,
             stubGenerator:StubGenerator, compilerSettings:CompilerSettings,
@@ -532,7 +540,7 @@ class IRGenerator {
             type := type->>(ClassType)
 
         if !object.canExplicitCastTo(context, type) {
-            context.errors.error("'\{object}' (\{object.type.displayName}) " +
+            context.errors.error("'\{object.type.displayName}' " +
                     "cannot possibly be an instance of '\{type.displayName}'", 
                     position)
         }
@@ -574,15 +582,16 @@ class IRGenerator {
         def right := context.resolveType(a.right)
         if right = null
             return null
+        if a.operation != ArrowOperationType.CONVERT &
+                !left.canExplicitCastTo(context, right) {
+            context.errors.error("'\{left.type.displayName}' cannot " +
+                    "possibly be an instance of '\{right.displayName}'",
+                    a.position)
+            return null
+        }
         switch a.operation {
-            case ArrowOperationType.CAST: {
-                if !left.canExplicitCastTo(context, right) {
-                    context.errors.error("'\{left.type.displayName}' cannot " +
-                            "possibly be an instance of '\{right.displayName}'",
-                            a.position)
-                }
+            case ArrowOperationType.CAST:
                 return left.explicitCast(a.position, context, right)
-            }
             case ArrowOperationType.INSTANCE_OF:
                 return convertInstanceOf(a.position, left, right)
             case ArrowOperationType.NOT_INSTANCE_OF: {
@@ -652,9 +661,15 @@ class IRGenerator {
             }
             return new UnresolvedMethod(position, target, methods)
         }
-        assert target = null
-        if s-?>(Variable)
+        if s-?>(Variable) {
+            def v := s->(Variable)
+            if v-?>(Parameter) & v->(Parameter).owner != context.currentMethod
+                context.captures.peek.add(v)
+            else if v-?>(LocalVariable) & 
+                    v->(LocalVariable).owner != context.currentMethod
+                context.captures.peek.add(v)
             return new VariableReference(position, s->(Variable))
+        }
         if s-?>(Package)
             return new PackageReference(position, s->(Package))
         if s-?>(TypeSymbol)
@@ -751,6 +766,10 @@ class IRGenerator {
         index := resolve(index)
         if index = null
             return null
+        if target.type.unwrapNullable-?>(TupleType) & index-?>(IntegerLiteral) {
+            return getMember(i.position, target, TupleType.FIELD_PREFIX + 
+                    index->(IntegerLiteral).value)
+        }
         if target.type.unwrapNullable-?>(PrimitiveArrayType)
             return new PrimitiveArrayIndexValue(target, 
                     index.implicitCast(context, IntType.INT32))
@@ -955,7 +974,8 @@ class IRGenerator {
         }
         else
             initializer := null
-        for decl in v.vars {
+        def locals := new Array<LocalVariable>()
+        for i, decl in v.vars {
             def type:Type?
             if decl.type != null {
                 type := resolve(decl.type->(ASTType))
@@ -974,17 +994,53 @@ class IRGenerator {
                 initializer := resolve(initializer)
                 if initializer = null
                     return null
-                type := initializer.preferredVariableType(context)
+                def initializerType := initializer.preferredVariableType(
+                        context)
+                if v.vars.length > 1 {
+                    if initializerType.unwrapNullable-!>(TupleType) {
+                        context.errors.error("assigning to multiple " +
+                                "variables from a non-tuple expression",
+                                initializer.position)
+                    }
+                    type := initializerType.unwrapNullable->(TupleType).types[i]
+                }
+                else
+                    type := initializerType
             }
             def local := new LocalVariable(decl.position, decl.identifier, type,
-                    v.varType)
+                    v.varType, context.currentMethod)
             context.localVariables.add(local)
             context.symbolTable[local.name] := local
-            if initializer != null {
-                -- no support for tuples yet!
-                return new ValueStatement(new VariableAssignment(decl.position, 
-                        local, initializer.implicitCast(context, type), true))
+            locals.add(local)
+        }
+        if initializer != null {
+            if v.vars.length = 1 {
+                return new ValueStatement(new VariableAssignment(v.position, 
+                        locals[0], initializer.implicitCast(context, 
+                            locals[0].type), 
+                        true))
             }
+            def tuple := new LocalVariable(v.position, "$tuple\{nameCount}",
+                    initializer.type.unwrapNullable, VariableType.DEF,
+                    context.currentMethod)
+            context.localVariables.add(tuple)
+            nameCount += 1
+            def statements := new Array<Statement>()
+            statements.add(new ValueStatement(new VariableAssignment(
+                    v.position, tuple, initializer.implicitCast(context,
+                        tuple.type), 
+                    true)))
+            for i, local in locals {
+                def member := getMember(local.position, 
+                        new VariableReference(local.position, tuple), 
+                        TupleType.FIELD_PREFIX + i)
+                assert member != null
+                statements.add(new ValueStatement(new VariableAssignment(
+                        local.position, local, member.implicitCast(context, 
+                            local.type), 
+                        true)))
+            }
+            return new Block(v.position, statements)
         }
         return null
     }
@@ -1052,7 +1108,7 @@ class IRGenerator {
                 }
             }
             def valueVar := new LocalVariable(v.position, v.identifier, type,
-                    VariableType.DEF)
+                    VariableType.DEF, context.currentMethod)
             valueVars.add(valueVar)
             context.localVariables.add(valueVar)
             context.symbolTable[valueVar.name] := valueVar
@@ -1067,7 +1123,7 @@ class IRGenerator {
         typeParams.add(elementType)
         def iteratorVar := new LocalVariable(f.position, "$iterator", 
                 new GenericType(new ClassType("panda.collections.Iterator"), 
-                typeParams), VariableType.DEF)
+                typeParams), VariableType.DEF, context.currentMethod)
         def getIterator := context.call(f.position, list, "iterator", 
                 new Array<Value>())
         assert getIterator != null
@@ -1089,7 +1145,7 @@ class IRGenerator {
         }
         else {
             tupleVar := new LocalVariable(f.position, "$tuple", elementType,
-                    VariableType.DEF)
+                    VariableType.DEF, context.currentMethod)
             context.localVariables.add(tupleVar)
         }
         bodyStatements.add(new ValueStatement(new VariableAssignment(
@@ -1462,7 +1518,7 @@ class IRGenerator {
             type := range.value->(Value).type->(GenericType).parameters[0]
         }
         def loopVar := new LocalVariable(v.position, v.identifier, type,
-                VariableType.DEF)
+                VariableType.DEF, context.currentMethod)
         context.localVariables.add(loopVar)
         context.symbolTable[loopVar.name] := loopVar
         def step := range.step
@@ -1504,7 +1560,7 @@ class IRGenerator {
             else
                 type := elementType
             def valueVar := new LocalVariable(v.position, v.identifier, type,
-                    VariableType.DEF)
+                    VariableType.DEF, context.currentMethod)
             valueVars.add(valueVar)
             context.localVariables.add(valueVar)
             context.symbolTable[valueVar.name] := valueVar
@@ -1513,14 +1569,14 @@ class IRGenerator {
         statements.add(new ValueStatement(array))
         if indexVar = null {
             indexVar := new LocalVariable(f.position, "$index", IntType.INT32,
-                    VariableType.VAR)
+                    VariableType.VAR, context.currentMethod)
             context.localVariables.add(indexVar)
         }
         statements.add(new ValueStatement(new VariableAssignment(f.position, 
                 indexVar, new IntegerLiteral(f.position, 0, indexVar.type, 
                 true), true)))
         def lengthVar := new LocalVariable(f.position, "$length", IntType.INT32,
-                    VariableType.VAR)
+                    VariableType.VAR, context.currentMethod)
         context.localVariables.add(lengthVar)
         statements.add(new ValueStatement(new VariableAssignment(f.position, 
                 lengthVar, getMember(f.position, array.createReference(), 
@@ -1570,7 +1626,7 @@ class IRGenerator {
             else
                 type := IntType.INT32
             indexVar := new LocalVariable(astVar.position, astVar.identifier, 
-                    type, VariableType.DEF)
+                    type, VariableType.DEF, context.currentMethod)
             context.localVariables.add(indexVar)
             context.symbolTable[indexVar.name] := indexVar
         }
@@ -2151,7 +2207,8 @@ class IRGenerator {
             for i, lvalue in left {
                 if lvalue != null {
                     def tupleValue := getMember(right.position, 
-                            reused.createReference(), "$field" + i)
+                            reused.createReference(), 
+                            TupleType.FIELD_PREFIX + i)
                     assert tupleValue != null : "can't-happen tuple failure"
                     def assignment := processSingleAssignment(lvalue, 
                             assignmentOp, tupleValue, reuse)
@@ -2282,7 +2339,7 @@ class IRGenerator {
         if type = null
             return null
         def error := new LocalVariable(c.position, c.name, type, 
-                VariableType.DEF)
+                VariableType.DEF, context.currentMethod)
         context.pushSymbolTable()
         context.symbolTable[c.name] := error
         def statement := convertStatement(c.statement)
@@ -2312,15 +2369,197 @@ class IRGenerator {
         return new Throw(t.position, error)
     }
 
+    @class
+    function toASTType(position:Position, var t:Type):ASTType {
+        def nullable:Bit
+        if t-?>(NullableType) {
+            nullable := true
+            t := t->(NullableType).base
+        }
+        else
+            nullable := false
+        if t-?>(MethodType) {
+            def m := t->(MethodType)
+            def parameters := new Array<ASTType>()
+            for p in m.methodParameters
+                parameters.add(toASTType(position, p))
+            return new ASTMethodType(position, parameters, 
+                    toASTType(position, m.returnType), nullable, m.isFunction, 
+                    m.immutableMethod)
+        }
+        else if t-?>(TupleType) {
+            def tuple := t->(TupleType)
+            def types := new Array<ASTType>()
+            for type in tuple.types
+                types.add(toASTType(position, type))
+            return new ASTTupleType(position, types, nullable)
+        }
+        else if t-?>(GenericType) {
+            def g := t->(GenericType)
+            def parameters := new Array<ASTType>()
+            for p in g.parameters
+                parameters.add(toASTType(position, p))
+            return new ASTClassType(position, g.base.name, parameters, nullable)
+        }
+        return new ASTClassType(position, t.name, null, nullable)
+    }
+
     method convertLambda(l:ASTLambdaExpression):Value? {
-        context.errors.warning("lambdas are not yet supported", l.position)
-        return null
+        def allTyped := l.parameters.filter(p => p.type = null).length = 0
+        def value:Value?
+        if allTyped {
+            context.pushSymbolTable()
+            def parameters := new Array<ASTParameter>()
+            for p in l.parameters {
+                parameters.add(new ASTParameter(p.position, p.identifier, 
+                        p.type->(ASTType), false, false, false))
+                def type := resolve(p.type->(ASTType))
+                if type = null
+                    return null
+                context.symbolTable[p.identifier] := new LocalVariable(
+                        p.position, p.identifier, type, VariableType.DEF,
+                        context.currentMethod)
+            }
+            def expr := resolve(l.value)
+            if expr = null
+                return null
+            context.popSymbolTable()
+            def statements := new Array<ASTStatement>()
+            statements.add(new ASTReturn(l.position, l.value))
+            def body := new ASTBlock(l.position, statements)
+            def methodValue := new ASTMethodValue(l.position, 
+                    MethodNodeType.FUNCTION, parameters, 
+                    toASTType(l.position, expr.type), body)
+            value := convertMethodValue(methodValue)
+        }
+        else
+            value := null
+        def names := new Array<String>()
+        def types := new Array<ASTType?>()
+        for p in l.parameters {
+            names.add(p.identifier)
+            types.add(p.type)
+        }
+        return new UnresolvedLambda(context, l.position, names, types, l.value,
+                value)
+    }
+
+    function methodNames():ListView<String> {
+        def result := new Array<String>()
+        for m in context.methods
+            result.add(m.stub.name)
+        return result
+    }
+
+    function createClosureConstructorAndFields(position:Position,
+            captures:Set<Variable>, owner:ClassType):(MethodStub, ListView<FieldNode>) {
+        def parameters := new Array<FormalParameter>()
+        def fields := new Array<FieldNode>()
+        for v in captures {
+            parameters.add(new FormalParameter(position, v.name, v.type, 
+                    false, false, false))
+            fields.add(new FieldNode(position, owner, v.name, 
+                    new Annotations(position), VariableType.DEF, v.type, null,
+                    null))
+        }
+        def body := new Array<ASTStatement>()
+        for i, field in fields {
+            def lvalues := new Array<ASTExpression>()
+            lvalues.add(new ASTDotExpression(new ASTIdentifier(position, 
+                    Parameter.SELF_NAME), field.name))
+            body.add(new ASTAssignment(lvalues, null,
+                    new ASTIdentifier(position, field.name)))
+        }
+        def stub := new MethodStub(position, MethodNode.CONSTRUCTOR_NAME, 
+                new Annotations(position), MethodNodeType.CONSTRUCTOR, 
+                parameters, VoidType.VOID, new ASTBlock(position, body), 
+                owner)
+        return (stub, fields)
     }
 
     method convertMethodValue(m:ASTMethodValue):Value? {
-        context.errors.warning("method values are not yet supported", 
-                m.position)
-        return null
+        def className := "$closure" + nameCount
+        nameCount += 1
+        def closureType := new ClassType(className)
+        def oldLocals := new Array<LocalVariable>(context.localVariables)
+        context.localVariables.clear()
+        def lastMethod := context.currentMethod
+        def formalParameters := new Array<FormalParameter>()
+        for p in m.parameters {
+            def type := resolve(p.type)
+            if type = null
+                return null
+            formalParameters.add(new FormalParameter(p.position, p.name, type, 
+                    p.isVar, p.isConvert, p.isVarArg))
+        }
+        def returnType:Type?
+        if m.returnType != null {
+            returnType := resolve(m.returnType->(ASTType))
+            if returnType = null
+                return null
+        }
+        else
+            returnType := VoidType.VOID
+        def methodStub := new MethodStub(m.position, 
+                "$anonymous\{nameCount}", new Annotations(m.position), 
+                m.methodType, formalParameters, returnType, m.body, 
+                closureType)
+        context.currentMethod := methodStub
+        nameCount += 1
+        context.pushSymbolTable()
+        def parameters := new Array<Parameter>()
+        for formal in m.parameters {
+            def type := resolve(formal.type)
+            if type = null
+                return null
+            def p := new Parameter(formal.position, formal.name, type, 
+                    formal.isVar, formal.isConvert, formal.isVarArg, 
+                    methodStub)
+            parameters.add(p)
+            context.symbolTable[p.name] := p
+        }
+        if !lastMethod.annotations.isClass {
+            def selfType := lastMethod.owner
+            def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
+                    selfType, false, false, false, methodStub)
+            context.symbolTable[selfParam.name] := selfParam
+        }
+        context.captures.push(new HashSet<Variable>())
+        -- need to convertBlock in order to grab captures
+        convertBlock(m.body->(ASTBlock))
+        for f in context.captures.peek
+            if f.name = "self"
+                Console.writeLine("CAPTURED SELF AT: \{m.position}")
+        def closureSymbols := new OrderedMap<String, Symbol>()
+        def closureConstructor, closureFields := createClosureConstructorAndFields(
+                m.position, context.captures.peek(), closureType)
+        def closureAnnotations := new Array<AnnotationType>()
+        closureAnnotations.add(AnnotationType.SYNTHETIC)
+        closureSymbols[methodStub.name] := new Methods(methodStub)
+        closureSymbols[closureConstructor.name] := 
+                new Methods(closureConstructor)
+        for f in closureFields
+            closureSymbols[f.name] := f
+        def lookupContext := context.currentClass.lookupContext
+        def closureStub := new ClassStub(m.position, closureType, 
+                false, new Annotations(m.position, closureAnnotations), 
+                null, new Array<ClassType>(), closureSymbols, lookupContext,
+                new Array<ASTInvariant>(), null, false, 
+                context.currentClass.type)
+        context.classes[closureStub.name] := closureStub
+        context.popSymbolTable()
+        context.localVariables.clear()
+        context.localVariables.addAll(oldLocals)
+        context.currentMethod := lastMethod
+        def constructorParameters := new Array<Value>()
+        for v in context.captures.peek
+            constructorParameters.add(new VariableReference(m.position, v))
+        def closureInstance := new Construct(new MethodCall(m.position, 
+                new ClassLiteral(m.position, closureType), 
+                closureConstructor, constructorParameters))
+        context.captures.pop()
+        return new MethodReference(context, m.position, closureInstance, 
+                methodStub)
     }
 
     function callsOtherSelfConstructor(owner:ClassType,
@@ -2360,7 +2599,8 @@ class IRGenerator {
         def parameters := new Array<Parameter>()
         for formal in m.parameters {
             def p := new Parameter(formal.position, formal.name, formal.type, 
-                    formal.isVar, formal.isConvert, formal.isVarArg)
+                    formal.isVar, formal.isConvert, formal.isVarArg,
+                    context.currentMethod)
             parameters.add(p)
             context.symbolTable[p.name] := p
         }
@@ -2371,7 +2611,7 @@ class IRGenerator {
             else
                 selfType := m.owner
             def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
-                    selfType, false, false, false)
+                    selfType, false, false, false, context.currentMethod)
             context.symbolTable[selfParam.name] := selfParam
         }
         var body := convertBlock(m.body->(ASTBlock))
@@ -2381,7 +2621,8 @@ class IRGenerator {
             for f in context.currentClass.fields {
                 if !f.annotations.isClass & !f.annotations.isThread {
                     if f.initialValue != null {
-                        def initialValue := resolve(f.initialValue->(ASTExpression))
+                        def initialValue := resolve(
+                                f.initialValue->(ASTExpression))
                         if initialValue != null {
                             statements.add(new FieldAssignment(f.position,
                                     context.getSelf(f.position), f,
@@ -2406,14 +2647,17 @@ class IRGenerator {
     }
 
     method convertClass(cl:ClassStub):ClassNode {
-        def methods := new Array<MethodNode>()
+        context.methods.clear()
         pushSymbols(cl)
         for f in cl.fields
             inferFieldType(f)
-        for m in cl.methods.filter(m => m.body != null)
-            methods.add(convertMethod(m))
+        for m in cl.methods.filter(m => m.body != null) {
+            if cl.annotations.isUnspecified & !m.annotations.isClass
+                continue
+            context.methods.add(convertMethod(m))
+        }
         context.popSymbolTable()
-        return new ClassNode(cl, methods)
+        return new ClassNode(cl, context.methods)
     }
 
     method inferFieldType(f:FieldNode) {
@@ -2439,7 +2683,7 @@ class IRGenerator {
         pushSymbols(context.getStub(f.owner))
         if !f.annotations.isClass & !f.annotations.isThread {
             def selfParam := new Parameter(f.position, Parameter.SELF_NAME,
-                    f.owner, false, false, false)
+                    f.owner, false, false, false, context.currentMethod)
             context.symbolTable[selfParam.name] := selfParam
         }        
         def expr := resolve(f.initialValue->(ASTExpression))
@@ -2456,10 +2700,11 @@ class IRGenerator {
 
     @private
     method createAllStubs() {
+        def FIXMEself := self
         def createStub := method(t:Type) {
             if !t.isPrimitive & t != VoidType.VOID & 
                     t != NativePointerType.NATIVE_POINTER
-                context.getStub(t->>(ClassType))
+            FIXMEself.context.getStub(t->>(ClassType))
         }
         var progress:Bit
         def checked := new HashSet<ClassStub>()
@@ -2522,8 +2767,9 @@ class IRGenerator {
                 if f.varType = VariableType.PROPERTY {
                     context.symbolTables.remove(cl)
                     cl.symbols.remove(f.name)
+                    def name := f.name[0 .. f.name.length - "$PROPERTY".length]
                     def field := new FieldNode(f.position, cl.type, "_" + 
-                            f.name, f.annotations, VariableType.VAR, f.type, 
+                            name, f.annotations, VariableType.VAR, f.type, 
                             f.initialValue, f.tuplePosition)
                     StubGenerator.addSymbol(field, cl.symbols, context.errors)
 
@@ -2531,7 +2777,7 @@ class IRGenerator {
                     getterStatements.add(new ASTReturn(f.position, 
                             new ASTIdentifier(f.position, field.name)))
                     def getterBody := new ASTBlock(f.position, getterStatements)
-                    def getter := new MethodStub(f.position, f.name, 
+                    def getter := new MethodStub(f.position, name, 
                             new Annotations(f.position), 
                             MethodNodeType.FUNCTION, 
                             new Array<FormalParameter>(), f.type, getterBody, 
@@ -2553,7 +2799,7 @@ class IRGenerator {
                     def setterAnnotations := new Annotations(f.position, 
                             annotationTypes)
                     def setter := new MethodStub(f.position, 
-                            f.name + ":=", setterAnnotations, 
+                            name + ":=", setterAnnotations, 
                             MethodNodeType.METHOD, parameters, VoidType.VOID, 
                             setterBody, cl.type)
                     StubGenerator.addSymbol(setter, cl.symbols, context.errors)
@@ -2601,7 +2847,7 @@ class IRGenerator {
             createProperties()
             createThreadLocalInitializers()
             def filtered := context.classes.values.filter(cl => !cl.isExternal & 
-                    !classes.contains(cl.name) & !cl.annotations.isUnspecified)
+                    !classes.contains(cl.name))
             for cl in filtered {
                 classes[cl.name] := convertClass(cl)
                 madeProgress := true

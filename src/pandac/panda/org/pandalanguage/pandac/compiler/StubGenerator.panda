@@ -125,7 +125,7 @@ class StubGenerator {
         aliasType("Int", IntType.INT32, symbolTable, dummy)
         aliasType("UInt", IntType.UINT32, symbolTable, dummy)
         aliasType("Real", RealType.REAL64,symbolTable, dummy)
-        masterSymbolTable := symbolTable->>(SymbolTable)
+        masterSymbolTable := symbolTable
         scanFiles()
     }
 
@@ -311,8 +311,11 @@ class StubGenerator {
             unreachable
         if result = null
             return null
-        if type.isNullable
-            result := new NullableType(result->>(ClassType))
+        if type.isNullable {
+            if result.isPrimitive
+                result := result->>(ClassType)
+            result := new NullableType(result)
+        }
         def cached := types[result.name]
         if cached != null
             return cached
@@ -783,7 +786,7 @@ class StubGenerator {
                 cl.isInterface, annotations, superclass->(ClassType?), 
                 interfaces, new OrderedMap<String, Symbol>(symbols), 
                 new LookupContext(packageUses, classAliases), cl.invariants, 
-                cl.genericParameters, cl.isExternal)
+                cl.genericParameters, cl.isExternal, null)
     }
 
     method convertEnum(e:ASTEnum, currentPackage:String?,
@@ -862,30 +865,30 @@ class StubGenerator {
                 false, annotations, ClassType.ENUMERATION, 
                 new Array<ClassType>(), new OrderedMap<String, Symbol>(symbols),
                 new LookupContext(), new Array<ASTInvariant>(), null, 
-                e.isExternal)
+                e.isExternal, null)
+    }
+
+    @class
+    method addSymbol(m:MethodStub, map:Map<String, Symbol>, 
+            errors:ErrorReporter) {
+        def methods := map[m.name]
+        if methods = null {
+            def list := new Array<MethodStub>()
+            list.add(m)
+            map[m.name] := new Methods(list)
+        }
+        else if methods-?>(Methods)
+            map[m.name] := methods->(Methods) + m
+        else {
+            errors.error("invalid redefinition of symbol '\{m.name}'",
+                    m.position)
+        }
     }
 
     @class
     method addSymbol(s:Symbol, map:Map<String, Symbol>, errors:ErrorReporter) {
-        if s-?>(MethodStub) {
-            def m := s->(MethodStub)
-            def methods := map[m.name]
-            if methods = null {
-                def list := new Array<MethodStub>()
-                list.add(m)
-                map[m.name] := new Methods(list)
-            }
-            else if methods-?>(Methods)
-                map[m.name] := methods->(Methods) + m
-            else {
-                errors.error("invalid redefinition of symbol '\{m.name}'",
-                        m.position)
-            }
-        }
-        else {
-            assert(map[s.name] = null)
-            map[s.name] := s
-        }
+        assert(map[s.name] = null)
+        map[s.name] := s
     }
 
     method getPackage(name:String, position:Position):MutablePackage? {
@@ -1036,7 +1039,7 @@ class StubGenerator {
                     null, new Array<ClassType>(), 
                     new OrderedMap<String, Symbol>(implicitClassSymbols), 
                     new LookupContext(packageUses, classAliases), 
-                    new Array<ASTInvariant>(), null, false)
+                    new Array<ASTInvariant>(), null, false, null)
             result.add(implicitClass)
             addType(implicitClass.type, implicitClass.position)
         }

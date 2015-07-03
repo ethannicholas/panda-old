@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     executablePath = pandaNewString(argv[0], strlen(argv[0]));
     argc--;
     argv++;
-    arg = (String$Array*) pandaNewPrimitiveArrayWithLength(&panda$core$String$Array_class, 
+    arg = (String$Array*) pandaNewPrimitiveArrayWithLength(&panda$collections$Array$LTpanda$core$String$GT_class, 
             argc, sizeof(String*), true);
     String** contents = (String**) arg->contents;
     int i;
@@ -188,8 +188,10 @@ String* pandaNewString(const char* chars, int byteLength) {
     if (byteLength == -1)
         byteLength = strlen(chars);
     Int32 length = byteLength;
-    Char$ImmutableArray* data = (Char$ImmutableArray*) pandaNewPrimitiveArrayWithLength(
-            &Char$ImmutableArray_class, length, sizeof(Char), false);
+    panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* data = 
+            (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
+            &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
+            length, sizeof(Char), false);
     int i;
     for (i = 0; i < byteLength; i++)
         data->contents[i] = chars[i];
@@ -575,12 +577,12 @@ void pandaFatalError(const char* msg) {
     __builtin_trap();
 }
 
-panda$core$StackTraceEntry$ImmutableArray* panda$core$Error$getStackTrace(
+panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT* panda$core$Error$getStackTrace(
         panda$core$Error* self) {
     (void) self;
-    panda$core$StackTraceEntry$ImmutableArray* result = 
-            (panda$core$StackTraceEntry$ImmutableArray*) 
-            pandaNewPrimitiveArrayWithLength(&panda$core$StackTraceEntry$ImmutableArray_class, 
+    panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT* result = 
+            (panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT*) 
+            pandaNewPrimitiveArrayWithLength(&panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT_class, 
                     0, sizeof(panda$core$StackTraceEntry*), true);
 
     unw_cursor_t    cursor;
@@ -669,7 +671,7 @@ short panda$io$FileInputStream$readInt8_$NativePointer(void* handle) {
 }
 
 Int32 panda$io$FileInputStream$read(
-        panda$io$FileInputStream* self, Int8$Array* b, Int32 offset, 
+        panda$io$FileInputStream* self, panda$collections$PrimitiveArray$LTpanda$core$Int8$GT* b, Int32 offset, 
         Int32 length) {
     return fread(b->contents + offset, length, 1, (FILE*) self->nativeFile);
 }

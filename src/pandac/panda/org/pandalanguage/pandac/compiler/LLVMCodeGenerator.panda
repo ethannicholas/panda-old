@@ -36,6 +36,7 @@ uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodReference
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
@@ -144,6 +145,8 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def references := new HashMap<Value, String>()
 
+    def methodReferences := new HashMap<MethodStub, String>()
+
     def loops := new Stack<AbstractLoop>()
 
     def nextLabels := new HashMap<AbstractLoop, String>()
@@ -199,12 +202,11 @@ class LLVMCodeGenerator (CodeGenerator) {
             writtenStubs.add(name)
             if !stub.annotations.isUnspecified
                 writeTypeDescriptor(stub)
-            if stub.isExternal | stub.annotations.isUnspecified {
+            if stub.isExternal {
                 -- write external stubs
                 for m in stub.methods {
-                    if !stub.annotations.isUnspecified | m.annotations.isClass {
+                    if !stub.annotations.isUnspecified | m.annotations.isClass
                         writeMethodDeclaration(m)
-                    }
                 }
                 for f in stub.fields {
                     if (!stub.annotations.isUnspecified | 
@@ -787,7 +789,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    method getCharPrimitiveArrayConstantReference(chars:PrimitiveArray<Char>):String {
+    method getCharPrimitiveArrayConstantReference(chars:ListView<Char>):String {
         def charPrimitiveArrayClass := getStub(
                 PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
         def cc := getClassConstant(charPrimitiveArrayClass)
@@ -823,9 +825,9 @@ class LLVMCodeGenerator (CodeGenerator) {
         var result := stringConstants[s]
         if result = null {
             def string := getStub(ClassType.STRING)
-            def primitiveChars := new PrimitiveArray<Char>()
+            def primitiveChars := new Array<Char>()
             for c in s
-                primitiveChars.append(c)
+                primitiveChars.add(c)
             def chars := getCharPrimitiveArrayConstantReference(primitiveChars)
             result := "@s" + stringConstants.length
             stringConstants[s] := result
@@ -1198,8 +1200,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         else {
             def cl := getStub(object.type->>(ClassType))
             def fields := cl.instanceFields(context)
-            for i in 0 .. fields.length {
-                if fields[i] = field {
+            for i, f in fields {
+                if f = field {
                     return createCommandReference("getelementptr inbounds " + 
                         getTypedReference(object) + 
                         ", i32 0, i32 " + i, "field pointer: " + object + "." +
@@ -1422,11 +1424,30 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     
     @protected
+    method createMethodReference(m:MethodReference):String? {
+        def stub := m.methodStub
+        var methodValue := methodReferences[stub]
+        if methodValue = null {
+            methodValue := "@" + getName(stub) + "_value"
+            def methodClass := m.type->>(ClassType)
+            def cc := getClassConstant(getStub(methodClass))
+            header.writeLine("\{methodValue} = private unnamed_addr " +
+                    "constant %\{getName(getStub(methodClass))} { " + 
+                    "\{getLLVMType(ClassType.CLASS)} bitcast(\{cc.type}" + 
+                    "* @\{cc.name} to \{getLLVMType(ClassType.CLASS)}" + 
+                    "), i8* bitcast(\{getLLVMMethodType(stub)} @" + 
+                    "\{getName(stub)} to i8*) }, " +
+                    "align \{POINTER_SIZE}")
+            methodReferences[stub] := methodValue
+        }
+        return methodValue
+    }
+
+    @protected
     method createDynamicCallReference(d:DynamicCall):String? {
         def methodValue := getTypedReference(d.methodValue)
         def object := getClassConstant(getStub(ClassType.METHOD))
         var offset := object.methods.length
-        -- FIXME uncomment this when shimming works
         if !d.type.isPrimitive
             offset += 1 -- shimmed
         -- the "real" type of the method includes a reference to the method 
@@ -1500,9 +1521,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(ClassLiteral): return createClassLiteralReference(v->(ClassLiteral))
             case class(ClassObjectLiteral): return createClassObjectLiteralReference(v->(ClassObjectLiteral))
             case class(Unwrap): return createReference(v->(Unwrap).value)
-    -*
-            case class(MethodValue): return createMethodValueReference(v->(MethodValue))
-    *-
+            case class(MethodReference): return createMethodReference(v->(MethodReference))
             case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
             case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
             case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) 

@@ -26,6 +26,8 @@ A tuple; there is a `TupleType` for each different combination of types. Tuples
 must have at least two values.
 ================================================================================
 class TupleType : ClassType {
+    constant FIELD_PREFIX := "$field"
+
     def types:ImmutableArray<Type>
 
     constructor(types:ListView<Type>) {
@@ -55,6 +57,29 @@ class TupleType : ClassType {
         return self
     }
 
+    @override
+    function implicitCastCost(context:Context, target:Type):Int? {
+        if target.isNullable {
+            def result := implicitCastCost(context, target.unwrapNullable)
+            if result != null
+                return result + NullableType.TO_NULLABLE_CAST_COST
+            else
+                return null
+        }
+        if target-?>(TupleType) {
+            def tuple := target->(TupleType)
+            var total := 0
+            for i, t in types {
+                def cost := t.implicitCastCost(context, tuple.types[i])
+                if cost = null
+                    return null
+                total += cost
+            }
+            return total
+        }
+        return super.implicitCastCost(context, target)
+    }
+
     method createStub(elementStubs:Array<ClassStub?>, 
             context:Context):ClassStub {
         var isImmutable := true
@@ -82,7 +107,7 @@ class TupleType : ClassType {
         def finalAnnotations := new Annotations(position, finalAnnotation)
         def parameters := new Array<FormalParameter>()
         for i, type in types {
-            def field := new FieldNode(position, self, "$field" + i, 
+            def field := new FieldNode(position, self, FIELD_PREFIX + i, 
                     finalAnnotations, VariableType.DEF, type, null, null)
             symbols[field.name] := field
 
@@ -100,6 +125,7 @@ class TupleType : ClassType {
         return new ClassStub(position, self, false, new Annotations(position, 
                     classAnnotations), 
                 superclass, new Array<ClassType>(), symbols,
-                new LookupContext(), new Array<ASTInvariant>(), null, false)
+                new LookupContext(), new Array<ASTInvariant>(), null, false,
+                null)
     }    
 }

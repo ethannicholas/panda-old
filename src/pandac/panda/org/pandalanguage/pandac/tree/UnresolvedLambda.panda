@@ -1,0 +1,150 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.ast.ASTExpression
+uses org.pandalanguage.pandac.ast.ASTMethodValue
+uses org.pandalanguage.pandac.ast.ASTParameter
+uses org.pandalanguage.pandac.ast.ASTReturn
+uses org.pandalanguage.pandac.ast.ASTStatement
+uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.compiler.ErrorReporter
+uses org.pandalanguage.pandac.compiler.IRGenerator
+uses org.pandalanguage.pandac.stubs.Methods
+uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.MethodType
+uses org.pandalanguage.pandac.types.NullableType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.StringOrCharType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.UnresolvedType
+
+class DummyErrorReporter : ErrorReporter {
+    @override
+    method error(message:String, position:Position) {
+    }
+
+    @override
+    method warning(message:String, position:Position) {
+    }
+}
+
+class UnresolvedLambda : UnresolvedValue {
+    def parameterNames:ImmutableArray<String>
+
+    def parameterTypes:Array<ASTType?>
+
+    def expression:ASTExpression
+
+    @pre(parameterNames.length = parameterTypes.length)
+    constructor(context:Context, position:Position, 
+            parameterNames:ListView<String>, parameterTypes:ListView<ASTType?>,
+            expression:ASTExpression, value:Value?) {
+        super.constructor(position, "<lambda>", value)
+        self.parameterNames := new ImmutableArray<String>(parameterNames)
+        self.parameterTypes := new Array<ASTType?>(parameterTypes)
+        self.expression := expression
+    }
+
+    method determineReturnType(context:Context, types:ListView<Type>):Type? {
+        def ir := new IRGenerator(context.root, context.classes,
+                context.stubGenerator, context.compilerSettings,
+                new DummyErrorReporter())
+        ir.context.pushSymbolTable()
+        ir.context.symbolTable.addAll(context.symbolTable)
+        ir.context.captures.push(new HashSet<Variable>())
+        def dummyMethod := context.getSymbolTable(
+                context.getStub(ClassType.OBJECT))["constructor"]->(Methods).methods[0]
+        ir.context.currentMethod := dummyMethod
+        for i, t in types {
+            ir.context.symbolTable[parameterNames[i]] := new LocalVariable(
+                    position, parameterNames[i], t, VariableType.DEF,
+                    dummyMethod)
+        }
+        def result := ir.convertExpression(expression)
+        if result != null
+            return result.type
+        return null
+    }
+
+    @override
+    @unsafeFunction
+    function implicitCastCost(context:Context, t:Type):Int? {
+        if t.isMethod {
+            def m := t->>(MethodType)
+            def types := new Array<Type>()
+            for i, p in parameterTypes {
+                if p != null & p != m.methodParameters[i]
+                    return null
+                types.add(m.methodParameters[i])
+            }
+            def returnType := determineReturnType(context, types)
+            if returnType != null
+                return returnType.implicitCastCost(context, m.returnType)
+            return null
+        }
+        if value = null
+            return null
+        return value->(Value).implicitCastCost(context, t)
+    }
+
+    @override
+    method implicitCast(position:Position, context:Context, t:Type):Value {
+        if t.isMethod {
+            def m := t->>(MethodType)
+            def ir := new IRGenerator(context.root, context.classes,
+                    context.stubGenerator, context.compilerSettings,
+                    new DummyErrorReporter())
+            def parameters := new Array<ASTParameter>()
+            for i, name in parameterNames {
+                parameters.add(new ASTParameter(position, name, 
+                        IRGenerator.toASTType(position, m.methodParameters[i]), 
+                        false, false, false))
+            }
+            def statements := new Array<ASTStatement>()
+            statements.add(new ASTReturn(position, expression))
+            def body := new ASTBlock(position, statements)
+            def methodValue := new ASTMethodValue(position, 
+                    MethodNodeType.FUNCTION, parameters, 
+                    IRGenerator.toASTType(position, m.returnType), body)
+            ir.context.pushSymbolTable()
+            ir.context.symbolTable.addAll(context.symbolTable)
+            ir.context.currentClass := context.currentClass
+            def result := ir.convertMethodValue(methodValue)
+            context.classes.addAll(ir.context.classes)
+            if result = null
+                return new Dummy(position, t)
+            return result.implicitCast(position, context, t)
+        }
+        else
+            return super.implicitCast(position, context, t)
+    }
+
+    @override
+    function canExplicitCastTo(context:Context, t:Type):Bit {
+        return implicitCastCost(context, t) != null
+    }
+
+    @override
+    method reportError(context:Context) {
+    	unreachable
+    }
+
+    @override
+    function format(fmt:String):String {
+        def result := new MutableString()
+        for i, name in parameterNames {
+            if i > 0
+                result.append(", ")
+            result.append(name)
+            def type := parameterTypes[i]
+            if type != null
+                result.append(":\{type}")
+        }
+        result.append(" => ")
+        result.append(expression)
+        return result->>(String)
+    }
+}
