@@ -604,7 +604,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def methodPtrPtr := getTempVariable()
         writeBody(methodPtrPtr + " = getelementptr inbounds " +
                 "%$itable* " + itablePtr + ", i32 0, i32 2, i32 " + 
-                methodIndex, "get pointer to pointer to " + m.owner + "." + 
+                methodIndex, "get pointer to pointer to " + m.owner.name + "." + 
                 m.name + ":" + m.returnType.name)
         def cast := getTempVariable()
         body.writeLine(cast + " = bitcast i8** " + methodPtrPtr +
@@ -627,7 +627,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method createMethodCallReference(mc:MethodCall):String? {
         def m := mc.methodStub
         def methodRef:String
-        if program.isEffectivelyVirtual(m) & mc.target-!>(Super) {
+        if program.isEffectivelyVirtual(m) & IRGenerator.unwrapCast(mc.target)-!>(Super) {
             assert !m.annotations.isClass : "expected method not to be @class"
             def target := mc.target->(Value)
             def classStub := getStub(target.type->>(ClassType))
@@ -638,6 +638,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         else
             methodRef := "@" + getName(m)
+
         def text := new MutableString("fastcc \{getLLVMMethodType(m)} \{methodRef}(")
         def parameters := mc.parameters
         if !m.annotations.isClass {
@@ -1178,7 +1179,8 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     method callClassInit(cl:ClassStub) {
-        if currentMethod->(MethodNode).stub.name = MethodNode.CLASS_INIT_NAME
+        if currentMethod->(MethodNode).stub.name = MethodNode.CLASS_INIT_NAME &
+                currentMethod->(MethodNode).stub.owner = cl.type
             return
         def classInit := cl.methods.filter(
                 m => m.name = MethodNode.CLASS_INIT_NAME)
@@ -1225,6 +1227,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 suffix := "Object"
                 type := ClassType.OBJECT
             }
+
             def threadLocalId := getTempVariable()
             def symbolTable := context.getSymbolTable(context.getStub(owner))
             def indexField := symbolTable[fr.field.name + 
@@ -1398,6 +1401,11 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
         
     @protected
+    method createSuperReference(s:Super):String {
+        return "%self"
+    }
+
+    @protected
     method createReusedValueDefinitionReference(rvd:ReusedValueDefinition):String {
         def result := getReference(rvd.value)
         assert result != null : "null reference for ReusedValueDefinition " + rvd
@@ -1525,6 +1533,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
             case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
             case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) 
+            case class(Super): return createSuperReference(v->(Super))
             default: {
                 throw new CompilerException("unsupported value class: " + 
                         "\{v.class.name}: \{v}", v.position)
@@ -2119,16 +2128,16 @@ class LLVMCodeGenerator (CodeGenerator) {
             throw new CompilerException("could not determine parent " +
                     "directory of " + target.path)
         }
-        def unoptTarget := parent.resolve(target.name + ".unopt")
+        def unoptTarget := parent.resolve(target.name)-- + ".unopt")
         def out := new BufferedOutputStream(unoptTarget.openOutputStream())
         out.write(headerBuffer->>(String))
         out.write(bodyBuffer->>(String))
         out.close()
 
-        def opt := PandaCompiler.getLLVMHome().resolve("opt")
+-*        def opt := PandaCompiler.getLLVMHome().resolve("opt")
         System.exec(opt, unoptTarget.path, "-o", target.path, "-O3",
                 "-q", "-f", "-S")
         if !context.compilerSettings.preserveTempArtifacts
-            unoptTarget.delete()
+            unoptTarget.delete()*-
     }
 }

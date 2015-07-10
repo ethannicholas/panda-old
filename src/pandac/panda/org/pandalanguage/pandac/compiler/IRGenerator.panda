@@ -208,13 +208,14 @@ class IRGenerator {
             var name:String, allowNoArgFunctions:Bit):Value? {
         if name = "class"
             name := "$class"
-        if contextValue-?>(Super) {
-            def stub := context.getStub(context.currentClass.type)
-            contextValue := context.getSelf(position).implicitCast(context,
-                    stub.superclass->(ClassType))
-        }
         if contextValue-?>(ClassLiteral) {
             def type := contextValue->(ClassLiteral).value->>(ClassType)
+            def member := context.getSymbolTable(context.getStub(type))[name]
+            if member != null
+                return symbolReference(position, contextValue, member)
+        }
+        if contextValue-?>(Super) {
+            def type := context.getStub(context.getSelf(position).type->(ClassType)).superclass->(ClassType)
             def member := context.getSymbolTable(context.getStub(type))[name]
             if member != null
                 return symbolReference(position, contextValue, member)
@@ -253,6 +254,7 @@ class IRGenerator {
                 return null
             parameters.add(converted)
         }
+        def debug := c.position->>(String).contains("MemoryOutputStream.panda:79")
         if target-?>(UnresolvedIdentifier) {
             if context.isInstance {
                 def test := context.testCall(c.position, context.getSelf(
@@ -714,20 +716,23 @@ class IRGenerator {
             return null
         def parameters := new Array<Value>()
         for p in n.parameters {
-            def resolved := resolve(p)
-            if resolved = null
+            def expr := convertExpression(p)
+            if expr = null
                 return null
-            parameters.add(resolved)
+            parameters.add(expr)
         }
         if type-?>(PrimitiveArrayType) {
+            def elementType := type->(PrimitiveArrayType).parameters[0]
             if parameters.length = 1 &
                     parameters[0].canImplicitCastTo(context, IntType.INT32) {
                 def cast := parameters[0].implicitCast(context, IntType.INT32)
                 return new NewPrimitiveArrayWithLength(n.position, 
                         type->>(PrimitiveArrayType), cast)
             }
-            else if parameters.length > 0 &
-                    parameters[0].type.isPrimitiveArray {
+            else if parameters.length = 1 &
+                    parameters[0].type.isPrimitiveArray &
+                    parameters[0].type->(PrimitiveArrayType).parameters[0] =
+                        elementType {
                 return new PrimitiveArrayCopy(n.position, 
                         type->(PrimitiveArrayType), parameters[0])
             }
@@ -737,8 +742,11 @@ class IRGenerator {
                             n.position, 0, IntType.INT32, true))
             }
             else {
+                def casted := new Array<Value>()
+                for p in parameters
+                    casted.add(p.implicitCast(context, elementType))
                 return new NewPrimitiveArrayWithValues(n.position, 
-                        type->>(PrimitiveArrayType), parameters)
+                        type->>(PrimitiveArrayType), casted)
             }
         }
         def constructors := context.getSymbolTable(
@@ -844,8 +852,8 @@ class IRGenerator {
     }
 
     method convertSuper(s:ASTSuper):Value? {
-        if context.symbolTable[Parameter.SELF_NAME] != null {
-            return new Super(s.position)
+        if context.isInstance {
+            return new Super(s.position, context.currentClass.type)
         }
         context.errors.error(SuperType.ERROR_MESSAGE, s.position)
         return null
@@ -1793,6 +1801,7 @@ class IRGenerator {
         return value
     }
 
+    @class
     method unwrapCast(v:Value):Value {
         if v-?>(Cast)
             return unwrapCast(v->(Cast).value)
@@ -2541,9 +2550,10 @@ class IRGenerator {
         for f in closureFields
             closureSymbols[f.name] := f
         def lookupContext := context.currentClass.lookupContext
+        def superclass := ClassType.METHOD
         def closureStub := new ClassStub(m.position, closureType, 
                 false, new Annotations(m.position, closureAnnotations), 
-                null, new Array<ClassType>(), closureSymbols, lookupContext,
+                superclass, new Array<ClassType>(), closureSymbols, lookupContext,
                 new Array<ASTInvariant>(), null, false, 
                 context.currentClass.type)
         context.classes[closureStub.name] := closureStub
@@ -2558,8 +2568,8 @@ class IRGenerator {
                 new ClassLiteral(m.position, closureType), 
                 closureConstructor, constructorParameters))
         context.captures.pop()
-        return new MethodReference(context, m.position, closureInstance, 
-                methodStub)
+        return new Cast(m.position, closureInstance, methodStub.type(context),
+                CastType.IMPLICIT)
     }
 
     function callsOtherSelfConstructor(owner:ClassType,
@@ -2585,7 +2595,7 @@ class IRGenerator {
                 if value-?>(MethodCall) {
                     var call := value->(MethodCall)
                     if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
-                        return call.parameters[0].type != owner
+                        return call.target.type != owner
                 }
             }
         }
@@ -2615,24 +2625,36 @@ class IRGenerator {
             context.symbolTable[selfParam.name] := selfParam
         }
         var body := convertBlock(m.body->(ASTBlock))
-        if m.methodType = MethodNodeType.CONSTRUCTOR & 
-                !callsOtherSelfConstructor(m.owner, body.statements) {
-            def statements := new Array<Statement>()
-            for f in context.currentClass.fields {
-                if !f.annotations.isClass & !f.annotations.isThread {
-                    if f.initialValue != null {
-                        def initialValue := resolve(
-                                f.initialValue->(ASTExpression))
-                        if initialValue != null {
-                            statements.add(new FieldAssignment(f.position,
-                                    context.getSelf(f.position), f,
-                                    initialValue.implicitCast(context, f.type)))
+        if m.methodType = MethodNodeType.CONSTRUCTOR {
+            def callsOther := callsOtherSelfConstructor(m.owner, body.statements)
+            def callsSuper := callsSuperConstructor(m.owner, body.statements)
+            if !callsOther {
+                def statements := new Array<Statement>()
+                for f in context.currentClass.fields {
+                    if !f.annotations.isClass & !f.annotations.isThread {
+                        if f.initialValue != null {
+                            def initialValue := resolve(
+                                    f.initialValue->(ASTExpression))
+                            if initialValue != null {
+                                statements.add(new FieldAssignment(f.position,
+                                        context.getSelf(f.position), f,
+                                        initialValue.implicitCast(context, f.type)))
+                            }
                         }
                     }
                 }
+                statements.addAll(body.statements)
+                body := new Block(body.position, statements)
             }
-            statements.addAll(body.statements)
-            body := new Block(body.position, statements)
+            if !callsOther & !callsSuper & m.owner != ClassType.OBJECT {
+                def statements := new Array<Statement>()
+                def superCall := context.call(m.position, new Super(m.position, m.owner),
+                        MethodNode.CONSTRUCTOR_NAME, new Array<Value>())
+                if superCall != null
+                    statements.add(new ValueStatement(superCall))
+                statements.addAll(body.statements)
+                body := new Block(body.position, statements)
+            }
         }
         def result := new MethodNode(m, body, parameters, 
                 context.localVariables)
@@ -2698,14 +2720,14 @@ class IRGenerator {
         currentlyInferring.remove(f)
     }
 
+    method createStub(t:Type) {
+        if !t.isPrimitive & t != VoidType.VOID & 
+                t != NativePointerType.NATIVE_POINTER
+        context.getStub(t->>(ClassType))
+    }
+
     @private
     method createAllStubs() {
-        def FIXMEself := self
-        def createStub := method(t:Type) {
-            if !t.isPrimitive & t != VoidType.VOID & 
-                    t != NativePointerType.NATIVE_POINTER
-            FIXMEself.context.getStub(t->>(ClassType))
-        }
         var progress:Bit
         def checked := new HashSet<ClassStub>()
         do {
@@ -2761,6 +2783,32 @@ class IRGenerator {
         }
     }
 
+    @pre(f.varType = VariableType.PROPERTY)
+    @pre(f.name.endsWith("$PROPERTY"))
+    function needsGetter(f:FieldNode, cl:ClassStub):Bit {
+        def name := f.name[0 .. f.name.length - "$PROPERTY".length]
+        for m in cl.methods {
+            if m.name = name & m.methodType = MethodNodeType.FUNCTION &
+                    m.parameters.length = 0
+                return false
+        }
+        return true
+    }
+
+    @pre(f.varType = VariableType.PROPERTY)
+    @pre(f.name.endsWith("$PROPERTY"))
+    function needsSetter(f:FieldNode, cl:ClassStub):Bit {
+        if f.annotations.isReadOnly
+            return false
+        def name := f.name[0 .. f.name.length - "$PROPERTY".length] + ":="
+        for m in cl.methods {
+            if m.name = name & m.methodType = MethodNodeType.METHOD &
+                    m.parameters.length = 1
+                return false
+        }
+        return true
+    }
+
     method createProperties() {
         for cl in context.classes.values {
             for f in cl.fields {
@@ -2773,36 +2821,44 @@ class IRGenerator {
                             f.initialValue, f.tuplePosition)
                     StubGenerator.addSymbol(field, cl.symbols, context.errors)
 
-                    def getterStatements := new Array<ASTStatement>()
-                    getterStatements.add(new ASTReturn(f.position, 
-                            new ASTIdentifier(f.position, field.name)))
-                    def getterBody := new ASTBlock(f.position, getterStatements)
-                    def getter := new MethodStub(f.position, name, 
-                            new Annotations(f.position), 
-                            MethodNodeType.FUNCTION, 
-                            new Array<FormalParameter>(), f.type, getterBody, 
-                            cl.type)
-                    StubGenerator.addSymbol(getter, cl.symbols, context.errors)
+                    if needsGetter(f, cl) {
+                        def getterStatements := new Array<ASTStatement>()
+                        getterStatements.add(new ASTReturn(f.position, 
+                                new ASTIdentifier(f.position, field.name)))
+                        def getterBody := new ASTBlock(f.position, 
+                                getterStatements)
+                        def getter := new MethodStub(f.position, name, 
+                                new Annotations(f.position), 
+                                MethodNodeType.FUNCTION, 
+                                new Array<FormalParameter>(), f.type, 
+                                getterBody, cl.type)
+                        StubGenerator.addSymbol(getter, cl.symbols, 
+                                context.errors)
+                    }
 
-                    def setterStatements := new Array<ASTStatement>()
-                    def parameters := new Array<FormalParameter>()
-                    def parameter := new FormalParameter(f.position, "value", 
-                            f.type, false, false, false)
-                    parameters.add(parameter)
-                    def lvalues := new Array<ASTExpression>()
-                    lvalues.add(new ASTIdentifier(f.position, field.name))
-                    setterStatements.add(new ASTAssignment(lvalues, null, 
-                            new ASTIdentifier(f.position, parameter.name)))
-                    def setterBody := new ASTBlock(f.position, setterStatements)
-                    def annotationTypes := new Array<AnnotationType>()
-                    annotationTypes.add(AnnotationType.SELF)
-                    def setterAnnotations := new Annotations(f.position, 
-                            annotationTypes)
-                    def setter := new MethodStub(f.position, 
-                            name + ":=", setterAnnotations, 
-                            MethodNodeType.METHOD, parameters, VoidType.VOID, 
-                            setterBody, cl.type)
-                    StubGenerator.addSymbol(setter, cl.symbols, context.errors)
+                    if needsSetter(f, cl) {
+                        def setterStatements := new Array<ASTStatement>()
+                        def parameters := new Array<FormalParameter>()
+                        def parameter := new FormalParameter(f.position, 
+                                "value", f.type, false, false, false)
+                        parameters.add(parameter)
+                        def lvalues := new Array<ASTExpression>()
+                        lvalues.add(new ASTIdentifier(f.position, field.name))
+                        setterStatements.add(new ASTAssignment(lvalues, null, 
+                                new ASTIdentifier(f.position, parameter.name)))
+                        def setterBody := new ASTBlock(f.position, 
+                                setterStatements)
+                        def annotationTypes := new Array<AnnotationType>()
+                        annotationTypes.add(AnnotationType.SELF)
+                        def setterAnnotations := new Annotations(f.position, 
+                                annotationTypes)
+                        def setter := new MethodStub(f.position, 
+                                name + ":=", setterAnnotations, 
+                                MethodNodeType.METHOD, parameters, 
+                                VoidType.VOID, setterBody, cl.type)
+                        StubGenerator.addSymbol(setter, cl.symbols, 
+                                context.errors)
+                    }
                 }
             }
         }

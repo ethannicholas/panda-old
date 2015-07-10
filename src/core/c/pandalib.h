@@ -67,7 +67,7 @@ Array* pandaNewPrimitiveArrayCopy(Class* class_ptr, Array* array,
 Array* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int32 length, 
         Int32 elementType, ...);
 
-void pandaCheckBounds(Array* array, Int32 index);
+void pandaCheckBounds(panda$collections$PrimitiveArray* array, Int32 index);
 
 void pandaCheckOverflow(Bit flag);
 

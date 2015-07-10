@@ -1,9 +1,11 @@
 package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.NullableType
+uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.Type
@@ -34,6 +36,10 @@ class UnresolvedArray : UnresolvedValue {
         	for i in 1 .. values.length
         		elementType := Type.union(context, elementType, values[i].type)
         }
+        if elementType = StringOrCharType.STRING_OR_CHAR
+            elementType := CharType.CHAR
+        else if elementType = NullType.NULL
+            elementType := NullableType.ANY
         def typeList := new Array<Type>()
         typeList.add(elementType)
         def type := new GenericType(ClassType.ARRAY, typeList)
@@ -48,8 +54,21 @@ class UnresolvedArray : UnresolvedValue {
                 if stub.type-?>(GenericType) {
                     def g := stub.type->(GenericType).base
                     if g = ClassType.ARRAY |  
-                            g = ClassType.IMMUTABLE_ARRAY {
-                        return 0
+                            g = ClassType.IMMUTABLE_ARRAY |
+                            g = ClassType.LIST_VIEW {
+                        def elementType := stub.type->(GenericType).parameters[0]
+                        var result := 0
+                        if g = ClassType.LIST_VIEW
+                            result += 2
+                        else if g = ClassType.ARRAY
+                            result += 1
+                        for v in values {
+                            def cost := v.implicitCastCost(context, elementType)
+                            if cost = null
+                                return null
+                            result += cost
+                        }
+                        return result
                     }
                 }
                 def parent := stub.superclass
@@ -70,7 +89,8 @@ class UnresolvedArray : UnresolvedValue {
                 if stub.type-?>(GenericType) {
                     def g := stub.type->(GenericType).base
                     if g = ClassType.ARRAY |  
-                            g = ClassType.IMMUTABLE_ARRAY {
+                            g = ClassType.IMMUTABLE_ARRAY |
+                            g = ClassType.LIST_VIEW {
                         def elementType := 
                                 stub.type->(GenericType).parameters[0]
                         def casted := new Array<Value>()

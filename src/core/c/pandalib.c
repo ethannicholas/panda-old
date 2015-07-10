@@ -115,13 +115,12 @@ int main(int argc, char** argv) {
     executablePath = pandaNewString(argv[0], strlen(argv[0]));
     argc--;
     argv++;
-    arg = (String$Array*) pandaNewPrimitiveArrayWithLength(&panda$collections$Array$LTpanda$core$String$GT_class, 
+    arg = (String$Array*) pandaNewPrimitiveArrayWithLength(&panda$collections$PrimitiveArray$LTpanda$core$String$GT_class, 
             argc, sizeof(String*), true);
     String** contents = (String**) arg->contents;
     int i;
     for (i = 0; i < argc; i++)
         contents[i] = pandaNewString(argv[i], -1);
-
     pandaStart();
 
     // ensure all threads have exited
@@ -425,8 +424,9 @@ void pandaCreateAndThrow(panda$core$Class* exception, const char* message) {
     pandaThrow((Error*) result);
 }
 
-void pandaCheckBounds(Array* array, Int32 index) {
+void pandaCheckBounds(panda$collections$PrimitiveArray* array, Int32 index) {
     if ((index >= array->$length) || (index < 0)) {
+        __builtin_trap();
         char buffer[100];
         sprintf(buffer, "Array index out of bounds: requested element %d, array length is %d", 
                 index, array->$length);
@@ -516,13 +516,13 @@ void panda$core$System$execStream(
     FILE* outHandle = (FILE*) outHandleArg;
     char* path = pandaGetString(program);
     panda$collections$CollectionView$LTpanda$core$String$GT$length_TYPE* length =
-            (panda$collections$CollectionView$LTpanda$core$String$GT$length_TYPE*) 
-                *(&pandaArgs->cl->vtable + 
-                panda$collections$CollectionView$LTpanda$core$String$GT$length_INDEX);    
+            pandaGetInterfaceMethod((panda$core$Object*) pandaArgs, 
+                    &panda$collections$CollectionView$LTpanda$core$String$GT_class, 
+                    panda$collections$CollectionView$LTpanda$core$String$GT$length_INDEX);
     panda$collections$ListView$LTpanda$core$String$GT$$ARR_TYPE* subscript =
-            (panda$collections$ListView$LTpanda$core$String$GT$$ARR_TYPE*) 
-                *(&pandaArgs->cl->vtable + 
-                panda$collections$ListView$LTpanda$core$String$GT$$ARR_INDEX);    
+            pandaGetInterfaceMethod((panda$core$Object*) pandaArgs, 
+                    &panda$collections$ListView$LTpanda$core$String$GT_class, 
+                    panda$collections$ListView$LTpanda$core$String$GT$$ARR_INDEX);
     int argLength = length((panda$collections$CollectionView$LTpanda$core$String$GT*) pandaArgs);
     char* args[argLength + 2];
     args[0] = path;
@@ -670,10 +670,42 @@ short panda$io$FileInputStream$readInt8_$NativePointer(void* handle) {
         return -1;
 }
 
-Int32 panda$io$FileInputStream$read(
-        panda$io$FileInputStream* self, panda$collections$PrimitiveArray$LTpanda$core$Int8$GT* b, Int32 offset, 
-        Int32 length) {
-    return fread(b->contents + offset, length, 1, (FILE*) self->nativeFile);
+panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32(
+        panda$io$FileInputStream* self, 
+        panda$collections$ListWriter$LTpanda$core$Int8$GT* bytes, 
+        Int32 max) {
+    panda$collections$CollectionWriter$LTpanda$core$Int8$GT$add_TYPE* add =
+            pandaGetInterfaceMethod((panda$core$Object*) bytes, 
+                    &panda$collections$CollectionWriter$LTpanda$core$Int8$GT_class, 
+                    panda$collections$CollectionWriter$LTpanda$core$Int8$GT$add_INDEX);
+    Int8 data[max];
+    // FIXME check for errors
+    int count = fread(data, 1, max, (FILE*) self->nativeFile);
+    for (int i = 0; i < count; i++) {
+        add((panda$collections$CollectionWriter$LTpanda$core$Int8$GT*) bytes, 
+                data[i]);
+    }
+    panda$core$Int32Wrapper* result = pandaNew(panda$core$Int32Wrapper);
+    result->value = count;
+    return result;
+}
+
+panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int32(
+        panda$io$FileInputStream* self, 
+        panda$collections$ListWriter$LTpanda$core$UInt8$GT* bytes,
+        Int32 max) {
+    return panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32(
+        self, (panda$collections$ListWriter$LTpanda$core$Int8$GT*) bytes, 
+        max);
+}
+
+panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int32(
+        panda$io$FileInputStream* self, 
+        panda$collections$ListWriter$LTpanda$core$Char$GT* chars, 
+        Int32 max) {
+    return panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32(
+        self, (panda$collections$ListWriter$LTpanda$core$Int8$GT*) chars, 
+        max);
 }
 
 void panda$io$FileOutputStream$writeInt8(void* handle, Int8 b) {
@@ -681,22 +713,30 @@ void panda$io$FileOutputStream$writeInt8(void* handle, Int8 b) {
     fwrite(&b, 1, 1, (FILE*) handle);
 }
 
+void panda$collections$Array$LTpanda$core$Int8$GT$$ARR();
+
 void panda$io$FileOutputStream$writeInt8Array(void* handle, 
         panda$collections$ListView$LTpanda$core$Int8$GT* b, Int32 offset, 
         Int32 length) {
     panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_TYPE* subscript =
-            (panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_TYPE*) 
-                *(&b->cl->vtable + 
-                panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_INDEX);    
-    Int8 data[length];
-    for (int i = offset; i < offset + length; i++)
-        data[i] = subscript(b, i);
-    // FIXME check for errors
-    fwrite(data, length, 1, (FILE*) handle);
+            pandaGetInterfaceMethod((panda$core$Object*) b, 
+                    &panda$collections$ListView$LTpanda$core$Int8$GT_class, 
+                    panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_INDEX);
+    const Int32 BUFFER_SIZE = 4096;
+    Int8 data[BUFFER_SIZE];
+    while (length > 0) {
+        int currentLength = MIN(length, BUFFER_SIZE);
+        for (int i = 0; i < currentLength; i++)
+            data[i] = subscript(b, i + offset);
+        // FIXME check for errors
+        fwrite(data, currentLength, 1, (FILE*) handle);
+        length -= currentLength;
+        offset += currentLength;
+    }
 }
 
 panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list(File* file) {
-    unsigned int MAX_LENGTH = PATH_MAX;
+    const size_t MAX_LENGTH = PATH_MAX;
     char buffer[MAX_LENGTH];
     char* path = pandaGetString(file->path);
     panda$collections$Array$LTpanda$io$File$GT* result;
@@ -704,6 +744,7 @@ panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list(File* file) {
     struct dirent *ent;
     if ((dir = opendir(path)) != NULL) {
         result = pandaNew(panda$collections$Array$LTpanda$io$File$GT);
+        panda$collections$Array$LTpanda$io$File$GT$new(result);
         panda$collections$Array$LTpanda$io$File$GT$add_TYPE* add =
                 (panda$collections$Array$LTpanda$io$File$GT$add_TYPE*) 
                     *(&result->cl->vtable + 
@@ -768,10 +809,8 @@ Thread* panda$threads$Thread$currentThread() {
 }
 
 void _pandaThreadEntry(Thread* thread) {
-    threadRun run = (threadRun) *(&thread->cl->vtable + 
-            panda$threads$Thread$run_INDEX);
     pthread_setspecific(currentThreadKey, thread);
-    run(thread);
+    panda$threads$Thread$run(thread);
     if (thread->preventsExit) {
         pthread_mutex_lock(&preventsExitThreadsMutex);
         preventsExitThreads--;

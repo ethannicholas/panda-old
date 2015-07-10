@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ASTAnnotation
 uses org.pandalanguage.pandac.ast.ASTAssignment
+uses org.pandalanguage.pandac.ast.ASTBitLiteral
 uses org.pandalanguage.pandac.ast.ASTBlock
 uses org.pandalanguage.pandac.ast.ASTCallExpression
 uses org.pandalanguage.pandac.ast.ASTClass
@@ -13,6 +14,8 @@ uses org.pandalanguage.pandac.ast.ASTExpressionStatement
 uses org.pandalanguage.pandac.ast.ASTField
 uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTIdentifier
+uses org.pandalanguage.pandac.ast.ASTIf
+uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTMethod
 uses org.pandalanguage.pandac.ast.ASTMethodType
@@ -20,9 +23,13 @@ uses org.pandalanguage.pandac.ast.ASTNew
 uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
 uses org.pandalanguage.pandac.ast.ASTParameter
 uses org.pandalanguage.pandac.ast.ASTReturn
+uses org.pandalanguage.pandac.ast.ASTSelf
 uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
 uses org.pandalanguage.pandac.ast.ASTSuper
 uses org.pandalanguage.pandac.ast.ASTStatement
+uses org.pandalanguage.pandac.ast.ASTStringLiteral
+uses org.pandalanguage.pandac.ast.ASTSwitch
+uses org.pandalanguage.pandac.ast.ASTSwitchCase
 uses org.pandalanguage.pandac.ast.ASTTupleType
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
@@ -201,22 +208,23 @@ class StubGenerator {
             for ann in annotations {
                 if ann-?>(ASTSimpleAnnotation) {
                     switch ann->(ASTSimpleAnnotation).name {
-                        case "protected":  result.add(AnnotationType.PROTECTED)
-                        case "private":  result.add(AnnotationType.PRIVATE)
-                        case "abstract":  result.add(AnnotationType.ABSTRACT)
-                        case "class":  result.add(AnnotationType.CLASS)
-                        case "thread":  result.add(AnnotationType.THREAD)
-                        case "external":  result.add(AnnotationType.EXTERNAL)
-                        case "final":  result.add(AnnotationType.FINAL)
-                        case "override":  result.add(AnnotationType.OVERRIDE)
-                        case "readonly":  result.add(AnnotationType.READONLY)
-                        case "limited":  result.add(AnnotationType.LIMITED)
-                        case "self":  result.add(AnnotationType.SELF)
-                        case "safeReturn":  result.add(AnnotationType.SAFERETURN)
-                        case "unsafeFunction":  result.add(AnnotationType.UNSAFEFUNCTION)
-                        case "synthetic":  result.add(AnnotationType.SYNTHETIC)
-                        case "$wrapperMethod":  result.add(AnnotationType.WRAPPER_METHOD)
-                        -- default: handle math(overflow)
+                        case "protected": result.add(AnnotationType.PROTECTED)
+                        case "private": result.add(AnnotationType.PRIVATE)
+                        case "abstract": result.add(AnnotationType.ABSTRACT)
+                        case "class": result.add(AnnotationType.CLASS)
+                        case "thread": result.add(AnnotationType.THREAD)
+                        case "external": result.add(AnnotationType.EXTERNAL)
+                        case "final": result.add(AnnotationType.FINAL)
+                        case "override": result.add(AnnotationType.OVERRIDE)
+                        case "readonly": result.add(AnnotationType.READONLY)
+                        case "limited": result.add(AnnotationType.LIMITED)
+                        case "self": result.add(AnnotationType.SELF)
+                        case "safeReturn": result.add(AnnotationType.SAFERETURN)
+                        case "unsafeFunction": result.add(AnnotationType.UNSAFEFUNCTION)
+                        case "synthetic": result.add(AnnotationType.SYNTHETIC)
+                        case "$wrapperMethod": result.add(AnnotationType.WRAPPER_METHOD)
+                        case "math(overflow)": result.add(AnnotationType.OVERFLOW)
+                        default: unreachable
                     }
                 }
                 else {
@@ -552,7 +560,7 @@ class StubGenerator {
             symbolTable:MapView<String, Symbol>):MethodStub? {
         def parameters := new Array<FormalParameter>()
         var annotations := convertAnnotations(m.position, m.annotations)
-        if m.body = null & !isExternal
+        if m.body = null & !isExternal & !annotations.isExternal
             annotations += AnnotationType.ABSTRACT
         for p in m.parameters {
             var type := resolveType(p.type, symbolTable)
@@ -608,10 +616,13 @@ class StubGenerator {
                 def indexAnnotations := new Array<AnnotationType>()
                 indexAnnotations.add(AnnotationType.CLASS)
                 indexAnnotations.add(AnnotationType.SYNTHETIC)
+                def initializer := new ASTCallExpression(new ASTDotExpression(
+                        new ASTIdentifier(f.position, "Panda"), "allocThreadLocal"), 
+                        new Array<ASTExpression>())
                 def fieldIndex := new FieldNode(f.position, owner, 
                         v.identifier + INDEX_SUFFIX, new Annotations(f.position,
                             indexAnnotations),
-                        VariableType.DEF, IntType.INT32, null, 0)
+                        VariableType.DEF, IntType.INT32, initializer, 0)
                 addSymbol(fieldIndex, dest, errors)
             }
         }
@@ -651,10 +662,12 @@ class StubGenerator {
                         classAnnotations), 
                     VariableType.VAR, BitType.BIT, null, null)
 
-            -*def methodBody := new PandaParser().parseBlock(
-                    "{ if \{owner.name}.\{classInited.name} return " +
-                    "\{owner.name}.\{classInited.name} := true \{body} }",
-                    position)*-
+            def targets := new Array<ASTExpression>()
+            targets.add(new ASTIdentifier(position, classInited.name))
+            def setInited := new ASTAssignment(targets, null, new ASTBitLiteral(position, true))
+            def bail := new ASTIf(position, new ASTIdentifier(position, classInited.name),
+                    new ASTReturn(position, null), setInited)
+            body.insert(0, bail)
 
             def classInit := new MethodStub(position, 
                     MethodNode.CLASS_INIT_NAME, new Annotations(position, 
@@ -832,10 +845,17 @@ class StubGenerator {
                 VoidType.VOID, block, classType)
         addSymbol(c, symbols, errors)
 
-
         -- create convert to integer
         statements := new Array<ASTStatement>()
-        statements.add(new ASTUnreachable(e.position))
+        var cases := new Array<ASTSwitchCase>()
+        for i, v in e.values {
+            def caseValues := new Array<ASTExpression>()
+            caseValues.add(new ASTIdentifier(e.position, v.name))
+            cases.add(new ASTSwitchCase(e.position, caseValues, new ASTReturn(e.position,
+                    new ASTIntegerLiteral(e.position, i->(UInt64)))))
+        }
+        statements.add(new ASTSwitch(e.position, new ASTSelf(e.position), cases,
+                new ASTUnreachable(e.position)))
         block := new ASTBlock(e.position, statements)
         def convertToInt := new MethodStub(e.position, 
                 MethodNode.CONVERT_NAME, 
@@ -844,9 +864,36 @@ class StubGenerator {
                 IntType.INT32, block, classType)
         addSymbol(convertToInt, symbols, errors)
 
+        -- create convert to string
+        statements := new Array<ASTStatement>()
+        cases := new Array<ASTSwitchCase>()
+        for i, v in e.values {
+            def caseValues := new Array<ASTExpression>()
+            caseValues.add(new ASTIdentifier(e.position, v.name))
+            cases.add(new ASTSwitchCase(e.position, caseValues, new ASTReturn(e.position,
+                    new ASTStringLiteral(e.position, v.name))))
+        }
+        statements.add(new ASTSwitch(e.position, new ASTSelf(e.position), cases,
+                new ASTUnreachable(e.position)))
+        block := new ASTBlock(e.position, statements)
+        def convertToString := new MethodStub(e.position, 
+                MethodNode.CONVERT_NAME, 
+                new Annotations(e.position, new Array<AnnotationType>()), 
+                MethodNodeType.FUNCTION, new Array<FormalParameter>(), 
+                ClassType.STRING, block, classType)
+        addSymbol(convertToString, symbols, errors)
+
         -- create convert from integer
         statements := new Array<ASTStatement>()
-        statements.add(new ASTUnreachable(e.position))
+        cases := new Array<ASTSwitchCase>()
+        for i, v in e.values {
+            def caseValues := new Array<ASTExpression>()
+            caseValues.add(new ASTIntegerLiteral(e.position, i->(UInt64)))
+            cases.add(new ASTSwitchCase(e.position, caseValues, new ASTReturn(e.position,
+                    new ASTIdentifier(e.position, v.name))))
+        }
+        statements.add(new ASTSwitch(e.position, new ASTIdentifier(e.position, "value"), cases,
+                new ASTUnreachable(e.position)))
         block := new ASTBlock(e.position, statements)
         def cvtAnnotations := new Array<AnnotationType>()
         cvtAnnotations.add(AnnotationType.CLASS)
