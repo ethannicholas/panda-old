@@ -681,6 +681,8 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int3
     Int8 data[max];
     // FIXME check for errors
     int count = fread(data, 1, max, (FILE*) self->nativeFile);
+    if (count <= 0)
+        return NULL;
     for (int i = 0; i < count; i++) {
         add((panda$collections$CollectionWriter$LTpanda$core$Int8$GT*) bytes, 
                 data[i]);
@@ -694,18 +696,44 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$UInt8$GT* bytes,
         Int32 max) {
-    return panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32(
-        self, (panda$collections$ListWriter$LTpanda$core$Int8$GT*) bytes, 
-        max);
+    panda$collections$CollectionWriter$LTpanda$core$UInt8$GT$add_TYPE* add =
+            pandaGetInterfaceMethod((panda$core$Object*) bytes, 
+                    &panda$collections$CollectionWriter$LTpanda$core$UInt8$GT_class, 
+                    panda$collections$CollectionWriter$LTpanda$core$UInt8$GT$add_INDEX);
+    UInt8 data[max];
+    // FIXME check for errors
+    int count = fread(data, 1, max, (FILE*) self->nativeFile);
+    if (count <= 0)
+        return NULL;
+    for (int i = 0; i < count; i++) {
+        add((panda$collections$CollectionWriter$LTpanda$core$UInt8$GT*) bytes, 
+                data[i]);
+    }
+    panda$core$Int32Wrapper* result = pandaNew(panda$core$Int32Wrapper);
+    result->value = count;
+    return result;
 }
 
 panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int32(
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$Char$GT* chars, 
         Int32 max) {
-    return panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32(
-        self, (panda$collections$ListWriter$LTpanda$core$Int8$GT*) chars, 
-        max);
+    panda$collections$CollectionWriter$LTpanda$core$Char$GT$add_TYPE* add =
+            pandaGetInterfaceMethod((panda$core$Object*) chars, 
+                    &panda$collections$CollectionWriter$LTpanda$core$Char$GT_class, 
+                    panda$collections$CollectionWriter$LTpanda$core$Char$GT$add_INDEX);
+    Char data[max];
+    // FIXME check for errors
+    int count = fread(data, 1, max, (FILE*) self->nativeFile);
+    if (count <= 0)
+        return NULL;
+    for (int i = 0; i < count; i++) {
+        add((panda$collections$CollectionWriter$LTpanda$core$Char$GT*) chars, 
+                data[i]);
+    }
+    panda$core$Int32Wrapper* result = pandaNew(panda$core$Int32Wrapper);
+    result->value = count;
+    return result;
 }
 
 void panda$io$FileOutputStream$writeInt8(void* handle, Int8 b) {

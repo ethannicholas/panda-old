@@ -20,7 +20,6 @@ uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.Catch
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
-uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.Continue
 uses org.pandalanguage.pandac.tree.Do
@@ -125,7 +124,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def program:Program
 
-    def debug := true
+    def debug := false
 
     var tempVariable := 0
 
@@ -1347,12 +1346,12 @@ class LLVMCodeGenerator (CodeGenerator) {
                     "expected actualType to not be primitive"
             assert !destType.isPrimitive :
                     "expected destType to not be primitive"
-            def checkCast := context.compilerSettings.checkCasts
+            def checkCast := !c.safe & context.compilerSettings.checkCasts
             if checkCast {
 -*                -- verify the cast. Use a dummy for the first 
                 -- parameter just to get the type right.
                 def params := new PrimitiveArray<Value>(new Dummy(actualType), 
-                        new ClassObjectLiteral(destType.unwrapNullable()), 
+                        new ClassLiteral(destType.unwrapNullable()), 
                         new BitLiteral(destType.isNullable))
                 def panda := ClassType.PANDA().classNode
                 def check := panda.symbolTable.getMethod(c.position,
@@ -1428,7 +1427,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         -- it's a double with the 29 low-order bits zeroed
         if r.type = RealType.REAL32
             bits := bits && ((-1)->(UInt64) << 29->(UInt64))
-        return "0x\{bits,0>16:h}"
+        --return "0x\{bits,0>16:h}"
+        return "0x0000000000000000"
     }
     
     @protected
@@ -1489,17 +1489,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
-    method createClassLiteralReference(type:ClassLiteral):String {
-        def cl := getStub(type.value)
-        def cc := getClassConstant(cl)
-        def classType := getLLVMType(ClassType.CLASS)
-        return "bitcast(\{cc.type}* @\{cc.name} to \{classType})"
-    }
-
-    @protected
-    method createClassObjectLiteralReference(type:ClassObjectLiteral):String {
-        def cl := getStub(type.value)
-        def cc := getClassConstant(cl)
+    method createClassLiteralReference(cl:ClassLiteral):String {
+        def stub := getStub(cl.value)
+        def cc := getClassConstant(stub)
         def classType := getLLVMType(ClassType.CLASS)
         return "bitcast(\{cc.type}* @\{cc.name} to \{classType})"
     }
@@ -1527,7 +1519,6 @@ class LLVMCodeGenerator (CodeGenerator) {
             case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->(PrimitiveArrayIndexValue))
             case class(NullLiteral): return "null"
             case class(ClassLiteral): return createClassLiteralReference(v->(ClassLiteral))
-            case class(ClassObjectLiteral): return createClassObjectLiteralReference(v->(ClassObjectLiteral))
             case class(Unwrap): return createReference(v->(Unwrap).value)
             case class(MethodReference): return createMethodReference(v->(MethodReference))
             case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))

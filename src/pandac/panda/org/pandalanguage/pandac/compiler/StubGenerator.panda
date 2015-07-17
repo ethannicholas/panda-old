@@ -94,7 +94,7 @@ class MutablePackage (Symbol) {
             else
                 children[name] := symbol
         }
-        return new Package(name, children)
+        return new Package(self.name, children)
     }
 }
 
@@ -611,7 +611,7 @@ class StubGenerator {
             }
             def field := new FieldNode(f.position, owner, v.identifier, 
                     annotations, f.decl.varType, type, f.decl.initializer, i)
-            addSymbol(field, dest, errors)
+            addSymbol(field, field.position, dest, errors)
             if annotations.isThread {
                 def indexAnnotations := new Array<AnnotationType>()
                 indexAnnotations.add(AnnotationType.CLASS)
@@ -623,7 +623,7 @@ class StubGenerator {
                         v.identifier + INDEX_SUFFIX, new Annotations(f.position,
                             indexAnnotations),
                         VariableType.DEF, IntType.INT32, initializer, 0)
-                addSymbol(fieldIndex, dest, errors)
+                addSymbol(fieldIndex, fieldIndex.position, dest, errors)
             }
         }
     }
@@ -769,7 +769,7 @@ class StubGenerator {
                         MethodNodeType.CONSTRUCTOR
             }
         }
-        if !foundConstructor {
+        if !cl.isInterface & !foundConstructor {
             -- create implicit no-arg constructor
             def statements := new Array<ASTStatement>()
             def superConstructor := new ASTDotExpression(
@@ -777,8 +777,10 @@ class StubGenerator {
             statements.add(new ASTExpressionStatement(new ASTCallExpression(
                     superConstructor, new Array<ASTExpression>())))
             def block := new ASTBlock(cl.position, statements)
-            def c := new MethodStub(cl.position, MethodNode.CONSTRUCTOR_NAME, 
-                    new Annotations(cl.position), MethodNodeType.CONSTRUCTOR, 
+            def c := new MethodStub(cl.position, 
+                    MethodNode.CONSTRUCTOR_NAME, 
+                    new Annotations(cl.position), 
+                    MethodNodeType.CONSTRUCTOR, 
                     new Array<FormalParameter>(), VoidType.VOID, block, 
                     classType)
             addSymbol(c, symbols, errors)
@@ -791,7 +793,7 @@ class StubGenerator {
         if !cl.isExternal {
             def init := createClassInit(cl.position, classType, symbols)
             if init != null {
-                addSymbol(init[0], symbols, errors)
+                addSymbol(init[0], init[0].position, symbols, errors)
                 addSymbol(init[1], symbols, errors)
             }
         }
@@ -825,7 +827,7 @@ class StubGenerator {
         if !e.isExternal {
             def init := createClassInit(e.position, classType, symbols)
             if init != null {
-                addSymbol(init[0], symbols, errors)
+                addSymbol(init[0], init[0].position, symbols, errors)
                 addSymbol(init[1], symbols, errors)
             }
         }
@@ -933,9 +935,14 @@ class StubGenerator {
     }
 
     @class
-    method addSymbol(s:Symbol, map:Map<String, Symbol>, errors:ErrorReporter) {
-        assert(map[s.name] = null)
-        map[s.name] := s
+    method addSymbol(s:Symbol, position:Position, map:Map<String, Symbol>, 
+            errors:ErrorReporter) {
+        if map[s.name] != null {
+            errors.error("invalid redefinition of symbol '\{s.name}'",
+                    position)
+        }
+        else
+            map[s.name] := s
     }
 
     method getPackage(name:String, position:Position):MutablePackage? {

@@ -71,7 +71,6 @@ uses org.pandalanguage.pandac.tree.Cast
 uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.Catch
 uses org.pandalanguage.pandac.tree.ClassLiteral
-uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.Continue
@@ -254,7 +253,6 @@ class IRGenerator {
                 return null
             parameters.add(converted)
         }
-        def debug := c.position->>(String).contains("MemoryOutputStream.panda:79")
         if target-?>(UnresolvedIdentifier) {
             if context.isInstance {
                 def test := context.testCall(c.position, context.getSelf(
@@ -443,7 +441,7 @@ class IRGenerator {
         def values := new Array<Value>()
         var lastEnd := 0
         while matcher.find() {
-            var chars := convertStringChars(string.position, 
+            def chars := convertStringChars(string.position, 
                     s[lastEnd .. matcher.start], false)
             if chars != null {
                 result.append(chars.replace(UNESCAPED_BRACE, 
@@ -549,10 +547,8 @@ class IRGenerator {
 
         def parameters := new Array<Value>()
         parameters.add(object)
-        if !primitiveTarget {
-            parameters.add(new ClassObjectLiteral(position, 
-                    type->>(ClassType)))
-        }
+        if !primitiveTarget
+            parameters.add(new ClassLiteral(position, type->>(ClassType)))
 
         var methodName := "instanceOf"
         if primitiveTarget {
@@ -2032,7 +2028,7 @@ class IRGenerator {
             def fv := resolvedLeft->(FieldReference)
             def object:Value
             def finalRight:Value
-            if reuse {
+            if reuse & fv.object-!>(ClassLiteral) {
                 def old := unwrapCast(right)->(BinaryOperation)
                 assert old.left = fv
                 object := new ReusedValueDefinition(fv.object)
@@ -2047,19 +2043,6 @@ class IRGenerator {
                 finalRight := right.implicitCast(context, fv.field.type)
             }
             def name := fv.field.name
--*            var call := callAssignmentMethod(object, name, 
-                    new PrimitiveArray<Value>(right))
-            if call != null {
-                if currentClass != fv.field.parent & 
-                        !fv.field.annotations.isReadOnly &
-                        !fv.field.annotations.isFinal {
-                    throw new CompilerException("reference to '\{name}' is " +
-                            "ambiguous, both field \{name} (of type " +
-                            "\{fv.field.type.displayName}) and method " +
-                            "\{name}:=() match", fv.position)
-                }
-                currentNode.add(call)
-            }*-
             return new FieldAssignment(fv.position, object, fv.field,
                     finalRight)
         }
@@ -2253,10 +2236,10 @@ class IRGenerator {
     method convertReturn(r:ASTReturn):Statement? {
         if r.value = null
             return new Return(r.position)
-        def resolved := resolve(r.value->(ASTExpression))
-        if resolved = null
+        def converted := convertExpression(r.value->(ASTExpression))
+        if converted = null
             return null
-        def cast := resolved.implicitCast(context, 
+        def cast := converted.implicitCast(context, 
                 context.currentMethod.returnType)
         return new Return(r.position, cast)
     }
@@ -2349,6 +2332,7 @@ class IRGenerator {
             return null
         def error := new LocalVariable(c.position, c.name, type, 
                 VariableType.DEF, context.currentMethod)
+        context.localVariables.add(error)
         context.pushSymbolTable()
         context.symbolTable[c.name] := error
         def statement := convertStatement(c.statement)
@@ -2509,12 +2493,12 @@ class IRGenerator {
         }
         else
             returnType := VoidType.VOID
-        def methodStub := new MethodStub(m.position, 
-                "$anonymous\{nameCount}", new Annotations(m.position), 
-                m.methodType, formalParameters, returnType, m.body, 
-                closureType)
-        context.currentMethod := methodStub
-        nameCount += 1
+        constant RAW_NAME := "raw"
+        constant SHIMMED_NAME := "shimmed"
+        def rawStub := new MethodStub(m.position, RAW_NAME, 
+                new Annotations(m.position), m.methodType, formalParameters, 
+                returnType, m.body, closureType)
+        context.currentMethod := rawStub
         context.pushSymbolTable()
         def parameters := new Array<Parameter>()
         for formal in m.parameters {
@@ -2523,14 +2507,14 @@ class IRGenerator {
                 return null
             def p := new Parameter(formal.position, formal.name, type, 
                     formal.isVar, formal.isConvert, formal.isVarArg, 
-                    methodStub)
+                    rawStub)
             parameters.add(p)
             context.symbolTable[p.name] := p
         }
         if !lastMethod.annotations.isClass {
             def selfType := lastMethod.owner
             def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
-                    selfType, false, false, false, methodStub)
+                    selfType, false, false, false, rawStub)
             context.symbolTable[selfParam.name] := selfParam
         }
         context.captures.push(new HashSet<Variable>())
@@ -2544,7 +2528,30 @@ class IRGenerator {
                 m.position, context.captures.peek(), closureType)
         def closureAnnotations := new Array<AnnotationType>()
         closureAnnotations.add(AnnotationType.SYNTHETIC)
-        closureSymbols[methodStub.name] := new Methods(methodStub)
+
+        def shimmedStub:MethodStub
+        if returnType.isPrimitive {
+            def shimParameters := new Array<ASTExpression>()
+            for p in formalParameters
+                shimParameters.add(new ASTIdentifier(m.position, p.name))
+            def call := new ASTCallExpression(new ASTIdentifier(m.position,
+                    RAW_NAME), shimParameters)
+            def statements := new Array<ASTStatement>()
+            statements.add(new ASTReturn(m.position, call))
+            def shimBody := new ASTBlock(m.position, statements)
+            shimmedStub := new MethodStub(m.position, SHIMMED_NAME, 
+                    new Annotations(m.position), m.methodType, formalParameters, 
+                    ClassType.OBJECT, shimBody, closureType)
+        }
+        else {
+            shimmedStub := new MethodStub(m.position, "shimmed", 
+                    new Annotations(m.position), m.methodType, formalParameters, 
+                    returnType, m.body, closureType)
+
+        }
+
+        closureSymbols[rawStub.name] := new Methods(rawStub)
+        closureSymbols[shimmedStub.name] := new Methods(shimmedStub)
         closureSymbols[closureConstructor.name] := 
                 new Methods(closureConstructor)
         for f in closureFields
@@ -2568,7 +2575,7 @@ class IRGenerator {
                 new ClassLiteral(m.position, closureType), 
                 closureConstructor, constructorParameters))
         context.captures.pop()
-        return new Cast(m.position, closureInstance, methodStub.type(context),
+        return new Cast(m.position, closureInstance, rawStub.type(context),
                 CastType.IMPLICIT)
     }
 
@@ -2819,7 +2826,8 @@ class IRGenerator {
                     def field := new FieldNode(f.position, cl.type, "_" + 
                             name, f.annotations, VariableType.VAR, f.type, 
                             f.initialValue, f.tuplePosition)
-                    StubGenerator.addSymbol(field, cl.symbols, context.errors)
+                    StubGenerator.addSymbol(field, field.position, cl.symbols, 
+                            context.errors)
 
                     if needsGetter(f, cl) {
                         def getterStatements := new Array<ASTStatement>()

@@ -55,9 +55,9 @@ class Panda_ExternalImpl implements panda.core.Panda_External {
     public boolean instanceOf(panda.core.Object o, panda.core.Class c, boolean nullable) {
         if (o == null)
             return nullable;
-        Class oc = o.$cl;
+        panda.core.Class oc = o.$cl;
         while (oc != null) {
-            if (oc == c)
+            if (oc.$name.equals(c.$name))
                 return true;
             oc = oc.$superclass;
         }

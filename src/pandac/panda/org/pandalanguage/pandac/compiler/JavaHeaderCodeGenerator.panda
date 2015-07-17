@@ -1,0 +1,136 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.tree.FieldNode
+
+class JavaHeaderCodeGenerator (CodeGenerator) {
+    var rootPath := new File("uninitialized")
+
+    def jcg:JavaCodeGenerator
+
+    def program:Program
+
+    def compilerSettings:CompilerSettings
+
+    def context:Context
+
+    def methodNamer:MethodNamer
+
+    constructor(p:Program, compilerSettings:CompilerSettings) {
+        self.program := p
+        self.compilerSettings := compilerSettings
+        self.jcg := new JavaCodeGenerator(p, compilerSettings)
+        def errors := new FatalErrorReporter()
+        self.context := new Context(p.stubGenerator, p.root, p.stubs, errors, 
+                compilerSettings)
+        self.methodNamer := new MethodNamer(context, 
+                new JavaMethodNamingStrategy())
+    }
+
+    @override
+    function defaultExtension():String? {
+        return null
+    }
+
+    method getName(m:MethodStub):String {
+        return methodNamer.getName(m)
+    }
+    
+    method generateClass(cl:ClassStub) {
+        def packageName := cl.packageName
+        var classOut:OutputStream? := null
+        var interfaceOut:OutputStream? := null
+        for m in cl.methods {
+            assert (classOut = null) = (interfaceOut = null)
+            if m.annotations.isExternal {
+                var first := classOut = null
+                if classOut = null {
+                    var name := cl.name
+                    var lastDot := name.lastIndexOf(".")
+                    if lastDot != null
+                        name := name[lastDot + 1..]
+                    name += "_External"
+                    def destDir:File
+                    if packageName != null {
+                        destDir := rootPath.resolve(
+                            packageName.replace(".", "/"))
+                    }
+                    else
+                        destDir := rootPath
+                    destDir.createDirectories()
+                    classOut := new BufferedOutputStream(
+                            destDir.resolve(name + 
+                                "Impl.java").openOutputStream())
+                    if packageName != null
+                        classOut.writeLine("package \{packageName};")
+                    else
+                        classOut.writeLine("package unnamed;")
+                    classOut.writeLine()
+                    classOut.writeLine("class \{name}Impl implements " + 
+                            "\{cl.name}_External {")
+
+                    interfaceOut := new BufferedOutputStream(
+                            destDir.resolve("\{name}.java").openOutputStream())
+                    if packageName != null
+                        interfaceOut.writeLine("package \{packageName};")
+                    else
+                        interfaceOut.writeLine("package unnamed;")
+                    interfaceOut.writeLine()
+                    interfaceOut.writeLine("interface \{name} {")
+                }
+                assert interfaceOut != null
+                if !first {
+                    classOut.writeLine()
+                    interfaceOut.writeLine()
+                }
+                var signature := new MutableString()
+                signature.append(
+                        jcg.getJavaType(m.returnType) + " " +
+                        jcg.getName(m) + "(")
+                if !m.annotations.isClass {
+                    if m.annotations.isWrapperMethod {
+                        signature.append(jcg.getJavaType(
+                                m.owner->>(PrimitiveType)))
+                    }
+                    else
+                        signature.append(jcg.getJavaType(m.owner))
+                    signature.append(" $this")
+                    if m.parameters.length > 0
+                        signature.append(", ")
+                }
+                for j, p in m.parameters {
+                    if j > 0
+                        signature.append(", ")
+                    signature.append(jcg.getJavaType(p.type) + " " + p.name)
+                }
+                signature.append(")")
+                classOut.writeLine("    @Override")
+                classOut.writeLine("    public \{signature} {")
+                classOut.writeLine("        throw new " + 
+                        "UnsupportedOperationException();")
+                classOut.writeLine("    }")
+
+                interfaceOut.writeLine("    \{signature};")
+            }
+        }
+        if classOut != null {
+            assert interfaceOut != null
+            classOut.writeLine("}")
+            interfaceOut.writeLine("}")
+            classOut.close()
+            interfaceOut.close()
+        }
+    }
+    
+    @override
+    method generateCode(target:File) {
+        if !target.isDirectory()
+            throw new CompilerException("Java output must be to a directory")
+        rootPath := target
+        for cl in program.classes.values.filter(cl => !cl.stub.isExternal &
+                !cl.stub.annotations.isUnspecified)
+            generateClass(cl.stub)
+    }
+}

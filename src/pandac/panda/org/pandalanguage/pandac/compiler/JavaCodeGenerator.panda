@@ -1,5 +1,7 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.ast.ASTType
+uses org.pandalanguage.pandac.ast.ASTMethodType
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.tree.AbstractLoop
@@ -13,7 +15,6 @@ uses org.pandalanguage.pandac.tree.Break
 uses org.pandalanguage.pandac.tree.Cast
 uses org.pandalanguage.pandac.tree.Catch
 uses org.pandalanguage.pandac.tree.ClassLiteral
-uses org.pandalanguage.pandac.tree.ClassObjectLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.Continue
@@ -250,12 +251,8 @@ class JavaCodeGenerator (CodeGenerator) {
             else
                 result := class(PrimitiveArray).name + "<" + eName + ">"
         } 
-        else if t.unwrapNullable-?>(MethodType) {
-            if t.isImmutable(context)
-                return getJavaType(ClassType.METHOD)
-            else
-                return getJavaType(ClassType.MUTABLE_METHOD)
-        }
+        else if t.unwrapNullable-?>(MethodType)
+            return getJavaMethodType(t->(MethodType))
         else
             result := t.name.replace(#/\w+/#, token => filterNameToken(token))
         def lt := result.indexOf("<")
@@ -310,7 +307,7 @@ class JavaCodeGenerator (CodeGenerator) {
     
     method generateMethodCallCode(mc:MethodCall) {
         def m := mc.methodStub
-        if mc.target-?>(Super) {
+        if IRGenerator.unwrapCast(mc.target)-?>(Super) {
             if m.methodType = MethodNodeType.CONSTRUCTOR {
                 def stub := context.getStub(m.owner->>(ClassType))
                 out.write(getName(stub))
@@ -450,7 +447,7 @@ class JavaCodeGenerator (CodeGenerator) {
             case BinaryOperationType.INT_DIVIDE: op := "/"
             case BinaryOperationType.AND: op := "&&"
             case BinaryOperationType.OR:  op := "||"
-            case BinaryOperationType.XOR: op := "^^"
+            case BinaryOperationType.XOR: op := "^"
             case BinaryOperationType.BITWISE_AND: op := "&"
             case BinaryOperationType.BITWISE_OR:  op := "|"
             case BinaryOperationType.BITWISE_XOR: op := "^"
@@ -468,7 +465,10 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateFieldReferenceCode(f:FieldReference) {
-        generateValueCode(f.object)
+        if f.field.annotations.isClass | f.field.annotations.isThread
+            generateClassLiteralNamespaceCode(f.field.owner)
+        else
+            generateValueCode(f.object)
         out.write(".")
         out.write(getName(f.field))
         if f.field.annotations.isThread
@@ -539,6 +539,10 @@ class JavaCodeGenerator (CodeGenerator) {
         else
             out.write("((" + getJavaType(i.type) + ") " + i.value + ")")
     }
+
+    method generateSuperCode(s:Super) {
+        out.write("this")
+    }
     
     method generateCastCode(c:Cast) {
         var srcType := c.value.type
@@ -555,7 +559,8 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write(")")
         }
         else {
-            def check := !c.safe & !srcType.isPrimitive
+            def check := !c.safe & !srcType.isPrimitive & 
+                    context.compilerSettings.checkCasts
             if check {
                 if destType.isNullable
                     out.write("panda.core.PandaCore.checkCastNullable(")
@@ -644,6 +649,18 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write(")")
     }
 
+    method generateClassLiteralNamespaceCode(cl:ClassType) {
+        out.write(getName(context.getStub(cl)))
+    }
+
+    method generateClassLiteralObjectCode(cl:ClassType) {
+        out.write(PANDACORE + '.getClass("')
+        out.write(getJavaType(cl))
+        out.write('", "')
+        out.write(getDisplayName(context.getStub(cl)))
+        out.write('")')
+    }
+
     method generateReusedValueDefinitionCode(rvd:ReusedValueDefinition,
             topLevel:Bit) {
         def name := "$reused" + variableIndex
@@ -691,15 +708,7 @@ class JavaCodeGenerator (CodeGenerator) {
         else if v-?>(BitLiteral)
             out.write(v->(BitLiteral).value)
         else if v-?>(ClassLiteral)
-            out.write(getJavaType(v->(ClassLiteral).value))
-        else if v-?>(ClassObjectLiteral) {
-            out.write(PANDACORE + '.getClass("')
-            out.write(getJavaType(v->(ClassObjectLiteral).value))
-            out.write('", "')
-            out.write(getDisplayName(context.getStub(
-                    v->(ClassObjectLiteral).value)))
-            out.write('")')
-        }
+            generateClassLiteralObjectCode(v->(ClassLiteral).value)
         else if v-?>(VariableReference) 
             out.write(getName(v->(VariableReference).variable))
         else if v-?>(FieldReference)
@@ -731,6 +740,8 @@ class JavaCodeGenerator (CodeGenerator) {
             generateReusedValueCode(v->(ReusedValue))
         else if v-?>(DynamicCall)
             generateDynamicCallCode(v->(DynamicCall))
+        else if v-?>(Super)
+            generateSuperCode(v->(Super))
         else {
             throw new InternalCompilerException("unsupported value type: " +
                     v.class.name, v.position)
@@ -821,7 +832,10 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateFieldAssignmentCode(fa:FieldAssignment) {
-        generateValueCode(fa.object)
+        if fa.fieldNode.annotations.isClass | fa.fieldNode.annotations.isThread
+            generateClassLiteralNamespaceCode(fa.fieldNode.owner)
+        else
+            generateValueCode(fa.object)
         out.write(".")
         out.write(getName(fa.fieldNode))
         if fa.fieldNode.annotations.isThread {
@@ -876,38 +890,34 @@ class JavaCodeGenerator (CodeGenerator) {
         generateValueCode(t.error)
         out.writeLine(");")
     }
--*    
+
     method generateTryCode(t:Try) {
         out.write("try ")
-        generateBlockCode(t.block)
-        var rawName := "$e" + variableIndex
+        generateStatementCode(t.statement)
+        def rawName := "$e" + variableIndex
         variableIndex += 1
-        out.writeLine("catch (panda.core.PandaException " + rawName + ") {")
+        out.writeLine("catch (panda.core.PandaException \{rawName}) {")
         out.level += 1
-        var eName := "$e" + variableIndex
+        def eName := "$e" + variableIndex
         variableIndex += 1
-        out.writeLine("panda.core.Error " + eName + " = " + rawName + 
-                ".getPandaError();")
-        for i in 1 ... t.length - 1 {
-            var c := t[i]->(Catch)
+        out.writeLine("panda.core.Error \{eName} = \{rawName}.getPandaError();")
+        for i, c in t.catches {
             if i > 1
                 out.write("else ")
-            out.writeLine("if (" + eName + " instanceof " + 
-                    getJavaType(c.exception.type) + ") {")
+            out.writeLine("if (\{eName} instanceof " + 
+                    getJavaType(c.error.type) + ") {")
             out.level += 1
-            out.writeLine(getName(c.exception) + " = (" + 
-                    getJavaType(c.exception.type) + ") " + eName + ";")
-            generateBlockCode(c)
+            out.writeLine("\{getName(c.error)} = (" + 
+                    "\{getJavaType(c.error.type)}) \{eName};")
+            generateStatementCode(c.statement)
             out.level -= 1
             out.writeLine("}")
         }
-        if t.length > 1
-            out.write("else ")
-        out.writeLine("throw " + rawName + ";")
+        out.writeLine("else throw \{rawName};")
         out.level -= 1
         out.writeLine("}")
     }
-*-
+
     method generateReturnCode(r:Return) {
         out.write("return")
         var value := r.value
@@ -954,6 +964,7 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateStatementCode(s:Statement) {
+        out.writeLine("/* \{s->>(String).replace('*/', '*_/')} */")
         switch s.class {
             case class(ValueStatement): {
                 def value := s->(ValueStatement).value
@@ -977,7 +988,7 @@ class JavaCodeGenerator (CodeGenerator) {
             case class(Break): generateBreakCode(s->(Break))
             case class(Continue): generateContinueCode(s->(Continue))
             case class(Throw): generateThrowCode(s->(Throw))
---            case class(Try): generateTryCode(s->(Try))
+            case class(Try): generateTryCode(s->(Try))
             case class(Unreachable): out.writeLine(
                     "throw new panda.core.PandaException(" + 
                     "panda.core.AssertionError.createnew$constructor(" +
@@ -1023,7 +1034,8 @@ class JavaCodeGenerator (CodeGenerator) {
     }
     
     method generateFieldCode(f:FieldNode) {
-        if currentClass->(ClassNode).stub.annotations.isUnspecified & 
+        def cl := currentClass->(ClassNode).stub
+        if cl.annotations.isUnspecified & 
                 !f.annotations.isThread &
                 !f.annotations.isClass
             return
@@ -1034,29 +1046,24 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         else {
             if f.annotations.isThread {
--*                var type := "java.lang.ThreadLocal<" + 
+                def type := "java.lang.ThreadLocal<" + 
                         getJavaReferenceType(f.type) + ">"
                 out.writeLine("public static " + type + " " + getName(f) + 
                         " = new " + type + "()")
-                var initializer := currentClass->(ClassNode).symbolTable.getMethod(
-                            f.position,
-                            ASTGenerator.getThreadLocalInitializerName(f),
-                            new PrimitiveArray<Value>(), true)
-                if initializer != null {
+                if f.initialValue != null {
                     out.writeLine(" {")
                     out.level += 1
                     out.writeLine("protected " + 
                             getJavaReferenceType(f.type) + " initialValue() {")
                     out.level += 1
-                    out.writeLine("return " + initializer.name +
-                            "();")
+                    out.writeLine("return " + 
+                            IRGenerator.getThreadLocalInitializerName(f) + "();")
                     out.level -= 1
                     out.writeLine("}")
                     out.level -= 1
                     out.write("}")
+                    out.writeLine(";")
                 }
-                out.writeLine(";")*-
-                unreachable
             }
             else {
                 out.write("public ")
@@ -1069,6 +1076,9 @@ class JavaCodeGenerator (CodeGenerator) {
     }
 
     method generateMethodDeclaration(m:MethodStub) {
+        if context.getStub(m.owner).annotations.isUnspecified & 
+                !m.annotations.isClass
+            return
         out.write("public ")
         if isClass(m)
             out.write("static ")
@@ -1137,6 +1147,11 @@ class JavaCodeGenerator (CodeGenerator) {
             if m.stub.parameters.length > 0
                 out.write(", ")
         }
+        else if m.stub.annotations.isWrapperMethod {
+            out.write("\{getJavaType(m.stub.owner->>(PrimitiveType))} $this")
+            if m.parameters.length > 0
+                out.write(", ")
+        }
         for i, p in m.parameters {
             if i > 0
                 out.write(", ")
@@ -1193,7 +1208,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.level += 1
             out.writeLine("\{type} $this = new \{type}();")
             out.writeLine("$this.$cl = " + PANDACORE + '.getClass("' +
-                    getName(m.stub) + '", "' +
+                    getJavaType(m.stub.owner) + '", "' +
                     getDisplayName(context.getStub(m.stub.owner)) + '");')
             out.write(getName(m.stub) + "($this")
             for i, p in m.parameters
@@ -1216,6 +1231,51 @@ class JavaCodeGenerator (CodeGenerator) {
         currentMethod := null
     }
 
+    @pre(m.annotations.isExternal)
+    method generateExternalMethodCode(m:MethodStub) {
+        if context.getStub(m.owner).annotations.isUnspecified & 
+                !m.annotations.isClass
+            return
+        out.write("public ")
+        if isClass(m)
+            out.write("static ")
+        else if context.getStub(m.owner).isInterface & !isClass(m)
+            out.write("default ")
+        out.write("\{getJavaType(m.returnType)} \{methodNamer.getName(m)}(")
+        if m.annotations.isWrapperMethod {
+            out.write("\{getJavaType(m.owner->>(PrimitiveType))} $this")
+            if m.parameters.length > 0
+                out.write(", ")
+        }
+        for i, p in m.parameters {
+            if i > 0
+                out.write(", ")
+            out.write(getJavaType(p.type) + " " + p.name)
+        }
+        if m.parameters.length = 0 & getName(m) = 
+                JavaMethodNamingStrategy.PANDAMAIN_NAME
+            out.write("panda.collections.PrimitiveArray$LTpanda$core$String$GT $arg")
+        out.writeLine(") {")
+        if m.returnType != VoidType.VOID
+            out.write("return ")
+        out.write("$external." + getName(m) + "(")
+        if !m.annotations.isClass {
+            if m.annotations.isWrapperMethod
+                out.write("$this")
+            else
+                out.write("this")
+            if m.parameters.length > 0
+                out.write(", ")
+        }
+        for i, p in m.parameters {
+            if i > 0
+                out.write(", ")
+            out.write(p.name)
+        }
+        out.writeLine(");")
+        out.writeLine("}")
+    }
+
     method generateStringConstants() {
         for i in 0 .. stringConstants.length {
             out.writeLine("public static final " + class(String).name + " " + 
@@ -1233,8 +1293,6 @@ class JavaCodeGenerator (CodeGenerator) {
 
     method generateClassCode(cl:ClassNode) {
         if cl.stub.isExternal
-            return
-        if cl.stub.annotations.isUnspecified & cl.stub.type.isPrimitiveArray()
             return
         currentClass := cl
         hasClassInit := false
@@ -1267,7 +1325,7 @@ class JavaCodeGenerator (CodeGenerator) {
         else
             out.writeLine("package " + UNNAMED + ";")
         out.write("public ")
-        if cl.stub.annotations.isAbstract()
+        if cl.stub.annotations.isAbstract() | cl.stub.annotations.isUnspecified
             out.write("abstract ")
         if cl.stub.isInterface
             out.write("interface ")
@@ -1291,29 +1349,19 @@ class JavaCodeGenerator (CodeGenerator) {
             }
             if cl.stub.type = ClassType.OBJECT
                 out.write(" implements java.lang.Cloneable")
--*            else if isMethodClass(cl.stub.type) {
+            else if isMethodClass(cl.stub.type) {
                 def m := cl.stub.methods.filter(
                         m => m.name = "raw").iterator.next()
-                def typeName := new MutableString("(")
-                for i, param in m.parameters {
-                    if i = 0
-                        continue
-                    if i > 1
-                        typeName.append(",")
-                    typeName.append(param.type.name)
-                }
-                typeName.append(")=")
-                if m.methodType = MethodNodeType.METHOD
-                    typeName.append("&")
-                typeName.append(">(")
-                if m.returnType != VoidType.VOID
-                    typeName.append(m.returnType.name)
-                typeName.append(")")
-                def methodType := SymbolTable.master.getType(cl.position,
-                        typeName->>(String))
-                out.write(" implements " + 
-                        getJavaMethodType(methodType->(MethodType)))
-            }*-
+                def parameters := new Array<ASTType>()
+                for p in m.parameters
+                    parameters.add(IRGenerator.toASTType(cl.position, p.type))
+                def returnType := IRGenerator.toASTType(cl.position,
+                        m.returnType)
+                def methodType := context.resolveType(new ASTMethodType(
+                        cl.position, parameters, returnType, false, true, true))
+                out.write(" implements " + getJavaMethodType(
+                        methodType->(MethodType)))
+            }
             else {
                 for i, intf in cl.stub.interfaces {
                     if i = 0
@@ -1334,25 +1382,6 @@ class JavaCodeGenerator (CodeGenerator) {
                 out.writeLine("    private static final " + className + 
                         " $external = new " + className + "Impl();")
                 break
-            }
-        }
-
-        -- add array constructor
-        if cl.stub.type-?>(GenericType) {
-            def g := cl.stub.type->(GenericType)
-            def elementType := g.parameters[0]
-            if g.base = ClassType.ARRAY | g.base = ClassType.IMMUTABLE_ARRAY {
-                out.writeLine("public \{simpleName}() { }")
-                out.writeLine("public \{simpleName}(\{getJavaType(elementType)}... values) {")
-                out.level += 1
-                out.writeLine("new$constructor(this);")
-                out.writeLine("ensureCapacity(values.length);")
-                out.writeLine("$_length = values.length;")
-                out.writeLine("for (int i = 0; i < values.length; i++)")
-                out.level += 1
-                out.writeLine("$contents.set(i, values[i]);")
-                out.level -= 2
-                out.writeLine("}")
             }
         }
 
@@ -1474,6 +1503,8 @@ class JavaCodeGenerator (CodeGenerator) {
 
         for m in cl.methods
             generateMethodCode(m)
+        for m in cl.stub.methods.filter(m => m.annotations.isExternal)
+            generateExternalMethodCode(m)
         for m in cl.stub.methods.filter(m => m.annotations.isAbstract)
             generateMethodDeclaration(m)
         for f in cl.stub.fields
