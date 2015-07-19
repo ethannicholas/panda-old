@@ -86,6 +86,10 @@ class MutablePackage (Symbol) {
         symbols[name] := symbol
     }
 
+    function format(fmt:String):String {
+        return "MutablePackage(\{name}, \{symbols})"
+    }
+
     function ->>():Package {
         def children := new HashMap<String, Symbol>()
         for (name, symbol) in symbols {
@@ -95,6 +99,17 @@ class MutablePackage (Symbol) {
                 children[name] := symbol
         }
         return new Package(self.name, children)
+    }
+}
+
+class ClassContext {
+    def currentPackage:String?
+
+    def lookupContext:LookupContext
+
+    constructor(currentPackage:String?, lookupContext:LookupContext) {
+        self.currentPackage := currentPackage
+        self.lookupContext := lookupContext
     }
 }
 
@@ -108,6 +123,12 @@ class StubGenerator {
     def root := new MutablePackage("")
 
     def types := new HashMap<String, Type>()
+
+    def astClasses := new HashMap<String, (ASTClass, ClassContext)>()
+
+    def astEnums := new HashMap<String, (ASTEnum, ClassContext)>()
+
+    def stubs := new HashMap<String, ClassStub>()
 
     def masterSymbolTable:SymbolTable
 
@@ -133,11 +154,12 @@ class StubGenerator {
         aliasType("UInt", IntType.UINT32, symbolTable, dummy)
         aliasType("Real", RealType.REAL64,symbolTable, dummy)
         masterSymbolTable := symbolTable
+        findClassNames()
         scanFiles()
     }
 
     @private
-    method scanFiles() {
+    method findClassNames() {
         var currentPackage:String?
         for f in files {
             currentPackage := null
@@ -165,6 +187,85 @@ class StubGenerator {
                     if currentPackage != null
                         name := currentPackage + "." + name
                     addType(new ClassType(name), decl.position)
+                }
+                else if decl-?>(ASTPackageDeclaration)
+                    currentPackage := decl->(ASTPackageDeclaration).name
+            }
+        }
+    }
+
+    @private
+    method scanFiles() {
+        var currentPackage:String?
+        def defaultPackages := new Array<String>()
+        defaultPackages.add("panda.collections")
+        defaultPackages.add("panda.core")
+        defaultPackages.add("panda.io")
+        defaultPackages.add("panda.math")
+        defaultPackages.add("panda.threads")
+        for f in files {
+            def packageUses := new Array<String>()
+            def classAliases := new HashMap<String, String>()
+            def symbolTable := new SymbolTable(masterSymbolTable)
+            for p in defaultPackages
+                usePackage(p, symbolTable, packageUses, Position.INTERNAL)
+            currentPackage := null
+            for decl in f.entries {
+                if decl-?>(ASTUsesDeclaration) {
+                    def u := decl->(ASTUsesDeclaration)
+                    if u.name.endsWith(".*") {
+                        if u.alias != null {
+                            errors.error("package imports may not have an alias",
+                                    u.position)
+                        }
+                        usePackage(u.name[..u.name.length - ".*".length], 
+                                symbolTable, packageUses, u.position)
+                    }
+                    else {
+                        if u.alias != null 
+                            aliasType(u.alias->(String), 
+                                    resolveType(new ASTClassType(u.position, 
+                                    u.name, null, false), symbolTable), symbolTable, 
+                                    classAliases)
+                        else {
+                            var name := u.name
+                            def index := name.lastIndexOf(".")
+                            if index != null
+                                name := name[index + 1..]
+                            aliasType(name, 
+                                    resolveType(new ASTClassType(u.position, 
+                                    u.name, null, false), symbolTable), symbolTable,
+                                    classAliases)
+                        }
+                    }
+                }
+                else if decl-?>(ASTClass) {
+                    var name := decl->(ASTClass).name
+                    if currentPackage != null
+                        name := currentPackage + "." + name
+                    def type:Type
+                    if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
+                        def symbolTable := new SymbolTable()
+                        usePackage("panda.core", symbolTable, 
+                                new Array<String>(), Position.INTERNAL)
+                        type := new WrapperType(resolveType(new ASTClassType(
+                                decl.position, name[0 .. name.length - 
+                                    "Wrapper".length], null, false), 
+                                symbolTable)->(PrimitiveType))
+                    }
+                    else
+                        type := new ClassType(name)
+                    astClasses[name] := (decl->(ASTClass), new ClassContext(
+                            currentPackage, new LookupContext(packageUses,
+                                classAliases)))
+                }
+                else if decl-?>(ASTEnum) {
+                    var name := decl->(ASTEnum).name
+                    if currentPackage != null
+                        name := currentPackage + "." + name
+                    astEnums[name] := (decl->(ASTEnum), new ClassContext(
+                            currentPackage, new LookupContext(packageUses,
+                                classAliases)))
                 }
                 else if decl-?>(ASTPackageDeclaration)
                     currentPackage := decl->(ASTPackageDeclaration).name
@@ -995,118 +1096,53 @@ class StubGenerator {
             aliasType(alias, type, symbolTable)
         }
     }
- 
-    method generateStubs(f:ASTFile):CollectionView<ClassStub> {
-        def result := new Array<ClassStub>()
-        var currentPackage:String? := null
-        def mainStatements := new Array<ASTStatement>()
-        def implicitClassSymbols := new SymbolTable(masterSymbolTable)
-        def implicitType := new ClassType("$Implicit")
+
+    function getSymbolTable(lookupContext:LookupContext):SymbolTable {
         def symbolTable := new SymbolTable(masterSymbolTable)
-        def packageUses := new Array<String>()
-        def classAliases := new HashMap<String, String>()
-        var needImplicit := false
-        def defaultPackages := new Array<String>()
-        defaultPackages.add("panda.collections")
-        defaultPackages.add("panda.core")
-        defaultPackages.add("panda.io")
-        defaultPackages.add("panda.math")
-        defaultPackages.add("panda.threads")
-        for p in defaultPackages
-            usePackage(p, symbolTable, packageUses, Position.INTERNAL)
-        for e in f.entries {
-            if e-?>(ASTPackageDeclaration)
-                currentPackage := e->(ASTPackageDeclaration).name
-            else if e-?>(ASTUsesDeclaration) {
-                def u := e->(ASTUsesDeclaration)
-                if u.name.endsWith(".*") {
-                    if u.alias != null {
-                        errors.error("package imports may not have an alias",
-                                u.position)
-                    }
-                    usePackage(u.name[..u.name.length - ".*".length], 
-                            symbolTable, packageUses, u.position)
-                }
-                else {
-                    if u.alias != null 
-                        aliasType(u.alias->(String), 
-                                resolveType(new ASTClassType(u.position, 
-                                u.name, null, false), symbolTable), symbolTable, 
-                                classAliases)
-                    else {
-                        var name := u.name
-                        def index := name.lastIndexOf(".")
-                        if index != null
-                            name := name[index + 1..]
-                        aliasType(name, 
-                                resolveType(new ASTClassType(u.position, 
-                                u.name, null, false), symbolTable), symbolTable,
-                                classAliases)
-                    }
-                }
+        for p in lookupContext.packageUses
+            usePackage(p, symbolTable, Position.INTERNAL)
+        for (alias, type) in lookupContext.classAliases {
+            aliasType(alias, resolveType(new ASTClassType(Position.INTERNAL, 
+                    type, null, false), symbolTable), symbolTable)
+        }
+        return symbolTable
+    }
+
+    @class
+    function getPackage(name:String):String? {
+        def index := name.lastIndexOf(".")
+        if index = null
+            return null
+        return name[0 .. index]
+    }
+ 
+    method getStub(name:String):ClassStub? {
+        var result := stubs[name]
+        if result = null {
+            def classLookup := astClasses[name]
+            if classLookup != null {
+                def cl, context := classLookup
+                def symbolTable := getSymbolTable(context.lookupContext)
+                result := convertClass(cl, getPackage(name), symbolTable,
+                        context.lookupContext.packageUses, 
+                        new HashMap<String, String>(
+                                context.lookupContext.classAliases))
+                stubs[name] := result
             }
-            else if e-?>(ASTClass) {
-                def cl := e->(ASTClass)
-                result.add(convertClass(cl, currentPackage, symbolTable,
-                        packageUses, classAliases))
-            }
-            else if e-?>(ASTEnum) {
-                def cl := e->(ASTEnum)
-                result.add(convertEnum(cl, currentPackage, symbolTable))
-            }
-            else if e-?>(ASTMethod) {
-                var m := convertMethod(false, e->(ASTMethod), implicitType, 
-                        symbolTable)
-                if m != null {
-                    m := new MethodStub(m.position, m.name, 
-                            m.annotations + AnnotationType.CLASS,
-                            m.methodType, m.parameters, m.returnType, m.body, 
-                            m.owner)
-                    checkMethodSignature(m)
-                    addSymbol(m, implicitClassSymbols, errors)
-                    needImplicit := true
-                }
-            }
-            else if e-?>(ASTStatement)
-                mainStatements.add(e->(ASTStatement))
             else {
-                throw new InternalCompilerException("unsupported file entry: " +
-                        e)
+                def enumLookup := astEnums[name]
+                if enumLookup != null {
+                    def cl, context := enumLookup
+                    def symbolTable := getSymbolTable(context.lookupContext)
+                    result := convertEnum(cl, getPackage(name), symbolTable)
+                    stubs[name] := result
+                }
             }
-        }
-        if mainStatements.length > 0 {
-            def position := new Position(f.name, 1, 1)
-            def classAnnotations := new Array<AnnotationType>()
-            classAnnotations.add(AnnotationType.CLASS)
-            def main := new MethodStub(position, MethodNode.MAIN_NAME, 
-                    new Annotations(position, classAnnotations),
-                    MethodNodeType.METHOD, new Array<FormalParameter>(), 
-                    VoidType.VOID, new ASTBlock(Position.INTERNAL, 
-                    mainStatements), implicitType)
-            addSymbol(main, implicitClassSymbols, errors)
-            needImplicit := true
-        }
-        if needImplicit {
-            def implicitClass := new ClassStub(Position.INTERNAL, 
-                    implicitType, false, 
-                    new Annotations(Position.INTERNAL), 
-                    null, new Array<ClassType>(), 
-                    new OrderedMap<String, Symbol>(implicitClassSymbols), 
-                    new LookupContext(packageUses, classAliases), 
-                    new Array<ASTInvariant>(), null, false, null)
-            result.add(implicitClass)
-            addType(implicitClass.type, implicitClass.position)
         }
         return result
     }
 
-    method generateStubs():(Package, MapView<String, ClassStub>) {
-        def classes := new HashMap<String, ClassStub>()
-        for f in files {
-            def fileClasses := generateStubs(f)
-            for cl in fileClasses
-                classes[cl.name] := cl
-        }
-        return (root->>(Package), classes)
+    method getRootPackage():Package {
+        return root->>(Package)
     }
 }

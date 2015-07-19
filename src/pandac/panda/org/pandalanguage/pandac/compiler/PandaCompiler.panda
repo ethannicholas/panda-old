@@ -139,14 +139,14 @@ class PandaCompiler {
     }
 
     method checkpoint(label:String) {
-        var now := Panda.currentTime()
+-*        var now := Panda.currentTime()
         var lastCheckpointLabel := lastCheckpointLabel
         if lastCheckpointLabel != null {
             Console.writeLine(lastCheckpointLabel + " - " + 
                     (now - lastCheckpointTime) + "ms")
         }
         self.lastCheckpointLabel := label
-        lastCheckpointTime := now
+        lastCheckpointTime := now*-
     }
 
     @protected
@@ -205,20 +205,25 @@ class PandaCompiler {
 
     @protected
     method compile(settings:CompilerSettings) {
+        checkpoint("parse")
         def files := getASTFiles(settings)
         processMessages()
         if errorCount = 0 {
             processMessages()
             if errorCount = 0 {
+                checkpoint("extract types")
                 def stubGenerator := new StubGenerator(files, errors)
-                def root, classes := stubGenerator.generateStubs()
+                def root := stubGenerator.getRootPackage()
                 processMessages()
                 if errorCount = 0 {
-                    def program := new IRGenerator(root, classes, stubGenerator, 
+                    checkpoint("semantic analysis")
+                    def program := new IRGenerator(root,  
+                            new HashMap<String, ClassStub>(), stubGenerator,
                             settings, errors).generateProgram()
                     processMessages()
                     if errorCount = 0 {
                         def cg:CodeGenerator
+                        checkpoint("codegen")
                         switch settings.outputFormat {
                             case OutputFormat.EXECUTABLE:
                                 cg := new ExecutableCodeGenerator(program, 
@@ -351,8 +356,10 @@ class PandaCompiler {
     }
 
     method runWithArgs(args:PrimitiveArray<String>) {
+        checkpoint("process arguments")
         def settings := processArguments(args)
         compile(settings)
+        checkpoint("finished")
     }
 
     @class

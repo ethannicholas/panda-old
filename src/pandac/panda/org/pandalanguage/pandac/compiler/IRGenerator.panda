@@ -132,6 +132,7 @@ uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NativePointerType
@@ -722,6 +723,7 @@ class IRGenerator {
             if parameters.length = 1 &
                     parameters[0].canImplicitCastTo(context, IntType.INT32) {
                 def cast := parameters[0].implicitCast(context, IntType.INT32)
+                context.getStub(type->>(PrimitiveArrayType))
                 return new NewPrimitiveArrayWithLength(n.position, 
                         type->>(PrimitiveArrayType), cast)
             }
@@ -729,10 +731,12 @@ class IRGenerator {
                     parameters[0].type.isPrimitiveArray &
                     parameters[0].type->(PrimitiveArrayType).parameters[0] =
                         elementType {
+                context.getStub(type->(PrimitiveArrayType))
                 return new PrimitiveArrayCopy(n.position, 
                         type->(PrimitiveArrayType), parameters[0])
             }
             else if parameters.length = 0 {
+                context.getStub(type->>(PrimitiveArrayType))
                 return new NewPrimitiveArrayWithLength(n.position, 
                         type->>(PrimitiveArrayType), new IntegerLiteral(
                             n.position, 0, IntType.INT32, true))
@@ -2735,7 +2739,23 @@ class IRGenerator {
 
     @private
     method createAllStubs() {
-        var progress:Bit
+        for (_, cl) in context.stubGenerator.types {
+            if cl-?>(ClassType) & cl-!>(GenericParameterType) {
+                def astClass := context.stubGenerator.astClasses[cl.name]
+                if astClass != null {
+                    if !astClass[0].isExternal
+                        createStub(cl->(ClassType))  
+                } 
+                else {
+                    def astEnum := context.stubGenerator.astEnums[cl.name]
+                    if astEnum != null & !astEnum[0].isExternal
+                        createStub(cl->(ClassType))  
+                }
+            }
+        }
+        createStub(ClassType.CLASS)
+        createStub(ClassType.METHOD)
+-*        var progress:Bit
         def checked := new HashSet<ClassStub>()
         do {
             progress := false
@@ -2762,7 +2782,7 @@ class IRGenerator {
                     createStub(intf)
             }
         }
-        while progress
+        while progress*-
     }
 
     method addClass(cl:ClassStub, root:MutablePackage) {
@@ -2784,8 +2804,8 @@ class IRGenerator {
                 currentPackage := next->(MutablePackage)
             }
             else {
-                assert currentPackage[c] = null
-                currentPackage[c] := new TypeSymbol(cl.type)
+                if currentPackage[c] = null
+                    currentPackage[c] := new TypeSymbol(cl.type)
             }
         }
     }
@@ -2816,60 +2836,64 @@ class IRGenerator {
         return true
     }
 
-    method createProperties() {
-        for cl in context.classes.values {
-            for f in cl.fields {
-                if f.varType = VariableType.PROPERTY {
-                    context.symbolTables.remove(cl)
-                    cl.symbols.remove(f.name)
-                    def name := f.name[0 .. f.name.length - "$PROPERTY".length]
-                    def field := new FieldNode(f.position, cl.type, "_" + 
-                            name, f.annotations, VariableType.VAR, f.type, 
-                            f.initialValue, f.tuplePosition)
-                    StubGenerator.addSymbol(field, field.position, cl.symbols, 
+    method createProperties(cl:ClassStub) {
+        for f in cl.fields {
+            if f.varType = VariableType.PROPERTY {
+                inferFieldType(f)
+                context.symbolTables.remove(cl)
+                cl.symbols.remove(f.name)
+                def name := f.name[0 .. f.name.length - "$PROPERTY".length]
+                def field := new FieldNode(f.position, cl.type, "_" + 
+                        name, f.annotations, VariableType.VAR, f.type, 
+                        f.initialValue, f.tuplePosition)
+                StubGenerator.addSymbol(field, field.position, cl.symbols, 
+                        context.errors)
+
+                if needsGetter(f, cl) {
+                    def getterStatements := new Array<ASTStatement>()
+                    getterStatements.add(new ASTReturn(f.position, 
+                            new ASTIdentifier(f.position, field.name)))
+                    def getterBody := new ASTBlock(f.position, 
+                            getterStatements)
+                    def getter := new MethodStub(f.position, name, 
+                            new Annotations(f.position), 
+                            MethodNodeType.FUNCTION, 
+                            new Array<FormalParameter>(), f.type, 
+                            getterBody, cl.type)
+                    StubGenerator.addSymbol(getter, cl.symbols, 
                             context.errors)
+                }
 
-                    if needsGetter(f, cl) {
-                        def getterStatements := new Array<ASTStatement>()
-                        getterStatements.add(new ASTReturn(f.position, 
-                                new ASTIdentifier(f.position, field.name)))
-                        def getterBody := new ASTBlock(f.position, 
-                                getterStatements)
-                        def getter := new MethodStub(f.position, name, 
-                                new Annotations(f.position), 
-                                MethodNodeType.FUNCTION, 
-                                new Array<FormalParameter>(), f.type, 
-                                getterBody, cl.type)
-                        StubGenerator.addSymbol(getter, cl.symbols, 
-                                context.errors)
-                    }
-
-                    if needsSetter(f, cl) {
-                        def setterStatements := new Array<ASTStatement>()
-                        def parameters := new Array<FormalParameter>()
-                        def parameter := new FormalParameter(f.position, 
-                                "value", f.type, false, false, false)
-                        parameters.add(parameter)
-                        def lvalues := new Array<ASTExpression>()
-                        lvalues.add(new ASTIdentifier(f.position, field.name))
-                        setterStatements.add(new ASTAssignment(lvalues, null, 
-                                new ASTIdentifier(f.position, parameter.name)))
-                        def setterBody := new ASTBlock(f.position, 
-                                setterStatements)
-                        def annotationTypes := new Array<AnnotationType>()
-                        annotationTypes.add(AnnotationType.SELF)
-                        def setterAnnotations := new Annotations(f.position, 
-                                annotationTypes)
-                        def setter := new MethodStub(f.position, 
-                                name + ":=", setterAnnotations, 
-                                MethodNodeType.METHOD, parameters, 
-                                VoidType.VOID, setterBody, cl.type)
-                        StubGenerator.addSymbol(setter, cl.symbols, 
-                                context.errors)
-                    }
+                if needsSetter(f, cl) {
+                    def setterStatements := new Array<ASTStatement>()
+                    def parameters := new Array<FormalParameter>()
+                    def parameter := new FormalParameter(f.position, 
+                            "value", f.type, false, false, false)
+                    parameters.add(parameter)
+                    def lvalues := new Array<ASTExpression>()
+                    lvalues.add(new ASTIdentifier(f.position, field.name))
+                    setterStatements.add(new ASTAssignment(lvalues, null, 
+                            new ASTIdentifier(f.position, parameter.name)))
+                    def setterBody := new ASTBlock(f.position, 
+                            setterStatements)
+                    def annotationTypes := new Array<AnnotationType>()
+                    annotationTypes.add(AnnotationType.SELF)
+                    def setterAnnotations := new Annotations(f.position, 
+                            annotationTypes)
+                    def setter := new MethodStub(f.position, 
+                            name + ":=", setterAnnotations, 
+                            MethodNodeType.METHOD, parameters, 
+                            VoidType.VOID, setterBody, cl.type)
+                    StubGenerator.addSymbol(setter, cl.symbols, 
+                            context.errors)
                 }
             }
         }
+    }
+
+    method createProperties() {
+        for cl in context.classes.values
+            createProperties(cl)
     }
 
     @class
@@ -2880,6 +2904,7 @@ class IRGenerator {
     method createThreadLocalInitializers() {
         for cl in context.classes.values {
             for f in cl.fields.filter(f => f.annotations.isThread) {
+                inferFieldType(f)
                 def name := getThreadLocalInitializerName(f)
                 if cl.symbols[name] != null
                     continue

@@ -253,8 +253,13 @@ class LLVMCodeGenerator (CodeGenerator) {
             else
                 cl := ClassType.MUTABLE_METHOD
         }
-        def stub := context.getStub(cl.name)
-        return "%" + getName(stub) + "*"
+        def stub := context.classes[cl.name]
+        if stub != null
+            return "%" + getName(stub) + "*"
+        else {
+            -- stub hasn't been created, just use a dummy type
+            return "%panda$core$Object*"
+        }
     }
 
     method getLLVMMethodType(m:MethodStub):String {
@@ -1912,6 +1917,16 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
     }
 
+    @private
+    method isKnownToBeImmutable(type:Type):Bit {
+        if type.isPrimitive
+            return true
+        def stub := context.classes[type.name]
+        if stub = null
+            return false
+        return type.isImmutable(context)
+    }
+
     @protected
     method writeMethodDeclaration(m:MethodStub) {
         if m.annotations.isAbstract & !m.annotations.isExternal
@@ -1919,9 +1934,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         def private := m.annotations.isPrivate
         def external := m.annotations.isExternal
         def immutableReturn := m.returnType != VoidType.VOID & 
-                m.returnType.isImmutable(context)
-        for p in m.parameters
-            writeTypeDescriptor(p.type)
+                isKnownToBeImmutable(m.returnType)
+        for p in m.parameters {
+            if context.classes[p.type.name] != null
+                writeTypeDescriptor(p.type)
+        }
         body.writeLine()
         if debug
             body.writeLine("; method: " + m->>(String).replace("\n", "\n; (method cont) "))
@@ -1952,7 +1969,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if m.stub.annotations.isAbstract
             return
         def immutableReturn := m.stub.returnType != VoidType.VOID & 
-                m.stub.returnType.isImmutable(context)
+                isKnownToBeImmutable(m.stub.returnType)
         for p in m.stub.parameters
             writeTypeDescriptor(p.type)
         currentMethod := m

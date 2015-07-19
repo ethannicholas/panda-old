@@ -141,12 +141,17 @@ class Context {
             return null
         if type-?>(PrimitiveArrayType) {
             def array := type->(PrimitiveArrayType)
-            def elementStub:ClassStub?
+            def unspecified:Bit
             if array.elementType.isPrimitive
-                elementStub := null
-            else
-                elementStub := getStub(array.elementType.name)
-            return array.createStub(elementStub, self)
+                unspecified := false
+            else if array.elementType.unwrapNullable-?>(GenericParameterType)
+                unspecified := true
+            else {
+                def elementStub := getStub(array.elementType.name)
+                unspecified := elementStub.annotations.isUnspecified
+            }
+            def result := array.createStub(unspecified, self)
+            return result
         }
         else if type-?>(GenericType) {
             def generic := type->(GenericType)
@@ -167,16 +172,24 @@ class Context {
         else if type-?>(TupleType) {
             def tuple := type->(TupleType)
             def stubs := new Array<ClassStub?>()
+            var unspecified := false
             for t in tuple.types {
-                if t.isPrimitive | t-?>(GenericParameterType)
-                    stubs.add(null)
-                else
-                    stubs.add(getStub(t.name))
+                if t-?>(GenericParameterType) {
+                    unspecified := true
+                    break
+                }
+                else if !t.isPrimitive {
+                    def stub := getStub(t.name)
+                    if stub.annotations.isUnspecified {
+                        unspecified := true
+                        break
+                    }
+                }
             }
-            return tuple.createStub(stubs, self)
+            return tuple.createStub(unspecified, self)
         }
         else
-            throw new InternalCompilerException("cannot create stub for \{type}")
+            return stubGenerator.getStub(type.name)
     }
 
     @private
@@ -625,6 +638,10 @@ class Context {
         else
             count := methodParams.length
         def finalParams := new Array<Value>()
+        if params.length < count | (params.length > count & !isVarArg) {
+            errors.error("\{m} requires \{count} parameters, but found " +
+                    params.length, position)
+        }
         for i in 0 .. count {
             def targetType := m.parameters[i].type
             if params[i].canImplicitCastTo(self, targetType) {
