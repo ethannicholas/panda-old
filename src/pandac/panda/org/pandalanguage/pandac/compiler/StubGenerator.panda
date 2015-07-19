@@ -196,7 +196,6 @@ class StubGenerator {
 
     @private
     method scanFiles() {
-        var currentPackage:String?
         def defaultPackages := new Array<String>()
         defaultPackages.add("panda.collections")
         defaultPackages.add("panda.core")
@@ -204,12 +203,16 @@ class StubGenerator {
         defaultPackages.add("panda.math")
         defaultPackages.add("panda.threads")
         for f in files {
+            var currentPackage:String? := null
             def packageUses := new Array<String>()
             def classAliases := new HashMap<String, String>()
             def symbolTable := new SymbolTable(masterSymbolTable)
             for p in defaultPackages
                 usePackage(p, symbolTable, packageUses, Position.INTERNAL)
-            currentPackage := null
+            def implicitClassSymbols := new SymbolTable(masterSymbolTable)
+            def implicitType := new ClassType("$Implicit")
+            var needImplicit := false
+            def mainStatements := new Array<ASTStatement>()
             for decl in f.entries {
                 if decl-?>(ASTUsesDeclaration) {
                     def u := decl->(ASTUsesDeclaration)
@@ -269,6 +272,53 @@ class StubGenerator {
                 }
                 else if decl-?>(ASTPackageDeclaration)
                     currentPackage := decl->(ASTPackageDeclaration).name
+                else if decl-?>(ASTMethod) {
+                    var m := convertMethod(false, decl->(ASTMethod), 
+                            implicitType, symbolTable)
+                    if m != null {
+                        m := new MethodStub(m.position, m.name, 
+                                m.annotations + AnnotationType.CLASS,
+                                m.methodType, m.parameters, m.returnType, 
+                                m.body, m.owner)
+                        checkMethodSignature(m)
+                        addSymbol(m, implicitClassSymbols, errors)
+                        needImplicit := true
+                    }
+                }
+                else if decl-?>(ASTStatement)
+                    mainStatements.add(decl->(ASTStatement))
+                else {
+                    throw new InternalCompilerException(
+                            "unsupported file entry: \{decl}")
+                }
+            }
+            if mainStatements.length > 0 {
+                def position := new Position(f.name, 1, 1)
+                def classAnnotations := new Array<AnnotationType>()
+                classAnnotations.add(AnnotationType.CLASS)
+                def main := new MethodStub(position, MethodNode.MAIN_NAME, 
+                        new Annotations(position, classAnnotations),
+                        MethodNodeType.METHOD, new Array<FormalParameter>(), 
+                        VoidType.VOID, new ASTBlock(Position.INTERNAL, 
+                        mainStatements), implicitType)
+                addSymbol(main, implicitClassSymbols, errors)
+                needImplicit := true
+            }
+            if needImplicit {
+                def implicitClass := new ClassStub(Position.INTERNAL, 
+                        implicitType, false, 
+                        new Annotations(Position.INTERNAL), 
+                        null, new Array<ClassType>(), 
+                        new OrderedMap<String, Symbol>(implicitClassSymbols), 
+                        new LookupContext(packageUses, classAliases), 
+                        new Array<ASTInvariant>(), null, false, null)
+                astClasses[implicitClass.name] := (new ASTClass(
+                        Position.INTERNAL, implicitClass.name, false, 
+                        null, null, null, null, null, [], [], [], false),
+                        new ClassContext(currentPackage, 
+                            new LookupContext(packageUses, classAliases)))
+                stubs[implicitClass.name] := implicitClass
+                addType(implicitClass.type, implicitClass.position)
             }
         }
     }
