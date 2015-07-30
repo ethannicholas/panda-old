@@ -1,0 +1,263 @@
+file = WS? bodyEntry* EOF
+bodyEntry = annotations (classDeclaration / interfaceDeclaration / enum /
+        methodDeclaration) / packageDeclaration / usesStatement / 
+        instanceDeclaration / statement
+packageDeclaration = PACKAGE IDENTIFIER (DOT IDENTIFIER)*
+usesStatement = USES IDENTIFIER (DOT IDENTIFIER)* (DOT MUL)?
+        (AS IDENTIFIER)?
+instanceDeclaration = INSTANCE type
+
+annotations = DOCCOMMENT? (PROTECTED / PRIVATE / ATCLASS / THREAD / 
+        ABSTRACT / EXTERNAL / OVERRIDE / READONLY / LIMITED / ATSELF / 
+        SAFERETURN / UNSAFEFUNCTION / FINAL / WRAPPER_METHOD / mathAnnotation /
+        precondition)*
+mathAnnotation = MATH LPAREN OVERFLOW RPAREN
+precondition = PRE LPAREN expression RPAREN
+
+classDeclaration = CLASS IDENTIFIER genericParametersDeclaration? 
+        (COLON classType)? interfaces? LBRACE classMembers RBRACE
+interfaces = LPAREN (type (COMMA type)*)? RPAREN
+genericParametersDeclaration = LT IDENTIFIER typeDeclaration? 
+        (COMMA IDENTIFIER typeDeclaration?)? GT
+classMembers = (invariant / annotations (methodDeclaration / varDeclaration))*
+invariant = INVARIANT LPAREN expression RPAREN
+
+interfaceDeclaration = INTERFACE IDENTIFIER genericParametersDeclaration? 
+        (COLON classType (COMMA classType)*)? LBRACE classMembers RBRACE
+
+enum = ENUM LBRACE (DOCCOMMENT? IDENTIFIER (COMMA DOCCOMMENT? IDENTIFIER)*)? 
+        RBRACE
+
+typeDeclaration = COLON type
+type = methodOrTupleType / classType
+methodOrTupleType = LPAREN (type (COMMA type)*)? RPAREN 
+        ((YIELDS / YIELDS_METHOD / YIELDS_IMMUTABLE / 
+        YIELDS_METHOD_IMMUTABLE) LPAREN type? RPAREN)? QUESTION?
+classType = IDENTIFIER (DOT IDENTIFIER)* genericParameters? QUESTION?
+genericParameters = LT type (COMMA type)? GT
+
+methodDeclaration = (((METHOD / FUNCTION) methodName) / CONSTRUCTOR) 
+        genericParametersDeclaration? formalParameterList 
+        typeDeclaration? block? postcondition*
+methodName = IDENTIFIER / ADD / SUB / MUL / DIV / INTDIV / POW / EQ / GT / 
+        LT / GTEQ / LTEQ / REM / AND / BITWISEAND / OR / BITWISEOR / XOR /
+        BITWISEXOR / NOT / BITWISENOT / SHIFTLEFT / SHIFTRIGHT / 
+        CONVERT / (LBRACKET (DOTDOT / ELLIPSIS)? RBRACKET ASSIGNMENT?)
+formalParameterList = LPAREN (formalParameter (COMMA formalParameter)*)? RPAREN
+formalParameter = VAR? IDENTIFIER (COLON / CONVERT) type ELLIPSIS?
+postcondition = POST LPAREN expression RPAREN
+
+varDeclaration = (VAR / DEF / CONSTANT / PROPERTY) (IDENTIFIER / UNDERSCORE) 
+        typeDeclaration? (COMMA (IDENTIFIER / UNDERSCORE) typeDeclaration?)* 
+        (ASSIGNMENT expression)?
+
+callExpression = term (parameters / LBRACKET expression RBRACKET /
+        DOT (IDENTIFIER / CLASS / CONSTRUCTOR) /
+        ((INSTANCEOF / NINSTANCEOF / CONVERT / CAST) type))*
+exponentExpression = callExpression (POW callExpression)*
+unaryExpression = (SUB / NOT / BITWISENOT)? exponentExpression
+multiplicativeExpression = unaryExpression ((MUL / DIV) unaryExpression)*
+additiveExpression = multiplicativeExpression ((ADD / SUB) 
+        multiplicativeExpression)*
+rangeExpression = additiveExpression ((ELLIPSIS / DOTDOT)
+        additiveExpression? (BY additiveExpression)?)?
+comparisonExpression = rangeExpression ((EQ / IDENTITY / NEQ /
+        NIDENTITY / LTEQ / GTEQ / LT / GT) rangeExpression)*
+andExpression = comparisonExpression ((AND / XOR) comparisonExpression)*
+orExpression = andExpression (OR andExpression)*
+expression = orExpression
+
+term = NUMBER / TRUE / FALSE / NULL / STRING / PLUGIN / SELF /
+        SUPER / CLASS / lambdaOrTuple / construct / methodValue /
+        ATRETURN / PRE LPAREN expression RPAREN / CONSTRUCTOR / IDENTIFIER
+
+lambdaOrTuple = LPAREN (IDENTIFIER typeDeclaration (COMMA IDENTIFIER 
+        typeDeclaration)*)? RPAREN YIELDS expression /
+        LPAREN IDENTIFIER (COMMA IDENTIFIER)* RPAREN YIELDS expression /
+        LPAREN expression (COMMA expression)* RPAREN /
+        IDENTIFIER YIELDS expression
+
+construct = NEW type parameters
+
+parameters = LPAREN (expression (COMMA expression)*)? RPAREN
+
+methodValue = (FUNCTION formalParameterList typeDeclaration / 
+        METHOD formalParameterList typeDeclaration?) block
+
+statement = assertStatement / varDeclaration / loop / 
+        expressionOrAssignment / ifStatement / switchStatement / tryStatement /
+        block
+block = LBRACE statement* terminalStatement? RBRACE
+statementOrBlock = statement / terminalStatement
+
+assertStatement = ASSERT expression (COLON expression)?
+terminalStatement = returnStatement / breakStatement / continueStatement /
+                    throwStatement / unreachableStatement
+returnStatement = RETURN expression?
+breakStatement = BREAK IDENTIFIER?
+continueStatement = CONTINUE IDENTIFIER?
+throwStatement = THROW expression
+unreachableStatement = UNREACHABLE (COLON expression)?
+
+forLoop = FOR (IDENTIFIER typeDeclaration? 
+        (COMMA (IDENTIFIER typeDeclaration?) / forTuple)? / forTuple) IN 
+        expression block
+forTuple = LPAREN (IDENTIFIER / UNDERSCORE) typeDeclaration? (COMMA 
+        (IDENTIFIER / UNDERSCORE) typeDeclaration)+ RPAREN
+doLoop = DO block WHILE expression
+whileLoop = WHILE expression block
+loopLoop = LOOP block
+loop = (IDENTIFIER COLON)? (forLoop / doLoop / whileLoop / loopLoop)
+
+ifStatement = IF expression block ELSE ifStatement / 
+        IF expression block ELSE block / IF expression block
+switchStatement = SWITCH expression LBRACE switchCase* 
+        (DEFAULT COLON statementOrBlock)? RBRACE
+switchCase = CASE expression (COMMA expression)* COLON statementOrBlock
+tryStatement = TRY block catchBlock+
+catchBlock = CATCH IDENTIFIER typeDeclaration IDENTIFIER block
+
+assignmentOperator = ASSIGNMENT / ADDEQ / SUBEQ / MULEQ / DIVEQ / INTDIVEQ / 
+        POWEQ / REMEQ / ANDEQ / BITWISEANDEQ / OREQ / BITWISEOREQ / XOREQ / 
+        BITWISEXOREQ / SHIFTLEFTEQ / SHIFTRIGHTEQ
+expressionOrAssignment = expression ((COMMA expression)* assignmentOperator 
+        expression)?
+
+WS = ([ \n\t] / COMMENT)*
+COMMENT = LINE_COMMENT / BLOCK_COMMENT
+LINE_COMMENT = '--' (!'\n' .)* '\n'
+BLOCK_COMMENT = '-*' (BLOCK_COMMENT / !'*-' .)* '*-'
+DOCCOMMENT = '===' '='* (!'===' .)* '='* WS
+IDCHAR = [a-zA-Z_0-9$]
+KEYWORD = (PACKAGE / CLASS / INTERFACE / ENUM / USES / AS / METHOD / FUNCTION /
+        CONSTRUCTOR / VAR / DEF / CONSTANT / PROPERTY / CLASS / TRUE / FALSE /
+        NULL / SELF / SUPER / NEW / BY / FOR / IN / WHILE / DO / LOOP / IF /
+        ELSE / SWITCH / CASE / DEFAULT / ASSERT / UNREACHABLE / TRY / CATCH /
+        THROW / BREAK / CONTINUE / RETURN)
+IDENTIFIER = !KEYWORD id:([a-zA-Z$] IDCHAR* / '_' IDENTIFIER) WS { return "identifier:" + id }
+NUMBER = [0-9]+ !IDCHAR WS
+STRING = '"' (!'"' .) * '"' WS
+PLUGIN = '#' (!'#' .) * '#' WS
+UNDERSCORE = '_' !IDCHAR WS
+PACKAGE = 'package' !IDCHAR WS
+CLASS = 'class' !IDCHAR WS
+INTERFACE = 'interface' !IDCHAR WS
+ENUM = 'enum' !IDCHAR WS
+USES = 'uses' !IDCHAR WS
+AS = 'as' !IDCHAR WS
+METHOD = 'method' !IDCHAR WS
+FUNCTION = 'function' !IDCHAR WS
+CONSTRUCTOR = 'constructor' !IDCHAR WS
+VAR = 'var' !IDCHAR WS
+DEF = 'def' !IDCHAR WS
+CONSTANT = 'constant' !IDCHAR WS
+PROPERTY = 'property' !IDCHAR WS
+PROTECTED = '@protected' !IDCHAR WS
+PRIVATE = '@private' !IDCHAR WS
+ATCLASS = '@class' !IDCHAR WS
+THREAD = '@thread' !IDCHAR WS
+ABSTRACT = '@abstract' !IDCHAR WS
+EXTERNAL = '@external' !IDCHAR WS
+OVERRIDE = '@override' !IDCHAR WS
+READONLY = '@readonly' !IDCHAR WS
+LIMITED = '@limited' !IDCHAR WS
+ATSELF = '@self' !IDCHAR WS
+SAFERETURN = '@return' !IDCHAR WS
+UNSAFEFUNCTION = '@unsafeFunction' !IDCHAR WS
+FINAL = '@final' !IDCHAR WS
+WRAPPER_METHOD = '@$wrapperMethod' !IDCHAR WS
+MATH = '@math' !IDCHAR WS
+OVERFLOW = 'overflow' !IDCHAR WS
+INVARIANT = '@invariant' !IDCHAR WS
+INSTANCE = '@$instance' !IDCHAR WS
+PRE = '@pre' !IDCHAR WS
+POST = '@post' !IDCHAR WS
+ATRETURN = '@return' !IDCHAR WS
+CLASS = 'class' !IDCHAR WS
+TRUE = 'true' !IDCHAR WS
+FALSE = 'false' !IDCHAR WS
+NULL = 'null' !IDCHAR WS
+SELF = 'self' !IDCHAR WS
+SUPER = 'super' !IDCHAR WS
+NEW = 'new' !IDCHAR WS
+BY = 'by' !IDCHAR WS
+FOR = 'for' !IDCHAR WS
+IN = 'in' !IDCHAR WS
+WHILE = 'while' !IDCHAR WS
+DO = 'do' !IDCHAR WS
+LOOP = 'loop' !IDCHAR WS
+IF = 'if' !IDCHAR WS
+ELSE = 'else' !IDCHAR WS
+SWITCH = 'switch' !IDCHAR WS
+CASE = 'case' !IDCHAR WS
+DEFAULT = 'default' !IDCHAR WS
+ASSERT = 'assert' !IDCHAR WS
+RETURN = 'return' !IDCHAR WS
+BREAK = 'break' !IDCHAR WS
+CONTINUE = 'continue' !IDCHAR WS
+UNREACHABLE = 'unreachable' !IDCHAR WS
+TRY = 'try' !IDCHAR WS
+CATCH = 'catch' !IDCHAR WS
+THROW = 'throw' !IDCHAR WS
+COLON = ':' WS
+LBRACKET = '[' WS
+RBRACKET = ']' WS
+LBRACE = '{' WS
+RBRACE = '}' WS
+LPAREN = '(' WS
+RPAREN = ')' WS
+LT     = '<' WS
+GT     = '>' WS
+LTEQ     = '<=' WS
+GTEQ     = '>=' WS
+ADD    = '+' WS
+SUB    = '-' WS
+MUL    = '*' WS
+DIV    = '/' WS
+REM    = '%' WS
+INTDIV = '//' WS
+NOT    = '!' WS
+AND    = '&' WS
+OR    = '|' WS
+XOR    = '^' WS
+SHIFTLEFT = '<<' WS
+SHIFTRIGHT = '>>' WS
+BITWISENOT = '!!' WS
+BITWISEAND = '&&' WS
+BITWISEOR = '||' WS
+BITWISEXOR = '^^' WS
+POW    = '^' WS
+EQ     = '=' WS
+NEQ    = '!=' WS
+IDENTITY = '==' WS
+NIDENTITY = '!==' WS
+COMMA  = ',' WS
+DOT    = '.' WS
+DOTDOT = '..' WS
+ELLIPSIS = '...' WS
+ASSIGNMENT = ':=' WS
+ADDEQ = '+=' WS 
+SUBEQ = '-=' WS
+MULEQ = '*=' WS 
+DIVEQ = '/=' WS 
+INTDIVEQ = '//=' WS 
+POWEQ = '^=' WS 
+REMEQ = '%=' WS 
+ANDEQ = '&=' WS 
+BITWISEANDEQ = '&&=' WS 
+OREQ = '|=' WS 
+BITWISEOREQ = '||=' WS 
+XOREQ = '^=' WS 
+BITWISEXOREQ = '^^=' WS 
+SHIFTLEFTEQ = '<<=' WS 
+SHIFTRIGHTEQ= '>>=' WS 
+QUESTION = '?' WS
+CAST = '->' WS
+INSTANCEOF = '-?>' WS
+NINSTANCEOF = '-!>' WS
+CONVERT = '->>' WS
+YIELDS = '=>' WS
+YIELDS_METHOD = '=&>' WS
+YIELDS_IMMUTABLE = '=>*' WS
+YIELDS_METHOD_IMMUTABLE = '=&>*' WS
+EOF = !.

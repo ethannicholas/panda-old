@@ -1,0 +1,172 @@
+package org.pandalanguage.peg
+
+class PEGGenerator {
+	def out := Console.outputStream
+
+	var varCount := 0
+
+	var level := 0
+
+	function getSuccess(success:String?):String {
+		if success = null
+			return "return pos\{level}"
+		else
+			return success
+	}
+
+	function escape(c:Char):String {
+		if c = "'"
+			return "\\'"
+		if c = "\n"
+			return "\\n"
+		if c = "\r"
+			return "\\r"
+		if c = "\t"
+			return "\\t"
+		if c = "\\"
+			return "\\\\"
+		return c->>(String)
+	}
+
+	function escape(s:String):String {
+		def result := new MutableString()
+		for c in s
+			result.append(escape(c))
+		return result->>(String)
+	}
+
+	method getValueText(value:Object, success:String?, failure:String):String {
+		if value-?>(String) {
+			def text := value->(String)
+			return "if literal(pos\{level}, '\{escape(text)}') {\n" +
+					"pos\{level} += \{text.length}\n" +
+					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
+		}
+		else if value-?>(CharClass) {
+			def cc := value->(CharClass)
+			def test := new MutableString()
+			for i, r in cc.ranges {
+				if i > 0
+					test.append(" | ")
+				if r.start = r.end
+					test.append("literal(pos\{level}, '\{escape(r.start)}')")
+				else {
+					test.append("literal(pos\{level}, '\{escape(r.start)}', " +
+							"'\{escape(r.end)}')")
+				}
+			}
+			return "if \{test} {\npos\{level} += 1\n" +
+					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
+		}
+		else if value-?>(Identifier) {
+			varCount += 1
+			def text := value->(Identifier).text
+			return "def r\{varCount} := _\{text}(pos\{level})\n" +
+					"if r\{varCount} != null {\npos\{level} := r\{varCount}\n" +
+					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
+		}
+		else if value-?>(Options)
+			return getOptionsText(value->(Options),
+					"pos\{level} := pos\{level + 1}\n\{getSuccess(success)}", 
+					failure)
+		else if value-?>(Dot)
+			return 	"if pos\{level} < text.length {\n" +
+					"pos\{level} += 1\n" +
+					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
+
+		else
+			return "unknown type: \{value} - '\{value.class.name}'"
+	}
+
+	method getTermText(term:Term, success:String?, failure:String):String {
+		if term.prefix = Prefix.NOT {
+			varCount += 1
+			return "def save\{varCount} := pos\{level}\n" +
+					getValueText(term.value, failure, 
+						"pos\{level} := save\{varCount}\n" + getSuccess(success))
+		}
+		else if term.prefix = Prefix.AND {
+			varCount += 1
+			return "def save\{varCount} := pos\{level}\n" +
+					getValueText(term.value, "pos\{level} := save\{varCount}\n" + 
+						success, failure)
+		}
+		else if term.suffix = Suffix.QUESTION {
+			return getValueText(term.value, success, getSuccess(success))
+		}
+		else if term.suffix = Suffix.STAR {
+			return "loop {\n" + getValueText(term.value, "continue", "break") +
+					"\n}\n" + getSuccess(success)
+		}
+		else if term.suffix = Suffix.PLUS {
+			return getTermText(new Term(null, term.value, null), 
+					getTermText(new Term(null, term.value, Suffix.STAR),
+						success, getSuccess(success)), failure)
+		}
+		return getValueText(term.value, success, failure)
+	}
+
+	method getOptionsText(opt:Options, success:String?, failure:String):String {
+		level += 1
+		def options := opt.options
+		var next := failure
+		for i in options.length - 1 ... 0 by -1
+			next := getSequenceText(options[i], success, next)
+		def result := "var pos\{level} := pos\{level - 1}\n\{next}"
+		level -= 1
+		return result
+	}
+
+	method getSequenceText(seq:Sequence, success:String?, failure:String):String {
+		def terms := seq.terms
+		var next := success
+		for i in terms.length - 1 ... 0 by -1
+			next := getTermText(terms[i], next, failure)
+		return next
+	}
+
+	method writeDefinition(definition:Definition) {
+		varCount := 0
+		level := 0
+		out.writeLine("function _\{definition.name}(var pos0:Int):Int? {")
+		out.writeLine(getOptionsText(definition.definition, null, 
+				"return null"))
+		out.writeLine("}")
+	}
+
+	method writeGrammar(grammar:Grammar) {
+		if grammar.code != null
+			out.writeLine(grammar.code[1 .. grammar.code.length - 1])
+		out.writeLine("class GeneratedParser {")
+		out.writeLine("var text:String := new File('/Users/ethannicholas/Dropbox/Panda/src/pandac/parser/peg.peg').readAsString()")
+		out.writeLine("function literal(pos:Int, c:Char):Bit {")
+		out.writeLine("	   return pos < text.length & text[pos] = c")
+		out.writeLine("}")
+		out.writeLine("function literal(pos:Int, start:Char, end:Char):Bit {")
+		out.writeLine("	   return pos < text.length & text[pos] >= start & " +
+				"text[pos] <= end")
+		out.writeLine("}")
+		out.writeLine("function literal(pos:Int, s:String):Bit {")
+		out.writeLine("	   return pos + s.length <= text.length & " +
+				"text[pos .. pos + s.length] = s")
+		out.writeLine("}")
+		for d in grammar.definitions
+			writeDefinition(d)
+		out.writeLine("@class method main() {")
+		out.writeLine("    Console.writeLine(new GeneratedParser()._Grammar(0) != null)")
+		out.writeLine("}")
+		out.writeLine("}")
+	}
+
+	@class
+	method main() {
+		def parser := new PEGParser(new File("/Users/ethannicholas/Dropbox/Panda/src/pandac/parser/peg.peg"))
+		def r0 := parser._Grammar(0) 
+		if r0 != null {
+			new PEGGenerator().writeGrammar(r0[0])
+		}
+		else {
+			Console.writeLine("Parse error. Sorry, have fun debugging it!")
+		}
+	}
+}

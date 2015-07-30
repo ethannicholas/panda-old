@@ -29,6 +29,7 @@ uses org.pandalanguage.pandac.ast.ASTFor
 uses org.pandalanguage.pandac.ast.ASTIdentifier
 uses org.pandalanguage.pandac.ast.ASTIf
 uses org.pandalanguage.pandac.ast.ASTIndex
+uses org.pandalanguage.pandac.ast.ASTInstanceDeclaration
 uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTLambdaExpression
@@ -162,10 +163,12 @@ class PandaParser {
             while result.type = TokenType.WHITESPACE | 
                     result.type = TokenType.LINECOMMENT | 
                     result.type = TokenType.BLOCKCOMMENT
-            if result.type = TokenType.UNTERMINATED_STRING
+            if result.type = TokenType.UNTERMINATED_STRING {
                 error("unterminated string literal", result)
-            if inLookahead
+            }
+            if inLookahead {
                 lookaheadBuffer.add(result)
+            }
         }
         return result
     }
@@ -188,8 +191,9 @@ class PandaParser {
     ============================================================================
     @protected
     method peek():Token {
-        if pushbackBuffer.length = 0
+        if pushbackBuffer.length = 0 {
             pushback(nextToken())
+        }
         return pushbackBuffer[pushbackBuffer.length - 1]
     }
 
@@ -208,8 +212,9 @@ class PandaParser {
     @protected
     method expect(type:TokenType, message:String):Token? {
         var t := nextToken()
-        if t.type = type
+        if t.type = type {
             return t
+        }
         else {
             error("expected " + message + ", but found '" + t + "'", t)
             return null
@@ -223,8 +228,9 @@ class PandaParser {
     
     @protected
     method error(s:String, position:Position) {
-        if !inLookahead
+        if !inLookahead {
             errors.error(s, position)
+        }
     }
     
     @protected
@@ -240,8 +246,9 @@ class PandaParser {
     @pre(inLookahead)
     method rollback() {
         pushbackBuffer.clear()
-        for i in lookaheadBuffer.length - 1 ... 0 by -1
+        for i in lookaheadBuffer.length - 1 ... 0 by -1 {
             pushback(lookaheadBuffer[i])
+        }
         inLookahead := false
     }
     @post(!inLookahead)
@@ -262,8 +269,9 @@ class PandaParser {
         def entries := new Array<ASTNode>()
         while peek().type != TokenType.EOF {
             def entry := bodyEntry()
-            if entry = null
+            if entry = null {
                 continue
+            }
             entries.add(entry)
         }
         return new ASTFile(name, entries)
@@ -274,14 +282,16 @@ class PandaParser {
     ============================================================================
     @protected
     method instanceDeclaration():ASTNode? {
-        if expect(TokenType.INSTANCE, "'@$instance'") = null
+        def start := expect(TokenType.INSTANCE, "'@$instance'")
+        if start = null {
             return null
+        }
         def type := type()
-        if type = null
+        if type = null {
             return null
+        }
 
-        -- not implemented!
-        return null
+        return new ASTInstanceDeclaration(start.position, type)
     }
 
     ============================================================================
@@ -302,10 +312,12 @@ class PandaParser {
                     TokenType.FUNCTION: {
                 def doccommentNode := checkNext(TokenType.DOCCOMMENT)
                 def doccomment:String?
-                if doccommentNode != null
+                if doccommentNode != null {
                     doccomment := doccommentNode.text
-                else
+                }
+                else {
                     doccomment := null
+                }
                 def annotations := annotations()
                 t := peek()
                 switch t.type {
@@ -341,19 +353,22 @@ class PandaParser {
     @protected
     method packageDeclaration():ASTPackageDeclaration? {
         def start := expect(TokenType.PACKAGE, "'package'")
-        if start = null
+        if start = null {
             return null
+        }
         def name := new MutableString()
         var t := expect(TokenType.IDENTIFIER, "package name")
-        if t = null
+        if t = null {
             return null
+        }
         name.append(t.text)
         while checkNext(TokenType.DOT) != null {
             name.append(".")
             t := expect(TokenType.IDENTIFIER, 
                     "identifer as part of package name")
-            if t = null
+            if t = null {
                 return null
+            }
             name.append(t)
         }
         return new ASTPackageDeclaration(start.position, name->>(String))
@@ -366,12 +381,14 @@ class PandaParser {
     @protected
     method usesStatement():ASTUsesDeclaration? {
         def start := expect(TokenType.USES, "'uses'")
-        if start = null
+        if start = null {
             return null
+        }
         def name := new MutableString()
         var t := expect(TokenType.IDENTIFIER, "class name")
-        if t = null
+        if t = null {
             return null
+        }
         name.append(t.text)
         while checkNext(TokenType.DOT) != null {
             name.append(".")
@@ -386,12 +403,14 @@ class PandaParser {
         def alias:String?
         if checkNext(TokenType.AS) != null {
             def next := expect(TokenType.IDENTIFIER, "identifier")
-            if next = null
+            if next = null {
                 return null
+            }
             alias := next.text
         }
-        else
+        else {
             alias := null
+        }
         return new ASTUsesDeclaration(start.position, name->>(String), alias)
     }
 
@@ -408,34 +427,40 @@ class PandaParser {
         while peek().type != TokenType.RBRACE {
             if peek().type = TokenType.INVARIANT {
                 def inv := invariant()
-                if inv = null
+                if inv = null {
                     return null
+                }
                 invariants.add(inv)
             }
             else {
                 def doccommentNode := checkNext(TokenType.DOCCOMMENT)
                 def doccomment:String?
-                if doccommentNode != null
+                if doccommentNode != null {
                     doccomment := doccommentNode.text
-                else
+                }
+                else {
                     doccomment := null
+                }
                 def ann := annotations()
-                if ann = null
+                if ann = null {
                     return null
+                }
                 switch peek().type {
                     case TokenType.METHOD,
                             TokenType.FUNCTION,
                             TokenType.CONSTRUCTOR: {
                         def m := methodDeclaration(doccomment, ann)
-                        if m = null
+                        if m = null {
                             return null
+                        }
                         methods.add(m)
                     }
                     case TokenType.VAR, TokenType.DEF, TokenType.PROPERTY, 
                             TokenType.CONSTANT: {
                         def v := varDeclaration()
-                        if v = null
+                        if v = null {
                             return null
+                        }
                         fields.add(new ASTField(doccomment, ann, v))
                     }
                     default: {
@@ -457,40 +482,50 @@ class PandaParser {
     method classDeclaration(doccomment:String?, 
             annotations:ListView<ASTAnnotation>?):ASTClass? {
         def start := expect(TokenType.CLASS, "'class'")
-        if start = null
+        if start = null {
             return null
+        }
         def name := expect(TokenType.IDENTIFIER, "class name (an identifier)")
-        if name = null
+        if name = null {
             return null
+        }
         def genericParameters:ListView<ASTTypedIdentifier>?
         if peek().type = TokenType.LT {
             genericParameters := genericParametersDeclaration()
-            if genericParameters = null
+            if genericParameters = null {
                 return null
+            }
         }
-        else
+        else {
             genericParameters := null
+        }
         def superclass:ASTType?
         if checkNext(TokenType.COLON) != null {
             superclass := classType()
-            if superclass = null
+            if superclass = null {
                 return null
+            }
         }
-        else
+        else {
             superclass := null
+        }
         def interfaces:ListView<ASTType>?
         if peek().type = TokenType.LPAREN {
             interfaces := types()
-            if interfaces = null
+            if interfaces = null {
                 return null
+            }
         }
-        else
+        else {
             interfaces := null
-        if expect(TokenType.LBRACE, "'{' to begin class body") = null
+        }
+        if expect(TokenType.LBRACE, "'{' to begin class body") = null {
             return null
+        }
         def members := classMembers()
-        if members = null
+        if members = null {
             return null
+        }
         def methods, fields, invariants := members
         expect(TokenType.RBRACE, "'}' to complete class body")
         return new ASTClass(start.position, name.text, false, doccomment, 
@@ -508,42 +543,51 @@ class PandaParser {
     method interfaceDeclaration(doccomment:String?, 
             annotations:ListView<ASTAnnotation>?):ASTClass? {
         def start := expect(TokenType.INTERFACE, "'interface'")
-        if start = null
+        if start = null {
             return null
+        }
         def name := expect(TokenType.IDENTIFIER, 
                 "interface's name (an identifier)")
-        if name = null
+        if name = null {
             return null
+        }
         def genericParameters:ListView<ASTTypedIdentifier>?
         if peek().type = TokenType.LT {
             genericParameters := genericParametersDeclaration()
-            if genericParameters = null
+            if genericParameters = null {
                 return null
+            }
         }
-        else
+        else {
             genericParameters := null
+        }
         def interfaces:ListView<ASTType>?
         if checkNext(TokenType.COLON) != null {
             def intf := new Array<ASTType>()
             var t := classType()
-            if t = null
+            if t = null {
                 return null
+            }
             intf.add(t)
             while checkNext(TokenType.COMMA) != null {
                 t := classType()
-                if t = null
+                if t = null {
                     return null
+                }
                 intf.add(t)
             }
             interfaces := intf
         }
-        else
+        else {
             interfaces := null
-        if expect(TokenType.LBRACE, "'{' to begin interface body") = null
+        }
+        if expect(TokenType.LBRACE, "'{' to begin interface body") = null {
             return null
+        }
         def members := classMembers()
-        if members = null
+        if members = null {
             return null
+        }
         def methods, fields, invariants := members
         expect(TokenType.RBRACE, "'}' to complete class body")
         return new ASTClass(start.position, name.text, true, doccomment, 
@@ -559,35 +603,44 @@ class PandaParser {
     method enumeration(doccomment:String?, 
             annotations:ListView<ASTAnnotation>?):ASTNode? {
         def start := expect(TokenType.ENUM, "'enum'")
-        if start = null
+        if start = null {
             return null
+        }
         def name := expect(TokenType.IDENTIFIER, "enum's name (an identifier)")
-        if name = null
+        if name = null {
             return null
-        if expect(TokenType.LBRACE, "'{' to begin enum body") = null
+        }
+        if expect(TokenType.LBRACE, "'{' to begin enum body") = null {
             return null
+        }
         def values := new Array<ASTEnumValue>()
         if peek().type != TokenType.RBRACE {
             var doccommentNode := checkNext(TokenType.DOCCOMMENT)
             var valueDoccomment:String?
-            if doccommentNode != null
+            if doccommentNode != null {
                 valueDoccomment := doccommentNode.text
-            else
+            }
+            else {
                 valueDoccomment := null
+            }
             var value := expect(TokenType.IDENTIFIER, "identifier")
-            if value = null
+            if value = null {
                 return null
+            }
             values.add(new ASTEnumValue(value.position, value.text, 
                     valueDoccomment))
             while checkNext(TokenType.COMMA) != null {
                 doccommentNode := checkNext(TokenType.DOCCOMMENT)
-                if doccommentNode != null
+                if doccommentNode != null {
                     valueDoccomment := doccommentNode.text
-                else
+                }
+                else {
                     valueDoccomment := null
+                }
                 value := expect(TokenType.IDENTIFIER, "identifier")
-                if value = null
-                    return null
+                if value = null {
+                    return null 
+                }
                 values.add(new ASTEnumValue(value.position, value.text, 
                         valueDoccomment))
             }
@@ -610,8 +663,9 @@ class PandaParser {
         name.append(t.text)
         switch t.type {
             case TokenType.IDENTIFIER:
-                if checkNext(TokenType.ASSIGNMENT) != null
+                if checkNext(TokenType.ASSIGNMENT) != null {
                     name.append(":=")
+                }
             case TokenType.ADD,
                      TokenType.SUB,
                      TokenType.MUL,
@@ -642,11 +696,13 @@ class PandaParser {
                 else if checkNext(TokenType.ELLIPSIS) != null {
                     name.append("...")
                 }
-                if expect(TokenType.RBRACKET, "']'") = null
+                if expect(TokenType.RBRACKET, "']'") = null {
                     return null
+                }
                 name.append("]")
-                if checkNext(TokenType.ASSIGNMENT) != null
+                if checkNext(TokenType.ASSIGNMENT) != null {
                     name.append(":=")
+                }
             }
             default: {
                 error("'\{t}' is not a valid method name", t.position)
@@ -687,23 +743,26 @@ class PandaParser {
         }
         else {
             name := methodName()
-            if name = null
+            if name = null {
                 return null
+            }
         }
         if peek().type = TokenType.LT {
             def genericParameters := genericParametersDeclaration()
             throw new NotSupportedException()
         }
         def parameters := formalParameterList()
-        if parameters = null
+        if parameters = null {
             return null
+        }
         def returnType:ASTType?
         if methodType = MethodNodeType.FUNCTION | 
                 peek().type = TokenType.COLON {
             expectReturnValue := true
             returnType := typeDeclaration()
-            if returnType = null
+            if returnType = null {
                 return null
+            }
         }
         else {
             expectReturnValue := false
@@ -712,16 +771,19 @@ class PandaParser {
         def body:ASTBlock?
         if peek().type = TokenType.LBRACE {
             body := block()
-            if body = null
+            if body = null {
                 return null
+            }
         }
-        else
+        else {
             body := null
+        }
         def postconditions := new Array<ASTPostcondition>()
         while peek().type = TokenType.POST | peek().type = TokenType.POST_AND {
             def post := postcondition()
-            if post != null
+            if post != null {
                 postconditions.add(post)
+            }
         }
         return new ASTMethod(methodTypeNode.position, name, methodType, 
             doccomment, annotations, parameters, returnType, body, 
@@ -736,8 +798,9 @@ class PandaParser {
         def isVar := checkNext(TokenType.VAR) != null
         def name := expect(TokenType.IDENTIFIER, 
                 "parameter name (an identifier)")
-        if name = null
+        if name = null {
             return null
+        }
         def next := nextToken()
         def isConvert:Bit
         switch next.type {
@@ -749,8 +812,9 @@ class PandaParser {
             }
         }
         def t := type()
-        if t = null
+        if t = null {
             return null
+        }
         def isVarArg := checkNext(TokenType.ELLIPSIS) != null
         return new ASTParameter(name.position, name.text, t, isVar, isConvert, 
                 isVarArg)
@@ -762,17 +826,20 @@ class PandaParser {
     @protected
     method formalParameterList():ListView<ASTParameter>? {
         def result := new Array<ASTParameter>()
-        if expect(TokenType.LPAREN, "'(' to begin parameter list") = null
+        if expect(TokenType.LPAREN, "'(' to begin parameter list") = null {
             return null
+        }
         if peek().type != TokenType.RPAREN {
             var p := formalParameter()
-            if p = null
+            if p = null {
                 return null
+            }
             result.add(p)
             while checkNext(TokenType.COMMA) != null {
                 p := formalParameter()
-                if p = null
+                if p = null {
                     return null
+                }
                 result.add(p)
             }
         }
@@ -799,14 +866,16 @@ class PandaParser {
             }
         }
         def parameters := formalParameterList()
-        if parameters = null
+        if parameters = null {
             return null
+        }
         def returnType:ASTType?
         def oldExpect := expectReturnValue
         if peek().type = TokenType.COLON {
             returnType := typeDeclaration()
-            if returnType = null
+            if returnType = null {
                 return null
+            }
             expectReturnValue := true
         }
         else {
@@ -815,8 +884,9 @@ class PandaParser {
         }
         def bl := block()
         expectReturnValue := oldExpect
-        if bl = null
+        if bl = null {
             return null
+        }
         return new ASTMethodValue(t.position, methodType, parameters, 
                 returnType, bl)
     }
@@ -826,8 +896,9 @@ class PandaParser {
     ============================================================================
     @protected
     method typeDeclaration():ASTType? {
-        if expect(TokenType.COLON, "':'") = null
+        if expect(TokenType.COLON, "':'") = null {
             return null
+        }
         return type()
     }
 
@@ -856,45 +927,55 @@ class PandaParser {
         if name = null {
             name := expect(TokenType.IDENTIFIER,
                     "variable name (an identifier)")
-            if name = null
+            if name = null {
                 return null
+            }
         }
         var type:ASTType?
         if peek().type = TokenType.COLON {
             type := typeDeclaration()
-            if type = null
+            if type = null {
                 return null
+            }
         }
-        else
+        else {
             type := null
+        }
         def nameText:String
-        if varType = VariableType.PROPERTY
+        if varType = VariableType.PROPERTY {
             nameText := "\{name.text}$PROPERTY"
-        else
+        }
+        else {
             nameText := name.text
+        }
         vars.add(new ASTTypedIdentifier(name.position, nameText, type))
         while checkNext(TokenType.COMMA) != null {
             name := checkNext(TokenType.UNDERSCORE) 
             if name = null {
                 name := expect(TokenType.IDENTIFIER,
                         "variable name (an identifier)")
-                if name = null
+                if name = null {
                     return null
+                }
             }
             if peek().type = TokenType.COLON {
                 type := typeDeclaration()
-                if type = null
+                if type = null {
                     return null
+                }
             }
-            else
+            else {
                 type := null
+            }
             vars.add(new ASTTypedIdentifier(name.position, name.text, type))
         }
         def initializer:ASTExpression?
-        if checkNext(TokenType.ASSIGNMENT) != null
+        if checkNext(TokenType.ASSIGNMENT) != null {
             initializer := expression()
-        else
+        }
+        else {
             initializer := null
+        }
         return new ASTVarDeclaration(start.position, varType, 
                 vars, initializer)
     }
@@ -905,34 +986,41 @@ class PandaParser {
     ============================================================================
     @protected
     method genericParametersDeclaration():ListView<ASTTypedIdentifier>? {
-        if expect(TokenType.LT, "'<'") = null
+        if expect(TokenType.LT, "'<'") = null {
             return null
+        }
         def result := new Array<ASTTypedIdentifier>()
         var name := expect(TokenType.IDENTIFIER, 
                 "generic parameter name (an identifier)")
-        if name = null
+        if name = null {
             return null
+        }
         var type:ASTType?
         if peek().type = TokenType.COLON {
             type := typeDeclaration()
-            if type = null
+            if type = null {
                 return null
+            }
         }
-        else
+        else {
             type := null
+        }
         result.add(new ASTTypedIdentifier(name.position, name.text, type))
         while checkNext(TokenType.COMMA) != null {
             name := expect(TokenType.IDENTIFIER, 
                     "generic parameter name (an identifier)")
-            if name = null
+            if name = null {
                 return null
+            }
             if peek().type = TokenType.COLON {
                 type := typeDeclaration()
-                if type = null
+                if type = null {
                     return null
+                }
             }
-            else
+            else {
                 type := null
+            }
             result.add(new ASTTypedIdentifier(name.position, name.text, type))
         }
         expect(TokenType.GT, 
@@ -946,16 +1034,19 @@ class PandaParser {
     @protected
     method genericParameters():ListView<ASTType>? {
         def result := new Array<ASTType>()
-        if expect(TokenType.LT, "'<'") = null
+        if expect(TokenType.LT, "'<'") = null {
             return null
+        }
         def first := type()
-        if first = null
+        if first = null {
             return null
+        }
         result.add(first)
         while checkNext(TokenType.COMMA) != null {
             def next := type()
-            if next = null
+            if next = null {
                 return null
+            }
             result.add(next)
         }
         expect(TokenType.GT, 
@@ -992,15 +1083,17 @@ class PandaParser {
                 case TokenType.MATH: {
                     pushback(t)
                     def ma := mathAnnotation()
-                    if ma = null
+                    if ma = null {
                         return null
+                    }
                     result.add(ma)
                 }
                 case TokenType.PRE, TokenType.PRE_OR: {
                     pushback(t)
                     def pre := precondition()
-                    if pre = null
+                    if pre = null {
                         return null
+                    }
                     result.add(pre)
                 }
                 default: {
@@ -1019,14 +1112,18 @@ class PandaParser {
     @self
     method mathAnnotation():ASTSimpleAnnotation? {
         def start := expect(TokenType.MATH, "'@math'") 
-        if start = null
+        if start = null {
             return null
-        if expect(TokenType.LPAREN, "'(' for @math annotation") = null
+        }
+        if expect(TokenType.LPAREN, "'(' for @math annotation") = null {
             return null
-        if expect(TokenType.OVERFLOW, "'overflow' for @math annotation") = null
+        }
+        if expect(TokenType.OVERFLOW, "'overflow' for @math annotation") = null {
             return null
-        if expect(TokenType.RPAREN, "')' to complete @math annotation") = null
+        }
+        if expect(TokenType.RPAREN, "')' to complete @math annotation") = null {
             return null
+        }
         return new ASTSimpleAnnotation(start.position, "math(overflow)")
     }
     
@@ -1037,13 +1134,16 @@ class PandaParser {
     @self
     method invariant():ASTInvariant? {
         def start := expect(TokenType.INVARIANT, "'@invariant'")
-        if start = null
+        if start = null {
             return null
-        if expect(TokenType.LPAREN, "'(' for @invariant") = null
+        }
+        if expect(TokenType.LPAREN, "'(' for @invariant") = null {
             return null
+        }
         def expr := expression()
-        if expr = null
+        if expr = null {
             return null
+        }
         expect(TokenType.RPAREN, "')' to complete @invariant")
         return new ASTInvariant(start.position, expr)
     }
@@ -1062,8 +1162,9 @@ class PandaParser {
         }
         expect(TokenType.LPAREN, "'(' for precondition")
         def expr := expression()
-        if expr = null
+        if expr = null {
             return null
+        }
         expect(TokenType.RPAREN, "')' to complete precondition")
         return new ASTPrecondition(start.position, expr, 
                 start.type = TokenType.PRE_OR)
@@ -1078,13 +1179,15 @@ class PandaParser {
         var start := checkNext(TokenType.POST_AND) 
         if start = null {
             start := expect(TokenType.POST, "'@post'")
-            if start = null
+            if start = null {
                 return null
+            }
         }
         expect(TokenType.LPAREN, "'(' for postcondition")
         def expr := expression()
-        if expr = null
+        if expr = null {
             return null
+        }
         expect(TokenType.RPAREN, "')' to complete postcondition")
         return new ASTPostcondition(start.position, expr, 
                 start.type = TokenType.POST_AND)
@@ -1098,22 +1201,26 @@ class PandaParser {
     method classType():ASTClassType? {
         def name := new MutableString()
         def start := expect(TokenType.IDENTIFIER, "type name (an identifier)")
-        if start = null
+        if start = null {
             return null
+        }
         name.append(start.text)
         while checkNext(TokenType.DOT) != null {
             name.append(".")
             def next := expect(TokenType.IDENTIFIER, 
                     "identifier as part of type name")
-            if next = null
+            if next = null {
                 return null
+            }
             name.append(next.text)
         }
         def parameters:ListView<ASTType>?
-        if peek().type = TokenType.LT
+        if peek().type = TokenType.LT {
             parameters := genericParameters()
-        else
+        }
+        else {
             parameters := null
+        }
         def nullable := checkNext(TokenType.QUESTION) != null
         return new ASTClassType(start.position, name->>(String), parameters, 
                 nullable)
@@ -1128,23 +1235,27 @@ class PandaParser {
     @self
     method methodOrTupleType():ASTType? {
         def start := expect(TokenType.LPAREN, "'('")
-        if start = null
+        if start = null {
             return null
+        }
         def parameters := new Array<ASTType>()
         if peek().type != TokenType.RPAREN {
             var t := type()
-            if t = null
+            if t = null {
                 return null
+            }
             parameters.add(t)
             while checkNext(TokenType.COMMA) != null {
                 t := type()
-                if t = null
+                if t = null {
                     return null
+                }
                 parameters.add(t)
             }
         }
-        if expect(TokenType.RPAREN, "')'") = null
+        if expect(TokenType.RPAREN, "')'") = null {
             return null
+        }
         def yields := nextToken()
         def isFunction:Bit
         def isImmutable:Bit
@@ -1173,17 +1284,20 @@ class PandaParser {
             }
         }
         if expect(TokenType.LPAREN, "'(' after '\{yields}' in method type") =
-                null
+                null {
             return null
+        }
         def returnType:ASTType?
         if checkNext(TokenType.RPAREN) = null {
             returnType := type()
-            if returnType = null 
+            if returnType = null {
                 return null
+            }
             expect(TokenType.RPAREN, "')' to complete method type")
         }
-        else
+        else {
             returnType := null
+        }
         def isNullable := checkNext(TokenType.QUESTION) != null
         return new ASTMethodType(start.position, parameters, returnType,
                 isNullable, isFunction, isImmutable)
@@ -1195,10 +1309,12 @@ class PandaParser {
     @protected
     @self
     method type():ASTType? {
-        if peek().type = TokenType.LPAREN
+        if peek().type = TokenType.LPAREN {
             return methodOrTupleType()
-        else
+        }
+        else {
             return classType()
+        }
     }
     
     ============================================================================
@@ -1207,18 +1323,21 @@ class PandaParser {
     @protected
     @self
     method parameters():Array<ASTExpression>? {
-        if expect(TokenType.LPAREN, "'(' to begin parameters") = null
+        if expect(TokenType.LPAREN, "'(' to begin parameters") = null {
             return null
+        }
         def result := new Array<ASTExpression>()
         if checkNext(TokenType.RPAREN) = null {
             def first := expression()
-            if first = null
+            if first = null {
                 return null
+            }
             result.add(first)
             while checkNext(TokenType.COMMA) != null {
                 def next := expression()
-                if next = null
+                if next = null {
                     return null
+                }
                 result.add(next)
             }
             expect(TokenType.RPAREN, "')' to complete parameters")
@@ -1233,14 +1352,17 @@ class PandaParser {
     @self
     method construct():ASTExpression? {
         def start := expect(TokenType.NEW, "'new'") 
-        if start = null
+        if start = null {
             return null
+        }
         def type := type()
-        if type = null
+        if type = null {
             return null
+        }
         def parameters := parameters()
-        if parameters = null
+        if parameters = null {
             return null
+        }
         return new ASTNew(start.position, type, parameters)
     }
 
@@ -1252,17 +1374,20 @@ class PandaParser {
     method arrayLiteral():ASTArrayLiteral? {
         def values := new Array<ASTExpression>()
         def start := expect(TokenType.LBRACKET, "'['")
-        if start = null
+        if start = null {
             return null
+        }
         if checkNext(TokenType.RBRACKET) = null {
             def first := expression()
-            if first = null
+            if first = null {
                 return null
+            }
             values.add(first)
             while checkNext(TokenType.COMMA) != null {
                 def next := expression()
-                if next = null
+                if next = null {
                     return null
+                }
                 values.add(next)
             }
             expect(TokenType.RBRACKET, "',' or ']' to continue or " +
@@ -1278,21 +1403,26 @@ class PandaParser {
     @self
     method unparenthesizedLambda():ASTLambdaExpression? {
         def start := expect(TokenType.IDENTIFIER, "lambda parameter name")
-        if start = null
+        if start = null {
             return null
+        }
         def type:ASTType?
         if peek().type = TokenType.COLON {
             type := typeDeclaration()
-            if type = null
+            if type = null {
                 return null
+            }
         }
-        else
+        else {
             type := null
-        if expect(TokenType.YIELDS, "'=>'") = null
+        }
+        if expect(TokenType.YIELDS, "'=>'") = null {
             return null
+        }
         def result := expression()
-        if result = null
+        if result = null {
             return null
+        }
         def parameters := new Array<ASTTypedIdentifier>()
         parameters.add(new ASTTypedIdentifier(start.position, start.text, type))
         return new ASTLambdaExpression(start.position, parameters, result)
@@ -1395,25 +1525,30 @@ class PandaParser {
     @self
     method parenthesizedExpression():ASTExpression? {
         def lambda := parenthesizedLambda()
-        if lambda != null
+        if lambda != null {
             return lambda
+        }
 
         def start := expect(TokenType.LPAREN, "'('")
-        if start = null
+        if start = null {
             return null
+        }
         def expressions := new Array<ASTExpression>()
         var expr := expression()
-        if expr = null
+        if expr = null {
             return null
+        }
         expressions.add(expr)
         while checkNext(TokenType.COMMA) != null {
             expr := expression()
-            if expr = null
+            if expr = null {
                 return null
+            }
             expressions.add(expr)
         }
-        if expect(TokenType.RPAREN, "')'") = null
+        if expect(TokenType.RPAREN, "')'") = null {
             return null
+        }
         if expressions.length = 1 {
             -- basic parenthesized expression
             return expressions[0]
@@ -1427,13 +1562,16 @@ class PandaParser {
     @protected
     @self
     method classLiteral():ASTClassLiteral? {
-        if expect(TokenType.CLASS, "'class'") = null
+        if expect(TokenType.CLASS, "'class'") = null {
             return null
-        if expect(TokenType.LPAREN, "'(' after 'class'") = null
+        }
+        if expect(TokenType.LPAREN, "'(' after 'class'") = null {
             return null
+        }
         def t := classType()
-        if t = null
+        if t = null {
             return null
+        }
         expect(TokenType.RPAREN, "')' after class name")
         return new ASTClassLiteral(t)
     }
@@ -1447,10 +1585,12 @@ class PandaParser {
         constant DIGITS_LOWER := "0123456789abcdefghijklmnopqrstuvwxyz"
         for i in 0 .. s.length {
             var digit := DIGITS.indexOf(s[i])->(UInt?)
-            if digit = null
+            if digit = null {
                 digit := DIGITS_LOWER.indexOf(s[i])->(UInt?)
-            if digit = null | digit >= base
+            }
+            if digit = null | digit >= base {
                 return null
+            }
             result := result * base + digit
         }
         return result
@@ -1460,18 +1600,23 @@ class PandaParser {
     @pre(t.type = TokenType.NUMBER)
     method parseNumericLiteral(t:Token):ASTExpression {
         def value:UInt64?
-        if t.text.startsWith("0x") | t.text.startsWith("0X")
+        if t.text.startsWith("0x") | t.text.startsWith("0X") {
             value := parseInt(t.text[2..], 16)
-        else if t.text.startsWith("0b") | t.text.startsWith("0B")
+        }
+        else if t.text.startsWith("0b") | t.text.startsWith("0B") {
             value := parseInt(t.text[2..], 2)
-        else
+        }
+        else {
             value := t.text->>(UInt64?)
-        if value != null
+        }
+        if value != null {
             return new ASTIntegerLiteral(t.position, value)
+        }
         else {
             def real := t.text->>(Real64?)
-            if real != null
+            if real != null {
                 return new ASTRealLiteral(t.position, real)
+            }
             else {
                 error("invalid numeric literal", t.position)
                 return new ASTIntegerLiteral(t.position, 0)
@@ -1525,13 +1670,16 @@ class PandaParser {
             case TokenType.ATRETURN:
                 return new ASTAtReturn(t.position)
             case TokenType.PRE: {
-                if expect(TokenType.LPAREN, "'(' following '@pre'") = null
+                if expect(TokenType.LPAREN, "'(' following '@pre'") = null {
                     return null
+                }
                 def result := expression()
-                if result = null
+                if result = null {
                     return null
-                if expect(TokenType.RPAREN, "')' to complete @pre") = null
+                }
+                if expect(TokenType.RPAREN, "')' to complete @pre") = null {
                     return null
+                }
                 return new ASTPre(t.position, result)
             }
             case TokenType.NEW: {
@@ -1575,17 +1723,20 @@ class PandaParser {
     @self
     method types():ListView<ASTType>? {
         def result := new Array<ASTType>()
-        if expect(TokenType.LPAREN, "'(' to begin parameters") = null
+        if expect(TokenType.LPAREN, "'(' to begin parameters") = null {
             return null
+        }
         if checkNext(TokenType.RPAREN) = null {
             var t := type()
-            if t = null
+            if t = null {
                 return null
+            }
             result.add(t)
             while checkNext(TokenType.COMMA) != null {
                 t := type()
-                if t = null
+                if t = null {
                     return null
+                }
                 result.add(t)
             }
             expect(TokenType.RPAREN, "')' to complete parameters")
@@ -1605,8 +1756,9 @@ class PandaParser {
     @self
     method callExpression():ASTExpression? {
         var result := term()
-        if result = null
+        if result = null {
             return null
+        }
         loop {
             def t := nextToken()
             switch t.type {

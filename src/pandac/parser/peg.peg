@@ -1,0 +1,168 @@
+{
+	class Grammar {
+		def definitions:ListView<Definition>
+
+		def code:String?
+
+		constructor(definitions:ListView<Definition>, code:String) {
+			self.definitions := definitions
+			self.code := code
+		}
+	}
+
+	class Identifier {
+		def text:String
+
+		constructor(text:String) {
+			self.text := text
+		}
+	}
+
+	class Definition {
+		def name:String
+
+		def type:String?
+
+		def definition:Options
+
+		constructor(name:String, type:String?, definition:Options) {
+			self.name := name
+			self.type := type
+			self.definition := definition
+		}
+	}
+
+	class Options {
+		def options:ListView<Sequence>
+
+		constructor(options:ListView<Sequence>) {
+			self.options := options
+		}
+	}
+
+	class Sequence {
+		def terms:ListView<Term>
+
+		def code:String?
+
+		constructor(terms:ListView<Term>, code:String?) {
+			self.terms := terms
+			self.code := code
+		}
+	}
+
+	class Range {
+		def start:Char
+
+		def end:Char
+
+		constructor(start:Char, end:Char) {
+			self.start := start
+			self.end := end
+		}
+	}
+
+	class CharClass {
+		def ranges:ListView<Range>
+
+		constructor(ranges:ListView<Range>) {
+			self.ranges := ranges
+		}
+	}
+
+	enum Prefix {
+		AND, NOT
+	}
+
+	enum Suffix {
+		QUESTION, STAR, PLUS
+	}
+
+	class Term {
+		def prefix:Prefix?
+
+		def value:Object
+
+		def suffix:Suffix?
+
+		constructor(prefix:Prefix?, value:Object, suffix:Suffix?) {
+			self.prefix := prefix
+			self.value := value
+			self.suffix := suffix
+		}
+	}	
+
+	class Dot {
+	}
+}
+
+Grammar:Grammar = Spacing Code? definitions:Definition+ EndOfFile 
+	{ return new Grammar(definitions) }
+Code = '{' (Code / !'}' .)* '}' Spacing
+Definition:Definition = id:Identifier (COLON Type)? EQUAL expr:Expression 
+	{ return new Definition(id, expr) }
+Type:String = id:Identifier { return id.text }
+Expression:Options = seq:Sequence (SLASH seq:Sequence)* 
+	{ return new Options(seq) }
+Sequence:Sequence = terms:Prefix* Code? { new Sequence(terms) }
+Prefix:Term = (Identifier COLON)? (a:AND / n:NOT)? s:Suffix 
+	{ 
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		return new Term(pre, s.value, s.suffix)
+	}
+Suffix:Term = value:Primary (q:QUESTION / s:STAR / p:PLUS)? 
+	{
+		def suf:Suffix
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if st != null
+			suf := Suffix.PLUS
+		return new Term(null, value, suf)
+	}
+Primary:Object = i:Identifier !EQUAL / OPEN e:Expression CLOSE / l:Literal / 
+		cl:Class / d:DOT 
+	{
+		if i != null
+			return i
+		if e != null
+			return e
+		if l != null
+			return l
+		if cl != null
+			return cl
+		unreachable
+	}
+
+Identifier:Identifier = text:IdentStart text:IdentCont* Spacing  
+	{
+		return new Identifier(text)
+	}
+
+IdentStart = [a-zA-Z_]
+IdentCont = IdentStart / [0-9]
+Literal = ['] (!['] Char)* ['] Spacing / ["] (!["] Char)* ["] Spacing
+Class = '[' (!']' Range)* ']' Spacing 
+Range = Char '-' Char / Char
+Char = '\\' [nrt'"\[\]\\] / !'\\' .
+EQUAL = '=' Spacing 
+SLASH = '/' Spacing 
+AND = '&' Spacing 
+NOT = '!' Spacing 
+QUESTION = '?' Spacing 
+STAR = '*' Spacing 
+PLUS = '+' Spacing 
+OPEN = '(' Spacing 
+CLOSE = ')' Spacing 
+DOT = '.' Spacing
+COLON = ':' Spacing
+Spacing = (Space / Comment)*
+Comment = '#' (!EndOfLine .)* EndOfLine 
+Space = ' ' / '\t' / EndOfLine 
+EndOfLine = '\r\n' / '\n' / '\r' 
+EndOfFile = !.

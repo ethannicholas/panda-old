@@ -15,6 +15,7 @@ uses org.pandalanguage.pandac.ast.ASTField
 uses org.pandalanguage.pandac.ast.ASTFile
 uses org.pandalanguage.pandac.ast.ASTIdentifier
 uses org.pandalanguage.pandac.ast.ASTIf
+uses org.pandalanguage.pandac.ast.ASTInstanceDeclaration
 uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTMethod
@@ -131,6 +132,8 @@ class StubGenerator {
     def stubs := new HashMap<String, ClassStub>()
 
     def masterSymbolTable:SymbolTable
+
+    def knownInstances := new HashSet<Type>()
 
     constructor(files:CollectionView<ASTFile>, errors:ErrorReporter) {
         self.files := new Array<ASTFile>(files)
@@ -287,6 +290,10 @@ class StubGenerator {
                 }
                 else if decl-?>(ASTStatement)
                     mainStatements.add(decl->(ASTStatement))
+                else if decl-?>(ASTInstanceDeclaration) {
+                    def type := decl->(ASTInstanceDeclaration).type
+                    knownInstances.add(resolveType(type, masterSymbolTable))
+                }
                 else {
                     throw new InternalCompilerException(
                             "unsupported file entry: \{decl}")
@@ -396,6 +403,7 @@ class StubGenerator {
                 base := types[name]
                 if base = null {
                     errors.error("type '\{type}' not found", type.position)
+                    Panda.dumpStack()
                     return null
                 }
             }
@@ -941,7 +949,9 @@ class StubGenerator {
         var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null
             annotations += AnnotationType.UNSPECIFIED
-        if !cl.isExternal {
+        if cl.isExternal
+            annotations += AnnotationType.EXTERNAL
+        else {
             def init := createClassInit(cl.position, classType, symbols)
             if init != null {
                 addSymbol(init[0], init[0].position, symbols, errors)
