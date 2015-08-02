@@ -1,17 +1,69 @@
 package org.pandalanguage.peg
 
+================================================================================
+Parser generator which reads a Parsing Expression Grammar file containing
+embedded Panda code and creates a Panda parser which recognizes the grammar.
+
+As this is intended solely for internal use by the compiler, no effort is made 
+to be user friendly or report nice errors, and the feature set is fairly 
+minimal. The resulting code is also quite horrific. So is this program itself. 
+Sorry!
+================================================================================
 class PEGGenerator {
-	def out := Console.outputStream
+	def out:OutputStream := Console.outputStream
 
 	var varCount := 0
 
 	var level := 0
 
-	function getSuccess(success:String?):String {
-		if success = null
-			return "return pos\{level}"
+	def grammar:Grammar
+
+	def definitions := new HashMap<String, Definition>()
+
+	var currentDefinition := new Definition("<dummy>", "<dummy>", 
+			new Options([]))
+
+	-- maps variable names to (type, repeated, nullable) tuples
+	var variables := new HashMap<String, (String, Bit, Bit)>()
+
+	def varLevels := new HashMap<String, Int>()
+
+	var currentSequence := new Stack<Sequence>()
+
+	constant SUCCESS_TOKEN := "@@SUCCESS@@"
+	
+	constructor(grammar:Grammar	) {
+		self.grammar := grammar
+		for d in grammar.definitions
+			definitions[d.name] := d
+	}
+
+	function currentReturnType():String {
+		if currentDefinition.type != null
+			return currentDefinition.type
+		return "String"
+	}
+
+	function getSuccess(success:String):String {
+		if success.contains(SUCCESS_TOKEN) {
+			def result := "return (result, pos\{level})"
+			def code := currentSequence.peek().code
+			if code != null {
+				return success.replace(SUCCESS_TOKEN, "def result:" + 
+						currentReturnType() + " " + code[1 .. code.length - 1] + 
+						" " + result)
+			}
+			return success.replace(SUCCESS_TOKEN,
+					"def result := text[pos0 .. pos\{level}] " + result)
+		}
 		else
 			return success
+	}
+
+	function getName(name:String, level:Int):String {
+		if level != 0
+			return name + level
+		return name
 	}
 
 	function escape(c:Char):String {
@@ -25,6 +77,8 @@ class PEGGenerator {
 			return "\\t"
 		if c = "\\"
 			return "\\\\"
+		if c = "\""
+			return "\\\""
 		return c->>(String)
 	}
 
@@ -35,12 +89,27 @@ class PEGGenerator {
 		return result->>(String)
 	}
 
-	method getValueText(value:Object, success:String?, failure:String):String {
+	function saveCode(saveName:String, valueCode:String):String {
+		if saveName = null
+			return ""
+		def v := variables[saveName]
+		assert v != null
+		def level := varLevels[saveName]
+		assert level != null
+		if v[1]
+			return "\{getName(saveName, level)}.add(\{valueCode})\n"
+		else
+			return "\{getName(saveName, level)} := \{valueCode}\n"
+	}
+
+	method getValueText(value:Object, saveName:String?, success:String, 
+			failure:String):String {
 		if value-?>(String) {
 			def text := value->(String)
-			return "if literal(pos\{level}, '\{escape(text)}') {\n" +
-					"pos\{level} += \{text.length}\n" +
-					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
+			def result := "if literal(pos\{level}, '\{escape(text)}') {\n" +
+					"pos\{level} += \{text.length}\n"
+			result += saveCode(saveName, '"' + escape(text) + '"')
+			return result + "\{getSuccess(success)}\n} else {\n\{failure}\n}"
 		}
 		else if value-?>(CharClass) {
 			def cc := value->(CharClass)
@@ -55,90 +124,217 @@ class PEGGenerator {
 							"'\{escape(r.end)}')")
 				}
 			}
-			return "if \{test} {\npos\{level} += 1\n" +
+			def save := saveCode(saveName, "text[pos\{level}]->>(String)")
+			return "if \{test} {\n\{save}\npos\{level} += 1\n" +
 					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
 		}
 		else if value-?>(Identifier) {
 			varCount += 1
 			def text := value->(Identifier).text
+			def save := saveCode(saveName, "r\{varCount}[0]")
 			return "def r\{varCount} := _\{text}(pos\{level})\n" +
-					"if r\{varCount} != null {\npos\{level} := r\{varCount}\n" +
-					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
+					"if r\{varCount} != null {\npos\{level} := r\{varCount}[1]\n" +
+					"\{save}\{getSuccess(success)}\n} else {\n\{failure}\n}"
 		}
-		else if value-?>(Options)
+		else if value-?>(Options) {
 			return getOptionsText(value->(Options),
 					"pos\{level} := pos\{level + 1}\n\{getSuccess(success)}", 
 					failure)
-		else if value-?>(Dot)
-			return 	"if pos\{level} < text.length {\n" +
+		}
+		else if value-?>(Dot) {
+			def save := saveCode(saveName, "text[pos\{level}]->>(String)")
+			return 	"if pos\{level} < text.length {\n\{save}" +
 					"pos\{level} += 1\n" +
 					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
-
-		else
-			return "unknown type: \{value} - '\{value.class.name}'"
+		}
+		else {
+			assert false : "unknown type: \{value} - '\{value.class.name}'"
+			return "fail"
+		}
 	}
 
-	method getTermText(term:Term, success:String?, failure:String):String {
+	function getType(term:Term):String? {
+		def type:String? := null
+		if term.value-?>(Identifier) {
+			def name := term.value->(Identifier).text
+			def definition := definitions[name]
+			if definition = null {
+				Console.writeLine("unknown definition '\{name}' in \{definitions.keys}")
+				System.exit(1)
+			}
+			type := definition.type
+		}
+		if type = null
+			return "String"
+		return type
+	}
+
+	method getTermText(term:Term, success:String, failure:String):String {
 		if term.prefix = Prefix.NOT {
 			varCount += 1
 			return "def save\{varCount} := pos\{level}\n" +
-					getValueText(term.value, failure, 
-						"pos\{level} := save\{varCount}\n" + getSuccess(success))
+					getValueText(term.value, term.name, failure, 
+						"pos\{level} := save\{varCount}\n" + 
+						getSuccess(success))
 		}
 		else if term.prefix = Prefix.AND {
 			varCount += 1
 			return "def save\{varCount} := pos\{level}\n" +
-					getValueText(term.value, "pos\{level} := save\{varCount}\n" + 
+					getValueText(term.value, term.name, 
+						"pos\{level} := save\{varCount}\n" + 
 						success, failure)
 		}
 		else if term.suffix = Suffix.QUESTION {
-			return getValueText(term.value, success, getSuccess(success))
+			def setupText := new MutableString()
+			def finishText := new MutableString()
+			def speculative := findVariables(term, false, false)
+			for name in speculative.keys {
+				def level := varLevels[name]->(Int) + 1
+				varLevels[name] := level
+				def type, repeated, nullable := variables[name]
+				if repeated {
+					setupText.append("def \{getName(name, level)} := " +
+							"new Array<\{type}>()\n")
+					finishText.append("\{getName(name, level - 1)}" +
+							".addAll(\{getName(name, level)})\n")
+				}
+				else {
+					setupText.append("var \{getName(name, level)}:\{type}")
+					if nullable
+						setupText.append("? := null")
+					setupText.append("\n")
+					finishText.append("\{getName(name, level - 1)} := " +
+							"\{getName(name, level)}\n")
+				}
+			}
+			def result := setupText + getValueText(term.value, term.name, 
+					finishText + success, getSuccess(success))
+			for name in speculative.keys
+				varLevels[name] -= 1
+			return result
 		}
 		else if term.suffix = Suffix.STAR {
-			return "loop {\n" + getValueText(term.value, "continue", "break") +
-					"\n}\n" + getSuccess(success)
+			return "loop {\n" + getValueText(term.value, term.name,
+					"continue", "break") + "\n}\n" + getSuccess(success)
 		}
 		else if term.suffix = Suffix.PLUS {
-			return getTermText(new Term(null, term.value, null), 
-					getTermText(new Term(null, term.value, Suffix.STAR),
-						success, getSuccess(success)), failure)
+			return getTermText(new Term(term.name, null, term.value, null), 
+					getTermText(new Term(term.name, null, term.value, 
+						Suffix.STAR), success, getSuccess(success)), failure)
 		}
-		return getValueText(term.value, success, failure)
+		return getValueText(term.value, term.name, success, failure)
 	}
 
-	method getOptionsText(opt:Options, success:String?, failure:String):String {
+	method getOptionsText(opt:Options, success:String, failure:String):String {
 		level += 1
 		def options := opt.options
 		var next := failure
-		for i in options.length - 1 ... 0 by -1
-			next := getSequenceText(options[i], success, next)
-		def result := "var pos\{level} := pos\{level - 1}\n\{next}"
+		for i in options.length - 1 ... 0 by -1 {
+			next := "pos\{level} := pos\{level - 1}\n" +
+					getSequenceText(options[i], success, next)
+		}
+		def result := "var pos\{level}:Int\n\{next}"
 		level -= 1
 		return result
 	}
 
-	method getSequenceText(seq:Sequence, success:String?, failure:String):String {
+	method getSequenceText(seq:Sequence, success:String, 
+			failure:String):String {
+		currentSequence.push(seq)
 		def terms := seq.terms
 		var next := success
 		for i in terms.length - 1 ... 0 by -1
 			next := getTermText(terms[i], next, failure)
+		currentSequence.pop()
 		return next
 	}
 
+	function findVariables(term:Term, var repeated:Bit, 
+			var nullable:Bit):Map<String, (String, Bit, Bit)> {
+		def result := new HashMap<String, (String, Bit, Bit)>()
+		repeated |= term.suffix = Suffix.PLUS | term.suffix = Suffix.STAR
+		nullable |= term.suffix = Suffix.QUESTION
+		if term.value-?>(Options) {
+			assert term.name = null
+			result.addAll(findVariables(term.value->(Options), repeated, 
+					nullable))
+		}
+		else if term.name != null {
+			def type := getType(term)
+			def old := variables[term.name]
+			if old != null {
+				assert old[0] = type
+				result[term.name] := (type, true, nullable)
+			}
+			else
+				result[term.name] := (type, repeated, nullable)
+		}
+		return result
+	}
+
+	function findVariables(seq:Sequence, repeated:Bit, 
+			nullable:Bit):Map<String, (String, Bit, Bit)>  {
+		def result := new HashMap<String, (String, Bit, Bit)>()
+		for term in seq.terms
+			result.addAll(findVariables(term, repeated, nullable))
+		return result
+	}
+
+	method findVariables(opt:Options, repeated:Bit, 
+			nullable:Bit):Map<String, (String, Bit, Bit)> {
+		def result := new HashMap<String, (String, Bit, Bit)>()
+		for seq in opt.options {
+			result.addAll(findVariables(seq, repeated, 
+					nullable | opt.options.length > 1))
+		}
+		return result
+	}
+
+	method findVariables(definition:Definition):Map<String, (String, Bit, Bit)> {
+		return findVariables(definition.definition, false, false)
+	}
+
 	method writeDefinition(definition:Definition) {
+		currentDefinition := definition
 		varCount := 0
 		level := 0
-		out.writeLine("function _\{definition.name}(var pos0:Int):Int? {")
-		out.writeLine(getOptionsText(definition.definition, null, 
+		variables.clear()
+		variables.addAll(findVariables(definition))
+		for name in variables.keys
+			varLevels[name] := 0
+		def returnType:String
+		if definition.type != null
+			returnType := definition.type
+		else
+			returnType := "String"
+		out.writeLine("-* \{definition} *-")
+		out.writeLine("function _\{definition.name}(var pos0:Int):" +
+				"(\{returnType}, Int)? {")
+		for (name, value) in variables {
+			def type, repeated, nullable := value
+			if repeated
+				out.writeLine("def \{name} := new Array<\{type}>()")
+			else {
+				out.write("var \{name}:\{type}")
+				if nullable
+					out.write("? := null")
+				out.writeLine()
+			}
+		}
+		out.writeLine(getOptionsText(definition.definition, SUCCESS_TOKEN, 
 				"return null"))
 		out.writeLine("}")
 	}
 
-	method writeGrammar(grammar:Grammar) {
+	method writeGrammar(dest:File) {
+		out := dest.openOutputStream()
 		if grammar.code != null
 			out.writeLine(grammar.code[1 .. grammar.code.length - 1])
-		out.writeLine("class GeneratedParser {")
-		out.writeLine("var text:String := new File('/Users/ethannicholas/Dropbox/Panda/src/pandac/parser/peg.peg').readAsString()")
+		out.writeLine("class PEGParser {")
+		out.writeLine("var text:String")
+		out.writeLine("constructor(file:File) {")
+		out.writeLine("    text := file.readAsString()")
+		out.writeLine("}")
 		out.writeLine("function literal(pos:Int, c:Char):Bit {")
 		out.writeLine("	   return pos < text.length & text[pos] = c")
 		out.writeLine("}")
@@ -152,18 +348,15 @@ class PEGGenerator {
 		out.writeLine("}")
 		for d in grammar.definitions
 			writeDefinition(d)
-		out.writeLine("@class method main() {")
-		out.writeLine("    Console.writeLine(new GeneratedParser()._Grammar(0) != null)")
-		out.writeLine("}")
 		out.writeLine("}")
 	}
 
 	@class
-	method main() {
-		def parser := new PEGParser(new File("/Users/ethannicholas/Dropbox/Panda/src/pandac/parser/peg.peg"))
+	method main(args:PrimitiveArray<String>) {
+		def parser := new PEGParser(new File(args[0]))
 		def r0 := parser._Grammar(0) 
 		if r0 != null {
-			new PEGGenerator().writeGrammar(r0[0])
+			new PEGGenerator(r0[0]).writeGrammar(new File(args[1]))
 		}
 		else {
 			Console.writeLine("Parse error. Sorry, have fun debugging it!")

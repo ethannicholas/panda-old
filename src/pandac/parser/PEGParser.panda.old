@@ -1,0 +1,712 @@
+package org.pandalanguage.peg
+
+	class Grammar {
+		def definitions:ListView<Definition>
+
+		def code:String?
+
+		constructor(definitions:ListView<Definition>, code:String?) {
+			self.definitions := definitions
+			if code != null
+				self.code := code.trim()
+			else
+				self.code := null
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := self.code
+			else
+				code := "<null>"
+			return "Grammar<definitions=\{definitions}>"
+		}
+	}
+
+	class Identifier {
+		def text:String
+
+		constructor(text:String) {
+			self.text := text
+		}
+
+		constructor(text:Array<String>) {
+			self.text := text.join("")
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "Identifier<\{text}>"
+		}
+	}
+
+	class Definition {
+		def name:String
+
+		def type:String?
+
+		def definition:Options
+
+		constructor(name:String, type:String?, definition:Options) {
+			self.name := name
+			self.type := type
+			self.definition := definition
+		}
+
+		@override
+		function format(fmt:String):String {
+			def type:String
+			if self.type != null
+				type := self.type
+			else
+				type := "<null>"
+			return "Definition<name=\{name}, type=\{type}, definition=\{definition}>"
+		}
+	}
+
+	class Options {
+		def options:ListView<Sequence>
+
+		constructor(options:ListView<Sequence>) {
+			self.options := options
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "Options<\{options}>"
+		}
+	}
+
+	class Sequence {
+		def terms:ListView<Term>
+
+		def code:String?
+
+		constructor(terms:ListView<Term>, code:String?) {
+			self.terms := terms
+			if code != null
+				self.code := code.trim()
+			else
+				self.code := null
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := self.code
+			else
+				code := "<null>"
+			return "Sequence<terms=\{terms}>"
+		}
+	}
+
+	class Range {
+		def start:Char
+
+		def end:Char
+
+		constructor(start:Char, end:Char) {
+			self.start := start
+			self.end := end
+		}
+
+		@override
+		function format(fmt:String):String {
+			if start = end
+				return start->>(String)
+			else
+				return "\{start}-\{end}"
+		}
+	}
+
+	class CharClass {
+		def ranges:ListView<Range>
+
+		constructor(ranges:ListView<Range>) {
+			self.ranges := ranges
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "[" + ranges.join("") + "]"
+		}		
+	}
+
+	enum Prefix {
+		AND, NOT
+	}
+
+	enum Suffix {
+		QUESTION, STAR, PLUS
+	}
+
+	class Term {
+		def name:String?
+
+		def prefix:Prefix?
+
+		def value:Object
+
+		def suffix:Suffix?
+
+		constructor(name:String?, prefix:Prefix?, value:Object, 
+				suffix:Suffix?) {
+			self.name := name
+			self.prefix := prefix
+			self.value := value
+			self.suffix := suffix
+		}
+
+		@override
+		function format(fmt:String):String {
+			def result := new MutableString("Term<name=")
+			if name != null
+				result.append(name)
+			else
+				result.append("<null>")
+			result.append(", prefix=")
+			if prefix != null
+				result.append(prefix)
+			else
+				result.append("<null>")
+			result.append(", value=\{value}, suffix=")
+			if suffix != null
+				result.append(suffix)
+			else
+				result.append("<null>")
+			return result + ">"
+		}
+	}
+
+	class Dot {
+		@override
+		function format(fmt:String):String {
+			return "<DOT>"
+		}
+	}
+
+class PEGParser {
+	def grammar:String
+
+	constructor(grammar:File) {
+		self.grammar := grammar.readAsString()
+	}
+
+	function match(pos:Int, text:String):Bit {
+		if grammar.length >= pos + text.length {
+			return grammar[pos .. pos + text.length] = text
+		}
+		return false
+	}
+
+	function terminal(pos:Int, text:String):(String, Int)? {
+		if match(pos, text) {
+			def r0 := _Spacing(pos + 1)
+			if r0 = null
+				return null
+			return (text, r0[1])
+		}
+		return null
+	}
+
+	function dot(pos:Int):(Char, Int)? {
+		if pos < grammar.length
+			return (grammar[pos], pos + 1)
+		return null
+	}
+
+	function _Grammar(var pos:Int):(Grammar, Int)? {
+		def r0 := _Spacing(pos)
+		if r0 = null
+			return null
+		pos := r0[1]
+		def code:String? := null
+		def r4 := _Code(pos)
+		if r4 != null {
+			pos := r4[1]
+			code := r4[0]
+		}
+		def result := new Array<Definition>()
+		def r1 := _Definition(pos)
+		if r1 = null
+			return null
+		pos := r1[1]
+		result.add(r1[0])
+		loop {
+			def r2 := _Definition(pos)
+			if r2 = null
+				break
+			result.add(r2[0])
+			pos := r2[1]
+		}
+		def r3 := _EndOfFile(pos)
+		if r3 = null
+			return null
+		pos := r3[1]
+		return (new Grammar(result, code), pos)
+	}
+
+	function _Code(var pos:Int):(String, Int)? {
+		if match(pos, "{") {
+			def result := new MutableString("{")
+			pos += 1
+			loop {
+				def r0 := _Code(pos)
+				if r0 != null {
+					pos := r0[1]
+					result.append(r0[0])
+					continue
+				}
+				if !match(pos, "}") {
+					def r1 := dot(pos)
+					if r1 != null {
+						pos := r1[1]
+						result.append(r1[0])
+						continue
+					}
+				}
+				break
+			}
+			if match(pos, '}') {
+				result.append("}")
+				pos += 1
+				def r2 := _Spacing(pos) 
+				if r2 != null {
+					pos := r2[1]
+					return (result->>(String), pos)
+				}
+			}
+		}
+		return null
+	}
+
+	function _Definition(var pos:Int):(Definition, Int)? {
+		def r0 := _Identifier(pos)
+		if r0 = null
+			return null
+		pos := r0[1]
+		def type:String := null
+		def r3 := COLON(pos)
+		if r3 != null {
+			pos := r3[1]
+			def r4 := _Identifier(pos)
+			if r4 != null {
+				pos := r4[1]
+				type := r4[0].text
+			}
+			else
+				return null
+		}
+		def r1 := EQUAL(pos)
+		if r1 = null
+			return null
+		pos := r1[1]
+		def r2 := _Expression(pos)
+		if r2 = null
+			return null
+		pos := r2[1]
+		return (new Definition(r0[0].text, type, r2[0]), pos)
+	}
+
+	function _Expression(var pos:Int):(Options, Int)? {
+		def r0 := _Sequence(pos)
+		if r0 = null
+			return null
+		def result := new Array<Sequence>()
+		result.add(r0[0])
+		pos := r0[1]
+		loop {
+			def old := pos
+			def r1 := SLASH(pos)
+			if r1 = null
+				break
+			pos := r1[1]
+			def r2 := _Sequence(pos)
+			if r2 = null {
+				pos := old
+				break
+			}
+			pos := r2[1]
+			result.add(r2[0])
+		}
+		return (new Options(result), pos)
+	}
+
+	function _Sequence(var pos:Int):(Sequence, Int)? {
+		def result := new Array<Term>()
+		loop {
+			def r0 := _Prefix(pos)
+			if r0 = null
+				break
+			result.add(r0[0])
+			pos := r0[1]
+		}
+		def code:String := null
+		def r1 := _Code(pos)
+		if r1 != null {
+			pos := r1[1]
+			code := r1[0]
+		}
+		return (new Sequence(result, code), pos)
+	}
+
+	function _Prefix(var pos:Int):(Term, Int)? {
+		def name:String? := null
+		def prefix:Prefix? := null
+		def r3 := _Identifier(pos)
+		if r3 != null {
+			def r4 := COLON(r3[1])
+			if r4 != null {
+				pos := r4[1]
+				name := r3[0].text
+			}
+		}
+		def r0 := AND(pos)
+		if r0 != null {
+			pos := r0[1]
+			prefix := Prefix.AND
+		}
+		else {
+			def r1 := NOT(pos)
+			if r1 != null {
+				pos := r1[1]
+				prefix := Prefix.NOT
+			}
+		}
+		def r2 := _Suffix(pos)
+		if r2 = null
+			return null
+		pos := r2[1]
+		return (new Term(name, prefix, r2[0].value, r2[0].suffix), pos)
+	}
+
+	function _Suffix(var pos:Int):(Term, Int)? {
+		def r0 := _Primary(pos)
+		if r0 = null
+			return null
+		pos := r0[1]
+		def suffix:Suffix? := null
+		def r1 := QUESTION(pos)
+		if r1 != null {
+			pos := r1[1]
+			suffix := Suffix.QUESTION
+		}
+		else {
+			def r2 := STAR(pos)
+			if r2 != null {
+				pos := r2[1]
+				suffix := Suffix.STAR
+			}
+			else {
+				def r3 := PLUS(pos)
+				if r3 != null {
+					pos := r3[1]
+					suffix := Suffix.PLUS
+				}
+			}
+		}
+		return (new Term(null, null, r0[0], suffix), pos)
+	}
+
+	function _Primary(var pos:Int):(Object, Int)? {
+		def r0 := _Identifier(pos)
+		if r0 != null {
+			pos := r0[1]
+			if EQUAL(pos) = null
+				return (r0[0], pos)
+		}
+		def r1 := OPEN(pos)
+		if r1 != null {
+			pos := r1[1]
+			def r2 := _Expression(pos)
+			if r2 != null {
+				pos := r2[1]
+				def r3 := CLOSE(pos)
+				if r3 != null {
+					pos := r3[1]
+					return (r2[0], pos)
+				}
+			}
+		}
+		def r4 := _Literal(pos)
+		if r4 != null {
+			pos := r4[1]
+			return (r4[0], pos)
+		}
+		def r5 := _Class(pos)
+		if r5 != null {
+			pos := r5[1]
+			return (r5[0], pos)
+		}
+		def r6 := DOT(pos)
+		if r6 != null {
+			pos := r6[1]
+			return (new Dot(), pos)
+		}
+		return null
+	}
+
+	function _Identifier(var pos:Int):(Identifier, Int)? {
+		def r0 := _IdentStart(pos)
+		if r0 != null {
+			def result := new MutableString()
+			result.append(r0[0])
+			pos := r0[1]
+			loop {
+				def r1 := _IdentCont(pos)
+				if r1 != null {
+					pos := r1[1]
+					result.append(r1[0])
+					continue
+				}
+				break
+			}
+			def r2 := _Spacing(pos)
+			if r2 != null {
+				pos := r2[1]
+				return (new Identifier(result->>(String)), pos)
+			}
+		}
+		return null
+	}
+
+	function _IdentStart(var pos:Int):(Char, Int)? {
+		if pos = grammar.length 
+			return null
+		if "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_".contains(grammar[pos]) {
+			return (grammar[pos], pos + 1)
+		}
+		return null
+	}
+
+	function _IdentCont(var pos:Int):(Char, Int)? {
+		if pos = grammar.length 
+			return null
+		if "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789".contains(grammar[pos]) {
+			return (grammar[pos], pos + 1)
+		}
+		return null
+	}
+
+	function _Literal(var pos:Int):(String, Int)? {
+		def result := new MutableString()
+		if match(pos, "'") {
+			pos += 1
+			loop {
+				if match(pos, "'")
+				 	break
+				def r0 := _Char(pos)
+				if r0 != null {
+					result.append(r0[0])
+					pos := r0[1]
+					continue
+				}
+				break
+			}
+			if match(pos, "'") {
+				pos += 1
+				def r1 := _Spacing(pos)
+				if r1 != null {
+					pos := r1[1]
+					return (result->>(String), pos)
+				}
+			}
+		}
+		if match(pos, '"') {
+			pos += 1
+			loop {
+				if match(pos, '"')
+				 	break
+				def r2 := _Char(pos)
+				if r2 != null {
+					result.append(r2[0])
+					pos := r2[1]
+					continue
+				}
+				break
+			}
+			if match(pos, '"') {
+				pos += 1
+				def r3 := _Spacing(pos)
+				if r3 != null {
+					pos := r3[1]
+					return (result->>(String), pos)
+				}
+			}
+		}
+		return null
+	}
+
+	function _Class(var pos:Int):(CharClass, Int)? {
+		if match(pos, "[") {
+			def result := new Array<Range>()
+			pos += 1
+			loop {
+				if !match(pos, "]") {
+					def r0 := _Range(pos)
+					if r0 != null {
+						result.add(r0[0])
+						pos := r0[1]
+						continue
+					}
+				}
+				break
+			}
+			if match(pos, "]") {
+				pos += 1
+				def r1 := _Spacing(pos)
+				if r1 != null {
+					pos := r1[1]
+					return (new CharClass(result), pos)
+				}
+			}
+		}
+		return null
+	}
+
+	function _Range(pos:Int):(Range, Int)? {
+		def r0 := _Char(pos)
+		if r0 != null {
+			var curPos := r0[1]
+			if match(curPos, '-') {
+				curPos += 1
+				def r1 := _Char(curPos)
+				if r1 != null {
+					curPos := r1[1]
+					return (new Range(r0[0], r1[0]), curPos)
+				}
+			}
+		}
+		def r1 := _Char(pos)
+		if r1 != null
+			return (new Range(r1[0], r1[0]), r1[1])
+		return null
+	}
+
+	function _Char(var pos:Int):(Char, Int)? {
+		if match(pos, "\\") {
+			pos += 1
+			if grammar[pos] = "n"
+				return ("\n", pos + 1)
+			else if grammar[pos] = "r"
+				return ("\r", pos + 1)
+			else if grammar[pos] = "t"
+				return ("\t", pos + 1)
+			else if grammar[pos] = "\\"
+				return ("\\", pos + 1)
+			else if grammar[pos] = "["
+				return ("[", pos + 1)
+			else if grammar[pos] = "]"
+				return ("]", pos + 1)
+			return null
+		}
+		else {
+			if !match(pos, "\\")
+				return (grammar[pos], pos + 1)
+		}
+		return null
+	}
+
+	function EQUAL(pos:Int):(String, Int)? {
+		return terminal(pos, "=")
+	}
+
+	function COLON(pos:Int):(String, Int)? {
+		return terminal(pos, ":")
+	}
+
+	function SLASH(pos:Int):(String, Int)? {
+		return terminal(pos, "/")
+	}
+
+	function AND(pos:Int):(String, Int)? {
+		return terminal(pos, "&")
+	}
+
+	function NOT(pos:Int):(String, Int)? {
+		return terminal(pos, "!")
+	}
+
+	function QUESTION(pos:Int):(String, Int)? {
+		return terminal(pos, "?")
+	}
+
+	function STAR(pos:Int):(String, Int)? {
+		return terminal(pos, "*")
+	}
+
+	function PLUS(pos:Int):(String, Int)? {
+		return terminal(pos, "+")
+	}
+
+	function OPEN(pos:Int):(String, Int)? {
+		return terminal(pos, "(")
+	}
+
+	function CLOSE(pos:Int):(String, Int)? {
+		return terminal(pos, ")")
+	}
+
+	function DOT(pos:Int):(String, Int)? {
+		return terminal(pos, ".")
+	}
+
+	function _Spacing(var pos:Int):(Object?, Int)? {
+		loop {
+			def r0 := _Space(pos)
+			if r0 != null {
+				pos := r0[1]
+				continue
+			}
+			def r1 := _Comment(pos)
+			if r1 != null {
+				pos += r1[1]
+				continue
+			}
+			break
+		}
+		return (null, pos)
+	}
+
+	function _Comment(var pos:Int):(Object?, Int)? {
+		if match(pos, "#") {
+			pos += 1
+			loop {
+				if _EndOfLine(pos) == null {
+					def r0 := dot(pos)
+					if r0 != null {
+						pos := r0[1]
+						continue
+					}
+				}
+				break
+			}
+			def r1 := _EndOfLine(pos)
+			if r1 != null {
+				pos := r1[1]
+				return (null, pos)
+			}
+		}
+		return null
+	}
+
+	function _Space(var pos:Int):(Object?, Int)? {
+		if match(pos, " ") | match(pos, "\t")  | match(pos, "\n")
+			return (null, pos + 1)
+		return null
+	}
+
+	function _EndOfLine(var pos:Int):(Object?, Int)? {
+		if match(pos, "\n")
+			return (null, pos + 1)
+		return null
+	}
+
+	function _EndOfFile(var pos:Int):(Object?, Int)? {
+		if pos = grammar.length
+			return (null, pos)
+		return null
+	}
+}

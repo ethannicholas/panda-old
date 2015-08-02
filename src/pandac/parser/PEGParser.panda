@@ -1,4 +1,3 @@
-package org.pandalanguage.peg
 
 	class Grammar {
 		def definitions:ListView<Definition>
@@ -7,7 +6,20 @@ package org.pandalanguage.peg
 
 		constructor(definitions:ListView<Definition>, code:String?) {
 			self.definitions := definitions
-			self.code := code
+			if code != null
+				self.code := code.trim()
+			else
+				self.code := null
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := self.code
+			else
+				code := "<null>"
+			return "Grammar<definitions=\{definitions}>"
 		}
 	}
 
@@ -16,6 +28,15 @@ package org.pandalanguage.peg
 
 		constructor(text:String) {
 			self.text := text
+		}
+
+		constructor(text:Array<String>) {
+			self.text := text.join("")
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "Identifier<\{text}>"
 		}
 	}
 
@@ -31,6 +52,16 @@ package org.pandalanguage.peg
 			self.type := type
 			self.definition := definition
 		}
+
+		@override
+		function format(fmt:String):String {
+			def type:String
+			if self.type != null
+				type := self.type
+			else
+				type := "<null>"
+			return "Definition<name=\{name}, type=\{type}, definition=\{definition}>"
+		}
 	}
 
 	class Options {
@@ -38,6 +69,11 @@ package org.pandalanguage.peg
 
 		constructor(options:ListView<Sequence>) {
 			self.options := options
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "Options<\{options}>"
 		}
 	}
 
@@ -48,7 +84,20 @@ package org.pandalanguage.peg
 
 		constructor(terms:ListView<Term>, code:String?) {
 			self.terms := terms
-			self.code := code
+			if code != null
+				self.code := code.trim()
+			else
+				self.code := null
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := self.code
+			else
+				code := "<null>"
+			return "Sequence<terms=\{terms}>"
 		}
 	}
 
@@ -61,6 +110,14 @@ package org.pandalanguage.peg
 			self.start := start
 			self.end := end
 		}
+
+		@override
+		function format(fmt:String):String {
+			if start = end
+				return start->>(String)
+			else
+				return "\{start}-\{end}"
+		}
 	}
 
 	class CharClass {
@@ -69,6 +126,11 @@ package org.pandalanguage.peg
 		constructor(ranges:ListView<Range>) {
 			self.ranges := ranges
 		}
+
+		@override
+		function format(fmt:String):String {
+			return "[" + ranges.join("") + "]"
+		}		
 	}
 
 	enum Prefix {
@@ -80,544 +142,1619 @@ package org.pandalanguage.peg
 	}
 
 	class Term {
+		def name:String?
+
 		def prefix:Prefix?
 
 		def value:Object
 
 		def suffix:Suffix?
 
-		constructor(prefix:Prefix?, value:Object, suffix:Suffix?) {
+		constructor(name:String?, prefix:Prefix?, value:Object, 
+				suffix:Suffix?) {
+			self.name := name
 			self.prefix := prefix
 			self.value := value
 			self.suffix := suffix
 		}
+
+		@override
+		function format(fmt:String):String {
+			def result := new MutableString("Term<name=")
+			if name != null
+				result.append(name)
+			else
+				result.append("<null>")
+			result.append(", prefix=")
+			if prefix != null
+				result.append(prefix)
+			else
+				result.append("<null>")
+			result.append(", value=\{value}, suffix=")
+			if suffix != null
+				result.append(suffix)
+			else
+				result.append("<null>")
+			return result + ">"
+		}
 	}
 
 	class Dot {
+		@override
+		function format(fmt:String):String {
+			return "<DOT>"
+		}
+	}
+
+	class Util {
+		@class
+		function unescape(text:String):String {
+			return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
+					"\t").replace("\\[", "[").replace("\\]", "]").replace("\\\\", "\\")
+		}
 	}
 
 class PEGParser {
-	def grammar:String
+var text:String
+constructor(file:File) {
+    text := file.readAsString()
+}
+function literal(pos:Int, c:Char):Bit {
+	   return pos < text.length & text[pos] = c
+}
+function literal(pos:Int, start:Char, end:Char):Bit {
+	   return pos < text.length & text[pos] >= start & text[pos] <= end
+}
+function literal(pos:Int, s:String):Bit {
+	   return pos + s.length <= text.length & text[pos .. pos + s.length] = s
+}
+-* Definition<name=Grammar, type=Grammar, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>, Term<name=code, prefix=<null>, value=Identifier<Code>, suffix=QUESTION>, Term<name=definitions, prefix=<null>, value=Identifier<Definition>, suffix=PLUS>, Term<name=<null>, prefix=<null>, value=Identifier<EndOfFile>, suffix=<null>>]>]>> *-
+function _Grammar(var pos0:Int):(Grammar, Int)? {
+var code:String? := null
+def definitions := new Array<Definition>()
+var pos1:Int
+pos1 := pos0
+def r5 := _Spacing(pos1)
+if r5 != null {
+pos1 := r5[1]
+var code1:String? := null
+def r4 := _Code(pos1)
+if r4 != null {
+pos1 := r4[1]
+code1 := r4[0]
+code := code1
+def r3 := _Definition(pos1)
+if r3 != null {
+pos1 := r3[1]
+definitions.add(r3[0])
+loop {
+def r2 := _Definition(pos1)
+if r2 != null {
+pos1 := r2[1]
+definitions.add(r2[0])
+continue
+} else {
+break
+}
+}
+def r1 := _EndOfFile(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:Grammar  result := new Grammar(definitions, code)  return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+} else {
+def r3 := _Definition(pos1)
+if r3 != null {
+pos1 := r3[1]
+definitions.add(r3[0])
+loop {
+def r2 := _Definition(pos1)
+if r2 != null {
+pos1 := r2[1]
+definitions.add(r2[0])
+continue
+} else {
+break
+}
+}
+def r1 := _EndOfFile(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:Grammar  result := new Grammar(definitions, code)  return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+} else {
+return null
+}
+}
+-* Definition<name=Code, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value={, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Code>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=NOT, value=}, suffix=<null>>, Term<name=<null>, prefix=<null>, value=<DOT>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=}, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _Code(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '{') {
+pos1 += 1
+loop {
+var pos2:Int
+pos2 := pos1
+def r3 := _Code(pos2)
+if r3 != null {
+pos2 := r3[1]
+pos1 := pos2
+continue
+} else {
+pos2 := pos1
+def save2 := pos2
+if literal(pos2, '}') {
+pos2 += 1
+break
+} else {
+pos2 := save2
+if pos2 < text.length {
+pos2 += 1
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+}
+if literal(pos1, '}') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=Definition, type=Definition, definition=Options<[Sequence<terms=[Term<name=id, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<COLON>, suffix=<null>>, Term<name=type, prefix=<null>, value=Identifier<Type>, suffix=<null>>]>]>, suffix=QUESTION>, Term<name=<null>, prefix=<null>, value=Identifier<EQUAL>, suffix=<null>>, Term<name=expr, prefix=<null>, value=Identifier<Expression>, suffix=<null>>]>]>> *-
+function _Definition(var pos0:Int):(Definition, Int)? {
+var expr:Options
+var type:String? := null
+var id:Identifier
+var pos1:Int
+pos1 := pos0
+def r5 := _Identifier(pos1)
+if r5 != null {
+pos1 := r5[1]
+id := r5[0]
+var type1:String? := null
+var pos2:Int
+pos2 := pos1
+def r4 := _COLON(pos2)
+if r4 != null {
+pos2 := r4[1]
+def r3 := _Type(pos2)
+if r3 != null {
+pos2 := r3[1]
+type1 := r3[0]
+pos1 := pos2
+type := type1
+def r2 := _EQUAL(pos1)
+if r2 != null {
+pos1 := r2[1]
+def r1 := _Expression(pos1)
+if r1 != null {
+pos1 := r1[1]
+expr := r1[0]
+def result:Definition  result := new Definition(id.text, type, expr)  return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+} else {
+def r2 := _EQUAL(pos1)
+if r2 != null {
+pos1 := r2[1]
+def r1 := _Expression(pos1)
+if r1 != null {
+pos1 := r1[1]
+expr := r1[0]
+def result:Definition  result := new Definition(id.text, type, expr)  return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+} else {
+def r2 := _EQUAL(pos1)
+if r2 != null {
+pos1 := r2[1]
+def r1 := _Expression(pos1)
+if r1 != null {
+pos1 := r1[1]
+expr := r1[0]
+def result:Definition  result := new Definition(id.text, type, expr)  return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+} else {
+return null
+}
+}
+-* Definition<name=Type, type=String, definition=Options<[Sequence<terms=[Term<name=id, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>]>]>> *-
+function _Type(var pos0:Int):(String, Int)? {
+var id:Identifier
+var pos1:Int
+pos1 := pos0
+def r1 := _Identifier(pos1)
+if r1 != null {
+pos1 := r1[1]
+id := r1[0]
+def result:String  result := id.text.trim  return (result, pos1)
+} else {
+return null
+}
+}
+-* Definition<name=Expression, type=Options, definition=Options<[Sequence<terms=[Term<name=seq, prefix=<null>, value=Identifier<Sequence>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<SLASH>, suffix=<null>>, Term<name=seq, prefix=<null>, value=Identifier<Sequence>, suffix=<null>>]>]>, suffix=STAR>]>]>> *-
+function _Expression(var pos0:Int):(Options, Int)? {
+def seq := new Array<Sequence>()
+var pos1:Int
+pos1 := pos0
+def r3 := _Sequence(pos1)
+if r3 != null {
+pos1 := r3[1]
+seq.add(r3[0])
+loop {
+var pos2:Int
+pos2 := pos1
+def r2 := _SLASH(pos2)
+if r2 != null {
+pos2 := r2[1]
+def r1 := _Sequence(pos2)
+if r1 != null {
+pos2 := r1[1]
+seq.add(r1[0])
+pos1 := pos2
+continue
+} else {
+break
+}
+} else {
+break
+}
+}
+def result:Options  result := new Options(seq)  return (result, pos1)
+} else {
+return null
+}
+}
+-* Definition<name=Sequence, type=Sequence, definition=Options<[Sequence<terms=[Term<name=terms, prefix=<null>, value=Identifier<Prefix>, suffix=STAR>, Term<name=code, prefix=<null>, value=Identifier<Code>, suffix=QUESTION>]>]>> *-
+function _Sequence(var pos0:Int):(Sequence, Int)? {
+var code:String? := null
+def terms := new Array<Term>()
+var pos1:Int
+pos1 := pos0
+loop {
+def r2 := _Prefix(pos1)
+if r2 != null {
+pos1 := r2[1]
+terms.add(r2[0])
+continue
+} else {
+break
+}
+}
+var code1:String? := null
+def r1 := _Code(pos1)
+if r1 != null {
+pos1 := r1[1]
+code1 := r1[0]
+code := code1
+def result:Sequence  result := new Sequence(terms, code)  return (result, pos1)
+} else {
+def result:Sequence  result := new Sequence(terms, code)  return (result, pos1)
+}
+}
+-* Definition<name=Prefix, type=Term, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=id, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<COLON>, suffix=<null>>]>]>, suffix=QUESTION>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=a, prefix=<null>, value=Identifier<AND>, suffix=<null>>]>, Sequence<terms=[Term<name=n, prefix=<null>, value=Identifier<NOT>, suffix=<null>>]>]>, suffix=QUESTION>, Term<name=s, prefix=<null>, value=Identifier<Suffix>, suffix=<null>>]>]>> *-
+function _Prefix(var pos0:Int):(Term, Int)? {
+var s:Term
+var a:String? := null
+var n:String? := null
+var id:Identifier? := null
+var pos1:Int
+pos1 := pos0
+var id1:Identifier? := null
+var pos2:Int
+pos2 := pos1
+def r5 := _Identifier(pos2)
+if r5 != null {
+pos2 := r5[1]
+id1 := r5[0]
+def r4 := _COLON(pos2)
+if r4 != null {
+pos2 := r4[1]
+pos1 := pos2
+id := id1
+var a1:String? := null
+var n1:String? := null
+var pos2:Int
+pos2 := pos1
+def r3 := _AND(pos2)
+if r3 != null {
+pos2 := r3[1]
+a1 := r3[0]
+pos1 := pos2
+a := a1
+n := n1
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+pos2 := pos1
+def r2 := _NOT(pos2)
+if r2 != null {
+pos2 := r2[1]
+n1 := r2[0]
+pos1 := pos2
+a := a1
+n := n1
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+}
+}
+} else {
+var a1:String? := null
+var n1:String? := null
+var pos2:Int
+pos2 := pos1
+def r3 := _AND(pos2)
+if r3 != null {
+pos2 := r3[1]
+a1 := r3[0]
+pos1 := pos2
+a := a1
+n := n1
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+pos2 := pos1
+def r2 := _NOT(pos2)
+if r2 != null {
+pos2 := r2[1]
+n1 := r2[0]
+pos1 := pos2
+a := a1
+n := n1
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+} else {
+var a1:String? := null
+var n1:String? := null
+var pos2:Int
+pos2 := pos1
+def r3 := _AND(pos2)
+if r3 != null {
+pos2 := r3[1]
+a1 := r3[0]
+pos1 := pos2
+a := a1
+n := n1
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+pos2 := pos1
+def r2 := _NOT(pos2)
+if r2 != null {
+pos2 := r2[1]
+n1 := r2[0]
+pos1 := pos2
+a := a1
+n := n1
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+def r1 := _Suffix(pos1)
+if r1 != null {
+pos1 := r1[1]
+s := r1[0]
+def result:Term  
+		def pre:Prefix := null
+		if a != null
+			pre := Prefix.AND
+		else if n != null
+			pre := Prefix.NOT
+		def name:String?
+		if id != null
+			name := id.text
+		else
+			name := null
+		result := new Term(name, pre, s.value, s.suffix)
+	 return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+}
+-* Definition<name=Suffix, type=Term, definition=Options<[Sequence<terms=[Term<name=value, prefix=<null>, value=Identifier<Primary>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=q, prefix=<null>, value=Identifier<QUESTION>, suffix=<null>>]>, Sequence<terms=[Term<name=st, prefix=<null>, value=Identifier<STAR>, suffix=<null>>]>, Sequence<terms=[Term<name=p, prefix=<null>, value=Identifier<PLUS>, suffix=<null>>]>]>, suffix=QUESTION>]>]>> *-
+function _Suffix(var pos0:Int):(Term, Int)? {
+var q:String? := null
+var p:String? := null
+var st:String? := null
+var value:Object
+var pos1:Int
+pos1 := pos0
+def r4 := _Primary(pos1)
+if r4 != null {
+pos1 := r4[1]
+value := r4[0]
+var q1:String? := null
+var st1:String? := null
+var p1:String? := null
+var pos2:Int
+pos2 := pos1
+def r3 := _QUESTION(pos2)
+if r3 != null {
+pos2 := r3[1]
+q1 := r3[0]
+pos1 := pos2
+q := q1
+st := st1
+p := p1
+def result:Term 
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	 return (result, pos1)
+} else {
+pos2 := pos1
+def r2 := _STAR(pos2)
+if r2 != null {
+pos2 := r2[1]
+st1 := r2[0]
+pos1 := pos2
+q := q1
+st := st1
+p := p1
+def result:Term 
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	 return (result, pos1)
+} else {
+pos2 := pos1
+def r1 := _PLUS(pos2)
+if r1 != null {
+pos2 := r1[1]
+p1 := r1[0]
+pos1 := pos2
+q := q1
+st := st1
+p := p1
+def result:Term 
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	 return (result, pos1)
+} else {
+def result:Term 
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	 return (result, pos1)
+}
+}
+}
+} else {
+return null
+}
+}
+-* Definition<name=Primary, type=Object, definition=Options<[Sequence<terms=[Term<name=i, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>, Term<name=<null>, prefix=NOT, value=Identifier<EQUAL>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<OPEN>, suffix=<null>>, Term<name=e, prefix=<null>, value=Identifier<Expression>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<CLOSE>, suffix=<null>>]>, Sequence<terms=[Term<name=l, prefix=<null>, value=Identifier<Literal>, suffix=<null>>]>, Sequence<terms=[Term<name=cl, prefix=<null>, value=Identifier<Class>, suffix=<null>>]>, Sequence<terms=[Term<name=d, prefix=<null>, value=Identifier<DOT>, suffix=<null>>]>]>> *-
+function _Primary(var pos0:Int):(Object, Int)? {
+var cl:CharClass? := null
+var d:Dot? := null
+var e:Options? := null
+var l:String? := null
+var i:Identifier? := null
+var pos1:Int
+pos1 := pos0
+def r9 := _Identifier(pos1)
+if r9 != null {
+pos1 := r9[1]
+i := r9[0]
+def save7 := pos1
+def r8 := _EQUAL(pos1)
+if r8 != null {
+pos1 := r8[1]
+pos1 := pos0
+def r6 := _OPEN(pos1)
+if r6 != null {
+pos1 := r6[1]
+def r5 := _Expression(pos1)
+if r5 != null {
+pos1 := r5[1]
+e := r5[0]
+def r4 := _CLOSE(pos1)
+if r4 != null {
+pos1 := r4[1]
+def result:Object  result := e  return (result, pos1)
+} else {
+pos1 := pos0
+def r3 := _Literal(pos1)
+if r3 != null {
+pos1 := r3[1]
+l := r3[0]
+def result:Object  result := l  return (result, pos1)
+} else {
+pos1 := pos0
+def r2 := _Class(pos1)
+if r2 != null {
+pos1 := r2[1]
+cl := r2[0]
+def result:Object  result := cl  return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _DOT(pos1)
+if r1 != null {
+pos1 := r1[1]
+d := r1[0]
+def result:Object  result := d  return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+} else {
+pos1 := pos0
+def r3 := _Literal(pos1)
+if r3 != null {
+pos1 := r3[1]
+l := r3[0]
+def result:Object  result := l  return (result, pos1)
+} else {
+pos1 := pos0
+def r2 := _Class(pos1)
+if r2 != null {
+pos1 := r2[1]
+cl := r2[0]
+def result:Object  result := cl  return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _DOT(pos1)
+if r1 != null {
+pos1 := r1[1]
+d := r1[0]
+def result:Object  result := d  return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+} else {
+pos1 := pos0
+def r3 := _Literal(pos1)
+if r3 != null {
+pos1 := r3[1]
+l := r3[0]
+def result:Object  result := l  return (result, pos1)
+} else {
+pos1 := pos0
+def r2 := _Class(pos1)
+if r2 != null {
+pos1 := r2[1]
+cl := r2[0]
+def result:Object  result := cl  return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _DOT(pos1)
+if r1 != null {
+pos1 := r1[1]
+d := r1[0]
+def result:Object  result := d  return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+} else {
+pos1 := save7
+def result:Object  result := i  return (result, pos1)
+}
+} else {
+pos1 := pos0
+def r6 := _OPEN(pos1)
+if r6 != null {
+pos1 := r6[1]
+def r5 := _Expression(pos1)
+if r5 != null {
+pos1 := r5[1]
+e := r5[0]
+def r4 := _CLOSE(pos1)
+if r4 != null {
+pos1 := r4[1]
+def result:Object  result := e  return (result, pos1)
+} else {
+pos1 := pos0
+def r3 := _Literal(pos1)
+if r3 != null {
+pos1 := r3[1]
+l := r3[0]
+def result:Object  result := l  return (result, pos1)
+} else {
+pos1 := pos0
+def r2 := _Class(pos1)
+if r2 != null {
+pos1 := r2[1]
+cl := r2[0]
+def result:Object  result := cl  return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _DOT(pos1)
+if r1 != null {
+pos1 := r1[1]
+d := r1[0]
+def result:Object  result := d  return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+} else {
+pos1 := pos0
+def r3 := _Literal(pos1)
+if r3 != null {
+pos1 := r3[1]
+l := r3[0]
+def result:Object  result := l  return (result, pos1)
+} else {
+pos1 := pos0
+def r2 := _Class(pos1)
+if r2 != null {
+pos1 := r2[1]
+cl := r2[0]
+def result:Object  result := cl  return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _DOT(pos1)
+if r1 != null {
+pos1 := r1[1]
+d := r1[0]
+def result:Object  result := d  return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+} else {
+pos1 := pos0
+def r3 := _Literal(pos1)
+if r3 != null {
+pos1 := r3[1]
+l := r3[0]
+def result:Object  result := l  return (result, pos1)
+} else {
+pos1 := pos0
+def r2 := _Class(pos1)
+if r2 != null {
+pos1 := r2[1]
+cl := r2[0]
+def result:Object  result := cl  return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _DOT(pos1)
+if r1 != null {
+pos1 := r1[1]
+d := r1[0]
+def result:Object  result := d  return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+}
+}
+-* Definition<name=Identifier, type=Identifier, definition=Options<[Sequence<terms=[Term<name=text, prefix=<null>, value=Identifier<IdentStart>, suffix=<null>>, Term<name=text, prefix=<null>, value=Identifier<IdentCont>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _Identifier(var pos0:Int):(Identifier, Int)? {
+def text := new Array<String>()
+var pos1:Int
+pos1 := pos0
+def r3 := _IdentStart(pos1)
+if r3 != null {
+pos1 := r3[1]
+text.add(r3[0])
+loop {
+def r2 := _IdentCont(pos1)
+if r2 != null {
+pos1 := r2[1]
+text.add(r2[0])
+continue
+} else {
+break
+}
+}
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:Identifier 
+		result := new Identifier(text)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=Range, type=Range, definition=Options<[Sequence<terms=[Term<name=start, prefix=<null>, value=Identifier<Char>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=-, suffix=<null>>, Term<name=end, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>, Sequence<terms=[Term<name=single, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>]>> *-
+function _Range(var pos0:Int):(Range, Int)? {
+var single:String? := null
+var end:String? := null
+var start:String? := null
+var pos1:Int
+pos1 := pos0
+def r3 := _Char(pos1)
+if r3 != null {
+pos1 := r3[1]
+start := r3[0]
+if literal(pos1, '-') {
+pos1 += 1
+def r2 := _Char(pos1)
+if r2 != null {
+pos1 := r2[1]
+end := r2[0]
+def result:Range 
+		result := new Range(start[0], end[0])
+	 return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _Char(pos1)
+if r1 != null {
+pos1 := r1[1]
+single := r1[0]
+def result:Range 
+		result := new Range(single[0], single[0])
+	 return (result, pos1)
+} else {
+return null
+}
+}
+} else {
+pos1 := pos0
+def r1 := _Char(pos1)
+if r1 != null {
+pos1 := r1[1]
+single := r1[0]
+def result:Range 
+		result := new Range(single[0], single[0])
+	 return (result, pos1)
+} else {
+return null
+}
+}
+} else {
+pos1 := pos0
+def r1 := _Char(pos1)
+if r1 != null {
+pos1 := r1[1]
+single := r1[0]
+def result:Range 
+		result := new Range(single[0], single[0])
+	 return (result, pos1)
+} else {
+return null
+}
+}
+}
+-* Definition<name=Class, type=CharClass, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=[, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=], suffix=<null>>, Term<name=ranges, prefix=<null>, value=Identifier<Range>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _Class(var pos0:Int):(CharClass, Int)? {
+def ranges := new Array<Range>()
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '[') {
+pos1 += 1
+loop {
+var pos2:Int
+pos2 := pos1
+def save3 := pos2
+if literal(pos2, ']') {
+pos2 += 1
+break
+} else {
+pos2 := save3
+def r2 := _Range(pos2)
+if r2 != null {
+pos2 := r2[1]
+ranges.add(r2[0])
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+if literal(pos1, ']') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:CharClass 
+		result := new CharClass(ranges)
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=IdentStart, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=[a-zA-Z_], suffix=<null>>]>]>> *-
+function _IdentStart(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, 'a', 'z') | literal(pos1, 'A', 'Z') | literal(pos1, '_') {
 
-	constructor(grammar:File) {
-		self.grammar := grammar.readAsString()
-		Console.writeLine("-*")
-		for i, c in self.grammar
-			Console.writeLine(i + ": " + c)
-		Console.writeLine("*-")
-	}
+pos1 += 1
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+}
+-* Definition<name=IdentCont, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<IdentStart>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=[0-9], suffix=<null>>]>]>> *-
+function _IdentCont(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+def r1 := _IdentStart(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+pos1 := pos0
+if literal(pos1, '0', '9') {
 
-	function match(pos:Int, text:String):Bit {
-		if grammar.length >= pos + text.length {
-			return grammar[pos .. pos + text.length] = text
-		}
-		return false
-	}
+pos1 += 1
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+}
+}
+-* Definition<name=Literal, type=String, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=['], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=['], suffix=<null>>, Term<name=text, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=['], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=["], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=["], suffix=<null>>, Term<name=text, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=["], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _Literal(var pos0:Int):(String, Int)? {
+def text := new Array<String>()
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '\'') {
 
-	function terminal(pos:Int, text:String):(String, Int)? {
-		if match(pos, text) {
-			def r0 := _Spacing(pos + 1)
-			if r0 = null
-				return null
-			return (text, r0[1])
-		}
-		return null
-	}
+pos1 += 1
+loop {
+var pos2:Int
+pos2 := pos1
+def save6 := pos2
+if literal(pos2, '\'') {
 
-	function dot(pos:Int):(Char, Int)? {
-		if pos < grammar.length
-			return (grammar[pos], pos + 1)
-		return null
-	}
+pos2 += 1
+break
+} else {
+pos2 := save6
+def r5 := _Char(pos2)
+if r5 != null {
+pos2 := r5[1]
+text.add(r5[0])
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+if literal(pos1, '\'') {
 
-	function _Grammar(var pos:Int):(Grammar, Int)? {
-		def r0 := _Spacing(pos)
-		if r0 = null
-			return null
-		pos := r0[1]
-		def code:String? := null
-		def r4 := _Code(pos)
-		if r4 != null {
-			pos := r4[1]
-			code := r4[0]
-		}
-		def result := new Array<Definition>()
-		def r1 := _Definition(pos)
-		if r1 = null
-			return null
-		pos := r1[1]
-		result.add(r1[0])
-		loop {
-			def r2 := _Definition(pos)
-			if r2 = null
-				break
-			result.add(r2[0])
-			pos := r2[1]
-		}
-		def r3 := _EndOfFile(pos)
-		if r3 = null
-			return null
-		pos := r3[1]
-		return (new Grammar(result, code), pos)
-	}
+pos1 += 1
+def r4 := _Spacing(pos1)
+if r4 != null {
+pos1 := r4[1]
+def result:String 
+		result := Util.unescape(text.join(""))
+	 return (result, pos1)
+} else {
+pos1 := pos0
+if literal(pos1, '\"') {
 
-	function _Code(var pos:Int):(String, Int)? {
-		if match(pos, "{") {
-			def result := new MutableString("{")
-			pos += 1
-			loop {
-				def r0 := _Code(pos)
-				if r0 != null {
-					pos := r0[1]
-					result.append(r0[0])
-					continue
-				}
-				if !match(pos, "}") {
-					def r1 := dot(pos)
-					if r1 != null {
-						pos := r1[1]
-						result.append(r1[0])
-						continue
-					}
-				}
-				break
-			}
-			if match(pos, '}') {
-				result.append("}")
-				pos += 1
-				def r2 := _Spacing(pos) 
-				if r2 != null {
-					pos := r2[1]
-					return (result->>(String), pos)
-				}
-			}
-		}
-		return null
-	}
+pos1 += 1
+loop {
+var pos2:Int
+pos2 := pos1
+def save3 := pos2
+if literal(pos2, '\"') {
 
-	function _Definition(var pos:Int):(Definition, Int)? {
-		def r0 := _Identifier(pos)
-		if r0 = null
-			return null
-		pos := r0[1]
-		def type:String := null
-		def r3 := COLON(pos)
-		if r3 != null {
-			pos := r3[1]
-			def r4 := _Identifier(pos)
-			if r4 != null {
-				pos := r4[1]
-				type := r4[0].text
-			}
-			else
-				return null
-		}
-		def r1 := EQUAL(pos)
-		if r1 = null
-			return null
-		pos := r1[1]
-		def r2 := _Expression(pos)
-		if r2 = null
-			return null
-		pos := r2[1]
-		return (new Definition(r0[0].text, type, r2[0]), pos)
-	}
+pos2 += 1
+break
+} else {
+pos2 := save3
+def r2 := _Char(pos2)
+if r2 != null {
+pos2 := r2[1]
+text.add(r2[0])
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+if literal(pos1, '\"') {
 
-	function _Expression(var pos:Int):(Options, Int)? {
-		def r0 := _Sequence(pos)
-		if r0 = null
-			return null
-		def result := new Array<Sequence>()
-		result.add(r0[0])
-		pos := r0[1]
-		loop {
-			def old := pos
-			def r1 := SLASH(pos)
-			if r1 = null
-				break
-			pos := r1[1]
-			def r2 := _Sequence(pos)
-			if r2 = null {
-				pos := old
-				break
-			}
-			pos := r2[1]
-			result.add(r2[0])
-		}
-		return (new Options(result), pos)
-	}
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:String 
+		result := Util.unescape(text.join(""))
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+} else {
+return null
+}
+}
+} else {
+pos1 := pos0
+if literal(pos1, '\"') {
 
-	function _Sequence(var pos:Int):(Sequence, Int)? {
-		def result := new Array<Term>()
-		loop {
-			def r0 := _Prefix(pos)
-			if r0 = null
-				break
-			result.add(r0[0])
-			pos := r0[1]
-		}
-		def code:String := null
-		def r1 := _Code(pos)
-		if r1 != null {
-			pos := r1[1]
-			code := r1[0]
-		}
-		return (new Sequence(result, code), pos)
-	}
+pos1 += 1
+loop {
+var pos2:Int
+pos2 := pos1
+def save3 := pos2
+if literal(pos2, '\"') {
 
-	function _Prefix(var pos:Int):(Term, Int)? {
-		def prefix:Prefix? := null
-		def r3 := _Identifier(pos)
-		if r3 != null {
-			def r4 := COLON(r3[1])
-			if r4 != null {
-				pos := r4[1]
-			}
-		}
-		def r0 := AND(pos)
-		if r0 != null {
-			pos := r0[1]
-			prefix := Prefix.AND
-		}
-		else {
-			def r1 := NOT(pos)
-			if r1 != null {
-				pos := r1[1]
-				prefix := Prefix.NOT
-			}
-		}
-		def r2 := _Suffix(pos)
-		if r2 = null
-			return null
-		pos := r2[1]
-		return (new Term(prefix, r2[0].value, r2[0].suffix), pos)
-	}
+pos2 += 1
+break
+} else {
+pos2 := save3
+def r2 := _Char(pos2)
+if r2 != null {
+pos2 := r2[1]
+text.add(r2[0])
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+if literal(pos1, '\"') {
 
-	function _Suffix(var pos:Int):(Term, Int)? {
-		def r0 := _Primary(pos)
-		if r0 = null
-			return null
-		pos := r0[1]
-		def suffix:Suffix? := null
-		def r1 := QUESTION(pos)
-		if r1 != null {
-			pos := r1[1]
-			suffix := Suffix.QUESTION
-		}
-		else {
-			def r2 := STAR(pos)
-			if r2 != null {
-				pos := r2[1]
-				suffix := Suffix.STAR
-			}
-			else {
-				def r3 := PLUS(pos)
-				if r3 != null {
-					pos := r3[1]
-					suffix := Suffix.PLUS
-				}
-			}
-		}
-		return (new Term(null, r0[0], suffix), pos)
-	}
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:String 
+		result := Util.unescape(text.join(""))
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+} else {
+return null
+}
+}
+} else {
+pos1 := pos0
+if literal(pos1, '\"') {
 
-	function _Primary(var pos:Int):(Object, Int)? {
-		def r0 := _Identifier(pos)
-		if r0 != null {
-			pos := r0[1]
-			if EQUAL(pos) = null
-				return (r0[0], pos)
-		}
-		def r1 := OPEN(pos)
-		if r1 != null {
-			pos := r1[1]
-			def r2 := _Expression(pos)
-			if r2 != null {
-				pos := r2[1]
-				def r3 := CLOSE(pos)
-				if r3 != null {
-					pos := r3[1]
-					return (r2[0], pos)
-				}
-			}
-		}
-		def r4 := _Literal(pos)
-		if r4 != null {
-			pos := r4[1]
-			return (r4[0], pos)
-		}
-		def r5 := _Class(pos)
-		if r5 != null {
-			pos := r5[1]
-			return (r5[0], pos)
-		}
-		def r6 := DOT(pos)
-		if r6 != null {
-			pos := r6[1]
-			return (new Dot(), pos)
-		}
-		return null
-	}
+pos1 += 1
+loop {
+var pos2:Int
+pos2 := pos1
+def save3 := pos2
+if literal(pos2, '\"') {
 
-	function _Identifier(var pos:Int):(Identifier, Int)? {
-		def r0 := _IdentStart(pos)
-		if r0 != null {
-			def result := new MutableString()
-			result.append(r0[0])
-			pos := r0[1]
-			loop {
-				def r1 := _IdentCont(pos)
-				if r1 != null {
-					pos := r1[1]
-					result.append(r1[0])
-					continue
-				}
-				break
-			}
-			def r2 := _Spacing(pos)
-			if r2 != null {
-				pos := r2[1]
-				return (new Identifier(result->>(String)), pos)
-			}
-		}
-		return null
-	}
+pos2 += 1
+break
+} else {
+pos2 := save3
+def r2 := _Char(pos2)
+if r2 != null {
+pos2 := r2[1]
+text.add(r2[0])
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+if literal(pos1, '\"') {
 
-	function _IdentStart(var pos:Int):(Char, Int)? {
-		if pos = grammar.length 
-			return null
-		if "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_".contains(grammar[pos]) {
-			return (grammar[pos], pos + 1)
-		}
-		return null
-	}
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:String 
+		result := Util.unescape(text.join(""))
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+} else {
+return null
+}
+}
+}
+-* Definition<name=DOT, type=Dot, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=., suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _DOT(var pos0:Int):(Dot, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '.') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result:Dot 
+		result := new Dot()
+	 return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=Char, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=\, suffix=<null>>, Term<name=char, prefix=<null>, value=[nrt'"[]\], suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=NOT, value=\, suffix=<null>>, Term<name=char, prefix=<null>, value=<DOT>, suffix=<null>>]>]>> *-
+function _Char(var pos0:Int):(String, Int)? {
+var char:String? := null
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '\\') {
+pos1 += 1
+if literal(pos1, 'n') | literal(pos1, 'r') | literal(pos1, 't') | literal(pos1, '\'') | literal(pos1, '\"') | literal(pos1, '[') | literal(pos1, ']') | literal(pos1, '\\') {
+char := text[pos1]->>(String)
 
-	function _IdentCont(var pos:Int):(Char, Int)? {
-		if pos = grammar.length 
-			return null
-		if "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_0123456789".contains(grammar[pos]) {
-			return (grammar[pos], pos + 1)
-		}
-		return null
-	}
-
-	function _Literal(var pos:Int):(String, Int)? {
-		def result := new MutableString()
-		if match(pos, "'") {
-			pos += 1
-			loop {
-				if match(pos, "'")
-				 	break
-				def r0 := _Char(pos)
-				if r0 != null {
-					result.append(r0[0])
-					pos := r0[1]
-					continue
-				}
-				break
-			}
-			if match(pos, "'") {
-				pos += 1
-				def r1 := _Spacing(pos)
-				if r1 != null {
-					pos := r1[1]
-					return (result->>(String), pos)
-				}
-			}
-		}
-		if match(pos, '"') {
-			pos += 1
-			loop {
-				if match(pos, '"')
-				 	break
-				def r2 := _Char(pos)
-				if r2 != null {
-					result.append(r2[0])
-					pos := r2[1]
-					continue
-				}
-				break
-			}
-			if match(pos, '"') {
-				pos += 1
-				def r3 := _Spacing(pos)
-				if r3 != null {
-					pos := r3[1]
-					return (result->>(String), pos)
-				}
-			}
-		}
-		return null
-	}
-
-	function _Class(var pos:Int):(CharClass, Int)? {
-		if match(pos, "[") {
-			def result := new Array<Range>()
-			pos += 1
-			loop {
-				if !match(pos, "]") {
-					def r0 := _Range(pos)
-					if r0 != null {
-						result.add(r0[0])
-						pos := r0[1]
-						continue
-					}
-				}
-				break
-			}
-			if match(pos, "]") {
-				pos += 1
-				def r1 := _Spacing(pos)
-				if r1 != null {
-					pos := r1[1]
-					return (new CharClass(result), pos)
-				}
-			}
-		}
-		return null
-	}
-
-	function _Range(pos:Int):(Range, Int)? {
-		def r0 := _Char(pos)
-		if r0 != null {
-			var curPos := r0[1]
-			if match(curPos, '-') {
-				curPos += 1
-				def r1 := _Char(curPos)
-				if r1 != null {
-					curPos := r1[1]
-					return (new Range(r0[0], r1[0]), curPos)
-				}
-			}
-		}
-		def r1 := _Char(pos)
-		if r1 != null
-			return (new Range(r1[0], r1[0]), r1[1])
-		return null
-	}
-
-	function _Char(var pos:Int):(Char, Int)? {
-		if match(pos, "\\") {
-			pos += 1
-			if grammar[pos] = "n"
-				return ("\n", pos + 1)
-			else if grammar[pos] = "r"
-				return ("\r", pos + 1)
-			else if grammar[pos] = "t"
-				return ("\t", pos + 1)
-			else if grammar[pos] = "\\"
-				return ("\\", pos + 1)
-			else if grammar[pos] = "["
-				return ("[", pos + 1)
-			else if grammar[pos] = "]"
-				return ("]", pos + 1)
-			return null
-		}
-		else {
-			if !match(pos, "\\")
-				return (grammar[pos], pos + 1)
-		}
-		return null
-	}
-
-	function EQUAL(pos:Int):(String, Int)? {
-		return terminal(pos, "=")
-	}
-
-	function COLON(pos:Int):(String, Int)? {
-		return terminal(pos, ":")
-	}
-
-	function SLASH(pos:Int):(String, Int)? {
-		return terminal(pos, "/")
-	}
-
-	function AND(pos:Int):(String, Int)? {
-		return terminal(pos, "&")
-	}
-
-	function NOT(pos:Int):(String, Int)? {
-		return terminal(pos, "!")
-	}
-
-	function QUESTION(pos:Int):(String, Int)? {
-		return terminal(pos, "?")
-	}
-
-	function STAR(pos:Int):(String, Int)? {
-		return terminal(pos, "*")
-	}
-
-	function PLUS(pos:Int):(String, Int)? {
-		return terminal(pos, "+")
-	}
-
-	function OPEN(pos:Int):(String, Int)? {
-		return terminal(pos, "(")
-	}
-
-	function CLOSE(pos:Int):(String, Int)? {
-		return terminal(pos, ")")
-	}
-
-	function DOT(pos:Int):(String, Int)? {
-		return terminal(pos, ".")
-	}
-
-	function _Spacing(var pos:Int):(Object?, Int)? {
-		loop {
-			def r0 := _Space(pos)
-			if r0 != null {
-				pos := r0[1]
-				continue
-			}
-			def r1 := _Comment(pos)
-			if r1 != null {
-				pos += r1[1]
-				continue
-			}
-			break
-		}
-		return (null, pos)
-	}
-
-	function _Comment(var pos:Int):(Object?, Int)? {
-		if match(pos, "#") {
-			pos += 1
-			loop {
-				if _EndOfLine(pos) == null {
-					def r0 := dot(pos)
-					if r0 != null {
-						pos := r0[1]
-						continue
-					}
-				}
-				break
-			}
-			def r1 := _EndOfLine(pos)
-			if r1 != null {
-				pos := r1[1]
-				return (null, pos)
-			}
-		}
-		return null
-	}
-
-	function _Space(var pos:Int):(Object?, Int)? {
-		if match(pos, " ") | match(pos, "\t")  | match(pos, "\n")
-			return (null, pos + 1)
-		return null
-	}
-
-	function _EndOfLine(var pos:Int):(Object?, Int)? {
-		if match(pos, "\n")
-			return (null, pos + 1)
-		return null
-	}
-
-	function _EndOfFile(var pos:Int):(Object?, Int)? {
-		if pos = grammar.length
-			return (null, pos)
-		return null
-	}
+pos1 += 1
+def result:String 
+		result := Util.unescape("\\" + char)
+	 return (result, pos1)
+} else {
+pos1 := pos0
+def save1 := pos1
+if literal(pos1, '\\') {
+pos1 += 1
+return null
+} else {
+pos1 := save1
+if pos1 < text.length {
+char := text[pos1]->>(String)
+pos1 += 1
+def result:String 
+		result := char
+	 return (result, pos1)
+} else {
+return null
+}
+}
+}
+} else {
+pos1 := pos0
+def save1 := pos1
+if literal(pos1, '\\') {
+pos1 += 1
+return null
+} else {
+pos1 := save1
+if pos1 < text.length {
+char := text[pos1]->>(String)
+pos1 += 1
+def result:String 
+		result := char
+	 return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+-* Definition<name=EQUAL, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value==, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _EQUAL(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '=') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=SLASH, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=/, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _SLASH(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '/') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=AND, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=&, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _AND(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '&') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=NOT, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=!, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _NOT(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '!') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=QUESTION, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=?, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _QUESTION(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '?') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=STAR, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=*, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _STAR(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '*') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=PLUS, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=+, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _PLUS(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '+') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=OPEN, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=(, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _OPEN(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '(') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=CLOSE, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=), suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _CLOSE(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, ')') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=COLON, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=:, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
+function _COLON(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, ':') {
+pos1 += 1
+def r1 := _Spacing(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=Spacing, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Space>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Comment>, suffix=<null>>]>]>, suffix=STAR>]>]>> *-
+function _Spacing(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+loop {
+var pos2:Int
+pos2 := pos1
+def r2 := _Space(pos2)
+if r2 != null {
+pos2 := r2[1]
+pos1 := pos2
+continue
+} else {
+pos2 := pos1
+def r1 := _Comment(pos2)
+if r1 != null {
+pos2 := r1[1]
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+def result := text[pos0 .. pos1] return (result, pos1)
+}
+-* Definition<name=Comment, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=#, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=Identifier<EndOfLine>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=<DOT>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=Identifier<EndOfLine>, suffix=<null>>]>]>> *-
+function _Comment(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '#') {
+pos1 += 1
+loop {
+var pos2:Int
+pos2 := pos1
+def save2 := pos2
+def r3 := _EndOfLine(pos2)
+if r3 != null {
+pos2 := r3[1]
+break
+} else {
+pos2 := save2
+if pos2 < text.length {
+pos2 += 1
+pos1 := pos2
+continue
+} else {
+break
+}
+}
+}
+def r1 := _EndOfLine(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+} else {
+return null
+}
+}
+-* Definition<name=Space, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value= , suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=	, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<EndOfLine>, suffix=<null>>]>]>> *-
+function _Space(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, ' ') {
+pos1 += 1
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+pos1 := pos0
+if literal(pos1, '\t') {
+pos1 += 1
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+pos1 := pos0
+def r1 := _EndOfLine(pos1)
+if r1 != null {
+pos1 := r1[1]
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+-* Definition<name=EndOfLine, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=
+, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=
+, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=, suffix=<null>>]>]>> *-
+function _EndOfLine(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+if literal(pos1, '\r\n') {
+pos1 += 2
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+pos1 := pos0
+if literal(pos1, '\n') {
+pos1 += 1
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+pos1 := pos0
+if literal(pos1, '\r') {
+pos1 += 1
+def result := text[pos0 .. pos1] return (result, pos1)
+} else {
+return null
+}
+}
+}
+}
+-* Definition<name=EndOfFile, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=<DOT>, suffix=<null>>]>]>> *-
+function _EndOfFile(var pos0:Int):(String, Int)? {
+var pos1:Int
+pos1 := pos0
+def save1 := pos1
+if pos1 < text.length {
+pos1 += 1
+return null
+} else {
+pos1 := save1
+def result := text[pos0 .. pos1] return (result, pos1)
+}
+}
 }
