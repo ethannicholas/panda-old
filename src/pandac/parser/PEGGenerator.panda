@@ -1,20 +1,43 @@
 package org.pandalanguage.peg
 
+class Variable {
+	def name:String
+
+	def type:String
+
+	def nullable:Bit
+
+	var repeated:Bit
+
+	constructor(name:String, type:String, repeated:Bit, nullable:Bit) {
+		self.name := name
+		self.type := type
+		self.repeated := repeated
+		self.nullable := nullable
+	}
+
+	function effectiveType():String {
+		var result := type
+		if repeated
+			result := "Array<" + result + ">"
+		if nullable & !type.endsWith("?")
+			result += "?"
+		return result
+	}
+}
+
 ================================================================================
 Parser generator which reads a Parsing Expression Grammar file containing
 embedded Panda code and creates a Panda parser which recognizes the grammar.
 
 As this is intended solely for internal use by the compiler, no effort is made 
-to be user friendly or report nice errors, and the feature set is fairly 
-minimal. The resulting code is also quite horrific. So is this program itself. 
-Sorry!
+to be user friendly or report nice errors, the feature set is fairly minimal,
+and there are plenty of sharp edges for the unwary to cut themselves on. Sorry!
 ================================================================================
 class PEGGenerator {
-	def out:OutputStream := Console.outputStream
+	def out := new IndentedOutputStream(Console.outputStream)
 
 	var varCount := 0
-
-	var level := 0
 
 	def grammar:Grammar
 
@@ -23,12 +46,20 @@ class PEGGenerator {
 	var currentDefinition := new Definition("<dummy>", "<dummy>", 
 			new Options([]))
 
-	-- maps variable names to (type, repeated, nullable) tuples
-	var variables := new HashMap<String, (String, Bit, Bit)>()
+	-- maps variable names to variables
+	var variablesByName := new HashMap<String, Variable>()
 
 	def varLevels := new HashMap<String, Int>()
 
 	var currentSequence := new Stack<Sequence>()
+
+	def inVars := new HashMap<Term, List<Variable>>()
+
+	def outVars := new HashMap<Term, List<Variable>>()
+
+	def optionNames := new HashMap<Options, String>()
+
+	var count := 0
 
 	constant SUCCESS_TOKEN := "@@SUCCESS@@"
 	
@@ -36,34 +67,6 @@ class PEGGenerator {
 		self.grammar := grammar
 		for d in grammar.definitions
 			definitions[d.name] := d
-	}
-
-	function currentReturnType():String {
-		if currentDefinition.type != null
-			return currentDefinition.type
-		return "String"
-	}
-
-	function getSuccess(success:String):String {
-		if success.contains(SUCCESS_TOKEN) {
-			def result := "return (result, pos\{level})"
-			def code := currentSequence.peek().code
-			if code != null {
-				return success.replace(SUCCESS_TOKEN, "def result:" + 
-						currentReturnType() + " " + code[1 .. code.length - 1] + 
-						" " + result)
-			}
-			return success.replace(SUCCESS_TOKEN,
-					"def result := text[pos0 .. pos\{level}] " + result)
-		}
-		else
-			return success
-	}
-
-	function getName(name:String, level:Int):String {
-		if level != 0
-			return name + level
-		return name
 	}
 
 	function escape(c:Char):String {
@@ -89,70 +92,6 @@ class PEGGenerator {
 		return result->>(String)
 	}
 
-	function saveCode(saveName:String, valueCode:String):String {
-		if saveName = null
-			return ""
-		def v := variables[saveName]
-		assert v != null
-		def level := varLevels[saveName]
-		assert level != null
-		if v[1]
-			return "\{getName(saveName, level)}.add(\{valueCode})\n"
-		else
-			return "\{getName(saveName, level)} := \{valueCode}\n"
-	}
-
-	method getValueText(value:Object, saveName:String?, success:String, 
-			failure:String):String {
-		if value-?>(String) {
-			def text := value->(String)
-			def result := "if literal(pos\{level}, '\{escape(text)}') {\n" +
-					"pos\{level} += \{text.length}\n"
-			result += saveCode(saveName, '"' + escape(text) + '"')
-			return result + "\{getSuccess(success)}\n} else {\n\{failure}\n}"
-		}
-		else if value-?>(CharClass) {
-			def cc := value->(CharClass)
-			def test := new MutableString()
-			for i, r in cc.ranges {
-				if i > 0
-					test.append(" | ")
-				if r.start = r.end
-					test.append("literal(pos\{level}, '\{escape(r.start)}')")
-				else {
-					test.append("literal(pos\{level}, '\{escape(r.start)}', " +
-							"'\{escape(r.end)}')")
-				}
-			}
-			def save := saveCode(saveName, "text[pos\{level}]->>(String)")
-			return "if \{test} {\n\{save}\npos\{level} += 1\n" +
-					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
-		}
-		else if value-?>(Identifier) {
-			varCount += 1
-			def text := value->(Identifier).text
-			def save := saveCode(saveName, "r\{varCount}[0]")
-			return "def r\{varCount} := _\{text}(pos\{level})\n" +
-					"if r\{varCount} != null {\npos\{level} := r\{varCount}[1]\n" +
-					"\{save}\{getSuccess(success)}\n} else {\n\{failure}\n}"
-		}
-		else if value-?>(Options) {
-			return getOptionsText(value->(Options),
-					"pos\{level} := pos\{level + 1}\n\{getSuccess(success)}", 
-					failure)
-		}
-		else if value-?>(Dot) {
-			def save := saveCode(saveName, "text[pos\{level}]->>(String)")
-			return 	"if pos\{level} < text.length {\n\{save}" +
-					"pos\{level} += 1\n" +
-					"\{getSuccess(success)}\n} else {\n\{failure}\n}"
-		}
-		else {
-			assert false : "unknown type: \{value} - '\{value.class.name}'"
-			return "fail"
-		}
-	}
-
 	function getType(term:Term):String? {
 		def type:String? := null
 		if term.value-?>(Identifier) {
@@ -164,125 +103,85 @@ class PEGGenerator {
 			}
 			type := definition.type
 		}
-		if type = null
-			return "String"
+		else if term.value-?>(CharClass)
+			type := "Char"
+		else if term.value-?>(Dot)
+			type := "Char"
+		else if term.value-?>(String)
+			type := "String"
 		return type
 	}
 
-	method getTermText(term:Term, success:String, failure:String):String {
-		if term.prefix = Prefix.NOT {
-			varCount += 1
-			return "def save\{varCount} := pos\{level}\n" +
-					getValueText(term.value, term.name, failure, 
-						"pos\{level} := save\{varCount}\n" + 
-						getSuccess(success))
+	method addInVar(term:Term, v:Variable) {
+		var list := inVars[term]
+		if list = null {
+			list := new Array<Variable>()
+			inVars[term] := list
 		}
-		else if term.prefix = Prefix.AND {
-			varCount += 1
-			return "def save\{varCount} := pos\{level}\n" +
-					getValueText(term.value, term.name, 
-						"pos\{level} := save\{varCount}\n" + 
-						success, failure)
+		if !list.contains(v)
+			list.add(v)
+	}
+
+	method addOutVar(term:Term, v:Variable) {
+		var list := outVars[term]
+		if list = null {
+			list := new Array<Variable>()
+			outVars[term] := list
 		}
-		else if term.suffix = Suffix.QUESTION {
-			def setupText := new MutableString()
-			def finishText := new MutableString()
-			def speculative := findVariables(term, false, false)
-			for name in speculative.keys {
-				def level := varLevels[name]->(Int) + 1
-				varLevels[name] := level
-				def type, repeated, nullable := variables[name]
-				if repeated {
-					setupText.append("def \{getName(name, level)} := " +
-							"new Array<\{type}>()\n")
-					finishText.append("\{getName(name, level - 1)}" +
-							".addAll(\{getName(name, level)})\n")
-				}
-				else {
-					setupText.append("var \{getName(name, level)}:\{type}")
-					if nullable
-						setupText.append("? := null")
-					setupText.append("\n")
-					finishText.append("\{getName(name, level - 1)} := " +
-							"\{getName(name, level)}\n")
-				}
-			}
-			def result := setupText + getValueText(term.value, term.name, 
-					finishText + success, getSuccess(success))
-			for name in speculative.keys
-				varLevels[name] -= 1
+		if !list.contains(v)
+			list.add(v)
+	}
+
+	method findVariables(term:Term, repeatedContext:Bit, 
+			var nullable:Bit):Map<String, Variable> {
+		def result := new HashMap<String, Variable>()
+		if term-?>(Cut)
 			return result
-		}
-		else if term.suffix = Suffix.STAR {
-			return "loop {\n" + getValueText(term.value, term.name,
-					"continue", "break") + "\n}\n" + getSuccess(success)
-		}
-		else if term.suffix = Suffix.PLUS {
-			return getTermText(new Term(term.name, null, term.value, null), 
-					getTermText(new Term(term.name, null, term.value, 
-						Suffix.STAR), success, getSuccess(success)), failure)
-		}
-		return getValueText(term.value, term.name, success, failure)
-	}
-
-	method getOptionsText(opt:Options, success:String, failure:String):String {
-		level += 1
-		def options := opt.options
-		var next := failure
-		for i in options.length - 1 ... 0 by -1 {
-			next := "pos\{level} := pos\{level - 1}\n" +
-					getSequenceText(options[i], success, next)
-		}
-		def result := "var pos\{level}:Int\n\{next}"
-		level -= 1
-		return result
-	}
-
-	method getSequenceText(seq:Sequence, success:String, 
-			failure:String):String {
-		currentSequence.push(seq)
-		def terms := seq.terms
-		var next := success
-		for i in terms.length - 1 ... 0 by -1
-			next := getTermText(terms[i], next, failure)
-		currentSequence.pop()
-		return next
-	}
-
-	function findVariables(term:Term, var repeated:Bit, 
-			var nullable:Bit):Map<String, (String, Bit, Bit)> {
-		def result := new HashMap<String, (String, Bit, Bit)>()
-		repeated |= term.suffix = Suffix.PLUS | term.suffix = Suffix.STAR
+		def repeatedTerm := repeatedContext | term.suffix = Suffix.PLUS | 
+				term.suffix = Suffix.STAR
 		nullable |= term.suffix = Suffix.QUESTION
 		if term.value-?>(Options) {
-			assert term.name = null
-			result.addAll(findVariables(term.value->(Options), repeated, 
-					nullable))
+			def vars := findVariables(term.value->(Options), repeatedTerm, 
+						nullable)
+			result.addAll(vars)
 		}
 		else if term.name != null {
 			def type := getType(term)
-			def old := variables[term.name]
-			if old != null {
-				assert old[0] = type
-				result[term.name] := (type, true, nullable)
+			if type = null {
+				Console.writeLine("term '\{term.name}' has no type")
+				System.exit(1)
 			}
-			else
-				result[term.name] := (type, repeated, nullable)
+			def old := variablesByName[term.name]
+			if old != null {
+--				assert old.type = type : 
+--						"type mismatch, \{old.type} != \{type} in \{term}"
+				old.repeated := true
+				addInVar(term, old)
+				addOutVar(term, old)
+			}
+			else {
+				def v := new Variable(term.name, type, repeatedTerm, nullable)
+				result[term.name] := v
+				variablesByName[term.name] := v
+				if repeatedContext
+					addInVar(term, v)
+				addOutVar(term, v)
+			}
 		}
 		return result
 	}
 
 	function findVariables(seq:Sequence, repeated:Bit, 
-			nullable:Bit):Map<String, (String, Bit, Bit)>  {
-		def result := new HashMap<String, (String, Bit, Bit)>()
+			nullable:Bit):Map<String, Variable>  {
+		def result := new HashMap<String, Variable>()
 		for term in seq.terms
 			result.addAll(findVariables(term, repeated, nullable))
 		return result
 	}
 
 	method findVariables(opt:Options, repeated:Bit, 
-			nullable:Bit):Map<String, (String, Bit, Bit)> {
-		def result := new HashMap<String, (String, Bit, Bit)>()
+			nullable:Bit):Map<String, Variable> {
+		def result := new HashMap<String, Variable>()
 		for seq in opt.options {
 			result.addAll(findVariables(seq, repeated, 
 					nullable | opt.options.length > 1))
@@ -290,76 +189,583 @@ class PEGGenerator {
 		return result
 	}
 
-	method findVariables(definition:Definition):Map<String, (String, Bit, Bit)> {
+	method findVariables(definition:Definition):Map<String, Variable> {
 		return findVariables(definition.definition, false, false)
+	}
+
+	function getInVars(opt:Options):ListView<Variable> {
+		def currentOuts := new HashSet<Variable>()
+		def result := new Array<Variable>()
+		for seq in opt.options {
+			def vars := getInVars(seq)
+			if vars != null {
+				for v in vars {
+					if currentOuts.contains(v)
+						continue
+					if !result.contains(v)
+						result.add(v)
+				}
+			}
+			currentOuts.addAll(getOutVars(seq))
+		}
+		return result
+	}
+
+	function getOutVars(opt:Options):ListView<Variable> {
+		def result := new Array<Variable>()
+		for seq in opt.options {
+			for v in getOutVars(seq) {
+				if !result.contains(v)
+					result.add(v)
+			}
+		}
+		return result
+	}
+
+	function getInVars(seq:Sequence):ListView<Variable> {
+		def currentOuts := new HashSet<Variable>()
+		def result := new Array<Variable>()
+		for t in seq.terms {
+			def vars := inVars[t]
+			if vars != null {
+				for v in vars {
+					if currentOuts.contains(v)
+						continue
+					if !result.contains(v)
+						result.add(v)
+				}
+			}
+			currentOuts.addAll(getOutVars(t))
+		}
+		return result
+	}
+
+	function getOutVars(seq:Sequence):ListView<Variable> {
+		if seq.code != null
+			return []
+		def result := new Array<Variable>()
+		for t in seq.terms {
+			def vars := getOutVars(t)
+			for v in vars {
+				if !result.contains(v)
+					result.add(v)
+			}
+		}
+		return result
+	}
+
+	function getInVars(t:Term):ListView<Variable> {
+		if t.value-?>(Options)
+			return getInVars(t.value->(Options))
+		def result := inVars[t]
+		if result = null
+			return []
+		return result
+	}
+
+	function getOutVars(t:Term):ListView<Variable> {
+		if t.value-?>(Options)
+			return getOutVars(t.value->(Options))
+		def result := outVars[t]
+		if result = null
+			return []
+		return result
+	}
+
+	function wrapChar(code:String, type:String):String {
+		if type.startsWith("Char")
+			return code
+		if type.startsWith("String")
+			return code + "->>(String)"
+		if type.startsWith("Array<")
+			return "[" + wrapChar(code, type["Array<".length..]) + "]"
+		unreachable
+	}
+
+	function wrapString(code:String, type:String):String {
+		if type.startsWith("String")
+			return code
+		if type.startsWith("Array<")
+			return "[" + wrapChar(code, type["Array<".length..]) + "]"
+		unreachable
+	}
+
+	method writeTermMatchCode(term:Term, target:String, 
+			position:String) {
+		out.write("def \{target}")
+		def outs := getOutVars(term)
+		if term.value-!>(Identifier) {
+			if outs.length > 0 {
+				out.write(":(Int")
+				for i, v in outs
+					out.write(", \{v.effectiveType}")
+				out.writeLine(")?")
+			}
+			else
+				out.writeLine(":Int?")
+		}
+		def value := term.value
+		if value-?>(String) {
+			def text := value->(String)
+			out.writeLine("if literal(\{position}, '\{escape(text)}')")
+			out.level += 1
+			if outs.length = 1 {
+				def wrapped := wrapString("'\{escape(text)}'", 
+						outs[0].effectiveType)
+				out.writeLine("\{target} := (\{position} + 1, \{wrapped})")
+			}
+			else
+				out.writeLine("\{target} := \{position} + \{text.length}")
+			out.level -= 1
+			out.writeLine("else")
+			out.level += 1
+			out.writeLine("\{target} := null")
+			out.level -= 1
+		}
+		else if value-?>(CharClass) {
+			def cc := value->(CharClass)
+			def test := new MutableString()
+			for i, r in cc.ranges {
+				if i > 0
+					test.append(" | ")
+				if r.start = r.end
+					test.append("literal(\{position}, '\{escape(r.start)}')")
+				else {
+					test.append("literal(\{position}, '\{escape(r.start)}', " +
+							"'\{escape(r.end)}')")
+				}
+			}
+			out.writeLine("if \{test}")
+			out.level += 1
+			if outs.length = 1 {
+				def wrapped := wrapChar("text[\{position}]", 
+						outs[0].effectiveType)
+				out.writeLine("\{target} := (\{position} + 1, \{wrapped})")
+			}
+			else
+				out.writeLine("\{target} := \{position} + 1")
+			out.level -= 1
+			out.writeLine("else")
+			out.level += 1
+			out.writeLine("\{target} := null")
+			out.level -= 1
+		}
+		else if value-?>(Identifier) {
+			def name := value->(Identifier).text
+			def definition := definitions[name]
+			if outs.length > 0 {
+				assert outs.length = 1 : "sending \{definition.type} into \{outs}"
+				assert definition != null : "no definition named '\{name}'"
+				assert definition.type != null : "definition '\{name}' has no type"
+				if outs[0].repeated & !definition.type.startsWith("Array<") &
+						!definition.type.startsWith("ListView<") {
+					out.writeLine("_temp := _\{name}(\{position})")
+					out.writeLine("def \{target}:(Int, ListView<\{definition.type}>)?")
+					out.writeLine("if \{target}_temp != null")
+					out.level += 1
+					out.writeLine("\{target} := (\{target}_temp[0], " +
+							"[\{target}_temp[1]])")
+					out.level -= 1
+					out.writeLine("else")
+					out.level += 1
+					out.writeLine("\{target} := null")
+					out.level -= 1
+					return
+				}
+			}
+			out.writeLine(" := _\{name}(\{position})")
+		}
+		else if value-?>(Options) {
+			def opt := value->(Options)
+			def name := optionNames[opt]
+			assert name != null : "option \{value} has not been named"
+			out.write("\{target} := \{name}(\{position}")
+			def ins := getInVars(opt)
+			if ins != null {
+				for v in ins
+					out.write(", \{v.name}")
+			}
+			out.writeLine(")")
+		}
+		else if value-?>(Dot) {
+			out.writeLine("if \{position} < text.length")
+			out.level += 1
+			if outs.length = 1 {
+				def wrapped := wrapChar("text[\{position}]", 
+						outs[0].effectiveType)
+				out.writeLine("\{target} := (\{position} + 1, \{wrapped})")
+			}
+			else
+				out.writeLine("\{target} := \{position} + 1")
+			out.level -= 1
+			out.writeLine("else")
+			out.level += 1
+			out.writeLine("\{target} := null")
+			out.level -= 1
+		}
+		else
+			assert false : "unknown type: \{value} - '\{value.class.name}'"
+	}
+
+	method writeStarCode(term:Term, target:String, position:String) {
+		out.writeLine("loop {")
+		writeTermMatchCode(term, target, position)
+		out.writeLine("if \{target} = null")
+		out.level += 1
+		out.writeLine("break")
+		out.level -= 1
+		out.write("currentPos := \{target}")
+		def outs := getOutVars(term)
+		if outs.length > 0 {
+			out.writeLine("[0]")
+			for i, v in outs {
+				if v.effectiveType.startsWith("Array<") {
+					if !getInVars(term).contains(v) | term.name = v.name
+						out.writeLine("\{v.name}.addAll(\{target}[\{i + 1}])")
+					else
+						out.writeLine("\{v.name} := new \{v.effectiveType}(\{target}[\{i + 1}])")
+				}
+				else
+					out.writeLine("\{v.name} := \{target}[\{i + 1}]")
+			}
+		}
+		else
+			out.writeLine()
+		out.writeLine("}")
+	}	
+
+	method writeTermCode(term:Term, target:String, position:String) {
+		if term.prefix = Prefix.NOT {
+			writeTermMatchCode(term, target, position)
+			out.writeLine("if \{target} != null")
+			out.level += 1
+			out.writeLine("return null")
+			out.level -= 1
+			return
+		}
+		if term.prefix = Prefix.AND {
+			writeTermMatchCode(term, target, position)
+			out.writeLine("if \{target} = null")
+			out.level += 1
+			out.writeLine("return null")
+			out.level -= 1
+			return
+		}
+		if term.suffix = Suffix.STAR {
+			writeStarCode(term, target, position)
+			return
+		}
+		writeTermMatchCode(term, target, position)
+		if term.suffix = Suffix.QUESTION {
+			out.writeLine("if \{target} != null {")
+			out.level += 1
+		}
+		else {
+			out.writeLine("if \{target} = null")
+			out.level += 1
+			out.writeLine("return null")
+			out.level -= 1
+		}
+		def termOut := getOutVars(term)
+		out.write("currentPos := \{target}")
+		if termOut.length > 0 {
+			out.writeLine("[0]")
+			for i, v in termOut {
+				if v.effectiveType.startsWith("Array<") {
+					out.writeLine("\{v.name}.addAll(\{target}[\{i + 1}])")
+				}
+				else
+					out.writeLine("\{v.name} := \{target}[\{i + 1}]")
+			}
+		}
+		else
+			out.writeLine()
+		if term.suffix = Suffix.PLUS
+			writeStarCode(term, target + "_repeat", position)
+		if term.suffix = Suffix.QUESTION {
+			out.level -= 1
+			out.writeLine("}")
+		}
+	}
+
+	method writeSequence(seq:Sequence):String {
+		out.writeLine("-* \{seq} *-")
+		def name := "\{currentDefinition.name}_seq\{count}"
+		count += 1
+		def seqIns := getInVars(seq)
+		def seqOuts := getOutVars(seq)
+		out.write("function \{name}(pos:Int")
+		for v in seqIns {
+			if v.repeated
+				out.write(", \{v.name}_in:\{v.effectiveType}")
+			else
+				out.write(", \{v.name}:\{v.effectiveType}")
+		}
+		out.write("):")
+		if seq.code != null
+			out.writeLine("(Int, \{currentDefinition.type}) {")
+		else if seqOuts.length > 0 {
+			out.write("(Int")
+			for v in seqOuts
+				out.write(", \{v.effectiveType}")
+			out.writeLine(")? {")
+		}
+		else
+			out.writeLine("Int? {")
+		out.level += 1
+		for v in variablesByName.values {
+			out.write("var \{v.name}:")
+			if v.repeated {
+				out.write("Array<\{v.type}> := new Array<\{v.type}>(")
+				if seqIns.contains(v)
+					out.write("\{v.name}_in")
+				out.write(")")
+			}
+			else {
+				out.write(v.effectiveType)
+				if v.nullable
+					out.write(" := null")
+			}
+			out.writeLine()
+		}
+		out.writeLine("var currentPos := pos")
+		for i, t in seq.terms
+			writeTermCode(t, "term\{i}", "currentPos")
+		if seq.code != null {
+			out.writeLine("def result:\{currentDefinition.type}")
+			out.writeLine(seq.code)
+			out.writeLine("return (currentPos, result)")
+		}
+		else if seqOuts.length > 0 {
+			out.write("return (currentPos")
+			for v in seqOuts
+				out.write(", \{v.name}")
+			out.writeLine(")")
+		}
+		else
+			out.writeLine("return currentPos")
+		out.level -= 1
+		out.writeLine("}")
+		return name
+	}
+
+	method writeEmbeddedOptions(seq:Sequence) {
+		for t in seq.terms {
+			if t.value-?>(Options)
+				writeEmbeddedOptions(t.value->(Options))
+		}
+	}
+
+	method writeEmbeddedOptions(opt:Options) {
+		for seq in opt.options
+			writeEmbeddedOptions(seq)
+		writeOptions(opt)
+	}
+
+	function equal(l1:ListView<Variable>, l2:ListView<Variable>):Bit {
+		if l1.length != l2.length
+			return false
+		for i, v in l1 {
+			if v != l2[i]
+				return false
+		}
+		return true
+	}
+
+	method writeOptions(options:Options):String {
+		def name := "\{currentDefinition.name}_opt\{count}"
+		count += 1
+		optionNames[options] := name
+		def inVars := getInVars(options)
+		def outVars := getOutVars(options)
+		def sequences := new Array<String>()
+		for s in options.options {
+			writeEmbeddedOptions(s)
+			sequences.add(writeSequence(s))
+		}
+		out.writeLine("-* \{options} *-")
+		out.write("function \{name}(pos:Int")
+		for v in inVars
+			out.write(", \{v.name}:\{v.effectiveType}")
+		out.write("):")
+		var codeCount := 0
+		for s in options.options {
+			if s.code != null
+				codeCount += 1
+		}
+		var returnType:String
+		if outVars.length = 0 & codeCount = 0
+			returnType := "Int?"
+		else {
+			returnType := "(Int"
+			if codeCount = options.options.length {
+				if currentDefinition.type = null {
+					Console.writeLine("cannot have code in definition with " +
+							"no return type (in \{currentDefinition.name})")
+					System.exit(1)
+				}
+				returnType += ", \{currentDefinition.type})"
+			}
+			else if codeCount = 0 {
+				for v in outVars
+					returnType += ", \{v.effectiveType}"
+				returnType += ")"
+			}
+			else {
+				Console.writeLine("either all options must have code, or " +
+						"none must (in \{currentDefinition.name})")
+				System.exit(1)
+			}
+		}
+		out.writeLine("\{returnType} {")
+		out.level += 1
+		for i, seq in options.options {
+			out.write("def seq\{i} := \{sequences[i]}(pos")
+			for v in getInVars(seq)
+				out.write(", \{v.name}")
+			out.writeLine(")")
+			out.writeLine("if seq\{i} != null {")
+			out.level += 1
+			if seq.code != null
+				out.writeLine("return seq\{i}")
+			else {
+				def seqOut := getOutVars(seq)
+				if equal(seqOut, outVars)
+					out.writeLine("return seq\{i} -- equal!")
+				else {
+					out.write("return (seq\{i}[0]")
+					for v in outVars {
+						var found := false
+						for j, v2 in seqOut {
+							if v2 = v {
+								found := true
+								out.write(", seq\{i}[\{j + 1}]")
+							}
+						}
+						if !found
+							out.write(", null")
+					}
+					out.writeLine(")")
+				}
+			}
+			out.level -= 1
+			out.writeLine("}")
+		}
+		out.writeLine("return null")
+		out.writeLine("}")
+		return name
 	}
 
 	method writeDefinition(definition:Definition) {
 		currentDefinition := definition
-		varCount := 0
-		level := 0
-		variables.clear()
-		variables.addAll(findVariables(definition))
-		for name in variables.keys
-			varLevels[name] := 0
+		variablesByName.clear()
+		count := 0
+		def vars := findVariables(definition)
+		def options := writeOptions(definition.definition)
 		def returnType:String
 		if definition.type != null
-			returnType := definition.type
+			returnType := "(Int, \{definition.type})?"
 		else
-			returnType := "String"
+			returnType := "Int?"
 		out.writeLine("-* \{definition} *-")
-		out.writeLine("function _\{definition.name}(var pos0:Int):" +
-				"(\{returnType}, Int)? {")
-		for (name, value) in variables {
-			def type, repeated, nullable := value
-			if repeated
-				out.writeLine("def \{name} := new Array<\{type}>()")
-			else {
-				out.write("var \{name}:\{type}")
-				if nullable
-					out.write("? := null")
-				out.writeLine()
-			}
-		}
-		out.writeLine(getOptionsText(definition.definition, SUCCESS_TOKEN, 
-				"return null"))
+		def cache := "\{definition.name}_cache"
+		out.writeLine("def \{cache} := " +
+				"new HashMap<Int, \{returnType}>()")
+		out.writeLine("-- @unsafeFunction")
+		out.writeLine("function _\{definition.name}(pos:Int):\{returnType} {")
+		out.level += 1
+		out.writeLine("def cached := \{cache}[pos]")
+		out.writeLine("if cached != null return cached")
+		out.writeLine("def result := \{options}(pos)")
+		out.writeLine("if result != null")
+		out.level += 1
+		out.writeLine("\{cache}[pos] := result")
+		out.level -= 1
+		out.writeLine("return result")
+		out.level -= 1
 		out.writeLine("}")
 	}
 
 	method writeGrammar(dest:File) {
-		out := dest.openOutputStream()
+		out := new IndentedOutputStream(dest.openOutputStream())
 		if grammar.code != null
 			out.writeLine(grammar.code[1 .. grammar.code.length - 1])
-		out.writeLine("class PEGParser {")
-		out.writeLine("var text:String")
+		out.writeLine("class \{dest.simpleName} {")
+		out.writeLine("def fileName:String")
+		out.writeLine("def text:String")
+		out.writeLine("def cutStack := new Stack<Bit>()")
+		out.writeLine("var maxPos := -1")
+		out.writeLine("var maxLiterals := new HashSet<String>()")
 		out.writeLine("constructor(file:File) {")
+		out.writeLine("    fileName := file.name")
 		out.writeLine("    text := file.readAsString()")
 		out.writeLine("}")
 		out.writeLine("function literal(pos:Int, c:Char):Bit {")
+		out.writeLine("    if pos > maxPos { maxPos := pos    maxLiterals.clear() }")
+		out.writeLine("    if pos = maxPos maxLiterals.add(escape(c))")
 		out.writeLine("	   return pos < text.length & text[pos] = c")
 		out.writeLine("}")
 		out.writeLine("function literal(pos:Int, start:Char, end:Char):Bit {")
+		out.writeLine("    if pos > maxPos { maxPos := pos    maxLiterals.clear() }")
+		out.writeLine("    if pos = maxPos maxLiterals.add('[\\{escape(start)}-\\{escape(end)}]')")
 		out.writeLine("	   return pos < text.length & text[pos] >= start & " +
 				"text[pos] <= end")
 		out.writeLine("}")
 		out.writeLine("function literal(pos:Int, s:String):Bit {")
+		out.writeLine("    if pos > maxPos { maxPos := pos    maxLiterals.clear() }")
+		out.writeLine("    if pos = maxPos maxLiterals.add(escape(s))")
 		out.writeLine("	   return pos + s.length <= text.length & " +
 				"text[pos .. pos + s.length] = s")
 		out.writeLine("}")
+		out.writeLine("function getPosition(pos:Int):String {")
+		out.writeLine("    def stream := new LineNumberInputStream(new MemoryInputStream(text))")
+		out.writeLine("    for i in 0 .. pos")
+		out.writeLine("        stream.readInt8()")
+		out.writeLine("    return stream.line + ':' + stream.column")
+		out.writeLine("}")
+		out.writeLine("function escape(c:Char):String {")
+		out.writeLine("	if c = '\\''")
+		out.writeLine("		return \"\\\\'\"")
+		out.writeLine("	if c = '\\n'")
+		out.writeLine("		return '\\\\n'")
+		out.writeLine("	if c = '\\r'")
+		out.writeLine("		return '\\\\r'")
+		out.writeLine("	if c = '\\t'")
+		out.writeLine("		return '\\\\t'")
+		out.writeLine("	if c = '\\\\'")
+		out.writeLine("		return '\\\\\\\\'")
+		out.writeLine("	if c = '\\\"'")
+		out.writeLine("		return '\\\\\"'")
+		out.writeLine("	return c->>(String)")
+		out.writeLine("}")
+		out.writeLine("function escape(s:String):String {")
+		out.writeLine("	def result := new MutableString()")
+		out.writeLine("	for c in s")
+		out.writeLine("		result.append(escape(c))")
+		out.writeLine("	return result->>(String)")
+		out.writeLine("}")
+		out.writeLine("def stack := new Stack<String>()")
 		for d in grammar.definitions
 			writeDefinition(d)
-		out.writeLine("}")
+		out.writeLine("} -- class")
+	}
+
+	@class
+	function getPosition(name:String, text:String, pos:Int):String {
+		def stream := new LineNumberInputStream(new MemoryInputStream(text))
+		for i in 0 .. pos
+			stream.readInt8()
+		return "\{name}:\{stream.line}:\{stream.column}"
 	}
 
 	@class
 	method main(args:PrimitiveArray<String>) {
-		def parser := new PEGParser(new File(args[0]))
+		def path := new File(args[0])
+		def parser := new PEGParser(path)
 		def r0 := parser._Grammar(0) 
-		if r0 != null {
-			new PEGGenerator(r0[0]).writeGrammar(new File(args[1]))
-		}
-		else {
-			Console.writeLine("Parse error. Sorry, have fun debugging it!")
-		}
+		if r0 != null
+			new PEGGenerator(r0[1]).writeGrammar(new File(args[1]))
+		else
+			Console.writeLine("Error parsing at \{getPosition(path.name, parser.text, parser.maxPos)}: expected one of \{parser.maxLiterals}, but found '\{parser.text[parser.maxPos]}'")
 	}
 }

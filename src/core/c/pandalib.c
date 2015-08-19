@@ -750,7 +750,7 @@ void panda$io$FileOutputStream$writeInt8Array(void* handle,
             pandaGetInterfaceMethod((panda$core$Object*) b, 
                     &panda$collections$ListView$LTpanda$core$Int8$GT_class, 
                     panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_INDEX);
-    const Int32 BUFFER_SIZE = 4096;
+    const Int32 BUFFER_SIZE = 8192;
     Int8 data[BUFFER_SIZE];
     while (length > 0) {
         int currentLength = MIN(length, BUFFER_SIZE);

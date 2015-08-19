@@ -219,6 +219,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         return stub
     }
 
+    @private
+    def typeCache := new HashMap<Type, String>()
     ============================================================================
     Returns the LLVM name for a type. Note that method types are a bit 
     complicated: sometimes we want a method type identified as an instance of 
@@ -228,38 +230,47 @@ class LLVMCodeGenerator (CodeGenerator) {
     corresponding to a method.
     ============================================================================
     method getLLVMType(t:Type):String {
-        if t.isNullable
-            return getLLVMType(t.unwrapNullable)
-        switch t {
-            case IntType.INT8:  return "i8"
-            case IntType.INT16: return "i16"
-            case IntType.INT32: return "i32"
-            case IntType.INT64: return "i64"
-            case IntType.UINT8:  return "i8"
-            case IntType.UINT16: return "i16"
-            case IntType.UINT32: return "i32"
-            case IntType.UINT64: return "i64"
-            case RealType.REAL32: return "float"
-            case RealType.REAL64: return "double"
-            case BitType.BIT: return "i1"
-            case CharType.CHAR: return "i16"
-            case VoidType.VOID: return "void"
-            case NativePointerType.NATIVE_POINTER: return "i8*"
+        var result := typeCache[t]
+        if result = null {
+            if t.isNullable
+                result := getLLVMType(t.unwrapNullable)
+            else {
+                switch t {
+                    case IntType.INT8:  result := "i8"
+                    case IntType.INT16: result := "i16"
+                    case IntType.INT32: result := "i32"
+                    case IntType.INT64: result := "i64"
+                    case IntType.UINT8:  result := "i8"
+                    case IntType.UINT16: result := "i16"
+                    case IntType.UINT32: result := "i32"
+                    case IntType.UINT64: result := "i64"
+                    case RealType.REAL32: result := "float"
+                    case RealType.REAL64: result := "double"
+                    case BitType.BIT: result := "i1"
+                    case CharType.CHAR: result := "i16"
+                    case VoidType.VOID: result := "void"
+                    case NativePointerType.NATIVE_POINTER: result := "i8*"
+                    default: {
+                        var cl := t->>(ClassType)
+                        if cl-?>(MethodType) {
+                            if cl->(MethodType).immutableMethod
+                                cl := ClassType.METHOD
+                            else
+                                cl := ClassType.MUTABLE_METHOD
+                        }
+                        def stub := context.classes[cl.name]
+                        if stub != null
+                            result := "%" + getName(stub) + "*"
+                        else {
+                            -- stub hasn't been created, just use a dummy type
+                            result := "%panda$core$Object*"
+                        }
+                    }
+                }
+            }
+            typeCache[t] := result
         }
-        var cl := t->>(ClassType)
-        if cl-?>(MethodType) {
-            if cl->(MethodType).immutableMethod
-                cl := ClassType.METHOD
-            else
-                cl := ClassType.MUTABLE_METHOD
-        }
-        def stub := context.classes[cl.name]
-        if stub != null
-            return "%" + getName(stub) + "*"
-        else {
-            -- stub hasn't been created, just use a dummy type
-            return "%panda$core$Object*"
-        }
+        return result
     }
 
     method getLLVMMethodType(m:MethodStub):String {
@@ -313,8 +324,15 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
+    def nameCache := new HashMap<ClassStub, String>()
+    @private
     function getName(cl:ClassStub):String {
-        return MethodNamer.escapeTypeName(cl.name)
+        var result := nameCache[cl]
+        if result = null {
+            result := MethodNamer.escapeTypeName(cl.name)
+            nameCache[cl] := result
+        }
+        return result
     }
 
     @private
@@ -462,8 +480,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
+    def digits := #/\d+/#
+    @private
     function isConstant(expr:String):Bit {
-        return expr.startsWith("%") | expr.matches(#/\d+/#)
+        return expr.startsWith("%") | expr.matches(digits)
     }
 
     @protected
@@ -1645,22 +1665,22 @@ class LLVMCodeGenerator (CodeGenerator) {
             endLabel := elseLabel
         writeBody("br " + getTypedReference(i.test) + 
                 ", label %" + ifLabel + ", label %" + elseLabel, 
-                "if test: " + i.test)
+                "if test")
         body.writeLine()
-        createBlock(ifLabel, "then: " + i)
+        createBlock(ifLabel, "then")
         generateStatementCode(i.thenStatement)
         if !endsInBranch(i.thenStatement)
             writeBody("br label %" + endLabel, "then -> end")
         body.writeLine()
         def elseStatement := i.elseStatement
         if elseStatement != null {
-            createBlock(elseLabel, "else: " + i)
+            createBlock(elseLabel, "else")
             generateStatementCode(elseStatement)
             if !endsInBranch(elseStatement)
                 writeBody("br label %" + endLabel, "else -> end")
             body.writeLine()
         }
-        createBlock(endLabel, "end: " + i)
+        createBlock(endLabel, "end if")
     }
 
     @protected
@@ -1693,7 +1713,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + w)
-        assert loops.pop() = w
+        loops.pop()
     }
     @post(loops.length = @pre(loops.length))
 
@@ -1718,7 +1738,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "do test: " + d.test)
         body.writeLine()
         createBlock(endLabel, "end: " + d)
-        assert loops.pop() = d
+        loops.pop()
     }
     @post(loops.length = @pre(loops.length))
 
@@ -1737,7 +1757,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             body.writeLine("br label %" + nextLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + l)
-        assert loops.pop() = l
+        loops.pop()
     }
     @post(loops.length = @pre(loops.length))
 
@@ -1762,7 +1782,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("br label %" + startLabel)
         body.writeLine()
         createBlock(endLabel, "end: " + l)
-        assert loops.pop() = l
+        loops.pop()
     }
     @post(loops.length = @pre(loops.length))
 
@@ -1805,9 +1825,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             if error.type = ClassType.STRING
                 call("void \{FAIL_ASSERT_NAME}(\{getTypedReference(error)})")
             else {
-                assert error.type = ClassType.SAFETY_ERROR : 
-                        "expected error.type = SAFETY_ERROR but found " + 
-                        error.type
+                assert error.type = ClassType.ERROR : 
+                        "expected msg.type = ERROR but found \{error.type}"
                 call("void @pandaThrow(\{getTypedReference(error)})")
             }
         }
@@ -1832,7 +1851,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method generateThrowCode(t:Throw) {
-        call("void \{FAIL_ASSERT_NAME}(\{getLLVMType(ClassType.STRING)} null)")
+        call("void @pandaThrow(" + getTypedReference(t.error) + ")")
     }
 
     @protected
@@ -1968,6 +1987,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     method generateMethodCode(m:MethodNode) {
         if m.stub.annotations.isAbstract
             return
+        references.clear()
+        nextLabels.clear()
+        endLabels.clear()
         def immutableReturn := m.stub.returnType != VoidType.VOID & 
                 isKnownToBeImmutable(m.stub.returnType)
         for p in m.stub.parameters
@@ -2104,7 +2126,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("declare {i32, i1} @llvm.umul.with.overflow.i32(i32 %a, i32 %b)")
         body.writeLine("declare {i64, i1} @llvm.umul.with.overflow.i64(i64 %a, i64 %b)")
 
-        body.writeLine("declare void @pandaThrow(\{getLLVMType(ClassType.SAFETY_ERROR)})")
+        body.writeLine("declare void @pandaThrow(\{getLLVMType(ClassType.ERROR)})")
         body.writeLine("declare void @llvm.trap() noreturn nounwind")
         body.writeLine("declare void @pandaCheckSignCasti8(i8)")
         body.writeLine("declare void @pandaCheckSignCasti16(i16)")
@@ -2137,11 +2159,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         def unoptTarget := parent.resolve(target.name)-- + ".unopt")
         def out := new BufferedOutputStream(unoptTarget.openOutputStream())
-        out.write(headerBuffer->>(String))
-        out.write(bodyBuffer->>(String))
+        headerBuffer.sendTo(out)
+        bodyBuffer.sendTo(out)
         out.close()
-
--*        def opt := PandaCompiler.getLLVMHome().resolve("opt")
+-*
+        def opt := PandaCompiler.getLLVMHome().resolve("opt")
         System.exec(opt, unoptTarget.path, "-o", target.path, "-O3",
                 "-q", "-f", "-S")
         if !context.compilerSettings.preserveTempArtifacts

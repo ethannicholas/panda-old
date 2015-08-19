@@ -10,37 +10,25 @@
 				self.code := code.trim()
 			else
 				self.code := null
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
 			def code:String
 			if self.code != null
-				code := self.code
+				code := "{ \{self.code}}\n"
 			else
-				code := "<null>"
-			return "Grammar<definitions=\{definitions}>"
-		}
-	}
-
-	class Identifier {
+				code := ""
+			return code + definitions.join("\n")
+		}}class Identifier {
 		def text:String
 
 		constructor(text:String) {
 			self.text := text
-		}
-
-		constructor(text:Array<String>) {
+		}constructor(text:Array<String>) {
 			self.text := text.join("")
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
-			return "Identifier<\{text}>"
-		}
-	}
-
-	class Definition {
+			return text
+		}}class Definition {
 		def name:String
 
 		def type:String?
@@ -51,33 +39,23 @@
 			self.name := name
 			self.type := type
 			self.definition := definition
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
 			def type:String
 			if self.type != null
-				type := self.type
+				type := ":" + self.type
 			else
-				type := "<null>"
-			return "Definition<name=\{name}, type=\{type}, definition=\{definition}>"
-		}
-	}
-
-	class Options {
+				type := ""
+			return "\{name}\{type}= \{definition}"
+		}}class Options {
 		def options:ListView<Sequence>
 
 		constructor(options:ListView<Sequence>) {
 			self.options := options
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
-			return "Options<\{options}>"
-		}
-	}
-
-	class Sequence {
+			return "(" + options.join(" / ") + ")"
+		}}class Sequence {
 		def terms:ListView<Term>
 
 		def code:String?
@@ -88,20 +66,15 @@
 				self.code := code.trim()
 			else
 				self.code := null
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
 			def code:String
 			if self.code != null
-				code := self.code
+				code := " { \{self.code}}"
 			else
-				code := "<null>"
-			return "Sequence<terms=\{terms}>"
-		}
-	}
-
-	class Range {
+				code := ""
+			return terms.join(" ") + code
+		}}class Range {
 		def start:Char
 
 		def end:Char
@@ -109,39 +82,25 @@
 		constructor(start:Char, end:Char) {
 			self.start := start
 			self.end := end
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
 			if start = end
 				return start->>(String)
 			else
 				return "\{start}-\{end}"
-		}
-	}
-
-	class CharClass {
+		}}class CharClass {
 		def ranges:ListView<Range>
 
 		constructor(ranges:ListView<Range>) {
 			self.ranges := ranges
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
 			return "[" + ranges.join("") + "]"
-		}		
-	}
-
-	enum Prefix {
+		}}enum Prefix {
 		AND, NOT
-	}
-
-	enum Suffix {
+	}enum Suffix {
 		QUESTION, STAR, PLUS
-	}
-
-	class Term {
+	}class Term {
 		def name:String?
 
 		def prefix:Prefix?
@@ -156,358 +115,693 @@
 			self.prefix := prefix
 			self.value := value
 			self.suffix := suffix
-		}
-
-		@override
+		}@override
 		function format(fmt:String):String {
-			def result := new MutableString("Term<name=")
+			def result := new MutableString()
 			if name != null
-				result.append(name)
-			else
-				result.append("<null>")
-			result.append(", prefix=")
-			if prefix != null
-				result.append(prefix)
-			else
-				result.append("<null>")
-			result.append(", value=\{value}, suffix=")
-			if suffix != null
-				result.append(suffix)
-			else
-				result.append("<null>")
-			return result + ">"
-		}
-	}
-
-	class Dot {
+				result.append(name + ":")
+			switch prefix {
+				case Prefix.AND: result.append("&")
+				case Prefix.NOT: result.append("!")
+			}result.append(value)
+			switch suffix {
+				case Suffix.QUESTION: result.append("?")
+				case Suffix.STAR: result.append("*")
+				case Suffix.PLUS: result.append("+")
+			}return result->>(String)
+		}}class Cut : Term {
+		constructor() {
+			super.constructor("^", null, "^", null)
+		}@override
+		function format(fmt:String):String {
+			return "^"
+		}}class Dot {
 		@override
 		function format(fmt:String):String {
-			return "<DOT>"
-		}
-	}
-
-	class Util {
+			return "."
+		}}class Util {
 		@class
 		function unescape(text:String):String {
 			return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
 					"\t").replace("\\[", "[").replace("\\]", "]").replace("\\\\", "\\")
-		}
-	}
-
+		}}
 class PEGParser {
-var text:String
+def fileName:String
+def text:String
+def cutStack := new Stack<Bit>()
+var maxPos := -1
+var maxLiterals := new HashSet<String>()
 constructor(file:File) {
+    fileName := file.name
     text := file.readAsString()
 }
 function literal(pos:Int, c:Char):Bit {
+    if pos > maxPos { maxPos := pos    maxLiterals.clear() }
+    if pos = maxPos maxLiterals.add(escape(c))
 	   return pos < text.length & text[pos] = c
 }
 function literal(pos:Int, start:Char, end:Char):Bit {
+    if pos > maxPos { maxPos := pos    maxLiterals.clear() }
+    if pos = maxPos maxLiterals.add('[\{escape(start)}-\{escape(end)}]')
 	   return pos < text.length & text[pos] >= start & text[pos] <= end
 }
 function literal(pos:Int, s:String):Bit {
+    if pos > maxPos { maxPos := pos    maxLiterals.clear() }
+    if pos = maxPos maxLiterals.add(escape(s))
 	   return pos + s.length <= text.length & text[pos .. pos + s.length] = s
 }
--* Definition<name=Grammar, type=Grammar, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>, Term<name=code, prefix=<null>, value=Identifier<Code>, suffix=QUESTION>, Term<name=definitions, prefix=<null>, value=Identifier<Definition>, suffix=PLUS>, Term<name=<null>, prefix=<null>, value=Identifier<EndOfFile>, suffix=<null>>]>]>> *-
-function _Grammar(var pos0:Int):(Grammar, Int)? {
+function getPosition(pos:Int):String {
+    def stream := new LineNumberInputStream(new MemoryInputStream(text))
+    for i in 0 .. pos
+        stream.readInt8()
+    return stream.line + ':' + stream.column
+}
+function escape(c:Char):String {
+	if c = '\''
+		return "\\'"
+	if c = '\n'
+		return '\\n'
+	if c = '\r'
+		return '\\r'
+	if c = '\t'
+		return '\\t'
+	if c = '\\'
+		return '\\\\'
+	if c = '\"'
+		return '\\"'
+	return c->>(String)
+}
+function escape(s:String):String {
+	def result := new MutableString()
+	for c in s
+		result.append(escape(c))
+	return result->>(String)
+}
+def stack := new Stack<String>()
+-* Spacing code:Code? definitions:Definition+ EndOfFile { { result := new Grammar(definitions, code) }} *-
+function Grammar_seq1(pos:Int):(Int, Grammar) {
 var code:String? := null
-def definitions := new Array<Definition>()
-var pos1:Int
-pos1 := pos0
-def r5 := _Spacing(pos1)
-if r5 != null {
-pos1 := r5[1]
-var code1:String? := null
-def r4 := _Code(pos1)
-if r4 != null {
-pos1 := r4[1]
-code1 := r4[0]
-code := code1
-def r3 := _Definition(pos1)
-if r3 != null {
-pos1 := r3[1]
-definitions.add(r3[0])
+var definitions:Array<Definition> := new Array<Definition>()
+var currentPos := pos
+def term0 := _Spacing(currentPos)
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Code(currentPos)
+if term1 != null {
+currentPos := term1[0]
+code := term1[1]
+    }
+def term2_temp := _Definition(currentPos)
+def term2:(Int, ListView<Definition>)?
+if term2_temp != null
+term2 := (term2_temp[0], [term2_temp[1]])
+else
+term2 := null
+if term2 = null
+return null
+currentPos := term2[0]
+definitions.addAll(term2[1])
 loop {
-def r2 := _Definition(pos1)
-if r2 != null {
-pos1 := r2[1]
-definitions.add(r2[0])
-continue
-} else {
+def term2_repeat_temp := _Definition(currentPos)
+def term2_repeat:(Int, ListView<Definition>)?
+if term2_repeat_temp != null
+term2_repeat := (term2_repeat_temp[0], [term2_repeat_temp[1]])
+else
+term2_repeat := null
+if term2_repeat = null
 break
-}
-}
-def r1 := _EndOfFile(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:Grammar  result := new Grammar(definitions, code)  return (result, pos1)
-} else {
+currentPos := term2_repeat[0]
+definitions.addAll(term2_repeat[1])
+    }
+def term3 := _EndOfFile(currentPos)
+if term3 = null
 return null
+currentPos := term3
+def result:Grammar
+{ result := new Grammar(definitions, code) }
+return (currentPos, result)
 }
-} else {
+-* (Spacing code:Code? definitions:Definition+ EndOfFile { { result := new Grammar(definitions, code) }}) *-
+function Grammar_opt0(pos:Int):(Int, Grammar) {
+def seq0 := Grammar_seq1(pos    )
+if seq0 != null {
+return seq0
+    }
 return null
-}
-} else {
-def r3 := _Definition(pos1)
-if r3 != null {
-pos1 := r3[1]
-definitions.add(r3[0])
+    }
+-* Grammar:Grammar= (Spacing code:Code? definitions:Definition+ EndOfFile { { result := new Grammar(definitions, code) }}) *-
+def Grammar_cache := new HashMap<Int, (Int, Grammar)?>()
+-- @unsafeFunction
+function _Grammar(pos:Int):(Int, Grammar)? {
+def cached := Grammar_cache[pos]
+if cached != null return cached
+def result := Grammar_opt0(pos)
+if result != null
+Grammar_cache[pos] := result
+return result
+    }
+-* c:Code *-
+function Code_seq2(pos:Int, c_in:Array<String>):(Int, Array<String>)? {
+var c:Array<String> := new Array<String>(c_in)
+var currentPos := pos
+def term0_temp := _Code(currentPos)
+def term0:(Int, ListView<String>)?
+if term0_temp != null
+term0 := (term0_temp[0], [term0_temp[1]])
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0[0]
+c.addAll(term0[1])
+return (currentPos, c        )
+    }
+-* !} c:. *-
+function Code_seq3(pos:Int, c_in:Array<String>):(Int, Array<String>)? {
+var c:Array<String> := new Array<String>(c_in)
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '}')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 != null
+return null
+def term1:(Int, Array<String>)?
+if currentPos < text.length
+term1 := (currentPos + 1, [text[currentPos]->>(String)])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+c.addAll(term1[1])
+return (currentPos, c        )
+    }
+-* (c:Code / !} c:.) *-
+function Code_opt1(pos:Int, c:Array<String>):(Int, Array<String>) {
+def seq0 := Code_seq2(pos, c        )
+if seq0 != null {
+return seq0 -- equal!
+        }
+def seq1 := Code_seq3(pos, c        )
+if seq1 != null {
+return seq1 -- equal!
+        }
+return null
+        }
+-* c:{ (c:Code / !} c:.)* c:} Spacing { { result := c.join("") }} *-
+function Code_seq4(pos:Int):(Int, String) {
+var c:Array<String> := new Array<String>()
+var currentPos := pos
+def term0:(Int, Array<String>)?
+if literal(currentPos, '{')
+term0 := (currentPos + 1, ['{'->>(String)])
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0[0]
+c.addAll(term0[1])
 loop {
-def r2 := _Definition(pos1)
-if r2 != null {
-pos1 := r2[1]
-definitions.add(r2[0])
-continue
-} else {
+def term1:(Int, Array<String>)?
+term1 := Code_opt1(currentPos, c            )
+if term1 = null
 break
-}
-}
-def r1 := _EndOfFile(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:Grammar  result := new Grammar(definitions, code)  return (result, pos1)
-} else {
+currentPos := term1[0]
+c := new Array<String>(term1[1])
+            }
+def term2:(Int, Array<String>)?
+if literal(currentPos, '}')
+term2 := (currentPos + 1, ['}'->>(String)])
+else
+term2 := null
+if term2 = null
 return null
-}
-} else {
+currentPos := term2[0]
+c.addAll(term2[1])
+def term3 := _Spacing(currentPos)
+if term3 = null
 return null
-}
-}
-} else {
+currentPos := term3
+def result:String
+{ result := c.join("") }
+return (currentPos, result)
+        }
+-* (c:{ (c:Code / !} c:.)* c:} Spacing { { result := c.join("") }}) *-
+function Code_opt0(pos:Int):(Int, String) {
+def seq0 := Code_seq4(pos            )
+if seq0 != null {
+return seq0
+            }
 return null
-}
-}
--* Definition<name=Code, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value={, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Code>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=NOT, value=}, suffix=<null>>, Term<name=<null>, prefix=<null>, value=<DOT>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=}, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _Code(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '{') {
-pos1 += 1
-loop {
-var pos2:Int
-pos2 := pos1
-def r3 := _Code(pos2)
-if r3 != null {
-pos2 := r3[1]
-pos1 := pos2
-continue
-} else {
-pos2 := pos1
-def save2 := pos2
-if literal(pos2, '}') {
-pos2 += 1
-break
-} else {
-pos2 := save2
-if pos2 < text.length {
-pos2 += 1
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-}
-if literal(pos1, '}') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=Definition, type=Definition, definition=Options<[Sequence<terms=[Term<name=id, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<COLON>, suffix=<null>>, Term<name=type, prefix=<null>, value=Identifier<Type>, suffix=<null>>]>]>, suffix=QUESTION>, Term<name=<null>, prefix=<null>, value=Identifier<EQUAL>, suffix=<null>>, Term<name=expr, prefix=<null>, value=Identifier<Expression>, suffix=<null>>]>]>> *-
-function _Definition(var pos0:Int):(Definition, Int)? {
+            }
+-* Code:String= (c:{ (c:Code / !} c:.)* c:} Spacing { { result := c.join("") }}) *-
+def Code_cache := new HashMap<Int, (Int, String)?>()
+-- @unsafeFunction
+function _Code(pos:Int):(Int, String)? {
+def cached := Code_cache[pos]
+if cached != null return cached
+def result := Code_opt0(pos)
+if result != null
+Code_cache[pos] := result
+return result
+            }
+-* COLON type:Type *-
+function Definition_seq2(pos:Int):(Int, String?)? {
 var expr:Options
 var type:String? := null
 var id:Identifier
-var pos1:Int
-pos1 := pos0
-def r5 := _Identifier(pos1)
-if r5 != null {
-pos1 := r5[1]
-id := r5[0]
-var type1:String? := null
-var pos2:Int
-pos2 := pos1
-def r4 := _COLON(pos2)
-if r4 != null {
-pos2 := r4[1]
-def r3 := _Type(pos2)
-if r3 != null {
-pos2 := r3[1]
-type1 := r3[0]
-pos1 := pos2
-type := type1
-def r2 := _EQUAL(pos1)
-if r2 != null {
-pos1 := r2[1]
-def r1 := _Expression(pos1)
-if r1 != null {
-pos1 := r1[1]
-expr := r1[0]
-def result:Definition  result := new Definition(id.text, type, expr)  return (result, pos1)
-} else {
+var currentPos := pos
+def term0 := _COLON(currentPos)
+if term0 = null
 return null
-}
-} else {
+currentPos := term0
+def term1 := _Type(currentPos)
+if term1 = null
 return null
-}
-} else {
-def r2 := _EQUAL(pos1)
-if r2 != null {
-pos1 := r2[1]
-def r1 := _Expression(pos1)
-if r1 != null {
-pos1 := r1[1]
-expr := r1[0]
-def result:Definition  result := new Definition(id.text, type, expr)  return (result, pos1)
-} else {
+currentPos := term1[0]
+type := term1[1]
+return (currentPos, type                )
+            }
+-* (COLON type:Type) *-
+function Definition_opt1(pos:Int):(Int, String?) {
+def seq0 := Definition_seq2(pos                )
+if seq0 != null {
+return seq0 -- equal!
+                }
 return null
-}
-} else {
-return null
-}
-}
-} else {
-def r2 := _EQUAL(pos1)
-if r2 != null {
-pos1 := r2[1]
-def r1 := _Expression(pos1)
-if r1 != null {
-pos1 := r1[1]
-expr := r1[0]
-def result:Definition  result := new Definition(id.text, type, expr)  return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
-} else {
-return null
-}
-}
--* Definition<name=Type, type=String, definition=Options<[Sequence<terms=[Term<name=id, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>]>]>> *-
-function _Type(var pos0:Int):(String, Int)? {
+                }
+-* id:Identifier (COLON type:Type)? EQUAL expr:Expression { { result := new Definition(id.text, type, expr) }} *-
+function Definition_seq3(pos:Int):(Int, Definition) {
+var expr:Options
+var type:String? := null
 var id:Identifier
-var pos1:Int
-pos1 := pos0
-def r1 := _Identifier(pos1)
-if r1 != null {
-pos1 := r1[1]
-id := r1[0]
-def result:String  result := id.text.trim  return (result, pos1)
-} else {
+var currentPos := pos
+def term0 := _Identifier(currentPos)
+if term0 = null
 return null
-}
-}
--* Definition<name=Expression, type=Options, definition=Options<[Sequence<terms=[Term<name=seq, prefix=<null>, value=Identifier<Sequence>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<SLASH>, suffix=<null>>, Term<name=seq, prefix=<null>, value=Identifier<Sequence>, suffix=<null>>]>]>, suffix=STAR>]>]>> *-
-function _Expression(var pos0:Int):(Options, Int)? {
-def seq := new Array<Sequence>()
-var pos1:Int
-pos1 := pos0
-def r3 := _Sequence(pos1)
-if r3 != null {
-pos1 := r3[1]
-seq.add(r3[0])
+currentPos := term0[0]
+id := term0[1]
+def term1:(Int, String?)?
+term1 := Definition_opt1(currentPos                    )
+if term1 != null {
+currentPos := term1[0]
+type := term1[1]
+                    }
+def term2 := _EQUAL(currentPos)
+if term2 = null
+return null
+currentPos := term2
+def term3 := _Expression(currentPos)
+if term3 = null
+return null
+currentPos := term3[0]
+expr := term3[1]
+def result:Definition
+{ result := new Definition(id.text, type, expr) }
+return (currentPos, result)
+                }
+-* (id:Identifier (COLON type:Type)? EQUAL expr:Expression { { result := new Definition(id.text, type, expr) }}) *-
+function Definition_opt0(pos:Int):(Int, Definition) {
+def seq0 := Definition_seq3(pos                    )
+if seq0 != null {
+return seq0
+                    }
+return null
+                    }
+-* Definition:Definition= (id:Identifier (COLON type:Type)? EQUAL expr:Expression { { result := new Definition(id.text, type, expr) }}) *-
+def Definition_cache := new HashMap<Int, (Int, Definition)?>()
+-- @unsafeFunction
+function _Definition(pos:Int):(Int, Definition)? {
+def cached := Definition_cache[pos]
+if cached != null return cached
+def result := Definition_opt0(pos)
+if result != null
+Definition_cache[pos] := result
+return result
+                    }
+-* COMMA t:Type *-
+function Type_seq2(pos:Int, t_in:Array<String>?):(Int, Array<String>?)? {
+var t:Array<String> := new Array<String>(t_in)
+var nullable:Bit? := null
+var id:Identifier
+var currentPos := pos
+def term0 := _COMMA(currentPos)
+if term0 = null
+return null
+currentPos := term0
+def term1_temp := _Type(currentPos)
+def term1:(Int, ListView<String>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+t.addAll(term1[1])
+return (currentPos, t                        )
+                    }
+-* (COMMA t:Type) *-
+function Type_opt1(pos:Int, t:Array<String>?):(Int, Array<String>?) {
+def seq0 := Type_seq2(pos, t                        )
+if seq0 != null {
+return seq0 -- equal!
+                        }
+return null
+                        }
+-* COMMA t:Type *-
+function Type_seq5(pos:Int, t_in:Array<String>?):(Int, Array<String>?)? {
+var t:Array<String> := new Array<String>(t_in)
+var nullable:Bit? := null
+var id:Identifier
+var currentPos := pos
+def term0 := _COMMA(currentPos)
+if term0 = null
+return null
+currentPos := term0
+def term1_temp := _Type(currentPos)
+def term1:(Int, ListView<String>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+t.addAll(term1[1])
+return (currentPos, t                            )
+                        }
+-* (COMMA t:Type) *-
+function Type_opt4(pos:Int, t:Array<String>?):(Int, Array<String>?) {
+def seq0 := Type_seq5(pos, t                            )
+if seq0 != null {
+return seq0 -- equal!
+                            }
+return null
+                            }
+-* LT t:Type (COMMA t:Type)* GT *-
+function Type_seq6(pos:Int):(Int, Array<String>?)? {
+var t:Array<String> := new Array<String>()
+var nullable:Bit? := null
+var id:Identifier
+var currentPos := pos
+def term0 := _LT(currentPos)
+if term0 = null
+return null
+currentPos := term0
+def term1_temp := _Type(currentPos)
+def term1:(Int, ListView<String>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+t.addAll(term1[1])
 loop {
-var pos2:Int
-pos2 := pos1
-def r2 := _SLASH(pos2)
-if r2 != null {
-pos2 := r2[1]
-def r1 := _Sequence(pos2)
-if r1 != null {
-pos2 := r1[1]
-seq.add(r1[0])
-pos1 := pos2
-continue
-} else {
+def term2:(Int, Array<String>?)?
+term2 := Type_opt4(currentPos, t                                )
+if term2 = null
 break
-}
-} else {
-break
-}
-}
-def result:Options  result := new Options(seq)  return (result, pos1)
-} else {
+currentPos := term2[0]
+t := new Array<String>?(term2[1])
+                                }
+def term3 := _GT(currentPos)
+if term3 = null
 return null
-}
-}
--* Definition<name=Sequence, type=Sequence, definition=Options<[Sequence<terms=[Term<name=terms, prefix=<null>, value=Identifier<Prefix>, suffix=STAR>, Term<name=code, prefix=<null>, value=Identifier<Code>, suffix=QUESTION>]>]>> *-
-function _Sequence(var pos0:Int):(Sequence, Int)? {
+currentPos := term3
+return (currentPos, t                                )
+                            }
+-* (LT t:Type (COMMA t:Type)* GT) *-
+function Type_opt3(pos:Int):(Int, Array<String>?) {
+def seq0 := Type_seq6(pos                                )
+if seq0 != null {
+return seq0 -- equal!
+                                }
+return null
+                                }
+-* id:Identifier (LT t:Type (COMMA t:Type)* GT)? nullable:QUESTION? { {
+ 		var text := id.text.trim 
+ 		if t.length > 0
+ 			text += "<\{t.join(',')}>"
+ 		if nullable != null
+ 			text += "?"
+ 		result := text
+ 	}} *-
+function Type_seq7(pos:Int):(Int, String) {
+var t:Array<String> := new Array<String>()
+var nullable:Bit? := null
+var id:Identifier
+var currentPos := pos
+def term0 := _Identifier(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+id := term0[1]
+def term1:(Int, Array<String>?)?
+term1 := Type_opt3(currentPos                                    )
+if term1 != null {
+currentPos := term1[0]
+t.addAll(term1[1])
+                                    }
+def term2 := _QUESTION(currentPos)
+if term2 != null {
+currentPos := term2[0]
+nullable := term2[1]
+                                    }
+def result:String
+{
+ 		var text := id.text.trim 
+ 		if t.length > 0
+ 			text += "<\{t.join(',')}>"
+ 		if nullable != null
+ 			text += "?"
+ 		result := text
+ 	}
+return (currentPos, result)
+                                }
+-* (id:Identifier (LT t:Type (COMMA t:Type)* GT)? nullable:QUESTION? { {
+ 		var text := id.text.trim 
+ 		if t.length > 0
+ 			text += "<\{t.join(',')}>"
+ 		if nullable != null
+ 			text += "?"
+ 		result := text
+ 	}}) *-
+function Type_opt0(pos:Int):(Int, String) {
+def seq0 := Type_seq7(pos                                    )
+if seq0 != null {
+return seq0
+                                    }
+return null
+                                    }
+-* Type:String= (id:Identifier (LT t:Type (COMMA t:Type)* GT)? nullable:QUESTION? { {
+ 		var text := id.text.trim 
+ 		if t.length > 0
+ 			text += "<\{t.join(',')}>"
+ 		if nullable != null
+ 			text += "?"
+ 		result := text
+ 	}}) *-
+def Type_cache := new HashMap<Int, (Int, String)?>()
+-- @unsafeFunction
+function _Type(pos:Int):(Int, String)? {
+def cached := Type_cache[pos]
+if cached != null return cached
+def result := Type_opt0(pos)
+if result != null
+Type_cache[pos] := result
+return result
+                                    }
+-* SLASH seq:Sequence *-
+function Expression_seq2(pos:Int, seq_in:Array<Sequence>):(Int, Array<Sequence>)? {
+var seq:Array<Sequence> := new Array<Sequence>(seq_in)
+var currentPos := pos
+def term0 := _SLASH(currentPos)
+if term0 = null
+return null
+currentPos := term0
+def term1_temp := _Sequence(currentPos)
+def term1:(Int, ListView<Sequence>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+seq.addAll(term1[1])
+return (currentPos, seq                                        )
+                                    }
+-* (SLASH seq:Sequence) *-
+function Expression_opt1(pos:Int, seq:Array<Sequence>):(Int, Array<Sequence>) {
+def seq0 := Expression_seq2(pos, seq                                        )
+if seq0 != null {
+return seq0 -- equal!
+                                        }
+return null
+                                        }
+-* seq:Sequence (SLASH seq:Sequence)* { { result := new Options(seq) }} *-
+function Expression_seq3(pos:Int):(Int, Options) {
+var seq:Array<Sequence> := new Array<Sequence>()
+var currentPos := pos
+def term0_temp := _Sequence(currentPos)
+def term0:(Int, ListView<Sequence>)?
+if term0_temp != null
+term0 := (term0_temp[0], [term0_temp[1]])
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0[0]
+seq.addAll(term0[1])
+loop {
+def term1:(Int, Array<Sequence>)?
+term1 := Expression_opt1(currentPos, seq                                            )
+if term1 = null
+break
+currentPos := term1[0]
+seq := new Array<Sequence>(term1[1])
+                                            }
+def result:Options
+{ result := new Options(seq) }
+return (currentPos, result)
+                                        }
+-* (seq:Sequence (SLASH seq:Sequence)* { { result := new Options(seq) }}) *-
+function Expression_opt0(pos:Int):(Int, Options) {
+def seq0 := Expression_seq3(pos                                            )
+if seq0 != null {
+return seq0
+                                            }
+return null
+                                            }
+-* Expression:Options= (seq:Sequence (SLASH seq:Sequence)* { { result := new Options(seq) }}) *-
+def Expression_cache := new HashMap<Int, (Int, Options)?>()
+-- @unsafeFunction
+function _Expression(pos:Int):(Int, Options)? {
+def cached := Expression_cache[pos]
+if cached != null return cached
+def result := Expression_opt0(pos)
+if result != null
+Expression_cache[pos] := result
+return result
+                                            }
+-* terms:Prefix* code:Code? { { result := new Sequence(terms, code) }} *-
+function Sequence_seq1(pos:Int):(Int, Sequence) {
 var code:String? := null
-def terms := new Array<Term>()
-var pos1:Int
-pos1 := pos0
+var terms:Array<Term> := new Array<Term>()
+var currentPos := pos
 loop {
-def r2 := _Prefix(pos1)
-if r2 != null {
-pos1 := r2[1]
-terms.add(r2[0])
-continue
-} else {
+def term0_temp := _Prefix(currentPos)
+def term0:(Int, ListView<Term>)?
+if term0_temp != null
+term0 := (term0_temp[0], [term0_temp[1]])
+else
+term0 := null
+if term0 = null
 break
-}
-}
-var code1:String? := null
-def r1 := _Code(pos1)
-if r1 != null {
-pos1 := r1[1]
-code1 := r1[0]
-code := code1
-def result:Sequence  result := new Sequence(terms, code)  return (result, pos1)
-} else {
-def result:Sequence  result := new Sequence(terms, code)  return (result, pos1)
-}
-}
--* Definition<name=Prefix, type=Term, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=id, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<COLON>, suffix=<null>>]>]>, suffix=QUESTION>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=a, prefix=<null>, value=Identifier<AND>, suffix=<null>>]>, Sequence<terms=[Term<name=n, prefix=<null>, value=Identifier<NOT>, suffix=<null>>]>]>, suffix=QUESTION>, Term<name=s, prefix=<null>, value=Identifier<Suffix>, suffix=<null>>]>]>> *-
-function _Prefix(var pos0:Int):(Term, Int)? {
-var s:Term
-var a:String? := null
-var n:String? := null
+currentPos := term0[0]
+terms.addAll(term0[1])
+                                                }
+def term1 := _Code(currentPos)
+if term1 != null {
+currentPos := term1[0]
+code := term1[1]
+                                                }
+def result:Sequence
+{ result := new Sequence(terms, code) }
+return (currentPos, result)
+                                            }
+-* (terms:Prefix* code:Code? { { result := new Sequence(terms, code) }}) *-
+function Sequence_opt0(pos:Int):(Int, Sequence) {
+def seq0 := Sequence_seq1(pos                                                )
+if seq0 != null {
+return seq0
+                                                }
+return null
+                                                }
+-* Sequence:Sequence= (terms:Prefix* code:Code? { { result := new Sequence(terms, code) }}) *-
+def Sequence_cache := new HashMap<Int, (Int, Sequence)?>()
+-- @unsafeFunction
+function _Sequence(pos:Int):(Int, Sequence)? {
+def cached := Sequence_cache[pos]
+if cached != null return cached
+def result := Sequence_opt0(pos)
+if result != null
+Sequence_cache[pos] := result
+return result
+                                                }
+-* id:Identifier COLON *-
+function Prefix_seq2(pos:Int):(Int, Identifier?)? {
+var s:Term? := null
+var a:Bit? := null
+var n:Bit? := null
 var id:Identifier? := null
-var pos1:Int
-pos1 := pos0
-var id1:Identifier? := null
-var pos2:Int
-pos2 := pos1
-def r5 := _Identifier(pos2)
-if r5 != null {
-pos2 := r5[1]
-id1 := r5[0]
-def r4 := _COLON(pos2)
-if r4 != null {
-pos2 := r4[1]
-pos1 := pos2
-id := id1
-var a1:String? := null
-var n1:String? := null
-var pos2:Int
-pos2 := pos1
-def r3 := _AND(pos2)
-if r3 != null {
-pos2 := r3[1]
-a1 := r3[0]
-pos1 := pos2
-a := a1
-n := n1
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
+var currentPos := pos
+def term0 := _Identifier(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+id := term0[1]
+def term1 := _COLON(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return (currentPos, id                                                    )
+                                                }
+-* (id:Identifier COLON) *-
+function Prefix_opt1(pos:Int):(Int, Identifier?) {
+def seq0 := Prefix_seq2(pos                                                    )
+if seq0 != null {
+return seq0 -- equal!
+                                                    }
+return null
+                                                    }
+-* a:AND *-
+function Prefix_seq4(pos:Int):(Int, Bit?)? {
+var s:Term? := null
+var a:Bit? := null
+var n:Bit? := null
+var id:Identifier? := null
+var currentPos := pos
+def term0 := _AND(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+a := term0[1]
+return (currentPos, a                                                        )
+                                                    }
+-* n:NOT *-
+function Prefix_seq5(pos:Int):(Int, Bit?)? {
+var s:Term? := null
+var a:Bit? := null
+var n:Bit? := null
+var id:Identifier? := null
+var currentPos := pos
+def term0 := _NOT(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+n := term0[1]
+return (currentPos, n                                                        )
+                                                    }
+-* (a:AND / n:NOT) *-
+function Prefix_opt3(pos:Int):(Int, Bit?, Bit?) {
+def seq0 := Prefix_seq4(pos                                                        )
+if seq0 != null {
+return (seq0[0], seq0[1], null                                                            )
+                                                        }
+def seq1 := Prefix_seq5(pos                                                        )
+if seq1 != null {
+return (seq1[0], null, seq1[1]                                                            )
+                                                        }
+return null
+                                                        }
+-* (id:Identifier COLON)? (a:AND / n:NOT)? s:Suffix { { 
 		def pre:Prefix := null
 		if a != null
 			pre := Prefix.AND
@@ -519,24 +813,33 @@ def result:Term
 		else
 			name := null
 		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
+	}} *-
+function Prefix_seq6(pos:Int):(Int, Term) {
+var s:Term? := null
+var a:Bit? := null
+var n:Bit? := null
+var id:Identifier? := null
+var currentPos := pos
+def term0:(Int, Identifier?)?
+term0 := Prefix_opt1(currentPos                                                            )
+if term0 != null {
+currentPos := term0[0]
+id := term0[1]
+                                                            }
+def term1:(Int, Bit?, Bit?)?
+term1 := Prefix_opt3(currentPos                                                            )
+if term1 != null {
+currentPos := term1[0]
+a := term1[1]
+n := term1[2]
+                                                            }
+def term2 := _Suffix(currentPos)
+if term2 = null
 return null
-}
-} else {
-pos2 := pos1
-def r2 := _NOT(pos2)
-if r2 != null {
-pos2 := r2[1]
-n1 := r2[0]
-pos1 := pos2
-a := a1
-n := n1
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
+currentPos := term2[0]
+s := term2[1]
+def result:Term
+{ 
 		def pre:Prefix := null
 		if a != null
 			pre := Prefix.AND
@@ -548,16 +851,25 @@ def result:Term
 		else
 			name := null
 		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
+	}
+return (currentPos, result)
+                                                        }
+-* CUT { { result := new Cut() }} *-
+function Prefix_seq7(pos:Int):(Int, Term) {
+var s:Term? := null
+var a:Bit? := null
+var n:Bit? := null
+var id:Identifier? := null
+var currentPos := pos
+def term0 := _CUT(currentPos)
+if term0 = null
 return null
-}
-} else {
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
+currentPos := term0
+def result:Term
+{ result := new Cut() }
+return (currentPos, result)
+                                                        }
+-* ((id:Identifier COLON)? (a:AND / n:NOT)? s:Suffix { { 
 		def pre:Prefix := null
 		if a != null
 			pre := Prefix.AND
@@ -569,29 +881,19 @@ def result:Term
 		else
 			name := null
 		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
+	}} / CUT { { result := new Cut() }}) *-
+function Prefix_opt0(pos:Int):(Int, Term) {
+def seq0 := Prefix_seq6(pos                                                            )
+if seq0 != null {
+return seq0
+                                                            }
+def seq1 := Prefix_seq7(pos                                                            )
+if seq1 != null {
+return seq1
+                                                            }
 return null
-}
-}
-}
-} else {
-var a1:String? := null
-var n1:String? := null
-var pos2:Int
-pos2 := pos1
-def r3 := _AND(pos2)
-if r3 != null {
-pos2 := r3[1]
-a1 := r3[0]
-pos1 := pos2
-a := a1
-n := n1
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
+                                                            }
+-* Prefix:Term= ((id:Identifier COLON)? (a:AND / n:NOT)? s:Suffix { { 
 		def pre:Prefix := null
 		if a != null
 			pre := Prefix.AND
@@ -603,1158 +905,1655 @@ def result:Term
 		else
 			name := null
 		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
-return null
-}
-} else {
-pos2 := pos1
-def r2 := _NOT(pos2)
-if r2 != null {
-pos2 := r2[1]
-n1 := r2[0]
-pos1 := pos2
-a := a1
-n := n1
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
-		def pre:Prefix := null
-		if a != null
-			pre := Prefix.AND
-		else if n != null
-			pre := Prefix.NOT
-		def name:String?
-		if id != null
-			name := id.text
-		else
-			name := null
-		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
-return null
-}
-} else {
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
-		def pre:Prefix := null
-		if a != null
-			pre := Prefix.AND
-		else if n != null
-			pre := Prefix.NOT
-		def name:String?
-		if id != null
-			name := id.text
-		else
-			name := null
-		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
-return null
-}
-}
-}
-}
-} else {
-var a1:String? := null
-var n1:String? := null
-var pos2:Int
-pos2 := pos1
-def r3 := _AND(pos2)
-if r3 != null {
-pos2 := r3[1]
-a1 := r3[0]
-pos1 := pos2
-a := a1
-n := n1
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
-		def pre:Prefix := null
-		if a != null
-			pre := Prefix.AND
-		else if n != null
-			pre := Prefix.NOT
-		def name:String?
-		if id != null
-			name := id.text
-		else
-			name := null
-		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
-return null
-}
-} else {
-pos2 := pos1
-def r2 := _NOT(pos2)
-if r2 != null {
-pos2 := r2[1]
-n1 := r2[0]
-pos1 := pos2
-a := a1
-n := n1
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
-		def pre:Prefix := null
-		if a != null
-			pre := Prefix.AND
-		else if n != null
-			pre := Prefix.NOT
-		def name:String?
-		if id != null
-			name := id.text
-		else
-			name := null
-		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
-return null
-}
-} else {
-def r1 := _Suffix(pos1)
-if r1 != null {
-pos1 := r1[1]
-s := r1[0]
-def result:Term  
-		def pre:Prefix := null
-		if a != null
-			pre := Prefix.AND
-		else if n != null
-			pre := Prefix.NOT
-		def name:String?
-		if id != null
-			name := id.text
-		else
-			name := null
-		result := new Term(name, pre, s.value, s.suffix)
-	 return (result, pos1)
-} else {
-return null
-}
-}
-}
-}
-}
--* Definition<name=Suffix, type=Term, definition=Options<[Sequence<terms=[Term<name=value, prefix=<null>, value=Identifier<Primary>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=q, prefix=<null>, value=Identifier<QUESTION>, suffix=<null>>]>, Sequence<terms=[Term<name=st, prefix=<null>, value=Identifier<STAR>, suffix=<null>>]>, Sequence<terms=[Term<name=p, prefix=<null>, value=Identifier<PLUS>, suffix=<null>>]>]>, suffix=QUESTION>]>]>> *-
-function _Suffix(var pos0:Int):(Term, Int)? {
-var q:String? := null
-var p:String? := null
-var st:String? := null
+	}} / CUT { { result := new Cut() }}) *-
+def Prefix_cache := new HashMap<Int, (Int, Term)?>()
+-- @unsafeFunction
+function _Prefix(pos:Int):(Int, Term)? {
+def cached := Prefix_cache[pos]
+if cached != null return cached
+def result := Prefix_opt0(pos)
+if result != null
+Prefix_cache[pos] := result
+return result
+                                                            }
+-* q:QUESTION *-
+function Suffix_seq2(pos:Int):(Int, Bit?)? {
+var q:Bit? := null
+var p:Bit? := null
+var st:Bit? := null
 var value:Object
-var pos1:Int
-pos1 := pos0
-def r4 := _Primary(pos1)
-if r4 != null {
-pos1 := r4[1]
-value := r4[0]
-var q1:String? := null
-var st1:String? := null
-var p1:String? := null
-var pos2:Int
-pos2 := pos1
-def r3 := _QUESTION(pos2)
-if r3 != null {
-pos2 := r3[1]
-q1 := r3[0]
-pos1 := pos2
-q := q1
-st := st1
-p := p1
-def result:Term 
-		def suf:Suffix? := null
-		if q != null
-			suf := Suffix.QUESTION
-		else if st != null
-			suf := Suffix.STAR
-		else if p != null
-			suf := Suffix.PLUS
-		result := new Term(null, null, value, suf)
-	 return (result, pos1)
-} else {
-pos2 := pos1
-def r2 := _STAR(pos2)
-if r2 != null {
-pos2 := r2[1]
-st1 := r2[0]
-pos1 := pos2
-q := q1
-st := st1
-p := p1
-def result:Term 
-		def suf:Suffix? := null
-		if q != null
-			suf := Suffix.QUESTION
-		else if st != null
-			suf := Suffix.STAR
-		else if p != null
-			suf := Suffix.PLUS
-		result := new Term(null, null, value, suf)
-	 return (result, pos1)
-} else {
-pos2 := pos1
-def r1 := _PLUS(pos2)
-if r1 != null {
-pos2 := r1[1]
-p1 := r1[0]
-pos1 := pos2
-q := q1
-st := st1
-p := p1
-def result:Term 
-		def suf:Suffix? := null
-		if q != null
-			suf := Suffix.QUESTION
-		else if st != null
-			suf := Suffix.STAR
-		else if p != null
-			suf := Suffix.PLUS
-		result := new Term(null, null, value, suf)
-	 return (result, pos1)
-} else {
-def result:Term 
-		def suf:Suffix? := null
-		if q != null
-			suf := Suffix.QUESTION
-		else if st != null
-			suf := Suffix.STAR
-		else if p != null
-			suf := Suffix.PLUS
-		result := new Term(null, null, value, suf)
-	 return (result, pos1)
-}
-}
-}
-} else {
+var currentPos := pos
+def term0 := _QUESTION(currentPos)
+if term0 = null
 return null
-}
-}
--* Definition<name=Primary, type=Object, definition=Options<[Sequence<terms=[Term<name=i, prefix=<null>, value=Identifier<Identifier>, suffix=<null>>, Term<name=<null>, prefix=NOT, value=Identifier<EQUAL>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<OPEN>, suffix=<null>>, Term<name=e, prefix=<null>, value=Identifier<Expression>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<CLOSE>, suffix=<null>>]>, Sequence<terms=[Term<name=l, prefix=<null>, value=Identifier<Literal>, suffix=<null>>]>, Sequence<terms=[Term<name=cl, prefix=<null>, value=Identifier<Class>, suffix=<null>>]>, Sequence<terms=[Term<name=d, prefix=<null>, value=Identifier<DOT>, suffix=<null>>]>]>> *-
-function _Primary(var pos0:Int):(Object, Int)? {
+currentPos := term0[0]
+q := term0[1]
+return (currentPos, q                                                                )
+                                                            }
+-* st:STAR *-
+function Suffix_seq3(pos:Int):(Int, Bit?)? {
+var q:Bit? := null
+var p:Bit? := null
+var st:Bit? := null
+var value:Object
+var currentPos := pos
+def term0 := _STAR(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+st := term0[1]
+return (currentPos, st                                                                )
+                                                            }
+-* p:PLUS *-
+function Suffix_seq4(pos:Int):(Int, Bit?)? {
+var q:Bit? := null
+var p:Bit? := null
+var st:Bit? := null
+var value:Object
+var currentPos := pos
+def term0 := _PLUS(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+p := term0[1]
+return (currentPos, p                                                                )
+                                                            }
+-* (q:QUESTION / st:STAR / p:PLUS) *-
+function Suffix_opt1(pos:Int):(Int, Bit?, Bit?, Bit?) {
+def seq0 := Suffix_seq2(pos                                                                )
+if seq0 != null {
+return (seq0[0], seq0[1], null, null                                                                    )
+                                                                }
+def seq1 := Suffix_seq3(pos                                                                )
+if seq1 != null {
+return (seq1[0], null, seq1[1], null                                                                    )
+                                                                }
+def seq2 := Suffix_seq4(pos                                                                )
+if seq2 != null {
+return (seq2[0], null, null, seq2[1]                                                                    )
+                                                                }
+return null
+                                                                }
+-* value:Primary (q:QUESTION / st:STAR / p:PLUS)? { {
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	}} *-
+function Suffix_seq5(pos:Int):(Int, Term) {
+var q:Bit? := null
+var p:Bit? := null
+var st:Bit? := null
+var value:Object
+var currentPos := pos
+def term0 := _Primary(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+value := term0[1]
+def term1:(Int, Bit?, Bit?, Bit?)?
+term1 := Suffix_opt1(currentPos                                                                    )
+if term1 != null {
+currentPos := term1[0]
+q := term1[1]
+st := term1[2]
+p := term1[3]
+                                                                    }
+def result:Term
+{
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	}
+return (currentPos, result)
+                                                                }
+-* (value:Primary (q:QUESTION / st:STAR / p:PLUS)? { {
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	}}) *-
+function Suffix_opt0(pos:Int):(Int, Term) {
+def seq0 := Suffix_seq5(pos                                                                    )
+if seq0 != null {
+return seq0
+                                                                    }
+return null
+                                                                    }
+-* Suffix:Term= (value:Primary (q:QUESTION / st:STAR / p:PLUS)? { {
+		def suf:Suffix? := null
+		if q != null
+			suf := Suffix.QUESTION
+		else if st != null
+			suf := Suffix.STAR
+		else if p != null
+			suf := Suffix.PLUS
+		result := new Term(null, null, value, suf)
+	}}) *-
+def Suffix_cache := new HashMap<Int, (Int, Term)?>()
+-- @unsafeFunction
+function _Suffix(pos:Int):(Int, Term)? {
+def cached := Suffix_cache[pos]
+if cached != null return cached
+def result := Suffix_opt0(pos)
+if result != null
+Suffix_cache[pos] := result
+return result
+                                                                    }
+-* i:Identifier !EQUAL { { result := i }} *-
+function Primary_seq1(pos:Int):(Int, Object) {
 var cl:CharClass? := null
 var d:Dot? := null
 var e:Options? := null
 var l:String? := null
 var i:Identifier? := null
-var pos1:Int
-pos1 := pos0
-def r9 := _Identifier(pos1)
-if r9 != null {
-pos1 := r9[1]
-i := r9[0]
-def save7 := pos1
-def r8 := _EQUAL(pos1)
-if r8 != null {
-pos1 := r8[1]
-pos1 := pos0
-def r6 := _OPEN(pos1)
-if r6 != null {
-pos1 := r6[1]
-def r5 := _Expression(pos1)
-if r5 != null {
-pos1 := r5[1]
-e := r5[0]
-def r4 := _CLOSE(pos1)
-if r4 != null {
-pos1 := r4[1]
-def result:Object  result := e  return (result, pos1)
-} else {
-pos1 := pos0
-def r3 := _Literal(pos1)
-if r3 != null {
-pos1 := r3[1]
-l := r3[0]
-def result:Object  result := l  return (result, pos1)
-} else {
-pos1 := pos0
-def r2 := _Class(pos1)
-if r2 != null {
-pos1 := r2[1]
-cl := r2[0]
-def result:Object  result := cl  return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _DOT(pos1)
-if r1 != null {
-pos1 := r1[1]
-d := r1[0]
-def result:Object  result := d  return (result, pos1)
-} else {
+var currentPos := pos
+def term0 := _Identifier(currentPos)
+if term0 = null
 return null
-}
-}
-}
-}
-} else {
-pos1 := pos0
-def r3 := _Literal(pos1)
-if r3 != null {
-pos1 := r3[1]
-l := r3[0]
-def result:Object  result := l  return (result, pos1)
-} else {
-pos1 := pos0
-def r2 := _Class(pos1)
-if r2 != null {
-pos1 := r2[1]
-cl := r2[0]
-def result:Object  result := cl  return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _DOT(pos1)
-if r1 != null {
-pos1 := r1[1]
-d := r1[0]
-def result:Object  result := d  return (result, pos1)
-} else {
+currentPos := term0[0]
+i := term0[1]
+def term1 := _EQUAL(currentPos)
+if term1 != null
 return null
-}
-}
-}
-}
-} else {
-pos1 := pos0
-def r3 := _Literal(pos1)
-if r3 != null {
-pos1 := r3[1]
-l := r3[0]
-def result:Object  result := l  return (result, pos1)
-} else {
-pos1 := pos0
-def r2 := _Class(pos1)
-if r2 != null {
-pos1 := r2[1]
-cl := r2[0]
-def result:Object  result := cl  return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _DOT(pos1)
-if r1 != null {
-pos1 := r1[1]
-d := r1[0]
-def result:Object  result := d  return (result, pos1)
-} else {
+def result:Object
+{ result := i }
+return (currentPos, result)
+                                                                    }
+-* OPEN e:Expression CLOSE { { result := e }} *-
+function Primary_seq2(pos:Int):(Int, Object) {
+var cl:CharClass? := null
+var d:Dot? := null
+var e:Options? := null
+var l:String? := null
+var i:Identifier? := null
+var currentPos := pos
+def term0 := _OPEN(currentPos)
+if term0 = null
 return null
-}
-}
-}
-}
-} else {
-pos1 := save7
-def result:Object  result := i  return (result, pos1)
-}
-} else {
-pos1 := pos0
-def r6 := _OPEN(pos1)
-if r6 != null {
-pos1 := r6[1]
-def r5 := _Expression(pos1)
-if r5 != null {
-pos1 := r5[1]
-e := r5[0]
-def r4 := _CLOSE(pos1)
-if r4 != null {
-pos1 := r4[1]
-def result:Object  result := e  return (result, pos1)
-} else {
-pos1 := pos0
-def r3 := _Literal(pos1)
-if r3 != null {
-pos1 := r3[1]
-l := r3[0]
-def result:Object  result := l  return (result, pos1)
-} else {
-pos1 := pos0
-def r2 := _Class(pos1)
-if r2 != null {
-pos1 := r2[1]
-cl := r2[0]
-def result:Object  result := cl  return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _DOT(pos1)
-if r1 != null {
-pos1 := r1[1]
-d := r1[0]
-def result:Object  result := d  return (result, pos1)
-} else {
+currentPos := term0
+def term1 := _Expression(currentPos)
+if term1 = null
 return null
-}
-}
-}
-}
-} else {
-pos1 := pos0
-def r3 := _Literal(pos1)
-if r3 != null {
-pos1 := r3[1]
-l := r3[0]
-def result:Object  result := l  return (result, pos1)
-} else {
-pos1 := pos0
-def r2 := _Class(pos1)
-if r2 != null {
-pos1 := r2[1]
-cl := r2[0]
-def result:Object  result := cl  return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _DOT(pos1)
-if r1 != null {
-pos1 := r1[1]
-d := r1[0]
-def result:Object  result := d  return (result, pos1)
-} else {
+currentPos := term1[0]
+e := term1[1]
+def term2 := _CLOSE(currentPos)
+if term2 = null
 return null
-}
-}
-}
-}
-} else {
-pos1 := pos0
-def r3 := _Literal(pos1)
-if r3 != null {
-pos1 := r3[1]
-l := r3[0]
-def result:Object  result := l  return (result, pos1)
-} else {
-pos1 := pos0
-def r2 := _Class(pos1)
-if r2 != null {
-pos1 := r2[1]
-cl := r2[0]
-def result:Object  result := cl  return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _DOT(pos1)
-if r1 != null {
-pos1 := r1[1]
-d := r1[0]
-def result:Object  result := d  return (result, pos1)
-} else {
+currentPos := term2
+def result:Object
+{ result := e }
+return (currentPos, result)
+                                                                    }
+-* l:Literal { { result := l }} *-
+function Primary_seq3(pos:Int):(Int, Object) {
+var cl:CharClass? := null
+var d:Dot? := null
+var e:Options? := null
+var l:String? := null
+var i:Identifier? := null
+var currentPos := pos
+def term0 := _Literal(currentPos)
+if term0 = null
 return null
-}
-}
-}
-}
-}
-}
--* Definition<name=Identifier, type=Identifier, definition=Options<[Sequence<terms=[Term<name=text, prefix=<null>, value=Identifier<IdentStart>, suffix=<null>>, Term<name=text, prefix=<null>, value=Identifier<IdentCont>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _Identifier(var pos0:Int):(Identifier, Int)? {
-def text := new Array<String>()
-var pos1:Int
-pos1 := pos0
-def r3 := _IdentStart(pos1)
-if r3 != null {
-pos1 := r3[1]
-text.add(r3[0])
+currentPos := term0[0]
+l := term0[1]
+def result:Object
+{ result := l }
+return (currentPos, result)
+                                                                    }
+-* cl:Class { { result := cl }} *-
+function Primary_seq4(pos:Int):(Int, Object) {
+var cl:CharClass? := null
+var d:Dot? := null
+var e:Options? := null
+var l:String? := null
+var i:Identifier? := null
+var currentPos := pos
+def term0 := _Class(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+cl := term0[1]
+def result:Object
+{ result := cl }
+return (currentPos, result)
+                                                                    }
+-* d:DOT { { result := d }} *-
+function Primary_seq5(pos:Int):(Int, Object) {
+var cl:CharClass? := null
+var d:Dot? := null
+var e:Options? := null
+var l:String? := null
+var i:Identifier? := null
+var currentPos := pos
+def term0 := _DOT(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+d := term0[1]
+def result:Object
+{ result := d }
+return (currentPos, result)
+                                                                    }
+-* (i:Identifier !EQUAL { { result := i }} / OPEN e:Expression CLOSE { { result := e }} / l:Literal { { result := l }} / cl:Class { { result := cl }} / d:DOT { { result := d }}) *-
+function Primary_opt0(pos:Int):(Int, Object) {
+def seq0 := Primary_seq1(pos                                                                        )
+if seq0 != null {
+return seq0
+                                                                        }
+def seq1 := Primary_seq2(pos                                                                        )
+if seq1 != null {
+return seq1
+                                                                        }
+def seq2 := Primary_seq3(pos                                                                        )
+if seq2 != null {
+return seq2
+                                                                        }
+def seq3 := Primary_seq4(pos                                                                        )
+if seq3 != null {
+return seq3
+                                                                        }
+def seq4 := Primary_seq5(pos                                                                        )
+if seq4 != null {
+return seq4
+                                                                        }
+return null
+                                                                        }
+-* Primary:Object= (i:Identifier !EQUAL { { result := i }} / OPEN e:Expression CLOSE { { result := e }} / l:Literal { { result := l }} / cl:Class { { result := cl }} / d:DOT { { result := d }}) *-
+def Primary_cache := new HashMap<Int, (Int, Object)?>()
+-- @unsafeFunction
+function _Primary(pos:Int):(Int, Object)? {
+def cached := Primary_cache[pos]
+if cached != null return cached
+def result := Primary_opt0(pos)
+if result != null
+Primary_cache[pos] := result
+return result
+                                                                        }
+-* text:IdentStart text:IdentCont* Spacing { { result := new Identifier(text.join("")) }} *-
+function Identifier_seq1(pos:Int):(Int, Identifier) {
+var text:Array<Char> := new Array<Char>()
+var currentPos := pos
+def term0_temp := _IdentStart(currentPos)
+def term0:(Int, ListView<Char>)?
+if term0_temp != null
+term0 := (term0_temp[0], [term0_temp[1]])
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0[0]
+text.addAll(term0[1])
 loop {
-def r2 := _IdentCont(pos1)
-if r2 != null {
-pos1 := r2[1]
-text.add(r2[0])
-continue
-} else {
+def term1_temp := _IdentCont(currentPos)
+def term1:(Int, ListView<Char>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
 break
-}
-}
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:Identifier 
-		result := new Identifier(text)
-	 return (result, pos1)
-} else {
+currentPos := term1[0]
+text.addAll(term1[1])
+                                                                            }
+def term2 := _Spacing(currentPos)
+if term2 = null
 return null
-}
-} else {
+currentPos := term2
+def result:Identifier
+{ result := new Identifier(text.join("")) }
+return (currentPos, result)
+                                                                        }
+-* (text:IdentStart text:IdentCont* Spacing { { result := new Identifier(text.join("")) }}) *-
+function Identifier_opt0(pos:Int):(Int, Identifier) {
+def seq0 := Identifier_seq1(pos                                                                            )
+if seq0 != null {
+return seq0
+                                                                            }
 return null
-}
-}
--* Definition<name=Range, type=Range, definition=Options<[Sequence<terms=[Term<name=start, prefix=<null>, value=Identifier<Char>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=-, suffix=<null>>, Term<name=end, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>, Sequence<terms=[Term<name=single, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>]>> *-
-function _Range(var pos0:Int):(Range, Int)? {
-var single:String? := null
-var end:String? := null
-var start:String? := null
-var pos1:Int
-pos1 := pos0
-def r3 := _Char(pos1)
-if r3 != null {
-pos1 := r3[1]
-start := r3[0]
-if literal(pos1, '-') {
-pos1 += 1
-def r2 := _Char(pos1)
-if r2 != null {
-pos1 := r2[1]
-end := r2[0]
-def result:Range 
-		result := new Range(start[0], end[0])
-	 return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _Char(pos1)
-if r1 != null {
-pos1 := r1[1]
-single := r1[0]
-def result:Range 
-		result := new Range(single[0], single[0])
-	 return (result, pos1)
-} else {
+                                                                            }
+-* Identifier:Identifier= (text:IdentStart text:IdentCont* Spacing { { result := new Identifier(text.join("")) }}) *-
+def Identifier_cache := new HashMap<Int, (Int, Identifier)?>()
+-- @unsafeFunction
+function _Identifier(pos:Int):(Int, Identifier)? {
+def cached := Identifier_cache[pos]
+if cached != null return cached
+def result := Identifier_opt0(pos)
+if result != null
+Identifier_cache[pos] := result
+return result
+                                                                            }
+-* start:Char - end:Char { { result := new Range(start, end) }} *-
+function Range_seq1(pos:Int):(Int, Range) {
+var single:Char? := null
+var end:Char? := null
+var start:Char? := null
+var currentPos := pos
+def term0 := _Char(currentPos)
+if term0 = null
 return null
-}
-}
-} else {
-pos1 := pos0
-def r1 := _Char(pos1)
-if r1 != null {
-pos1 := r1[1]
-single := r1[0]
-def result:Range 
-		result := new Range(single[0], single[0])
-	 return (result, pos1)
-} else {
+currentPos := term0[0]
+start := term0[1]
+def term1:Int?
+if literal(currentPos, '-')
+term1 := currentPos + 1
+else
+term1 := null
+if term1 = null
 return null
-}
-}
-} else {
-pos1 := pos0
-def r1 := _Char(pos1)
-if r1 != null {
-pos1 := r1[1]
-single := r1[0]
-def result:Range 
-		result := new Range(single[0], single[0])
-	 return (result, pos1)
-} else {
+currentPos := term1
+def term2 := _Char(currentPos)
+if term2 = null
 return null
-}
-}
-}
--* Definition<name=Class, type=CharClass, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=[, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=], suffix=<null>>, Term<name=ranges, prefix=<null>, value=Identifier<Range>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _Class(var pos0:Int):(CharClass, Int)? {
-def ranges := new Array<Range>()
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '[') {
-pos1 += 1
+currentPos := term2[0]
+end := term2[1]
+def result:Range
+{ result := new Range(start, end) }
+return (currentPos, result)
+                                                                            }
+-* single:Char { { result := new Range(single, single) }} *-
+function Range_seq2(pos:Int):(Int, Range) {
+var single:Char? := null
+var end:Char? := null
+var start:Char? := null
+var currentPos := pos
+def term0 := _Char(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+single := term0[1]
+def result:Range
+{ result := new Range(single, single) }
+return (currentPos, result)
+                                                                            }
+-* (start:Char - end:Char { { result := new Range(start, end) }} / single:Char { { result := new Range(single, single) }}) *-
+function Range_opt0(pos:Int):(Int, Range) {
+def seq0 := Range_seq1(pos                                                                                )
+if seq0 != null {
+return seq0
+                                                                                }
+def seq1 := Range_seq2(pos                                                                                )
+if seq1 != null {
+return seq1
+                                                                                }
+return null
+                                                                                }
+-* Range:Range= (start:Char - end:Char { { result := new Range(start, end) }} / single:Char { { result := new Range(single, single) }}) *-
+def Range_cache := new HashMap<Int, (Int, Range)?>()
+-- @unsafeFunction
+function _Range(pos:Int):(Int, Range)? {
+def cached := Range_cache[pos]
+if cached != null return cached
+def result := Range_opt0(pos)
+if result != null
+Range_cache[pos] := result
+return result
+                                                                                }
+-* !] ranges:Range *-
+function Class_seq2(pos:Int, ranges_in:Array<Range>):(Int, Array<Range>)? {
+var ranges:Array<Range> := new Array<Range>(ranges_in)
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, ']')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 != null
+return null
+def term1_temp := _Range(currentPos)
+def term1:(Int, ListView<Range>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+ranges.addAll(term1[1])
+return (currentPos, ranges                                                                                    )
+                                                                                }
+-* (!] ranges:Range) *-
+function Class_opt1(pos:Int, ranges:Array<Range>):(Int, Array<Range>) {
+def seq0 := Class_seq2(pos, ranges                                                                                    )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                    }
+return null
+                                                                                    }
+-* [ (!] ranges:Range)* ] Spacing { { result := new CharClass(ranges) }} *-
+function Class_seq3(pos:Int):(Int, CharClass) {
+var ranges:Array<Range> := new Array<Range>()
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '[')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
 loop {
-var pos2:Int
-pos2 := pos1
-def save3 := pos2
-if literal(pos2, ']') {
-pos2 += 1
+def term1:(Int, Array<Range>)?
+term1 := Class_opt1(currentPos, ranges                                                                                        )
+if term1 = null
 break
-} else {
-pos2 := save3
-def r2 := _Range(pos2)
-if r2 != null {
-pos2 := r2[1]
-ranges.add(r2[0])
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-if literal(pos1, ']') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:CharClass 
-		result := new CharClass(ranges)
-	 return (result, pos1)
-} else {
+currentPos := term1[0]
+ranges := new Array<Range>(term1[1])
+                                                                                        }
+def term2:Int?
+if literal(currentPos, ']')
+term2 := currentPos + 1
+else
+term2 := null
+if term2 = null
 return null
-}
-} else {
+currentPos := term2
+def term3 := _Spacing(currentPos)
+if term3 = null
 return null
-}
-} else {
+currentPos := term3
+def result:CharClass
+{ result := new CharClass(ranges) }
+return (currentPos, result)
+                                                                                    }
+-* ([ (!] ranges:Range)* ] Spacing { { result := new CharClass(ranges) }}) *-
+function Class_opt0(pos:Int):(Int, CharClass) {
+def seq0 := Class_seq3(pos                                                                                        )
+if seq0 != null {
+return seq0
+                                                                                        }
 return null
-}
-}
--* Definition<name=IdentStart, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=[a-zA-Z_], suffix=<null>>]>]>> *-
-function _IdentStart(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, 'a', 'z') | literal(pos1, 'A', 'Z') | literal(pos1, '_') {
-
-pos1 += 1
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
+                                                                                        }
+-* Class:CharClass= ([ (!] ranges:Range)* ] Spacing { { result := new CharClass(ranges) }}) *-
+def Class_cache := new HashMap<Int, (Int, CharClass)?>()
+-- @unsafeFunction
+function _Class(pos:Int):(Int, CharClass)? {
+def cached := Class_cache[pos]
+if cached != null return cached
+def result := Class_opt0(pos)
+if result != null
+Class_cache[pos] := result
+return result
+                                                                                        }
+-* c:[a-zA-Z_] { { result := c }} *-
+function IdentStart_seq1(pos:Int):(Int, Char) {
+var c:Char
+var currentPos := pos
+def term0:(Int, Char)?
+if literal(currentPos, 'a', 'z') | literal(currentPos, 'A', 'Z') | literal(currentPos, '_')
+term0 := (currentPos + 1, text[currentPos])
+else
+term0 := null
+if term0 = null
 return null
-}
-}
--* Definition<name=IdentCont, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<IdentStart>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=[0-9], suffix=<null>>]>]>> *-
-function _IdentCont(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-def r1 := _IdentStart(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-pos1 := pos0
-if literal(pos1, '0', '9') {
-
-pos1 += 1
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
+currentPos := term0[0]
+c := term0[1]
+def result:Char
+{ result := c }
+return (currentPos, result)
+                                                                                        }
+-* (c:[a-zA-Z_] { { result := c }}) *-
+function IdentStart_opt0(pos:Int):(Int, Char) {
+def seq0 := IdentStart_seq1(pos                                                                                            )
+if seq0 != null {
+return seq0
+                                                                                            }
 return null
-}
-}
-}
--* Definition<name=Literal, type=String, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=['], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=['], suffix=<null>>, Term<name=text, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=['], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=["], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=["], suffix=<null>>, Term<name=text, prefix=<null>, value=Identifier<Char>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=["], suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _Literal(var pos0:Int):(String, Int)? {
-def text := new Array<String>()
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '\'') {
-
-pos1 += 1
+                                                                                            }
+-* IdentStart:Char= (c:[a-zA-Z_] { { result := c }}) *-
+def IdentStart_cache := new HashMap<Int, (Int, Char)?>()
+-- @unsafeFunction
+function _IdentStart(pos:Int):(Int, Char)? {
+def cached := IdentStart_cache[pos]
+if cached != null return cached
+def result := IdentStart_opt0(pos)
+if result != null
+IdentStart_cache[pos] := result
+return result
+                                                                                            }
+-* c1:IdentStart { { result := c1 }} *-
+function IdentCont_seq1(pos:Int):(Int, Char) {
+var c1:Char? := null
+var c2:Char? := null
+var currentPos := pos
+def term0 := _IdentStart(currentPos)
+if term0 = null
+return null
+currentPos := term0[0]
+c1 := term0[1]
+def result:Char
+{ result := c1 }
+return (currentPos, result)
+                                                                                            }
+-* c2:[0-9] { { result := c2 }} *-
+function IdentCont_seq2(pos:Int):(Int, Char) {
+var c1:Char? := null
+var c2:Char? := null
+var currentPos := pos
+def term0:(Int, Char?)?
+if literal(currentPos, '0', '9')
+term0 := (currentPos + 1, text[currentPos])
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0[0]
+c2 := term0[1]
+def result:Char
+{ result := c2 }
+return (currentPos, result)
+                                                                                            }
+-* (c1:IdentStart { { result := c1 }} / c2:[0-9] { { result := c2 }}) *-
+function IdentCont_opt0(pos:Int):(Int, Char) {
+def seq0 := IdentCont_seq1(pos                                                                                                )
+if seq0 != null {
+return seq0
+                                                                                                }
+def seq1 := IdentCont_seq2(pos                                                                                                )
+if seq1 != null {
+return seq1
+                                                                                                }
+return null
+                                                                                                }
+-* IdentCont:Char= (c1:IdentStart { { result := c1 }} / c2:[0-9] { { result := c2 }}) *-
+def IdentCont_cache := new HashMap<Int, (Int, Char)?>()
+-- @unsafeFunction
+function _IdentCont(pos:Int):(Int, Char)? {
+def cached := IdentCont_cache[pos]
+if cached != null return cached
+def result := IdentCont_opt0(pos)
+if result != null
+IdentCont_cache[pos] := result
+return result
+                                                                                                }
+-* !['] text:Char *-
+function Literal_seq2(pos:Int, text_in:Array<Char>?):(Int, Array<Char>?)? {
+var text:Array<Char> := new Array<Char>(text_in)
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\'')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 != null
+return null
+def term1_temp := _Char(currentPos)
+def term1:(Int, ListView<Char>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+text.addAll(term1[1])
+return (currentPos, text                                                                                                    )
+                                                                                                }
+-* (!['] text:Char) *-
+function Literal_opt1(pos:Int, text:Array<Char>?):(Int, Array<Char>?) {
+def seq0 := Literal_seq2(pos, text                                                                                                    )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                    }
+return null
+                                                                                                    }
+-* ['] (!['] text:Char)* ['] Spacing { { result := Util.unescape(text.join("")) }} *-
+function Literal_seq3(pos:Int):(Int, String) {
+var text:Array<Char> := new Array<Char>()
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\'')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
 loop {
-var pos2:Int
-pos2 := pos1
-def save6 := pos2
-if literal(pos2, '\'') {
-
-pos2 += 1
+def term1:(Int, Array<Char>?)?
+term1 := Literal_opt1(currentPos, text                                                                                                        )
+if term1 = null
 break
-} else {
-pos2 := save6
-def r5 := _Char(pos2)
-if r5 != null {
-pos2 := r5[1]
-text.add(r5[0])
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-if literal(pos1, '\'') {
-
-pos1 += 1
-def r4 := _Spacing(pos1)
-if r4 != null {
-pos1 := r4[1]
-def result:String 
-		result := Util.unescape(text.join(""))
-	 return (result, pos1)
-} else {
-pos1 := pos0
-if literal(pos1, '\"') {
-
-pos1 += 1
+currentPos := term1[0]
+text := new Array<Char>?(term1[1])
+                                                                                                        }
+def term2:Int?
+if literal(currentPos, '\'')
+term2 := currentPos + 1
+else
+term2 := null
+if term2 = null
+return null
+currentPos := term2
+def term3 := _Spacing(currentPos)
+if term3 = null
+return null
+currentPos := term3
+def result:String
+{ result := Util.unescape(text.join("")) }
+return (currentPos, result)
+                                                                                                    }
+-* !["] text:Char *-
+function Literal_seq5(pos:Int, text_in:Array<Char>?):(Int, Array<Char>?)? {
+var text:Array<Char> := new Array<Char>(text_in)
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\"')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 != null
+return null
+def term1_temp := _Char(currentPos)
+def term1:(Int, ListView<Char>)?
+if term1_temp != null
+term1 := (term1_temp[0], [term1_temp[1]])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+text.addAll(term1[1])
+return (currentPos, text                                                                                                        )
+                                                                                                    }
+-* (!["] text:Char) *-
+function Literal_opt4(pos:Int, text:Array<Char>?):(Int, Array<Char>?) {
+def seq0 := Literal_seq5(pos, text                                                                                                        )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                        }
+return null
+                                                                                                        }
+-* ["] (!["] text:Char)* ["] Spacing { { result := Util.unescape(text.join("")) }} *-
+function Literal_seq6(pos:Int):(Int, String) {
+var text:Array<Char> := new Array<Char>()
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\"')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
 loop {
-var pos2:Int
-pos2 := pos1
-def save3 := pos2
-if literal(pos2, '\"') {
-
-pos2 += 1
+def term1:(Int, Array<Char>?)?
+term1 := Literal_opt4(currentPos, text                                                                                                            )
+if term1 = null
 break
-} else {
-pos2 := save3
-def r2 := _Char(pos2)
-if r2 != null {
-pos2 := r2[1]
-text.add(r2[0])
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-if literal(pos1, '\"') {
-
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:String 
-		result := Util.unescape(text.join(""))
-	 return (result, pos1)
-} else {
+currentPos := term1[0]
+text := new Array<Char>?(term1[1])
+                                                                                                            }
+def term2:Int?
+if literal(currentPos, '\"')
+term2 := currentPos + 1
+else
+term2 := null
+if term2 = null
 return null
-}
-} else {
+currentPos := term2
+def term3 := _Spacing(currentPos)
+if term3 = null
 return null
-}
-} else {
+currentPos := term3
+def result:String
+{ result := Util.unescape(text.join("")) }
+return (currentPos, result)
+                                                                                                        }
+-* (['] (!['] text:Char)* ['] Spacing { { result := Util.unescape(text.join("")) }} / ["] (!["] text:Char)* ["] Spacing { { result := Util.unescape(text.join("")) }}) *-
+function Literal_opt0(pos:Int):(Int, String) {
+def seq0 := Literal_seq3(pos                                                                                                            )
+if seq0 != null {
+return seq0
+                                                                                                            }
+def seq1 := Literal_seq6(pos                                                                                                            )
+if seq1 != null {
+return seq1
+                                                                                                            }
 return null
-}
-}
-} else {
-pos1 := pos0
-if literal(pos1, '\"') {
-
-pos1 += 1
+                                                                                                            }
+-* Literal:String= (['] (!['] text:Char)* ['] Spacing { { result := Util.unescape(text.join("")) }} / ["] (!["] text:Char)* ["] Spacing { { result := Util.unescape(text.join("")) }}) *-
+def Literal_cache := new HashMap<Int, (Int, String)?>()
+-- @unsafeFunction
+function _Literal(pos:Int):(Int, String)? {
+def cached := Literal_cache[pos]
+if cached != null return cached
+def result := Literal_opt0(pos)
+if result != null
+Literal_cache[pos] := result
+return result
+                                                                                                            }
+-* . Spacing { { result := new Dot() }} *-
+function DOT_seq1(pos:Int):(Int, Dot) {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '.')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+def result:Dot
+{ result := new Dot() }
+return (currentPos, result)
+                                                                                                            }
+-* (. Spacing { { result := new Dot() }}) *-
+function DOT_opt0(pos:Int):(Int, Dot) {
+def seq0 := DOT_seq1(pos                                                                                                                )
+if seq0 != null {
+return seq0
+                                                                                                                }
+return null
+                                                                                                                }
+-* DOT:Dot= (. Spacing { { result := new Dot() }}) *-
+def DOT_cache := new HashMap<Int, (Int, Dot)?>()
+-- @unsafeFunction
+function _DOT(pos:Int):(Int, Dot)? {
+def cached := DOT_cache[pos]
+if cached != null return cached
+def result := DOT_opt0(pos)
+if result != null
+DOT_cache[pos] := result
+return result
+                                                                                                                }
+-* \ char1:[nrt'"[]\] { { result := Util.unescape("\\" + char1)[0] }} *-
+function Char_seq1(pos:Int):(Int, Char) {
+var char2:Char? := null
+var char1:Char? := null
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\\')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1:(Int, Char?)?
+if literal(currentPos, 'n') | literal(currentPos, 'r') | literal(currentPos, 't') | literal(currentPos, '\'') | literal(currentPos, '\"') | literal(currentPos, '[') | literal(currentPos, ']') | literal(currentPos, '\\')
+term1 := (currentPos + 1, text[currentPos])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+char1 := term1[1]
+def result:Char
+{ result := Util.unescape("\\" + char1)[0] }
+return (currentPos, result)
+                                                                                                                }
+-* !\ char2:. { { result := char2 }} *-
+function Char_seq2(pos:Int):(Int, Char) {
+var char2:Char? := null
+var char1:Char? := null
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\\')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 != null
+return null
+def term1:(Int, Char?)?
+if currentPos < text.length
+term1 := (currentPos + 1, text[currentPos])
+else
+term1 := null
+if term1 = null
+return null
+currentPos := term1[0]
+char2 := term1[1]
+def result:Char
+{ result := char2 }
+return (currentPos, result)
+                                                                                                                }
+-* (\ char1:[nrt'"[]\] { { result := Util.unescape("\\" + char1)[0] }} / !\ char2:. { { result := char2 }}) *-
+function Char_opt0(pos:Int):(Int, Char) {
+def seq0 := Char_seq1(pos                                                                                                                    )
+if seq0 != null {
+return seq0
+                                                                                                                    }
+def seq1 := Char_seq2(pos                                                                                                                    )
+if seq1 != null {
+return seq1
+                                                                                                                    }
+return null
+                                                                                                                    }
+-* Char:Char= (\ char1:[nrt'"[]\] { { result := Util.unescape("\\" + char1)[0] }} / !\ char2:. { { result := char2 }}) *-
+def Char_cache := new HashMap<Int, (Int, Char)?>()
+-- @unsafeFunction
+function _Char(pos:Int):(Int, Char)? {
+def cached := Char_cache[pos]
+if cached != null return cached
+def result := Char_opt0(pos)
+if result != null
+Char_cache[pos] := result
+return result
+                                                                                                                    }
+-* = Spacing *-
+function EQUAL_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '=')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                    }
+-* (= Spacing) *-
+function EQUAL_opt0(pos:Int):Int? {
+def seq0 := EQUAL_seq1(pos                                                                                                                        )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                        }
+return null
+                                                                                                                        }
+-* EQUAL= (= Spacing) *-
+def EQUAL_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _EQUAL(pos:Int):Int? {
+def cached := EQUAL_cache[pos]
+if cached != null return cached
+def result := EQUAL_opt0(pos)
+if result != null
+EQUAL_cache[pos] := result
+return result
+                                                                                                                        }
+-* / Spacing *-
+function SLASH_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '/')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                        }
+-* (/ Spacing) *-
+function SLASH_opt0(pos:Int):Int? {
+def seq0 := SLASH_seq1(pos                                                                                                                            )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                            }
+return null
+                                                                                                                            }
+-* SLASH= (/ Spacing) *-
+def SLASH_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _SLASH(pos:Int):Int? {
+def cached := SLASH_cache[pos]
+if cached != null return cached
+def result := SLASH_opt0(pos)
+if result != null
+SLASH_cache[pos] := result
+return result
+                                                                                                                            }
+-* & Spacing { { result := true }} *-
+function AND_seq1(pos:Int):(Int, Bit) {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '&')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+def result:Bit
+{ result := true }
+return (currentPos, result)
+                                                                                                                            }
+-* (& Spacing { { result := true }}) *-
+function AND_opt0(pos:Int):(Int, Bit) {
+def seq0 := AND_seq1(pos                                                                                                                                )
+if seq0 != null {
+return seq0
+                                                                                                                                }
+return null
+                                                                                                                                }
+-* AND:Bit= (& Spacing { { result := true }}) *-
+def AND_cache := new HashMap<Int, (Int, Bit)?>()
+-- @unsafeFunction
+function _AND(pos:Int):(Int, Bit)? {
+def cached := AND_cache[pos]
+if cached != null return cached
+def result := AND_opt0(pos)
+if result != null
+AND_cache[pos] := result
+return result
+                                                                                                                                }
+-* ! Spacing { { result := true }} *-
+function NOT_seq1(pos:Int):(Int, Bit) {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '!')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+def result:Bit
+{ result := true }
+return (currentPos, result)
+                                                                                                                                }
+-* (! Spacing { { result := true }}) *-
+function NOT_opt0(pos:Int):(Int, Bit) {
+def seq0 := NOT_seq1(pos                                                                                                                                    )
+if seq0 != null {
+return seq0
+                                                                                                                                    }
+return null
+                                                                                                                                    }
+-* NOT:Bit= (! Spacing { { result := true }}) *-
+def NOT_cache := new HashMap<Int, (Int, Bit)?>()
+-- @unsafeFunction
+function _NOT(pos:Int):(Int, Bit)? {
+def cached := NOT_cache[pos]
+if cached != null return cached
+def result := NOT_opt0(pos)
+if result != null
+NOT_cache[pos] := result
+return result
+                                                                                                                                    }
+-* ^ Spacing *-
+function CUT_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '^')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                                    }
+-* (^ Spacing) *-
+function CUT_opt0(pos:Int):Int? {
+def seq0 := CUT_seq1(pos                                                                                                                                        )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                        }
+return null
+                                                                                                                                        }
+-* CUT= (^ Spacing) *-
+def CUT_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _CUT(pos:Int):Int? {
+def cached := CUT_cache[pos]
+if cached != null return cached
+def result := CUT_opt0(pos)
+if result != null
+CUT_cache[pos] := result
+return result
+                                                                                                                                        }
+-* < Spacing *-
+function LT_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '<')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                                        }
+-* (< Spacing) *-
+function LT_opt0(pos:Int):Int? {
+def seq0 := LT_seq1(pos                                                                                                                                            )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                            }
+return null
+                                                                                                                                            }
+-* LT= (< Spacing) *-
+def LT_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _LT(pos:Int):Int? {
+def cached := LT_cache[pos]
+if cached != null return cached
+def result := LT_opt0(pos)
+if result != null
+LT_cache[pos] := result
+return result
+                                                                                                                                            }
+-* > Spacing *-
+function GT_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '>')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                                            }
+-* (> Spacing) *-
+function GT_opt0(pos:Int):Int? {
+def seq0 := GT_seq1(pos                                                                                                                                                )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                }
+return null
+                                                                                                                                                }
+-* GT= (> Spacing) *-
+def GT_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _GT(pos:Int):Int? {
+def cached := GT_cache[pos]
+if cached != null return cached
+def result := GT_opt0(pos)
+if result != null
+GT_cache[pos] := result
+return result
+                                                                                                                                                }
+-* , Spacing *-
+function COMMA_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, ',')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                                                }
+-* (, Spacing) *-
+function COMMA_opt0(pos:Int):Int? {
+def seq0 := COMMA_seq1(pos                                                                                                                                                    )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                    }
+return null
+                                                                                                                                                    }
+-* COMMA= (, Spacing) *-
+def COMMA_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _COMMA(pos:Int):Int? {
+def cached := COMMA_cache[pos]
+if cached != null return cached
+def result := COMMA_opt0(pos)
+if result != null
+COMMA_cache[pos] := result
+return result
+                                                                                                                                                    }
+-* * Spacing { { result := true }} *-
+function STAR_seq1(pos:Int):(Int, Bit) {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '*')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+def result:Bit
+{ result := true }
+return (currentPos, result)
+                                                                                                                                                    }
+-* (* Spacing { { result := true }}) *-
+function STAR_opt0(pos:Int):(Int, Bit) {
+def seq0 := STAR_seq1(pos                                                                                                                                                        )
+if seq0 != null {
+return seq0
+                                                                                                                                                        }
+return null
+                                                                                                                                                        }
+-* STAR:Bit= (* Spacing { { result := true }}) *-
+def STAR_cache := new HashMap<Int, (Int, Bit)?>()
+-- @unsafeFunction
+function _STAR(pos:Int):(Int, Bit)? {
+def cached := STAR_cache[pos]
+if cached != null return cached
+def result := STAR_opt0(pos)
+if result != null
+STAR_cache[pos] := result
+return result
+                                                                                                                                                        }
+-* + Spacing { { result := true }} *-
+function PLUS_seq1(pos:Int):(Int, Bit) {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '+')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+def result:Bit
+{ result := true }
+return (currentPos, result)
+                                                                                                                                                        }
+-* (+ Spacing { { result := true }}) *-
+function PLUS_opt0(pos:Int):(Int, Bit) {
+def seq0 := PLUS_seq1(pos                                                                                                                                                            )
+if seq0 != null {
+return seq0
+                                                                                                                                                            }
+return null
+                                                                                                                                                            }
+-* PLUS:Bit= (+ Spacing { { result := true }}) *-
+def PLUS_cache := new HashMap<Int, (Int, Bit)?>()
+-- @unsafeFunction
+function _PLUS(pos:Int):(Int, Bit)? {
+def cached := PLUS_cache[pos]
+if cached != null return cached
+def result := PLUS_opt0(pos)
+if result != null
+PLUS_cache[pos] := result
+return result
+                                                                                                                                                            }
+-* ( Spacing *-
+function OPEN_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '(')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                                                            }
+-* (( Spacing) *-
+function OPEN_opt0(pos:Int):Int? {
+def seq0 := OPEN_seq1(pos                                                                                                                                                                )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                }
+return null
+                                                                                                                                                                }
+-* OPEN= (( Spacing) *-
+def OPEN_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _OPEN(pos:Int):Int? {
+def cached := OPEN_cache[pos]
+if cached != null return cached
+def result := OPEN_opt0(pos)
+if result != null
+OPEN_cache[pos] := result
+return result
+                                                                                                                                                                }
+-* ) Spacing *-
+function CLOSE_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, ')')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                                                                }
+-* () Spacing) *-
+function CLOSE_opt0(pos:Int):Int? {
+def seq0 := CLOSE_seq1(pos                                                                                                                                                                    )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                    }
+return null
+                                                                                                                                                                    }
+-* CLOSE= () Spacing) *-
+def CLOSE_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _CLOSE(pos:Int):Int? {
+def cached := CLOSE_cache[pos]
+if cached != null return cached
+def result := CLOSE_opt0(pos)
+if result != null
+CLOSE_cache[pos] := result
+return result
+                                                                                                                                                                    }
+-* : Spacing *-
+function COLON_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, ':')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+return currentPos
+                                                                                                                                                                    }
+-* (: Spacing) *-
+function COLON_opt0(pos:Int):Int? {
+def seq0 := COLON_seq1(pos                                                                                                                                                                        )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                        }
+return null
+                                                                                                                                                                        }
+-* COLON= (: Spacing) *-
+def COLON_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _COLON(pos:Int):Int? {
+def cached := COLON_cache[pos]
+if cached != null return cached
+def result := COLON_opt0(pos)
+if result != null
+COLON_cache[pos] := result
+return result
+                                                                                                                                                                        }
+-* ? Spacing { { result := true }} *-
+function QUESTION_seq1(pos:Int):(Int, Bit) {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '?')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
+def term1 := _Spacing(currentPos)
+if term1 = null
+return null
+currentPos := term1
+def result:Bit
+{ result := true }
+return (currentPos, result)
+                                                                                                                                                                        }
+-* (? Spacing { { result := true }}) *-
+function QUESTION_opt0(pos:Int):(Int, Bit) {
+def seq0 := QUESTION_seq1(pos                                                                                                                                                                            )
+if seq0 != null {
+return seq0
+                                                                                                                                                                            }
+return null
+                                                                                                                                                                            }
+-* QUESTION:Bit= (? Spacing { { result := true }}) *-
+def QUESTION_cache := new HashMap<Int, (Int, Bit)?>()
+-- @unsafeFunction
+function _QUESTION(pos:Int):(Int, Bit)? {
+def cached := QUESTION_cache[pos]
+if cached != null return cached
+def result := QUESTION_opt0(pos)
+if result != null
+QUESTION_cache[pos] := result
+return result
+                                                                                                                                                                            }
+-* Space *-
+function Spacing_seq2(pos:Int):Int? {
+var currentPos := pos
+def term0 := _Space(currentPos)
+if term0 = null
+return null
+currentPos := term0
+return currentPos
+                                                                                                                                                                            }
+-* Comment *-
+function Spacing_seq3(pos:Int):Int? {
+var currentPos := pos
+def term0 := _Comment(currentPos)
+if term0 = null
+return null
+currentPos := term0
+return currentPos
+                                                                                                                                                                            }
+-* (Space / Comment) *-
+function Spacing_opt1(pos:Int):Int? {
+def seq0 := Spacing_seq2(pos                                                                                                                                                                                )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                                }
+def seq1 := Spacing_seq3(pos                                                                                                                                                                                )
+if seq1 != null {
+return seq1 -- equal!
+                                                                                                                                                                                }
+return null
+                                                                                                                                                                                }
+-* (Space / Comment)* *-
+function Spacing_seq4(pos:Int):Int? {
+var currentPos := pos
 loop {
-var pos2:Int
-pos2 := pos1
-def save3 := pos2
-if literal(pos2, '\"') {
-
-pos2 += 1
+def term0:Int?
+term0 := Spacing_opt1(currentPos                                                                                                                                                                                    )
+if term0 = null
 break
-} else {
-pos2 := save3
-def r2 := _Char(pos2)
-if r2 != null {
-pos2 := r2[1]
-text.add(r2[0])
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-if literal(pos1, '\"') {
-
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:String 
-		result := Util.unescape(text.join(""))
-	 return (result, pos1)
-} else {
+currentPos := term0
+                                                                                                                                                                                    }
+return currentPos
+                                                                                                                                                                                }
+-* ((Space / Comment)*) *-
+function Spacing_opt0(pos:Int):Int? {
+def seq0 := Spacing_seq4(pos                                                                                                                                                                                    )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                                    }
 return null
-}
-} else {
+                                                                                                                                                                                    }
+-* Spacing= ((Space / Comment)*) *-
+def Spacing_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _Spacing(pos:Int):Int? {
+def cached := Spacing_cache[pos]
+if cached != null return cached
+def result := Spacing_opt0(pos)
+if result != null
+Spacing_cache[pos] := result
+return result
+                                                                                                                                                                                    }
+-* !EndOfLine . *-
+function Comment_seq2(pos:Int):Int? {
+var currentPos := pos
+def term0 := _EndOfLine(currentPos)
+if term0 != null
 return null
-}
-} else {
+def term1:Int?
+if currentPos < text.length
+term1 := currentPos + 1
+else
+term1 := null
+if term1 = null
 return null
-}
-}
-} else {
-pos1 := pos0
-if literal(pos1, '\"') {
-
-pos1 += 1
+currentPos := term1
+return currentPos
+                                                                                                                                                                                    }
+-* (!EndOfLine .) *-
+function Comment_opt1(pos:Int):Int? {
+def seq0 := Comment_seq2(pos                                                                                                                                                                                        )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                                        }
+return null
+                                                                                                                                                                                        }
+-* # (!EndOfLine .)* EndOfLine *-
+function Comment_seq3(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '#')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
+return null
+currentPos := term0
 loop {
-var pos2:Int
-pos2 := pos1
-def save3 := pos2
-if literal(pos2, '\"') {
-
-pos2 += 1
+def term1:Int?
+term1 := Comment_opt1(currentPos                                                                                                                                                                                            )
+if term1 = null
 break
-} else {
-pos2 := save3
-def r2 := _Char(pos2)
-if r2 != null {
-pos2 := r2[1]
-text.add(r2[0])
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-if literal(pos1, '\"') {
-
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:String 
-		result := Util.unescape(text.join(""))
-	 return (result, pos1)
-} else {
+currentPos := term1
+                                                                                                                                                                                            }
+def term2 := _EndOfLine(currentPos)
+if term2 = null
 return null
-}
-} else {
+currentPos := term2
+return currentPos
+                                                                                                                                                                                        }
+-* (# (!EndOfLine .)* EndOfLine) *-
+function Comment_opt0(pos:Int):Int? {
+def seq0 := Comment_seq3(pos                                                                                                                                                                                            )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                                            }
 return null
-}
-} else {
+                                                                                                                                                                                            }
+-* Comment= (# (!EndOfLine .)* EndOfLine) *-
+def Comment_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _Comment(pos:Int):Int? {
+def cached := Comment_cache[pos]
+if cached != null return cached
+def result := Comment_opt0(pos)
+if result != null
+Comment_cache[pos] := result
+return result
+                                                                                                                                                                                            }
+-*   *-
+function Space_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, ' ')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
 return null
-}
-}
-}
--* Definition<name=DOT, type=Dot, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=., suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _DOT(var pos0:Int):(Dot, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '.') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result:Dot 
-		result := new Dot()
-	 return (result, pos1)
-} else {
+currentPos := term0
+return currentPos
+                                                                                                                                                                                            }
+-* 	 *-
+function Space_seq2(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\t')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
 return null
-}
-} else {
+currentPos := term0
+return currentPos
+                                                                                                                                                                                            }
+-* EndOfLine *-
+function Space_seq3(pos:Int):Int? {
+var currentPos := pos
+def term0 := _EndOfLine(currentPos)
+if term0 = null
 return null
-}
-}
--* Definition<name=Char, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=\, suffix=<null>>, Term<name=char, prefix=<null>, value=[nrt'"[]\], suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=NOT, value=\, suffix=<null>>, Term<name=char, prefix=<null>, value=<DOT>, suffix=<null>>]>]>> *-
-function _Char(var pos0:Int):(String, Int)? {
-var char:String? := null
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '\\') {
-pos1 += 1
-if literal(pos1, 'n') | literal(pos1, 'r') | literal(pos1, 't') | literal(pos1, '\'') | literal(pos1, '\"') | literal(pos1, '[') | literal(pos1, ']') | literal(pos1, '\\') {
-char := text[pos1]->>(String)
-
-pos1 += 1
-def result:String 
-		result := Util.unescape("\\" + char)
-	 return (result, pos1)
-} else {
-pos1 := pos0
-def save1 := pos1
-if literal(pos1, '\\') {
-pos1 += 1
+currentPos := term0
+return currentPos
+                                                                                                                                                                                            }
+-* (  / 	 / EndOfLine) *-
+function Space_opt0(pos:Int):Int? {
+def seq0 := Space_seq1(pos                                                                                                                                                                                                )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                                                }
+def seq1 := Space_seq2(pos                                                                                                                                                                                                )
+if seq1 != null {
+return seq1 -- equal!
+                                                                                                                                                                                                }
+def seq2 := Space_seq3(pos                                                                                                                                                                                                )
+if seq2 != null {
+return seq2 -- equal!
+                                                                                                                                                                                                }
 return null
-} else {
-pos1 := save1
-if pos1 < text.length {
-char := text[pos1]->>(String)
-pos1 += 1
-def result:String 
-		result := char
-	 return (result, pos1)
-} else {
+                                                                                                                                                                                                }
+-* Space= (  / 	 / EndOfLine) *-
+def Space_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _Space(pos:Int):Int? {
+def cached := Space_cache[pos]
+if cached != null return cached
+def result := Space_opt0(pos)
+if result != null
+Space_cache[pos] := result
+return result
+                                                                                                                                                                                                }
+-* 
+ *-
+function EndOfLine_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\r\n')
+term0 := currentPos + 2
+else
+term0 := null
+if term0 = null
 return null
-}
-}
-}
-} else {
-pos1 := pos0
-def save1 := pos1
-if literal(pos1, '\\') {
-pos1 += 1
+currentPos := term0
+return currentPos
+                                                                                                                                                                                                }
+-* 
+ *-
+function EndOfLine_seq2(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\n')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
 return null
-} else {
-pos1 := save1
-if pos1 < text.length {
-char := text[pos1]->>(String)
-pos1 += 1
-def result:String 
-		result := char
-	 return (result, pos1)
-} else {
+currentPos := term0
+return currentPos
+                                                                                                                                                                                                }
+-*  *-
+function EndOfLine_seq3(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if literal(currentPos, '\r')
+term0 := currentPos + 1
+else
+term0 := null
+if term0 = null
 return null
-}
-}
-}
-}
--* Definition<name=EQUAL, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value==, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _EQUAL(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '=') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
+currentPos := term0
+return currentPos
+                                                                                                                                                                                                }
+-* (
+ / 
+ / ) *-
+function EndOfLine_opt0(pos:Int):Int? {
+def seq0 := EndOfLine_seq1(pos                                                                                                                                                                                                    )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                                                    }
+def seq1 := EndOfLine_seq2(pos                                                                                                                                                                                                    )
+if seq1 != null {
+return seq1 -- equal!
+                                                                                                                                                                                                    }
+def seq2 := EndOfLine_seq3(pos                                                                                                                                                                                                    )
+if seq2 != null {
+return seq2 -- equal!
+                                                                                                                                                                                                    }
 return null
-}
-} else {
+                                                                                                                                                                                                    }
+-* EndOfLine= (
+ / 
+ / ) *-
+def EndOfLine_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _EndOfLine(pos:Int):Int? {
+def cached := EndOfLine_cache[pos]
+if cached != null return cached
+def result := EndOfLine_opt0(pos)
+if result != null
+EndOfLine_cache[pos] := result
+return result
+                                                                                                                                                                                                    }
+-* !. *-
+function EndOfFile_seq1(pos:Int):Int? {
+var currentPos := pos
+def term0:Int?
+if currentPos < text.length
+term0 := currentPos + 1
+else
+term0 := null
+if term0 != null
 return null
-}
-}
--* Definition<name=SLASH, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=/, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _SLASH(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '/') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
+return currentPos
+                                                                                                                                                                                                    }
+-* (!.) *-
+function EndOfFile_opt0(pos:Int):Int? {
+def seq0 := EndOfFile_seq1(pos                                                                                                                                                                                                        )
+if seq0 != null {
+return seq0 -- equal!
+                                                                                                                                                                                                        }
 return null
-}
-} else {
-return null
-}
-}
--* Definition<name=AND, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=&, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _AND(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '&') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=NOT, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=!, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _NOT(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '!') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=QUESTION, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=?, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _QUESTION(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '?') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=STAR, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=*, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _STAR(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '*') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=PLUS, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=+, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _PLUS(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '+') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=OPEN, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=(, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _OPEN(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '(') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=CLOSE, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=), suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _CLOSE(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, ')') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=COLON, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=:, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Identifier<Spacing>, suffix=<null>>]>]>> *-
-function _COLON(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, ':') {
-pos1 += 1
-def r1 := _Spacing(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=Spacing, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Space>, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<Comment>, suffix=<null>>]>]>, suffix=STAR>]>]>> *-
-function _Spacing(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-loop {
-var pos2:Int
-pos2 := pos1
-def r2 := _Space(pos2)
-if r2 != null {
-pos2 := r2[1]
-pos1 := pos2
-continue
-} else {
-pos2 := pos1
-def r1 := _Comment(pos2)
-if r1 != null {
-pos2 := r1[1]
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-def result := text[pos0 .. pos1] return (result, pos1)
-}
--* Definition<name=Comment, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=#, suffix=<null>>, Term<name=<null>, prefix=<null>, value=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=Identifier<EndOfLine>, suffix=<null>>, Term<name=<null>, prefix=<null>, value=<DOT>, suffix=<null>>]>]>, suffix=STAR>, Term<name=<null>, prefix=<null>, value=Identifier<EndOfLine>, suffix=<null>>]>]>> *-
-function _Comment(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '#') {
-pos1 += 1
-loop {
-var pos2:Int
-pos2 := pos1
-def save2 := pos2
-def r3 := _EndOfLine(pos2)
-if r3 != null {
-pos2 := r3[1]
-break
-} else {
-pos2 := save2
-if pos2 < text.length {
-pos2 += 1
-pos1 := pos2
-continue
-} else {
-break
-}
-}
-}
-def r1 := _EndOfLine(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-} else {
-return null
-}
-}
--* Definition<name=Space, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value= , suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=	, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=Identifier<EndOfLine>, suffix=<null>>]>]>> *-
-function _Space(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, ' ') {
-pos1 += 1
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-pos1 := pos0
-if literal(pos1, '\t') {
-pos1 += 1
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-pos1 := pos0
-def r1 := _EndOfLine(pos1)
-if r1 != null {
-pos1 := r1[1]
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-}
-}
-}
--* Definition<name=EndOfLine, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=<null>, value=
-, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=
-, suffix=<null>>]>, Sequence<terms=[Term<name=<null>, prefix=<null>, value=, suffix=<null>>]>]>> *-
-function _EndOfLine(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-if literal(pos1, '\r\n') {
-pos1 += 2
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-pos1 := pos0
-if literal(pos1, '\n') {
-pos1 += 1
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-pos1 := pos0
-if literal(pos1, '\r') {
-pos1 += 1
-def result := text[pos0 .. pos1] return (result, pos1)
-} else {
-return null
-}
-}
-}
-}
--* Definition<name=EndOfFile, type=<null>, definition=Options<[Sequence<terms=[Term<name=<null>, prefix=NOT, value=<DOT>, suffix=<null>>]>]>> *-
-function _EndOfFile(var pos0:Int):(String, Int)? {
-var pos1:Int
-pos1 := pos0
-def save1 := pos1
-if pos1 < text.length {
-pos1 += 1
-return null
-} else {
-pos1 := save1
-def result := text[pos0 .. pos1] return (result, pos1)
-}
-}
-}
+                                                                                                                                                                                                        }
+-* EndOfFile= (!.) *-
+def EndOfFile_cache := new HashMap<Int, Int?>()
+-- @unsafeFunction
+function _EndOfFile(pos:Int):Int? {
+def cached := EndOfFile_cache[pos]
+if cached != null return cached
+def result := EndOfFile_opt0(pos)
+if result != null
+EndOfFile_cache[pos] := result
+return result
+                                                                                                                                                                                                        }
+} -- class

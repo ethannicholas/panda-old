@@ -16,10 +16,10 @@
 		function format(fmt:String):String {
 			def code:String
 			if self.code != null
-				code := self.code
+				code := "{ \{self.code} }\n"
 			else
-				code := "<null>"
-			return "Grammar<definitions=\{definitions}>"
+				code := ""
+			return code + definitions.join("\n")
 		}
 	}
 
@@ -36,7 +36,7 @@
 
 		@override
 		function format(fmt:String):String {
-			return "Identifier<\{text}>"
+			return text
 		}
 	}
 
@@ -57,10 +57,10 @@
 		function format(fmt:String):String {
 			def type:String
 			if self.type != null
-				type := self.type
+				type := ":" + self.type
 			else
-				type := "<null>"
-			return "Definition<name=\{name}, type=\{type}, definition=\{definition}>"
+				type := ""
+			return "\{name}\{type} = \{definition}"
 		}
 	}
 
@@ -73,7 +73,7 @@
 
 		@override
 		function format(fmt:String):String {
-			return "Options<\{options}>"
+			return "(" + options.join(" / ") + ")"
 		}
 	}
 
@@ -94,10 +94,10 @@
 		function format(fmt:String):String {
 			def code:String
 			if self.code != null
-				code := self.code
+				code := " { \{self.code} }"
 			else
-				code := "<null>"
-			return "Sequence<terms=\{terms}>"
+				code := ""
+			return terms.join(" ") + code
 		}
 	}
 
@@ -160,29 +160,38 @@
 
 		@override
 		function format(fmt:String):String {
-			def result := new MutableString("Term<name=")
+			def result := new MutableString()
 			if name != null
-				result.append(name)
-			else
-				result.append("<null>")
-			result.append(", prefix=")
-			if prefix != null
-				result.append(prefix)
-			else
-				result.append("<null>")
-			result.append(", value=\{value}, suffix=")
-			if suffix != null
-				result.append(suffix)
-			else
-				result.append("<null>")
-			return result + ">"
+				result.append(name + ":")
+			switch prefix {
+				case Prefix.AND: result.append("&")
+				case Prefix.NOT: result.append("!")
+			}
+			result.append(value)
+			switch suffix {
+				case Suffix.QUESTION: result.append("?")
+				case Suffix.STAR: result.append("*")
+				case Suffix.PLUS: result.append("+")
+			}
+			return result->>(String)
 		}
+	}
+
+	class Cut : Term {
+		constructor() {
+			super.constructor("^", null, "^", null)
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "^"
+		}		
 	}
 
 	class Dot {
 		@override
 		function format(fmt:String):String {
-			return "<DOT>"
+			return "."
 		}
 	}
 
@@ -197,10 +206,19 @@
 
 Grammar:Grammar = Spacing code:Code? definitions:Definition+ EndOfFile 
 	{ result := new Grammar(definitions, code) }
-Code = '{' (Code / !'}' .)* '}' Spacing
+Code:String = c:'{' (c:Code / !'}' c:.)* c:'}' Spacing
+	{ result := c.join("") }
 Definition:Definition = id:Identifier (COLON type:Type)? EQUAL expr:Expression 
 	{ result := new Definition(id.text, type, expr) }
-Type:String = id:Identifier { result := id.text.trim }
+Type:String = id:Identifier (LT t:Type (COMMA t:Type)* GT)? nullable:QUESTION? 
+	{
+ 		var text := id.text.trim 
+ 		if t.length > 0
+ 			text += "<\{t.join(',')}>"
+ 		if nullable != null
+ 			text += "?"
+ 		result := text
+ 	}
 Expression:Options = seq:Sequence (SLASH seq:Sequence)* 
 	{ result := new Options(seq) }
 Sequence:Sequence = terms:Prefix* code:Code? 
@@ -219,7 +237,10 @@ Prefix:Term = (id:Identifier COLON)? (a:AND / n:NOT)? s:Suffix
 			name := null
 		result := new Term(name, pre, s.value, s.suffix)
 	}
-Suffix:Term = value:Primary (q:QUESTION / st:STAR / p:PLUS)? 
+/
+	CUT
+	{ result := new Cut() }
+Suffix:Term = value:Primary (q:QUESTION / st:STAR / p:PLUS)?
 	{
 		def suf:Suffix? := null
 		if q != null
@@ -230,63 +251,69 @@ Suffix:Term = value:Primary (q:QUESTION / st:STAR / p:PLUS)?
 			suf := Suffix.PLUS
 		result := new Term(null, null, value, suf)
 	}
-Primary:Object = i:Identifier !EQUAL { result := i }
-	/ OPEN e:Expression CLOSE { result := e }
-	/ l:Literal { result := l }
-	/ cl:Class { result := cl }
-	/ d:DOT  { result := d }
+Primary:Object = i:Identifier !EQUAL 
+	{ result := i }
+/ 
+	OPEN e:Expression CLOSE 
+	{ result := e }
+/ 
+	l:Literal 
+	{ result := l }
+/ 
+	cl:Class 
+	{ result := cl }
+/ 
+	d:DOT  
+	{ result := d }
 
 Identifier:Identifier = text:IdentStart text:IdentCont* Spacing  
-	{
-		result := new Identifier(text)
-	}
+	{ result := new Identifier(text.join("")) }
 
 Range:Range = start:Char '-' end:Char
-	{
-		result := new Range(start[0], end[0])
-	}
-	/ single:Char 
-	{
-		result := new Range(single[0], single[0])
-	}
+	{ result := new Range(start, end) }
+/ 
+	single:Char 
+	{ result := new Range(single, single) }
 
 Class:CharClass = '[' (!']' ranges:Range)* ']' Spacing 
-	{
-		result := new CharClass(ranges)
-	}
+	{ result := new CharClass(ranges) }
 
-IdentStart = [a-zA-Z_]
-IdentCont = IdentStart / [0-9]
+IdentStart:Char = c:[a-zA-Z_]
+	{ result := c }
+IdentCont:Char = c1:IdentStart
+	{ result := c1 }
+/ 
+	c2:[0-9]
+	{ result := c2 }
 Literal:String = ['] (!['] text:Char)* ['] Spacing 
-	{
-		result := Util.unescape(text.join(""))
-	}
+	{ result := Util.unescape(text.join("")) }
 / ["] (!["] text:Char)* ["] Spacing 
-	{
-		result := Util.unescape(text.join(""))
-	}
+	{ result := Util.unescape(text.join("")) }
 DOT:Dot = '.' Spacing
-	{
-		result := new Dot()
-	}
-Char = '\\' char:[nrt'"\[\]\\] 
-	{
-		result := Util.unescape("\\" + char)
-	}
-/ !'\\' char:.
-	{
-		result := char
-	}
+	{ result := new Dot() }
+Char:Char = '\\' char1:[nrt'"\[\]\\] 
+	{ result := Util.unescape("\\" + char1)[0] }
+/ !'\\' char2:.
+	{ result := char2 }
 EQUAL = '=' Spacing 
 SLASH = '/' Spacing 
-AND = '&' Spacing 
-NOT = '!' Spacing 
-QUESTION = '?' Spacing 
-STAR = '*' Spacing 
-PLUS = '+' Spacing 
+AND:Bit = '&' Spacing 
+	{ result := true }
+NOT:Bit = '!' Spacing 
+	{ result := true }
+CUT = '^' Spacing
+LT = '<' Spacing 
+GT = '>' Spacing 
+COMMA = ',' Spacing 
+STAR:Bit = '*' Spacing 
+	{ result := true }
+PLUS:Bit = '+' Spacing 
+	{ result := true }
 OPEN = '(' Spacing 
 CLOSE = ')' Spacing 
 COLON = ':' Spacing
+QUESTION:Bit = '?' Spacing
+	{ result := true }
 Spacing = (Space / Comment)*
 Comment = '#' (!EndOfLine .)* EndOfLine 
 Space = ' ' / '\t' / EndOfLine 
