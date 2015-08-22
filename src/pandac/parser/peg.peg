@@ -23,7 +23,19 @@
 		}
 	}
 
-	class Identifier {
+	@abstract
+	class Term {
+		var name:String?
+
+		constructor() {
+		}
+
+		constructor(name:String) {
+			self.name := name
+		}
+	}
+
+	class Identifier : Term {
 		def text:String
 
 		constructor(text:String) {
@@ -64,16 +76,16 @@
 		}
 	}
 
-	class Options {
-		def options:ListView<Sequence>
+	class Options : Term {
+		def sequences:ListView<Sequence>
 
-		constructor(options:ListView<Sequence>) {
-			self.options := options
+		constructor(sequences:ListView<Sequence>) {
+			self.sequences := sequences
 		}
 
 		@override
 		function format(fmt:String):String {
-			return "(" + options.join(" / ") + ")"
+			return "(" + sequences.join(" / ") + ")"
 		}
 	}
 
@@ -120,7 +132,7 @@
 		}
 	}
 
-	class CharClass {
+	class CharClass : Term {
 		def ranges:ListView<Range>
 
 		constructor(ranges:ListView<Range>) {
@@ -133,62 +145,94 @@
 		}		
 	}
 
-	enum Prefix {
-		AND, NOT
+	class Quantifier : Term {
+		def term:Term
+
+		constructor(term:Term) {
+			self.term := term
+		}
 	}
 
-	enum Suffix {
-		QUESTION, STAR, PLUS
-	}
-
-	class Term {
-		def name:String?
-
-		def prefix:Prefix?
-
-		def value:Object
-
-		def suffix:Suffix?
-
-		constructor(name:String?, prefix:Prefix?, value:Object, 
-				suffix:Suffix?) {
-			self.name := name
-			self.prefix := prefix
-			self.value := value
-			self.suffix := suffix
+	class And : Quantifier {
+		constructor(name:Identifier?, term:Term) {
+			super.constructor(term)
+			if name != null
+				self.name := name.text
 		}
 
 		@override
 		function format(fmt:String):String {
-			def result := new MutableString()
-			if name != null
-				result.append(name + ":")
-			switch prefix {
-				case Prefix.AND: result.append("&")
-				case Prefix.NOT: result.append("!")
-			}
-			result.append(value)
-			switch suffix {
-				case Suffix.QUESTION: result.append("?")
-				case Suffix.STAR: result.append("*")
-				case Suffix.PLUS: result.append("+")
-			}
-			return result->>(String)
+			return "&" + term
 		}
 	}
 
-	class Cut : Term {
-		constructor() {
-			super.constructor("^", null, "^", null)
+	class Not : Quantifier {
+		constructor(name:Identifier?, term:Term) {
+			super.constructor(term)
+			if name != null
+				self.name := name.text
 		}
 
+		@override
+		function format(fmt:String):String {
+			return "!" + term
+		}
+	}
+
+	class Optional : Quantifier {
+		constructor(term:Term) {
+			super.constructor(term)
+		}
+
+		@override
+		function format(fmt:String):String {
+			return term + "?"
+		}
+	}
+
+	class Star : Quantifier {
+		constructor(term:Term) {
+			super.constructor(term)
+		}
+
+		@override
+		function format(fmt:String):String {
+			return term + "*"
+		}
+	}
+
+	class Plus : Quantifier {
+		constructor(term:Term) {
+			super.constructor(term)
+		}
+
+		@override
+		function format(fmt:String):String {
+			return term + "+"
+		}
+	}
+
+	class Literal : Term {
+		def text:String
+
+		constructor(text:String) {
+			self.text := text
+		}
+
+		@override
+		function format(fmt:String):String {
+			return text
+		}		
+	}
+
+	class Cut : Term {
 		@override
 		function format(fmt:String):String {
 			return "^"
 		}		
 	}
 
-	class Dot {
+	class Dot : Term {
 		@override
 		function format(fmt:String):String {
 			return "."
@@ -223,35 +267,33 @@ Expression:Options = seq:Sequence (SLASH seq:Sequence)*
 	{ result := new Options(seq) }
 Sequence:Sequence = terms:Prefix* code:Code? 
 	{ result := new Sequence(terms, code) }
-Prefix:Term = (id:Identifier COLON)? (a:AND / n:NOT)? s:Suffix 
+Prefix:Term = (id1:Identifier COLON)? a:AND s1:Suffix
+	{ result := new And(id1, s2) }
+/ 
+	(id2:Identifier COLON)? n:NOT s2:Suffix
+	{ result := new Not(id2, s2) }
+/
+	(id3:Identifier COLON)? s3:Suffix
 	{ 
-		def pre:Prefix := null
-		if a != null
-			pre := Prefix.AND
-		else if n != null
-			pre := Prefix.NOT
-		def name:String?
-		if id != null
-			name := id.text
-		else
-			name := null
-		result := new Term(name, pre, s.value, s.suffix)
+		if id3 != null
+			s3.name := id3.text
+		result := s3
 	}
 /
 	CUT
 	{ result := new Cut() }
 Suffix:Term = value:Primary (q:QUESTION / st:STAR / p:PLUS)?
 	{
-		def suf:Suffix? := null
 		if q != null
-			suf := Suffix.QUESTION
+			result := new Optional(value)
 		else if st != null
-			suf := Suffix.STAR
+			result := new Star(value)
 		else if p != null
-			suf := Suffix.PLUS
-		result := new Term(null, null, value, suf)
+			result := new Plus(value)
+		else
+			result := value
 	}
-Primary:Object = i:Identifier !EQUAL 
+Primary:Term = i:Identifier !EQUAL 
 	{ result := i }
 / 
 	OPEN e:Expression CLOSE 
@@ -270,29 +312,29 @@ Identifier:Identifier = text:IdentStart text:IdentCont* Spacing
 	{ result := new Identifier(text.join("")) }
 
 Range:Range = start:Char '-' end:Char
-	{ result := new Range(start, end) }
+	{ result := new Range(start[0], end[0]) }
 / 
 	single:Char 
-	{ result := new Range(single, single) }
+	{ result := new Range(single[0], single[0]) }
 
 Class:CharClass = '[' (!']' ranges:Range)* ']' Spacing 
 	{ result := new CharClass(ranges) }
 
-IdentStart:Char = c:[a-zA-Z_]
+IdentStart:String = c:[a-zA-Z_]
 	{ result := c }
-IdentCont:Char = c1:IdentStart
+IdentCont:String = c1:IdentStart
 	{ result := c1 }
 / 
 	c2:[0-9]
 	{ result := c2 }
-Literal:String = ['] (!['] text:Char)* ['] Spacing 
-	{ result := Util.unescape(text.join("")) }
+Literal:Literal = ['] (!['] text:Char)* ['] Spacing 
+	{ result := new Literal(Util.unescape(text.join(""))) }
 / ["] (!["] text:Char)* ["] Spacing 
-	{ result := Util.unescape(text.join("")) }
+	{ result := new Literal(Util.unescape(text.join(""))) }
 DOT:Dot = '.' Spacing
 	{ result := new Dot() }
-Char:Char = '\\' char1:[nrt'"\[\]\\] 
-	{ result := Util.unescape("\\" + char1)[0] }
+Char:String = '\\' char1:[nrt'"\[\]\\] 
+	{ result := Util.unescape("\\" + char1) }
 / !'\\' char2:.
 	{ result := char2 }
 EQUAL = '=' Spacing 
