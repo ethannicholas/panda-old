@@ -15,22 +15,24 @@ uses org.pandalanguage.pandac.types.UnresolvedType
 class CompilerErrorReporter : ErrorReporter {
     constant ERROR_MESSAGE := "error"
     constant WARNING_MESSAGE := "warning"
-    def queue:MessageQueue
+    def compiler:PandaCompiler
 
-    constructor(queue:MessageQueue) {
-        self.queue := queue
+    constructor(compiler:PandaCompiler) {
+        self.compiler := compiler
     }
 
     @override
     method error(message:String, position:Position) {
-        Console.writeLine("error: \{position}: \{message}")
-        queue.post(ERROR_MESSAGE)
+        Console.writeLine("error: \{position.format(compiler.parser)}: " + 
+                message)
+        compiler.errorQueue.post(ERROR_MESSAGE)
     }
 
     @override
     method warning(message:String, position:Position) {
-        Console.writeLine("warning: \{position}: \{message}")
-        queue.post(WARNING_MESSAGE)
+        Console.writeLine("warning: \{position.format(compiler.parser)}: " +
+                message)
+        compiler.errorQueue.post(WARNING_MESSAGE)
     }
 }
 
@@ -43,7 +45,8 @@ class PandaCompiler {
     var lastCheckpointLabel:String?
     var lastCheckpointTime:Int64
     def errorQueue := new MessageQueue()
-    def errors := new CompilerErrorReporter(errorQueue)
+    def errors := new CompilerErrorReporter(self)
+    def parser := new PandaParser(errors)
     var errorCount := 0
     var warningCount := 0
 
@@ -165,8 +168,7 @@ class PandaCompiler {
                     if f = null
                         break
                     def input := new BufferedInputStream(f.openInputStream())
-                    def parsed := new PandaParser(errorReporter).parseFile(
-                            f.path, input)
+                    def parsed := parser.parseFile(f.path, input)
                     if parsed != null
                         result.add(parsed)
                     input.close()
@@ -181,7 +183,7 @@ class PandaCompiler {
         }*-
         for f in settings.sources {
             def input := new BufferedInputStream(f.openInputStream())
-            def parsed := new PandaParser(errors).parseFile(f.path, input)
+            def parsed := parser.parseFile(f)
             if parsed != null
                 result.add(parsed)
             input.close()

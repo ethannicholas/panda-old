@@ -19,7 +19,6 @@ CORE_FILES="src/core/panda/panda/core/*.panda\
 
 echo "Compiling core (Java)..."
 
-mkdir -p $JAVA_TARGET/core/java
 $PANDAC -XnoCoreLib -f javah -o $JAVA_TARGET/core/java $CORE_FILES
 mkdir -p $JAVA_TARGET/core/lib
 $PANDAC -XnoCoreLib -f java -o $JAVA_TARGET/core/java $CORE_FILES
@@ -34,9 +33,13 @@ jar cf $JAVA_TARGET/core/lib/PandaCoreClasses.jar  -C $JAVA_TARGET/core/classes 
 
 mkdir -p $JAVA_TARGET/pandac/bin
 cp $JAVA_TARGET/core/lib/PandaCoreClasses.jar $JAVA_TARGET/pandac/bin/panda.jar
-
 export PANDA_HOME="$BASEDIR/build"
-$BASEDIR/scripts/build_plex.sh
+
+echo "Creating parser..."
+mkdir -p $JAVA_TARGET
+$PANDAC -o $JAVA_TARGET/peggenerator.jar -f jar src/pandac/parser/PEGGenerator.panda src/pandac/parser/PEGParser.panda
+mkdir -p $SHARED_TARGET
+java -jar $JAVA_TARGET/peggenerator.jar src/pandac/parser/panda.peg $SHARED_TARGET/PandaPEGParser.panda
 
 echo "Compiling pandac (Java)..."
 
@@ -80,12 +83,6 @@ fi
 echo ")" >> "$STATIC_SETTINGS"
 echo "}" >> "$STATIC_SETTINGS"
 
-mkdir -p "$NATIVE_TARGET/plex/src"
-java -jar "$JAVA_TARGET/plex/bin/plex.jar" src/pandac/plex/Panda.plex "$NATIVE_TARGET/plex/src/Lexer.panda"
-
 mkdir -p "$JAVA_TARGET/pandac/bin"
 $PANDAC -XpreserveTempArtifacts -o "$JAVA_TARGET/pandac/bin/pandac.jar" -f jar `find src/pandac/panda -name "*.panda"` \
-    src/plex/panda/org/pandalanguage/plex/runtime/*.panda "$NATIVE_TARGET/plex/src/Lexer.panda" \
-    "$STATIC_SETTINGS"
-
-
+    "$STATIC_SETTINGS" $SHARED_TARGET/PandaPEGParser.panda

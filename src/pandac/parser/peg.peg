@@ -92,7 +92,7 @@
 	class Sequence {
 		def terms:ListView<Term>
 
-		def code:String?
+		var code:String?
 
 		constructor(terms:ListView<Term>, code:String?) {
 			self.terms := terms
@@ -156,6 +156,7 @@
 	class And : Quantifier {
 		constructor(name:Identifier?, term:Term) {
 			super.constructor(term)
+			assert term != null
 			if name != null
 				self.name := name.text
 		}
@@ -243,7 +244,8 @@
 		@class
 		function unescape(text:String):String {
 			return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
-					"\t").replace("\\[", "[").replace("\\]", "]").replace("\\\\", "\\")
+					"\t").replace("\\[", "[").replace("\\]", "]").
+					replace("\\\\", "\\").replace("\\'", "'")
 		}
 	}
 }
@@ -267,13 +269,13 @@ Expression:Options = seq:Sequence (SLASH seq:Sequence)*
 	{ result := new Options(seq) }
 Sequence:Sequence = terms:Prefix* code:Code? 
 	{ result := new Sequence(terms, code) }
-Prefix:Term = (id1:Identifier COLON)? a:AND s1:Suffix
-	{ result := new And(id1, s2) }
+Prefix:Term = id1:Label? a:AND s1:Suffix
+	{ result := new And(id1, s1) }
 / 
-	(id2:Identifier COLON)? n:NOT s2:Suffix
+	id2:Label? n:NOT s2:Suffix
 	{ result := new Not(id2, s2) }
 /
-	(id3:Identifier COLON)? s3:Suffix
+	id3:Label? s3:Suffix
 	{ 
 		if id3 != null
 			s3.name := id3.text
@@ -311,6 +313,14 @@ Primary:Term = i:Identifier !EQUAL
 Identifier:Identifier = text:IdentStart text:IdentCont* Spacing  
 	{ result := new Identifier(text.join("")) }
 
+Label:Identifier = a:AT? id:Identifier COLON
+	{ 
+		if a != null 
+			result := new Identifier(id.text)
+		else
+			result := id
+	}
+
 Range:Range = start:Char '-' end:Char
 	{ result := new Range(start[0], end[0]) }
 / 
@@ -347,6 +357,8 @@ CUT = '^' Spacing
 LT = '<' Spacing 
 GT = '>' Spacing 
 COMMA = ',' Spacing 
+AT:Bit = '@' Spacing
+	{ result := true }
 STAR:Bit = '*' Spacing 
 	{ result := true }
 PLUS:Bit = '+' Spacing 

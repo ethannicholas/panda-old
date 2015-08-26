@@ -148,7 +148,6 @@ class PEGGenerator {
 
 	method findVariables(var term:Term, repeatedContext:Bit, 
 			var nullable:Bit):Map<String, Variable> {
-		Console.writeLine("looking for vars in \{term}")
 		def result := new HashMap<String, Variable>()
 		def name:String?
 		if term-?>(Cut)
@@ -179,7 +178,6 @@ class PEGGenerator {
 			result.addAll(vars)
 		}
 		else if name != null {
-			Console.writeLine("found term: \{name}")
 			def type := getType(term)
 			if type = null {
 				Console.writeLine("term '\{name}' has no type")
@@ -286,14 +284,19 @@ class PEGGenerator {
 		return result
 	}
 
-	function getInVars(t:Term):ListView<Variable> {
-		if t-?>(Quantifier)
+	function _getInVars(t:Term):ListView<Variable> {
+		if t-?>(Quantifier) & t.name = null
 			return getInVars(t->(Quantifier).term)
 		if t-?>(Options)
 			return getInVars(t->(Options))
 		def result := inVars[t]
 		if result = null
 			return []
+		return result
+	}
+
+	function getInVars(t:Term):ListView<Variable> {
+		def result := _getInVars(t)
 		return result
 	}
 
@@ -306,6 +309,19 @@ class PEGGenerator {
 		if result = null
 			return []
 		return result
+	}
+
+	function hasOutput(t:Term):Bit {
+		if t.name = null & t-?>(Quantifier)
+			return hasOutput(t->(Quantifier).term)
+		if t-?>(Identifier) {
+			def name := t->(Identifier).text
+			def definition := definitions[name]
+			assert definition != null
+			return definition.type != null
+		}
+		else
+			return getOutVars(t).length > 0
 	}
 
 	function wrapChar(code:String, type:String):String {
@@ -439,26 +455,40 @@ class PEGGenerator {
 			out.level -= 1
 		}
 		else
-			assert false : "unknown type: \{term} - '\{term.class.name}'"
+			assert false : "unknown term type: \{term} - '\{term.class.name}'"
 	}
 
 	method writeStarCode(term:Term, name:String?, target:String, position:String) {
 		out.writeLine("loop {")
+		out.level += 1
 		writeTermMatchCode(term, target, position)
 		out.writeLine("if \{target} = null")
 		out.level += 1
 		out.writeLine("break")
 		out.level -= 1
+		writeTermSaveCode(term, name, target, position)
+		out.level -= 1
+		out.writeLine("}")
+	}	
+
+	method writeTermSaveCode(term:Term, name:String?, target:String, 
+			position:String) {
 		out.write("currentPos := \{target}")
-		def outs := getOutVars(term)
-		if outs.length > 0 {
+		if hasOutput(term) {
 			out.writeLine("[0]")
+			def outs := getOutVars(term)
 			for i, v in outs {
 				if v.effectiveType.startsWith("Array<") {
-					if !getInVars(term).contains(v) | name = v.name
+					if !getInVars(term).contains(v) | name = v.name {
+						out.writeLine("if \{target}[\{i + 1}] != null") 
 						out.writeLine("\{v.name}.addAll(\{target}[\{i + 1}])")
-					else
+					}
+					else {
+						out.writeLine("if \{target}[\{i + 1}] != null")
 						out.writeLine("\{v.name} := new \{v.effectiveType}(\{target}[\{i + 1}])")
+						out.writeLine("else")
+						out.writeLine("\{v.name} := null")
+					}
 				}
 				else
 					out.writeLine("\{v.name} := \{target}[\{i + 1}]")
@@ -466,10 +496,13 @@ class PEGGenerator {
 		}
 		else
 			out.writeLine()
-		out.writeLine("}")
-	}	
+		return
+	}
 
 	method writeTermCode(term:Term, target:String, position:String) {
+		if term-?>(Cut) {
+			return
+		}
 		if term-?>(Not) {
 			writeTermMatchCode(term->(Not).term, target, position)
 			out.writeLine("if \{target} != null")
@@ -491,7 +524,13 @@ class PEGGenerator {
 			return
 		}
 		if term-?>(Plus) {
-			writeTermCode(term->(Plus).term, target, position)
+			writeTermMatchCode(term->(Plus).term, target, position)
+			out.writeLine("if \{target} = null")
+			out.level += 1
+			out.writeLine("return null")
+			out.level -= 1
+			writeTermSaveCode(term->(Plus).term, term.name, target, 
+					position)
 			writeStarCode(term->(Plus).term, term.name, target, position)
 			return
 		}
@@ -499,20 +538,8 @@ class PEGGenerator {
 			writeTermMatchCode(term->(Optional).term, target, position)
 			out.writeLine("if \{target} != null {")
 			out.level += 1
-			def termOut := getOutVars(term)
-			out.write("currentPos := \{target}")
-			if termOut.length > 0 {
-				out.writeLine("[0]")
-				for i, v in termOut {
-					if v.effectiveType.startsWith("Array<") {
-						out.writeLine("\{v.name}.addAll(\{target}[\{i + 1}])")
-					}
-					else
-						out.writeLine("\{v.name} := \{target}[\{i + 1}]")
-				}
-			}
-			else
-				out.writeLine()
+			writeTermSaveCode(term->(Optional).term, term.name, target, 
+					position)
 			out.level -= 1
 			out.writeLine("}")
 			return
@@ -522,24 +549,10 @@ class PEGGenerator {
 		out.level += 1
 		out.writeLine("return null")
 		out.level -= 1
-		def termOut := getOutVars(term)
-		out.write("currentPos := \{target}")
-		if termOut.length > 0 {
-			out.writeLine("[0]")
-			for i, v in termOut {
-				if v.effectiveType.startsWith("Array<") {
-					out.writeLine("\{v.name}.addAll(\{target}[\{i + 1}])")
-				}
-				else
-					out.writeLine("\{v.name} := \{target}[\{i + 1}]")
-			}
-		}
-		else
-			out.writeLine()
+		writeTermSaveCode(term, term.name, target, position)
 	}
 
 	method writeSequence(seq:Sequence):String {
-		out.writeLine("-* \{seq} *-")
 		def name := "\{currentDefinition.name}_seq\{count}"
 		count += 1
 		def seqIns := getInVars(seq)
@@ -566,10 +579,11 @@ class PEGGenerator {
 		for v in variablesByName.values {
 			out.write("var \{v.name}:")
 			if v.repeated {
-				out.write("Array<\{v.type}> := new Array<\{v.type}>(")
-				if seqIns.contains(v)
-					out.write("\{v.name}_in")
-				out.write(")")
+				out.write("Array<\{v.type}> := new Array<\{v.type}>()")
+				if seqIns.contains(v) {
+					out.writeLine("if \{v.name}_in != null")
+					out.writeLine("\{v.name}.addAll(\{v.name}_in)")
+				}
 			}
 			else {
 				out.write(v.effectiveType)
@@ -638,7 +652,6 @@ class PEGGenerator {
 			writeEmbeddedOptions(s)
 			sequences.add(writeSequence(s))
 		}
-		out.writeLine("-* \{options} *-")
 		out.write("function \{name}(pos:Int")
 		for v in inVars
 			out.write(", \{v.name}:\{v.effectiveType}")
@@ -686,7 +699,7 @@ class PEGGenerator {
 			else {
 				def seqOut := getOutVars(seq)
 				if equal(seqOut, outVars)
-					out.writeLine("return seq\{i} -- equal!")
+					out.writeLine("return seq\{i}")
 				else {
 					out.write("return (seq\{i}[0]")
 					for v in outVars {
@@ -716,13 +729,18 @@ class PEGGenerator {
 		variablesByName.clear()
 		count := 0
 		def vars := findVariables(definition)
+		if definition.type = "String" {
+			for seq in definition.definition.sequences {
+				if seq.code = null
+					seq.code := "result := text[pos .. currentPos]"
+			}
+		}
 		def options := writeOptions(definition.definition)
 		def returnType:String
 		if definition.type != null
 			returnType := "(Int, \{definition.type})?"
 		else
 			returnType := "Int?"
-		out.writeLine("-* \{definition} *-")
 		def cache := "\{definition.name}_cache"
 		out.writeLine("def \{cache} := " +
 				"new HashMap<Int, \{returnType}>()")
@@ -746,14 +764,17 @@ class PEGGenerator {
 		if grammar.code != null
 			out.writeLine(grammar.code[1 .. grammar.code.length - 1])
 		out.writeLine("class \{dest.simpleName} {")
-		out.writeLine("def fileName:String")
+		out.writeLine("def file:File")
 		out.writeLine("def text:String")
 		out.writeLine("def cutStack := new Stack<Bit>()")
 		out.writeLine("var maxPos := -1")
 		out.writeLine("var maxLiterals := new HashSet<String>()")
 		out.writeLine("constructor(file:File) {")
-		out.writeLine("    fileName := file.name")
-		out.writeLine("    text := file.readAsString()")
+		out.writeLine("    self.constructor(file, file.readAsString())")
+		out.writeLine("}")
+		out.writeLine("constructor(file:File, text:String) {")
+		out.writeLine("    self.file := file")
+		out.writeLine("    self.text := text")
 		out.writeLine("}")
 		out.writeLine("function literal(pos:Int, c:Char):Bit {")
 		out.writeLine("    if pos > maxPos { maxPos := pos    maxLiterals.clear() }")
@@ -802,7 +823,7 @@ class PEGGenerator {
 		out.writeLine("def stack := new Stack<String>()")
 		for d in grammar.definitions
 			writeDefinition(d)
-		out.writeLine("} -- class")
+		out.writeLine("}")
 	}
 
 	@class

@@ -1,4 +1,6 @@
 {
+    package org.pandalanguage.pandac.parser
+
     uses org.pandalanguage.pandac.ast.ArrowOperationType
     uses org.pandalanguage.pandac.ast.ASTAnnotation
     uses org.pandalanguage.pandac.ast.ASTArrayLiteral
@@ -13,6 +15,7 @@
     uses org.pandalanguage.pandac.ast.ASTCallExpression
     uses org.pandalanguage.pandac.ast.ASTCatch
     uses org.pandalanguage.pandac.ast.ASTClass
+    uses org.pandalanguage.pandac.ast.ASTClassLiteral
     uses org.pandalanguage.pandac.ast.ASTClassType
     uses org.pandalanguage.pandac.ast.ASTContinue
     uses org.pandalanguage.pandac.ast.ASTDo
@@ -39,10 +42,12 @@
     uses org.pandalanguage.pandac.ast.ASTMethodValue
     uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
     uses org.pandalanguage.pandac.ast.ASTParameter
+    uses org.pandalanguage.pandac.ast.ASTPlugin
     uses org.pandalanguage.pandac.ast.ASTPostcondition
     uses org.pandalanguage.pandac.ast.ASTPre
     uses org.pandalanguage.pandac.ast.ASTPrecondition
     uses org.pandalanguage.pandac.ast.ASTRangeExpression
+    uses org.pandalanguage.pandac.ast.ASTRealLiteral
     uses org.pandalanguage.pandac.ast.ASTReturn
     uses org.pandalanguage.pandac.ast.ASTSelf
     uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
@@ -112,6 +117,20 @@
             self.suffixType := suffixType
             self.member := member
         }
+
+        @override
+        function format(fmt:String):String {
+            switch suffixType {
+                case SuffixType.CALL: return "(" + parameters.join(", ") + ")"
+                case SuffixType.INDEX: return "[" + parameters.join(", ") + "]"
+                case SuffixType.DOT: return "." + member
+                case SuffixType.INSTANCEOF: return "-?>" + type
+                case SuffixType.NINSTANCEOF: return "-!>" + type
+                case SuffixType.CAST: return "->" + type
+                case SuffixType.CONVERT: return "->>" + type
+                default: unreachable
+            }
+        }
     }
 
     class Utils {
@@ -121,8 +140,8 @@
         }
 
         @class
-        function isExternal(f:String):Bit {
-            return f.endsWith(".plink")
+        function isExternal(f:File):Bit {
+            return f.path.endsWith(".plink")
         }
 
         @class
@@ -133,6 +152,17 @@
             var result := expr[expr.length - 1]
             for i in expr.length - 2 ... 0 by -1
                 result := new ASTBinaryExpression(op, expr[i], result)
+            return result
+        }
+
+        @class
+        function combineExpressions(expr:ListView<ASTExpression>,
+                op:ListView<BinaryOperationType>):ASTExpression {
+            if expr.length = 1
+                return expr[0]
+            var result := expr[expr.length - 1]
+            for i in expr.length - 2 ... 0 by -1
+                result := new ASTBinaryExpression(op[i], expr[i], result)
             return result
         }
 
@@ -148,36 +178,55 @@
                     }
                     case SuffixType.INDEX: {
                         assert s.parameters != null & s.parameters.length = 1
-                        result := new ASTIndex(term, s.parameters[0])
+                        result := new ASTIndex(result, s.parameters[0])
                     }
                     case SuffixType.DOT: {
                         assert s.member != null
-                        result := new ASTDotExpression(term, s.member)
+                        result := new ASTDotExpression(result, s.member)
                     }
                     case SuffixType.INSTANCEOF: {
                         assert s.type != null
                         result := new ASTArrowExpression(
-                                ArrowOperationType.INSTANCE_OF, term, s.type)
+                                ArrowOperationType.INSTANCE_OF, result, s.type)
                     }
                     case SuffixType.NINSTANCEOF: {
                         assert s.type != null
                         result := new ASTArrowExpression(
-                                ArrowOperationType.NOT_INSTANCE_OF, term, 
+                                ArrowOperationType.NOT_INSTANCE_OF, result, 
                                 s.type)
                     }
                     case SuffixType.CAST: {
                         assert s.type != null
                         result := new ASTArrowExpression(
-                                ArrowOperationType.CAST, term, s.type)
+                                ArrowOperationType.CAST, result, s.type)
                     }
                     case SuffixType.CONVERT: {
                         assert s.type != null
                         result := new ASTArrowExpression(
-                                ArrowOperationType.CONVERT, term, s.type)
+                                ArrowOperationType.CONVERT, result, s.type)
                     }
                     default:
                         unreachable
                 }
+            }
+            return result
+        }
+
+        @class
+        @pre(base >= 2 & base <= 36)
+        function parseInt(s:String, base:UInt):UInt64? {
+            var result:UInt64 := 0
+            constant DIGITS := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            constant DIGITS_LOWER := "0123456789abcdefghijklmnopqrstuvwxyz"
+            for i in 0 .. s.length {
+                var digit := DIGITS.indexOf(s[i])->(UInt?)
+                if digit = null {
+                    digit := DIGITS_LOWER.indexOf(s[i])->(UInt?)
+                }
+                if digit = null | digit >= base {
+                    return null
+                }
+                result := result * base + digit
             }
             return result
         }
@@ -215,71 +264,100 @@ bodyEntry:ASTNode = u:usesStatement
 
 packageDeclaration:ASTPackageDeclaration = PACKAGE ^ @t:IDENTIFIER (@t:DOT 
         @t:IDENTIFIER)*
-    { result := new ASTPackageDeclaration(Utils.position, t) }
+    { 
+        result := new ASTPackageDeclaration(new Position(file, pos), 
+                t.join("")) 
+    }
 usesStatement:ASTUsesDeclaration = USES ^ @i:IDENTIFIER (@i:DOT @i:IDENTIFIER)* 
         (@i:DOT @i:STAR)?
         (AS alias:IDENTIFIER)?
-    { result := new ASTUsesDeclaration(Utils.position, i, alias) }
-instanceDeclaration:ASTInstanceDeclaration = INSTANCE ^ t:type
-    { result := new ASTInstanceDeclaration(Utils.position, t) }
-
-annotations:ListView<ASTAnnotation> = (&'@' a:simpleAnnotation / 
-        p:precondition)+
     { 
-        def annotations := new Array<ASTAnnotation>()
-        annotations.addAll(a)
-        annotations.addAll(p)
-        result := annotations
+        result := new ASTUsesDeclaration(new Position(file, pos), 
+                i.join(""), alias) 
     }
+instanceDeclaration:ASTInstanceDeclaration = INSTANCE ^ t:type
+    { result := new ASTInstanceDeclaration(new Position(file, pos), t) }
+
+
+annotation:ASTAnnotation = &'@' a:simpleAnnotation 
+    { result := a }
+/ 
+    p:precondition
+    { result := p }
+annotations:ListView<ASTAnnotation> = a:annotation+
+    { result := a }
 simpleAnnotation:ASTAnnotation = PROTECTED 
-    { result := new ASTSimpleAnnotation(Utils.position, "protected") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), 
+                "protected") 
+    }
 / 
     PRIVATE 
-    { result := new ASTSimpleAnnotation(Utils.position, "private") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), 
+                "private") 
+    }
 / 
     ATCLASS 
-    { result := new ASTSimpleAnnotation(Utils.position, "class") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), "class") 
+    }
 / 
     THREAD 
-    { result := new ASTSimpleAnnotation(Utils.position, "thread") }
+    { result := new ASTSimpleAnnotation(new Position(file, pos), "thread") }
 / 
     ABSTRACT 
-    { result := new ASTSimpleAnnotation(Utils.position, "abstract") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), 
+                "abstract") 
+    }
 / 
     EXTERNAL 
-    { result := new ASTSimpleAnnotation(Utils.position, "external") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), 
+                "external") 
+    }
 / 
     OVERRIDE 
-    { result := new ASTSimpleAnnotation(Utils.position, "override") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), 
+                "override") 
+    }
 / 
     READONLY 
-    { result := new ASTSimpleAnnotation(Utils.position, "readonly") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), 
+                "readonly") 
+    }
 / 
     LIMITED 
-    { result := new ASTSimpleAnnotation(Utils.position, "limited") }
+    { 
+        result := new ASTSimpleAnnotation(new Position(file, pos), 
+                "limited") 
+    }
 / 
     ATSELF 
-    { result := new ASTSimpleAnnotation(Utils.position, "self") }
+    { result := new ASTSimpleAnnotation(new Position(file, pos), "self") }
 / 
     SAFERETURN 
-    { result := new ASTSimpleAnnotation(Utils.position, "safeReturn") }
+    { result := new ASTSimpleAnnotation(new Position(file, pos), "safeReturn") }
 / 
     UNSAFEFUNCTION 
-    { result := new ASTSimpleAnnotation(Utils.position, "unsafeFunction") }
+    { result := new ASTSimpleAnnotation(new Position(file, pos), "unsafeFunction") }
 / 
     FINAL 
-    { result := new ASTSimpleAnnotation(Utils.position, "final") }
+    { result := new ASTSimpleAnnotation(new Position(file, pos), "final") }
 / 
     WRAPPER_METHOD 
-    { result := new ASTSimpleAnnotation(Utils.position, "$wrapperMethod") }
+    { result := new ASTSimpleAnnotation(new Position(file, pos), "$wrapperMethod") }
 / 
     MATH ^ LPAREN OVERFLOW RPAREN
-    { result := new ASTSimpleAnnotation(Utils.position, "math(overflow)") }
-precondition:ASTAnnotation = PRE ^ LPAREN expr:expression RPAREN
-    { result := new ASTPrecondition(Utils.position, expr, false) }
+    { result := new ASTSimpleAnnotation(new Position(file, pos), "math(overflow)") }
+precondition:ASTAnnotation = PRE ^ LPAREN expr1:expression RPAREN
+    { result := new ASTPrecondition(new Position(file, pos), expr1, false) }
 /
-    PRE_OR ^ LPAREN expr:expression RPAREN
-    { result := new ASTPrecondition(Utils.position, expr, true) }
+    PRE_OR ^ LPAREN expr2:expression RPAREN
+    { result := new ASTPrecondition(new Position(file, pos), expr2, true) }
 
 classDeclaration:ASTClass = dc:DOCCOMMENT? a:annotations? CLASS ^ 
         name:IDENTIFIER gp:genericParametersDeclaration? (COLON s:classType)? 
@@ -298,8 +376,8 @@ classDeclaration:ASTClass = dc:DOCCOMMENT? a:annotations? CLASS ^
             else
                 unreachable
         }
-        result := new ASTClass(Utils.position, name, false, dc, a, s, 
-                i, gp, methods, fields, invariants, Utils.isExternal(fileName))
+        result := new ASTClass(new Position(file, pos), name, false, dc, a, s, 
+                i, gp, methods, fields, invariants, Utils.isExternal(file))
     }
 interfaces:ListView<ASTType> = LPAREN t:type (COMMA t:type)* RPAREN
     { result := t }
@@ -323,7 +401,7 @@ classMember:ASTNode = i:invariant
     field:fieldDeclaration
     { result := field }
 invariant:ASTInvariant = INVARIANT LPAREN expr:expression RPAREN
-    { result := new ASTInvariant(Utils.position, expr) }
+    { result := new ASTInvariant(new Position(file, pos), expr) }
 
 interfaceDeclaration:ASTClass = dc:DOCCOMMENT? a:annotations? INTERFACE ^ 
         name:IDENTIFIER gp:genericParametersDeclaration? 
@@ -343,18 +421,18 @@ interfaceDeclaration:ASTClass = dc:DOCCOMMENT? a:annotations? INTERFACE ^
             else
                 unreachable
         }
-        result := new ASTClass(Utils.position, name, true, dc, a, null, s, gp, 
-                methods, fields, invariants, Utils.isExternal(fileName))
+        result := new ASTClass(new Position(file, pos), name, true, dc, a, null, s, gp, 
+                methods, fields, invariants, Utils.isExternal(file))
     }
 
 enum:ASTEnum = dc:DOCCOMMENT? a:annotations? ENUM ^ name:IDENTIFIER LBRACE 
         (v:enumValue (COMMA v:enumValue)*)? RBRACE
     {
-        result := new ASTEnum(Utils.position, name, dc, a, v, 
-                Utils.isExternal(fileName))
+        result := new ASTEnum(new Position(file, pos), name, dc, a, v, 
+                Utils.isExternal(file))
     }
 enumValue:ASTEnumValue = dc:DOCCOMMENT? name:IDENTIFIER
-    { result := new ASTEnumValue(Utils.position, name, dc) }
+    { result := new ASTEnumValue(new Position(file, pos), name, dc) }
 
 typeDeclaration:ASTType = COLON ^ type:type
     { result := type }
@@ -364,35 +442,35 @@ type:ASTType = m:methodOrTupleType
     cl:classType
     { result := cl }
 methodOrTupleType:ASTType = LPAREN (type:type (COMMA type:type)*)? RPAREN 
-        ((y:YIELDS / ym:YIELDS_METHOD / yi:YIELDS_IMMUTABLE / 
-        ymi:YIELDS_METHOD_IMMUTABLE) LPAREN ret:type? RPAREN)? 
+        ((ymi:YIELDS_METHOD_IMMUTABLE / yi:YIELDS_IMMUTABLE / y:YIELDS / 
+        ym:YIELDS_METHOD) LPAREN ret:type? RPAREN)? 
         nullable:QUESTION?
     {
         if y != null {
-            result := new ASTMethodType(Utils.position, type, ret,
+            result := new ASTMethodType(new Position(file, pos), type, ret,
                     nullable != null, true, false)
         }
         else if yi != null {
-            result := new ASTMethodType(Utils.position, type, ret,
+            result := new ASTMethodType(new Position(file, pos), type, ret,
                     nullable != null, true, true)
         }
         else if ym != null {
-            result := new ASTMethodType(Utils.position, type, ret,
+            result := new ASTMethodType(new Position(file, pos), type, ret,
                     nullable != null, false, false)
         }
         else if ymi != null {
-            result := new ASTMethodType(Utils.position, type, ret,
+            result := new ASTMethodType(new Position(file, pos), type, ret,
                     nullable != null, false, true)
         }
         else {
-            result := new ASTTupleType(Utils.position, type, 
+            result := new ASTTupleType(new Position(file, pos), type, 
                     nullable != null)
         }
     }
 classType:ASTType = @name:IDENTIFIER (@name:DOT @name:IDENTIFIER)* 
         params:genericParameters? nullable:QUESTION?
     {
-        result := new ASTClassType(Utils.position, name, params, 
+        result := new ASTClassType(new Position(file, pos), name.join(""), params, 
                 nullable != null)
     }
 genericParameters:ListView<ASTType> = LT type:type (COMMA type:type)* GT
@@ -403,7 +481,7 @@ methodDeclaration:ASTMethod = dc:DOCCOMMENT? a:annotations? METHOD ^
         params:formalParameterList t:typeDeclaration? b:block? 
         post:postcondition*
     {
-        result := new ASTMethod(Utils.position, name, MethodNodeType.METHOD, 
+        result := new ASTMethod(new Position(file, pos), name, MethodNodeType.METHOD, 
                 dc, a, params, t, b, post)
     }
 functionDeclaration:ASTMethod = dc:DOCCOMMENT? a:annotations? FUNCTION ^ 
@@ -411,34 +489,38 @@ functionDeclaration:ASTMethod = dc:DOCCOMMENT? a:annotations? FUNCTION ^
         params:formalParameterList t:typeDeclaration b:block? 
         post:postcondition*
     {
-        result := new ASTMethod(Utils.position, name, MethodNodeType.FUNCTION, 
+        result := new ASTMethod(new Position(file, pos), name, MethodNodeType.FUNCTION, 
                 dc, a, params, t, b, post)
     }
+methodOrFunction:ASTMethod = m:methodDeclaration
+    { result := m }
+/ f:functionDeclaration
+    { result := f }
 constructorDeclaration:ASTMethod = dc:DOCCOMMENT? a:annotations? CONSTRUCTOR ^ 
         gp:genericParametersDeclaration? params:formalParameterList 
         t:typeDeclaration? b:block? post:postcondition*
     {
-        result := new ASTMethod(Utils.position, "constructor", 
+        result := new ASTMethod(new Position(file, pos), "constructor", 
                 MethodNodeType.CONSTRUCTOR, dc, a, params, t, b, post)
     }
-methodName = IDENTIFIER / ADD / SUB / MUL / DIV / INTDIV / POW / EQ / GT / 
-        LT / GTEQ / LTEQ / REM / AND / BITWISEAND / OR / BITWISEOR / XOR /
-        BITWISEXOR / NOT / BITWISENOT / SHIFTLEFT / SHIFTRIGHT / 
-        CONVERT / (LBRACKET (DOTDOT / ELLIPSIS)? RBRACKET ASSIGNMENT?)
-formalParameter:ASTParameter = v:VAR? n:IDENTIFIER (COLON / cnv:CONVERT) t:type 
-        e:ELLIPSIS?
+methodName:String = IDENTIFIER ASSIGNMENT? / CONVERT / SHIFTLEFT / SHIFTRIGHT / 
+        ADD / SUB / MUL /  INTDIV / DIV / POW / EQ / GTEQ / LTEQ / GT / LT / 
+        REM / BITWISEAND / AND / BITWISEOR / OR / BITWISEXOR / XOR / 
+        BITWISENOT / NOT / (LBRACKET (ELLIPSIS / DOTDOT)? RBRACKET ASSIGNMENT?)
+formalParameter:ASTParameter = v:VAR? n:IDENTIFIER (c:COLON / cnv:CONVERT) 
+        t:type e:ELLIPSIS?
     {
-        result := new ASTParameter(Utils.position, n, t, v != null,
+        result := new ASTParameter(new Position(file, pos), n, t, v != null,
             cnv != null, e != null)
     }
 formalParameterList:ListView<ASTParameter> = LPAREN (p:formalParameter 
         (COMMA p:formalParameter)*)? RPAREN
     { result := p }
-postcondition:ASTPostcondition = POST ^ LPAREN expr:expression RPAREN
-    { result := new ASTPostcondition(Utils.position, expr, false) }
+postcondition:ASTPostcondition = POST ^ LPAREN expr1:expression RPAREN
+    { result := new ASTPostcondition(new Position(file, pos), expr1, false) }
 /
-    POST_AND ^ LPAREN expr:expression RPAREN
-    { result := new ASTPostcondition(Utils.position, expr, true) }
+    POST_AND ^ LPAREN expr2:expression RPAREN
+    { result := new ASTPostcondition(new Position(file, pos), expr2, true) }
 
 varType:VariableType = v:VAR 
     { result := v }
@@ -452,24 +534,37 @@ varType:VariableType = v:VAR
     p:PROPERTY
     { result := p }
 
-varName = IDENTIFIER / UNDERSCORE
+varName:String = IDENTIFIER / UNDERSCORE
 
 varDeclaration:ASTVarDeclaration = varType:varType ^ t:typedIdentifier 
         (COMMA t:typedIdentifier)* (ASSIGNMENT expr:expression)?
-    { result := new ASTVarDeclaration(Utils.position, varType, t, expr) }
+    { result := new ASTVarDeclaration(new Position(file, pos), varType, t, expr) }
 typedIdentifier:ASTTypedIdentifier = i:IDENTIFIER t:optionalTypeDeclaration
-    { result := new ASTTypedIdentifier(Utils.position, i, t) }
+    { result := new ASTTypedIdentifier(new Position(file, pos), i, t) }
 optionalTypeDeclaration:ASTType? = (COLON type:type)?
     { result := type }
 fieldDeclaration:ASTField = dc:DOCCOMMENT? a:annotations? v:varDeclaration
     { result := new ASTField(dc, a, v) }
-
 
 suffix:Suffix = p:parameters 
     { result := new Suffix(SuffixType.CALL, p) }
 /
     LBRACKET expr:expression RBRACKET 
     { result := new Suffix(SuffixType.INDEX, [expr]) }
+/
+    LBRACKET ELLIPSIS ^ (right1:expression (BY step1:expression)?)? RBRACKET 
+    { 
+        def range := new ASTRangeExpression(new Position(file, pos), null, right1,
+                    step1, true)
+        result := new Suffix(SuffixType.INDEX, [range]) 
+    }
+/
+    LBRACKET DOTDOT ^ (right2:expression (BY step2:expression)?)? RBRACKET 
+    { 
+        def range := new ASTRangeExpression(new Position(file, pos), null, right2,
+                    step2, false)
+        result := new Suffix(SuffixType.INDEX, [range]) 
+    }
 /
     DOT id:IDENTIFIER 
     { result := new Suffix(SuffixType.DOT, id) }
@@ -480,17 +575,17 @@ suffix:Suffix = p:parameters
     DOT CONSTRUCTOR
     { result := new Suffix(SuffixType.DOT, "constructor") }
 /
-    INSTANCEOF t1:type
+    INSTANCEOF LPAREN t1:type RPAREN
     {  result := new Suffix(SuffixType.INSTANCEOF, t1) }
 /
-    NINSTANCEOF t2:type
+    NINSTANCEOF LPAREN t2:type RPAREN
     {  result := new Suffix(SuffixType.NINSTANCEOF, t2) }
 /
-    CAST t3:type
+    CAST LPAREN t3:type RPAREN
     {  result := new Suffix(SuffixType.CAST, t3) }
 /
-    CONVERT t4:type
-    {  result := new Suffix(SuffixType.NINSTANCEOF, t4) }
+    CONVERT LPAREN t4:type RPAREN
+    {  result := new Suffix(SuffixType.CONVERT, t4) }
 callExpression:ASTExpression = t:term s:suffix*
     { result := Utils.callExpression(t, s) }
 exponentExpression:ASTExpression = expr:callExpression 
@@ -500,107 +595,105 @@ exponentExpression:ASTExpression = expr:callExpression
     }
 unaryExpression:ASTExpression = SUB expr1:exponentExpression
     {
-        result := new ASTUnaryExpression(Utils.position, 
+        result := new ASTUnaryExpression(new Position(file, pos), 
                 UnaryOperationType.MINUS, expr1)
     }
 / 
     n:NOT expr2:exponentExpression
     {
-        result := new ASTUnaryExpression(Utils.position, 
+        result := new ASTUnaryExpression(new Position(file, pos), 
                 UnaryOperationType.NOT, expr2)
     }
 / 
     BITWISENOT expr3:exponentExpression
     {
-        result := new ASTUnaryExpression(Utils.position, 
+        result := new ASTUnaryExpression(new Position(file, pos), 
                 UnaryOperationType.BITWISE_NOT, expr3)
     }
 / 
     expr4:exponentExpression
     { result := expr4 }
+multiplicativeOperator:BinaryOperationType = m:MUL
+    { result := m }
+/
+    i:INTDIV
+    { result := i }
+/
+    d:DIV
+    { result := d }
+/
+    r:REM
+    { result := r }
+/
+    sl:SHIFTLEFT
+    { result := sl }
+/
+    sr:SHIFTRIGHT
+    { result := sr }
+/
+    a:BITWISEAND
+    { result := a }
+/
+    x:BITWISEXOR
+    { result := x }
 multiplicativeExpression:ASTExpression = expr:unaryExpression 
-        ((m:MUL / d:DIV / i:INTDIV) expr:unaryExpression)*
-    {
-        if m != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.MULTIPLY)
-        }
-        else if d != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.DIVIDE)
-        }        
-        else {
-            assert i != null
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.INT_DIVIDE)
-        }        
-    }
+        (op:multiplicativeOperator expr:unaryExpression)*
+    { result := Utils.combineExpressions(expr, op) }
+additiveOperator:BinaryOperationType = a:ADD 
+    { result := a }
+/ 
+    s:SUB
+    { result := s }
+/ 
+    o:BITWISEOR
+    { result := o }
 additiveExpression:ASTExpression = expr:multiplicativeExpression 
-        ((a:ADD / s:SUB) expr:multiplicativeExpression)* 
-    {
-        if a != null
-            result := Utils.combineExpressions(expr, BinaryOperationType.ADD)
-        else {
-            assert s != null
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.SUBTRACT)
-        }
-    }
+        (op:additiveOperator expr:multiplicativeExpression)* 
+    { result := Utils.combineExpressions(expr, op) }
 rangeExpression:ASTExpression = left:additiveExpression ((e:ELLIPSIS / d:DOTDOT)
         right:additiveExpression? (BY step:additiveExpression)?)?
     {
-        if right != null {
+        if e != null | d != null {
             result := new ASTRangeExpression(left.position, left, right,
                     step, e != null)
         }
-        result := left
+        else
+            result := left
     }
-comparisonExpression:ASTExpression = expr:rangeExpression ((e:EQ / i:IDENTITY / 
-        ne:NEQ / ni:NIDENTITY / le:LTEQ / ge:GTEQ / l:LT / g:GT) 
+comparisonOperator:BinaryOperationType = i:IDENTITY 
+    { result := i }
+/ 
+    e:EQ 
+    { result := e }
+/ 
+    ni:NIDENTITY 
+    { result := ni }
+/
+    ne:NEQ 
+    { result := ne }
+/ 
+    le:LTEQ
+    { result := le }
+/ 
+    ge:GTEQ 
+    { result := ge }
+/ 
+    l:LT 
+    { result := l }
+/ 
+    g:GT
+    { result := g }
+comparisonExpression:ASTExpression = expr:rangeExpression (op:comparisonOperator 
         expr:rangeExpression)*
-    {
-        if e != null
-            result := Utils.combineExpressions(expr, BinaryOperationType.EQUAL)
-        else if i != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.IDENTITY)
-        }
-        else if ne != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.NOT_EQUAL)
-        }
-        else if ni != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.NOT_IDENTITY)
-        }
-        else if le != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.LESS_THAN_OR_EQUAL)
-        }
-        else if ge != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.GREATER_THAN_OR_EQUAL)
-        }
-        else if l != null {
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.LESS_THAN)
-        }
-        else {
-            assert g != null
-            result := Utils.combineExpressions(expr, 
-                    BinaryOperationType.GREATER_THAN)
-        }
-    }
-andExpression:ASTExpression = expr:comparisonExpression ((a:AND / x:XOR) 
+    { result := Utils.combineExpressions(expr, op) }
+andOperator:BinaryOperationType = a:AND
+    { result := a }
+/
+    x:XOR
+    { result := x }
+andExpression:ASTExpression = expr:comparisonExpression (op:andOperator 
         expr:comparisonExpression)*
-    { 
-        if a != null
-            result := Utils.combineExpressions(expr, BinaryOperationType.AND)
-        else {
-            assert x != null
-            result := Utils.combineExpressions(expr, BinaryOperationType.XOR)
-        }
-    }
+    { result := Utils.combineExpressions(expr, op) }
 orExpression:ASTExpression = expr:andExpression (OR expr:andExpression)*
     { 
         result := Utils.combineExpressions(expr, BinaryOperationType.OR)
@@ -608,39 +701,45 @@ orExpression:ASTExpression = expr:andExpression (OR expr:andExpression)*
 expression:ASTExpression = o:orExpression
     { result := o }
 
-term:ASTExpression = id:IDENTIFIER
-    { result := new ASTIdentifier(Utils.position, id) }
+term:ASTExpression = l:lambdaOrTuple
+    { result := l }
+/
+    r:REAL
+    { result := new ASTRealLiteral(new Position(file, pos), r) }
 /
     i:INTEGER
-    { result := new ASTIntegerLiteral(Utils.position, i->>(UInt64)) }
+    { result := new ASTIntegerLiteral(new Position(file, pos), i) } 
+/
+    LPAREN expr1:expression RPAREN
+    { result := expr1 }
 / 
     TRUE
-    { result := new ASTBitLiteral(Utils.position, true) }
+    { result := new ASTBitLiteral(new Position(file, pos), true) }
 / 
     FALSE 
-    { result := new ASTBitLiteral(Utils.position, false) }
+    { result := new ASTBitLiteral(new Position(file, pos), false) }
 / 
     NULL 
-    { result := new ASTNullLiteral(Utils.position) }
+    { result := new ASTNullLiteral(new Position(file, pos)) }
 / 
     s:STRING 
-    { result := new ASTStringLiteral(Utils.position, s) }
+    { result := new ASTStringLiteral(new Position(file, pos), s) }
 / 
-    PLUGIN 
-    { if true unreachable }
+    p:PLUGIN 
+    { result := new ASTPlugin(new Position(file, pos), p) }
 / 
     SELF 
-    { result := new ASTSelf(Utils.position) }
+    { result := new ASTSelf(new Position(file, pos)) }
 /
     SUPER 
-    { result := new ASTSuper(Utils.position) }
+    { result := new ASTSuper(new Position(file, pos)) }
+/
+    CLASS LPAREN t:type RPAREN
+    { result := new ASTClassLiteral(t) }
 / 
     CLASS
-    { result := new ASTDotExpression(new ASTSelf(Utils.position), "$class") }
-/ 
-    l:lambdaOrTuple
-    { result := l }
-/ 
+    { result := new ASTDotExpression(new ASTSelf(new Position(file, pos)), "$class") }
+/  
     c:construct 
     { result := c }
 /
@@ -651,21 +750,25 @@ term:ASTExpression = id:IDENTIFIER
     { result := m }
 /
     ATRETURN 
-    { result := new ASTAtReturn(Utils.position) }
+    { result := new ASTAtReturn(new Position(file, pos)) }
 / 
-    PRE LPAREN expr:expression RPAREN 
-    { result := new ASTPre(Utils.position, expr) }
+    PRE LPAREN expr2:expression RPAREN 
+    { result := new ASTPre(new Position(file, pos), expr2) }
 / 
     CONSTRUCTOR
     { 
-        result := new ASTDotExpression(new ASTSelf(Utils.position), 
+        result := new ASTDotExpression(new ASTSelf(new Position(file, pos)), 
                 "constructor") 
     }
+/
+    id:IDENTIFIER
+    { result := new ASTIdentifier(new Position(file, pos), id) }
+
 
 arrayLiteral:ASTExpression = LBRACKET (expr:expression 
         (COMMA expr:expression)*)? RBRACKET
     {
-        result := new ASTArrayLiteral(Utils.position, expr)
+        result := new ASTArrayLiteral(new Position(file, pos), expr)
     }
 
 lambdaOrTuple:ASTExpression = LPAREN (name1:IDENTIFIER type1:typeDeclaration 
@@ -675,8 +778,8 @@ lambdaOrTuple:ASTExpression = LPAREN (name1:IDENTIFIER type1:typeDeclaration
         def params := new Array<ASTTypedIdentifier>()
         assert name1.length = type1.length
         for i, n in name1
-            params.add(new ASTTypedIdentifier(Utils.position, n, type1[i]))
-        result := new ASTLambdaExpression(Utils.position, params, expr1)
+            params.add(new ASTTypedIdentifier(new Position(file, pos), n, type1[i]))
+        result := new ASTLambdaExpression(new Position(file, pos), params, expr1)
     }
 /
     LPAREN name2:IDENTIFIER (COMMA name2:IDENTIFIER)* RPAREN YIELDS ^ 
@@ -684,21 +787,21 @@ lambdaOrTuple:ASTExpression = LPAREN (name1:IDENTIFIER type1:typeDeclaration
     {
         def params := new Array<ASTTypedIdentifier>()
         for n in name2
-            params.add(new ASTTypedIdentifier(Utils.position, n, null))
-        result := new ASTLambdaExpression(Utils.position, params, expr2)
+            params.add(new ASTTypedIdentifier(new Position(file, pos), n, null))
+        result := new ASTLambdaExpression(new Position(file, pos), params, expr2)
     }
 /
-    LPAREN ^ expr3:expression (COMMA expr3:expression)* RPAREN 
-    { result := new ASTTupleExpression(Utils.position, expr3) }
+    LPAREN ^ expr3:expression (COMMA expr3:expression)+ RPAREN 
+    { result := new ASTTupleExpression(new Position(file, pos), expr3) }
 /
-    name4:IDENTIFIER YIELDS ^ expr4:expression
+    name4:IDENTIFIER type4:optionalTypeDeclaration YIELDS ^ expr4:expression
     { 
-        result := new ASTLambdaExpression(Utils.position, 
-                [new ASTTypedIdentifier(Utils.position, name4, null)], expr4)
+        result := new ASTLambdaExpression(new Position(file, pos), 
+                [new ASTTypedIdentifier(new Position(file, pos), name4, type4)], expr4)
     }
 
 construct:ASTExpression = NEW ^ t:type p:parameters
-    { result := new ASTNew(Utils.position, t, p) }
+    { result := new ASTNew(new Position(file, pos), t, p) }
 
 parameters:ListView<ASTExpression> = LPAREN (expr:expression 
         (COMMA expr:expression)*)? RPAREN
@@ -707,20 +810,17 @@ parameters:ListView<ASTExpression> = LPAREN (expr:expression
 methodValue:ASTExpression = FUNCTION ^ p1:formalParameterList t1:typeDeclaration 
         b1:block
     {
-        result := new ASTMethodValue(Utils.position, MethodNodeType.FUNCTION, 
+        result := new ASTMethodValue(new Position(file, pos), MethodNodeType.FUNCTION, 
             p1, t1, b1)
     }
 /
     METHOD ^ p2:formalParameterList t2:typeDeclaration? b2:block
     {
-        result := new ASTMethodValue(Utils.position, MethodNodeType.METHOD, 
+        result := new ASTMethodValue(new Position(file, pos), MethodNodeType.METHOD, 
             p2, t2, b2)
     }
 
 statement:ASTStatement = 
-    e:expressionOrAssignment
-    { result := e }
-/ 
     v:varDeclaration
     { result := v }
 / 
@@ -739,6 +839,9 @@ statement:ASTStatement =
     l:loop 
     { result := l }
 / 
+    e:expressionOrAssignment
+    { result := e }
+/ 
     a:assertStatement 
     { result := a }
 / 
@@ -756,7 +859,7 @@ block:ASTBlock = LBRACE ^ s:statement* t:terminalStatement? RBRACE
         statements.addAll(s)
         if t != null
             statements.add(t)
-        result := new ASTBlock(Utils.position, statements)
+        result := new ASTBlock(new Position(file, pos), statements)
     }
 statementOrBlock:ASTStatement = s:statement 
     { result := s }
@@ -765,7 +868,7 @@ statementOrBlock:ASTStatement = s:statement
     { result := t }
 
 assertStatement:ASTAssert = ASSERT ^ test:expression (COLON msg:expression)?
-    { result := new ASTAssert(Utils.position, test, msg) }
+    { result := new ASTAssert(new Position(file, pos), test, msg) }
 terminalStatement:ASTStatement = r:returnStatement 
     { result := r }
 / 
@@ -780,16 +883,16 @@ terminalStatement:ASTStatement = r:returnStatement
 / 
     u:unreachableStatement
     { result := u }
-returnStatement:ASTReturn = RETURN ^ expr:expression?
-    { result := new ASTReturn(Utils.position, expr) }
-breakStatement:ASTBreak = BREAK ^ label:IDENTIFIER?
-    { result := new ASTBreak(Utils.position, label) }
-continueStatement:ASTContinue = CONTINUE ^ label:IDENTIFIER?
-    { result := new ASTContinue(Utils.position, label) }
+returnStatement:ASTReturn = 'return' ^ (WS_SAMELINE expr:expression)? WS
+    { result := new ASTReturn(new Position(file, pos), expr) }
+breakStatement:ASTBreak = 'break' ^ (WS_SAMELINE label:IDENTIFIER)? WS
+    { result := new ASTBreak(new Position(file, pos), label) }
+continueStatement:ASTContinue = 'continue' ^ (WS_SAMELINE label:IDENTIFIER)? WS
+    { result := new ASTContinue(new Position(file, pos), label) }
 throwStatement:ASTThrow = THROW ^ expr:expression
-    { result := new ASTThrow(Utils.position, expr) }
+    { result := new ASTThrow(new Position(file, pos), expr) }
 unreachableStatement:ASTUnreachable = UNREACHABLE ^ (COLON expression)?
-    { result := new ASTUnreachable(Utils.position) }
+    { result := new ASTUnreachable(new Position(file, pos)) }
 
 forLoop:ASTFor = label:label? FOR ^ (index:IDENTIFIER indexType:typeDeclaration? 
         COMMA)? (loopVar:IDENTIFIER ^ loopVarType:typeDeclaration? / 
@@ -797,66 +900,66 @@ forLoop:ASTFor = label:label? FOR ^ (index:IDENTIFIER indexType:typeDeclaration?
     {
         def indexVar:ASTTypedIdentifier?
         if index != null
-            indexVar := new ASTTypedIdentifier(Utils.position, index, indexType)
+            indexVar := new ASTTypedIdentifier(new Position(file, pos), index, indexType)
         else
             indexVar := null
         def valueVars := new Array<ASTTypedIdentifier>()
         if loopVar != null {
-            valueVars.add(new ASTTypedIdentifier(Utils.position, loopVar, 
+            valueVars.add(new ASTTypedIdentifier(new Position(file, pos), loopVar, 
                     loopVarType))
         }
         else {
             assert tuple != null
             assert tuple.ids.length = tuple.types.length
             for i, id in tuple.ids {
-                valueVars.add(new ASTTypedIdentifier(Utils.position, id, 
+                valueVars.add(new ASTTypedIdentifier(new Position(file, pos), id, 
                         tuple.types[i]))
             }
         }
-        result := new ASTFor(Utils.position, null, indexVar, valueVars, list, 
+        result := new ASTFor(new Position(file, pos), label, indexVar, valueVars, list, 
                 statement)
     }
-forTuple:ForTuple = label:label? LPAREN ^ (id:IDENTIFIER / id:UNDERSCORE) 
-        type:optionalTypeDeclaration (COMMA (id:IDENTIFIER / id:UNDERSCORE) 
+forTuple:ForTuple = label:label? LPAREN ^ id:varName
+        type:optionalTypeDeclaration (COMMA id:varName
         type:optionalTypeDeclaration)+ RPAREN
     { result := new ForTuple(id, type) }
 doLoop:ASTDo = label:label? DO ^ statement:statementOrBlock WHILE 
         test:expression
-    { result := new ASTDo(Utils.position(), label, test, statement) }
+    { result := new ASTDo(new Position(file, pos), label, test, statement) }
 whileLoop:ASTWhile = label:label? WHILE ^ test:expression 
         statement:statementOrBlock
-    { result := new ASTWhile(Utils.position(), label, test, statement) }
+    { result := new ASTWhile(new Position(file, pos), label, test, statement) }
 loop:ASTLoop = label:label? LOOP ^ statement:statementOrBlock
-    { result := new ASTLoop(Utils.position, label, statement) }
+    { result := new ASTLoop(new Position(file, pos), label, statement) }
 label:String = id:IDENTIFIER COLON
     { result := id }
 
 ifStatement:ASTIf = IF test:expression thenStatement:statementOrBlock (ELSE
         elseStatement:statementOrBlock)?
     {  
-        result := new ASTIf(Utils.position, test, thenStatement, 
+        result := new ASTIf(new Position(file, pos), test, thenStatement, 
                 elseStatement) 
     }
 
 switchStatement:ASTSwitch = SWITCH value:expression LBRACE cases:switchCase* 
         (DEFAULT COLON defaultCase:statementOrBlock)? RBRACE
     {
-        result := new ASTSwitch(Utils.position, value, cases, defaultCase)
+        result := new ASTSwitch(new Position(file, pos), value, cases, defaultCase)
     }
 switchCase:ASTSwitchCase = CASE expr:expression (COMMA expr:expression)* COLON 
         statement:statementOrBlock
     {
-        result := new ASTSwitchCase(Utils.position, expr, statement)
+        result := new ASTSwitchCase(new Position(file, pos), expr, statement)
     }
 
 tryStatement:ASTStatement = TRY statement:statementOrBlock catches:catchBlock+
     {
-        result := new ASTTry(Utils.position, statement, catches, null)
+        result := new ASTTry(new Position(file, pos), statement, catches, null)
     }
 catchBlock:ASTCatch = CATCH name:IDENTIFIER type:typeDeclaration
         statement:statementOrBlock
     {
-        result := new ASTCatch(Utils.position, name, type, statement)
+        result := new ASTCatch(new Position(file, pos), name, type, statement)
     }
 
 assignmentOperator:BinaryOperationType? = ASSIGNMENT 
@@ -950,32 +1053,44 @@ expressionOrAssignment:ASTStatement = left:expression (COMMA left:expression)*
         result := new ASTExpressionStatement(expr)
     }
 
-WS = ([ \n\t] / COMMENT)*
+WS = ([ \r\n\t] / COMMENT)*
+WS_SAMELINE = ([ \t] / COMMENT)*
 COMMENT = LINE_COMMENT / BLOCK_COMMENT
 LINE_COMMENT = '--' (!'\n' .)* '\n'
 BLOCK_COMMENT = '-*' (BLOCK_COMMENT / !'*-' .)* '*-'
-DOCCOMMENT = '===' '='* (!'===' .)* '='* WS
-IDCHAR = [a-zA-Z_0-9$]
+DOCCOMMENT:String = '===' '='* (!'===' s:.)* '='* WS
+    { result := s.join("") }
+IDCHAR:String = [a-zA-Z_0-9$]
 KEYWORD = &[a-z] (PACKAGE / CLASS / INTERFACE / ENUM / USES / AS / METHOD / 
         FUNCTION / CONSTRUCTOR / VAR / DEF / CONSTANT / PROPERTY / CLASS / 
         TRUE / FALSE / NULL / SELF / SUPER / NEW / BY / FOR / IN / WHILE / DO / 
         LOOP / IF / ELSE / SWITCH / CASE / DEFAULT / ASSERT / UNREACHABLE / 
         TRY / CATCH / THROW / BREAK / CONTINUE / RETURN)
-IDENTIFIER = !KEYWORD @c:[a-zA-Z$] @c:IDCHAR* WS
-    { result := c }
+IDENTIFIER:String = !KEYWORD @c:[a-zA-Z$] @c:IDCHAR* WS
+    { result := c.join("") }
 / 
     !KEYWORD @u:'_' @u:IDCHAR* WS
-    { result := u }
-INTEGER = @i:[0-9]+ !IDCHAR WS
-    { result := i }
-STRING_CHAR = !'\\' . / '\\' ([tnr\\'"] / '{' expression '}')
-STRING = '"' (!'"' @s:STRING_CHAR)* '"' WS
-    { result := s }
+    { result := u.join("") }
+INTEGER:UInt64 = i:[0-9]+ !IDCHAR WS
+    { result := i.join("")->>(UInt64) }
+/
+    '0x' h:[0-9a-fA-F+]+ !IDCHAR WS
+    { result := Utils.parseInt(h.join(""), 16) }
+/
+    '0b' b:[01]+ !IDCHAR WS
+    { result := Utils.parseInt(b.join(""), 2) }
+REAL:Real64 = r:[0-9]* r:'.' r:[0-9]+ (r:[eE] r:'-'? r:[0-9]+)? !IDCHAR WS
+    { result := r.join("")->>(Real64) }
+STRING_EXPRESSION = '{' expression (',' (!'}' .)+)? '}'
+STRING_CHAR:String = !'\\' . / '\\' ([tnr\\'"] / STRING_EXPRESSION )
+STRING:String = '"' (!'"' @s:STRING_CHAR)* '"' WS
+    { result := s.join("") }
 /
     '\'' (!'\'' @s:STRING_CHAR)* '\'' WS
-    { result := s }
-PLUGIN = '#' (!'#' .)* '#' WS
-UNDERSCORE = u:'_' !IDCHAR WS
+    { result := s.join("") }
+PLUGIN:String = '#' (!'#' p:.)* '#' WS
+    { result := p.join("") }
+UNDERSCORE:String = u:'_' !IDCHAR WS
     { result := u }
 PACKAGE = 'package' !IDCHAR WS
 CLASS = 'class' !IDCHAR WS
@@ -1004,7 +1119,7 @@ OVERRIDE = '@override' !IDCHAR WS
 READONLY = '@readonly' !IDCHAR WS
 LIMITED = '@limited' !IDCHAR WS
 ATSELF = '@self' !IDCHAR WS
-SAFERETURN = '@return' !IDCHAR WS
+SAFERETURN = '@safeReturn' !IDCHAR WS
 UNSAFEFUNCTION = '@unsafeFunction' !IDCHAR WS
 FINAL = '@final' !IDCHAR WS
 WRAPPER_METHOD = '@$wrapperMethod' !IDCHAR WS
@@ -1042,7 +1157,8 @@ UNREACHABLE = 'unreachable' !IDCHAR WS
 TRY = 'try' !IDCHAR WS
 CATCH = 'catch' !IDCHAR WS
 THROW = 'throw' !IDCHAR WS
-COLON = ':' WS
+COLON:Bit = ':' WS
+    { result := true }
 LBRACKET = '[' WS
 RBRACKET = ']' WS
 LBRACE = '{' WS
@@ -1065,7 +1181,7 @@ AND:BinaryOperationType = '&' WS
     { result := BinaryOperationType.AND }
 OR:BinaryOperationType = '|' WS
     { result := BinaryOperationType.OR }
-XOR:BinaryOperationType = '^' WS
+XOR:BinaryOperationType = '~' WS
     { result := BinaryOperationType.XOR }
 SHIFTLEFT:BinaryOperationType = '<<' WS
     { result := BinaryOperationType.SHIFT_LEFT }
@@ -1075,7 +1191,7 @@ BITWISEAND:BinaryOperationType = '&&' WS
     { result := BinaryOperationType.BITWISE_AND }
 BITWISEOR:BinaryOperationType = '||' WS
     { result := BinaryOperationType.BITWISE_OR }
-BITWISEXOR:BinaryOperationType = '^^' WS
+BITWISEXOR:BinaryOperationType = '~~' WS
     { result := BinaryOperationType.BITWISE_XOR }
 POW:BinaryOperationType = '^' WS
     { result := BinaryOperationType.POWER }
@@ -1125,9 +1241,9 @@ OREQ:BinaryOperationType? = '|=' WS
     { result := BinaryOperationType.OR }
 BITWISEOREQ:BinaryOperationType? = '||=' WS 
     { result := BinaryOperationType.BITWISE_OR }
-XOREQ:BinaryOperationType? = '^=' WS 
+XOREQ:BinaryOperationType? = '~=' WS 
     { result := BinaryOperationType.XOR }
-BITWISEXOREQ:BinaryOperationType? = '^^=' WS 
+BITWISEXOREQ:BinaryOperationType? = '~~=' WS 
     { result := BinaryOperationType.BITWISE_XOR }
 SHIFTLEFTEQ:BinaryOperationType? = '<<=' WS 
     { result := BinaryOperationType.SHIFT_LEFT }
@@ -1136,17 +1252,25 @@ SHIFTRIGHTEQ:BinaryOperationType? = '>>=' WS
 CAST = '->' WS
 INSTANCEOF = '-?>' WS
 NINSTANCEOF = '-!>' WS
-CONVERT = '->>' WS
+CONVERT:Bit = '->>' WS
+    { result := true }
 COMMA  = ',' WS
-STAR    = '*' WS
+STAR:String = '*' WS
     { result := "*" }
-DOT    = '.' WS
+DOT:String = '.' WS
     { result := "." }
-DOTDOT = '..' WS
-ELLIPSIS = '...' WS
-QUESTION = '?' WS
-YIELDS = '=>' WS
-YIELDS_METHOD = '=&>' WS
-YIELDS_IMMUTABLE = '=>*' WS
-YIELDS_METHOD_IMMUTABLE = '=&>*' WS
+DOTDOT:Bit = '..' WS
+    { result := true }
+ELLIPSIS:Bit = '...' WS
+    { result := true }
+QUESTION:Bit = '?' WS
+    { result := true }
+YIELDS:Bit = '=>' WS
+    { result := true }
+YIELDS_METHOD:Bit = '=&>' WS
+    { result := true }
+YIELDS_IMMUTABLE:Bit = '=>*' WS
+    { result := true }
+YIELDS_METHOD_IMMUTABLE:Bit = '=&>*' WS
+    { result := true }
 EOF = !.
