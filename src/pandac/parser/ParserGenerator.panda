@@ -1,0 +1,596 @@
+package org.pandalanguage.pandac.parser
+
+class ImmutableHashSet<T:Immutable> : Immutable (CollectionView<T>) {
+    @private
+    def contents:ImmutableHashMap<T, T>
+
+    constructor(contents:CollectionView<T>) {
+        def map := new HashMap<T, T>()
+        for v in contents
+            map[v] := v
+        self.contents := new ImmutableHashMap<T, T>(map)
+    }
+
+    @override
+    function length():Int {
+        return contents.length
+    }
+
+    @override
+    function contains(object:T):Bit {
+        return contents[object] != null
+    }
+
+    @override
+    @safeReturn
+    function iterator():Iterator<T> {
+        return contents.keys.iterator
+    }
+
+    @override
+    function =(o:Object):Bit {
+		if o-?>(ImmutableHashSet<T>) {
+			def s := o->(ImmutableHashSet<T>)
+			if length != s.length
+				return false
+			for v in s {
+				if !contains(v)
+					return false
+			}
+			return true
+		}
+		return false
+    }
+
+    @override
+    function hash():Int {
+    	var result := 0
+    	for v in contents.keys
+    		result ~~= v.hash
+    	return result
+    }
+}
+
+class StateFragment : Immutable {
+	def production:Production
+
+	def position:Int
+
+	constructor(production:Production, position:Int) {
+		self.production := production
+		self.position := position
+	}
+
+	@override
+	function =(o:Object):Bit {
+		if o-!>(StateFragment)
+			return false
+		def frag := o->(StateFragment)
+		return production = frag.production & position = frag.position
+	}
+
+	@override
+	function hash():Int {
+		return production.hash ~~ position
+	}
+
+	@override
+	function format(fmt:String):String {
+		def result := new MutableString("\{production.name} = ")
+		result.append(production.nodes[0 .. position].join(" "))
+		result.append(" @ ")
+		result.append(production.nodes[position..].join(" "))
+		return result->>(String)
+	}
+}
+
+class State : Immutable {
+	def id:Int
+
+	def fragments:ImmutableHashSet<StateFragment>
+
+	constructor(id:Int, fragments:CollectionView<StateFragment>) {
+		self.id := id
+		self.fragments := new ImmutableHashSet<StateFragment>(fragments)
+	}
+
+	@override
+	function =(o:Object):Bit {
+		if o-?>(State) {
+			return fragments = o->(State).fragments
+		}
+		return false
+	}
+
+	@override
+	function hash():Int {
+		return fragments.hash()
+	}
+
+	@override
+	function format(fmt:String):String {
+		def result := new MutableString("State \{id}:")
+		for f in fragments
+			result.append("\n" + f)
+		return result->>(String)
+	}
+}
+
+================================================================================
+Scannerless Generalized LR parser generator. Reads a grammar file and creates a 
+Panda file which implements a parser for the grammar.
+
+This parser generator is intended for internal use only, generating the parser
+for the Panda compiler as well as the parser for the grammar files themselves. 
+As it is intended for internal use only, "user friendliness" is an entirely
+foreign concept to it. Not for children, contains small parts and sharp edges.
+
+NOTE: Currently the parser table is generated using SLR. This is a *bad plan*
+and results in much more nondeterminism than there should be; the plan is to
+eventually upgrade this to Minimal LR, but 'working' is more important than
+'fast' at the moment.
+================================================================================
+class ParserGenerator {
+	constant START_CHAR := 9->>(Char)
+	constant END_CHAR := 126->>(Char)
+
+	def grammar:Grammar
+
+	def productions:List<Production>
+
+	def productionIds := new Array<Int>()
+
+	def productionCounts := new Array<Int>()
+
+	def states := new HashSet<State>()
+
+	def syntheticCount := 0
+
+	def actions := new Array<List<Action?>>()
+
+	def gotos := new Array<List<Int?>>()
+
+	constructor(grammar:Grammar) {
+		self.grammar := grammar
+
+		self.productions := new Array<Production>(grammar.productions)
+	}
+
+	method computeClosure(fragments:HashSet<StateFragment>) {
+		var startSize:Int
+		do {
+			startSize := fragments.length
+			def newFragments := new HashSet<StateFragment>()
+			for f in fragments {
+				def node := f.production.nodes[f.position]
+				if node-?>(IdentifierNode) {
+					def name := node->(IdentifierNode).id
+					for p in productions {
+						if p.name = name
+							newFragments.add(new StateFragment(p, 0))
+					}
+				}
+			}
+			fragments.addAll(newFragments)
+		}
+		while fragments.length > startSize
+	}
+
+	method setAction(start:Int, char:Char, action:Action) {
+		def old := actions[start][char->>(Int)]
+		if old != null {
+			if old.type = ActionType.MULTIPLE {
+				assert old.subactions != null
+				old.subactions.add(action)
+			}
+			else
+				actions[start][char->>(Int)] := new Action([old, action])
+		}
+		else
+			actions[start][char->>(Int)] := action
+	}
+
+	@pre(!evaluating.contains(p))
+	method computeFirst(p:Production, 
+			evaluating:HashSet<Production>, 
+			result:HashSet<Char?>) {
+		evaluating.add(p)
+		for i, node in p.nodes {
+			result.remove(null)
+			if node-?>(IdentifierNode) {
+				computeFirst(node, evaluating, result)
+				if !result.contains(null)
+					return
+			}
+			else {
+				computeFirst(node, evaluating, result)
+			}
+		}
+		result.add(null)
+	}
+
+	method computeFirst(name:String, evaluating:HashSet<Production>,
+			result:HashSet<Char?>) {
+		for p in productions {
+			if p.name = name & !evaluating.contains(p)
+				computeFirst(p, evaluating, result)
+		}
+	}
+
+	function foo(s:HashSet<Char?>):String {
+		def result := new MutableString()
+		result.append("[")
+		for i, c in s {
+			if i > 0
+				result.append(", ")
+			if c = null
+				result.append("null")
+			else
+				result.append(c)
+		}
+		result.append("]")
+		return result->>(String)
+	}
+
+	method computeFirst(node:Node, evaluating:HashSet<Production>, 
+			result:HashSet<Char?>) {
+		if node-?>(CharNode)
+			result.add(node->(CharNode).char)
+		else if node-?>(CharClassNode) {
+			for c in node->(CharClassNode).chars
+				result.add(c)
+		}
+		else if node-?>(IdentifierNode)
+			computeFirst(node->(IdentifierNode).id, evaluating, result)
+		else
+			assert false : "unsupported node \{node}:\{node.class.name}"
+	}
+
+	method first(node:Node):HashSet<Char?> {
+		def result := new HashSet<Char?>()
+		computeFirst(node, new HashSet<Production>(), result)
+		return result
+	}
+
+	method first(name:String):HashSet<Char?> {
+		def result := new HashSet<Char?>()
+		computeFirst(name, new HashSet<Production>(), result)
+		return result
+	}
+
+	function follow(p:Production, pos:Int, 
+			evaluating:HashSet<String>):HashSet<Char?> {
+		def result := new HashSet<Char?>()
+		for i, node in p.nodes[pos + 1..] {
+			if node-?>(CutNode)
+				continue
+			def next := first(node)
+			def nullable := next.contains(null)
+			next.remove(null)
+			result.addAll(next)
+			if !nullable
+				return result
+		}
+		if !evaluating.contains(p.name)
+			result.addAll(follow(p.name, evaluating))
+		return result
+	}
+
+	function follow(name:String):HashSet<Char?> {
+		def result := follow(name, new HashSet<String>())
+		if name = "identifierText" {
+			-- ugly, ugly hack. Make sure identifiers cannot be followed by
+			-- identifier characters.
+			for c in "A" ... "Z"
+				result.remove(c)
+			for c in "a" ... "z"
+				result.remove(c)
+			for c in "0" ... "9"
+				result.remove(c)
+			result.remove("_")
+			result.remove("$")
+		}
+		return result
+	}
+
+	function follow(name:String, evaluating:HashSet<String>):HashSet<Char?> {
+		evaluating.add(name)
+		def result := new HashSet<Char?>()
+		for p in productions {
+			for i, n in p.nodes {
+				if n-?>(IdentifierNode) & n->(IdentifierNode).id = name
+					result.addAll(follow(p, i, evaluating))
+			}
+		}
+		return result
+	}
+
+	method computeTransitions(state:State, states:HashSet<State>) {
+		def outgoing := new HashMap<Node, HashSet<StateFragment>>()
+		for f in state.fragments {
+			if f.position < f.production.nodes.length {
+				def node := f.production.nodes[f.position]
+				var outgoingSet := outgoing[node]
+				if outgoingSet = null {
+					outgoingSet := new HashSet<StateFragment>()
+					outgoing[node] := outgoingSet
+				}
+				outgoingSet.add(new StateFragment(f.production, f.position + 1))
+			}
+			else {
+				def start := state.id
+				for i, p in productions {
+					if p = f.production {
+						def follows := follow(p.name)
+						assert p.name = "@start" | follows.length > 0 : 
+								"no follows for \{p.name}"
+						for c in follows {
+							setAction(start, c, new Action(ActionType.REDUCE, 
+									i))
+						}
+					}
+				}
+			}
+		}
+		for (node, set) in outgoing {
+			def target := addState(set, states)
+			if node-?>(IdentifierNode) {
+				def name := node->(IdentifierNode).id
+				var found := false
+				var id := -1
+				for i, p in productions {
+					if p.name = name {
+						found := true
+						id := productionIds[i]
+						break
+					}
+				}
+				assert found : "no production named '\{name}'"
+				gotos[state.id][id] := target
+			}
+			else if node-?>(CharNode) {
+				def c := node->(CharNode).char
+				setAction(state.id, c, new Action(ActionType.SHIFT, target))
+			}
+			else if node-?>(CharClassNode) {
+				def cl := node->(CharClassNode)
+				for c in cl.chars
+					setAction(state.id, c, new Action(ActionType.SHIFT, target))
+			}
+			else if node-?>(CutNode) {
+				for c in START_CHAR ... END_CHAR
+					setAction(state.id, c, new Action(ActionType.CUT, target))
+			}
+			else
+				unreachable
+		}
+	}
+
+	method addState(fragments:HashSet<StateFragment>, 
+			states:HashSet<State>):Int {
+		def original := new Array<StateFragment>(fragments)
+		computeClosure(fragments)
+		def state := new State(states.length, fragments)
+		if states.contains(state) {
+			for s in states {
+				if s = state
+					return s.id
+			}
+		}
+		states.add(state)
+		actions.add(new Array<Action?>(END_CHAR->>(Int), null))
+		gotos.add(new Array<Int?>(END_CHAR->>(Int), null))
+		computeTransitions(state, states)
+		return state.id
+	}
+
+	method createParseTable() {
+		def states := new HashSet<State>()
+		def start := new Production("@start", "Object",
+				[new IdentifierNode(null, "start"), new EOFNode()],
+				"result := start")
+		productions.add(start)
+		def names := new Array<String>()
+		for p in productions {
+			var nameFound := false
+			for i, n in names {
+				if names[i] = p.name {
+					productionIds.add(i)
+					nameFound := true
+					break
+				}
+			}
+			if !nameFound {
+				productionIds.add(names.length)
+				names.add(p.name)
+			}
+			productionCounts.add(p.nodes.length)
+		}
+		for p in productions {
+			if p.name = "start" {
+				def fragments := new HashSet<StateFragment>()
+				fragments.add(new StateFragment(p, 0))
+				addState(fragments, states)
+			}
+		}
+		def startId := states.length
+		def fragments := new HashSet<StateFragment>()
+		fragments.add(new StateFragment(start, 0))
+		addState(fragments, states)
+		for i, p in productions {
+			Console.writeLine(i + ": " + p)
+			Console.writeLine("    follows: \{follow(p.name)}")
+			def f := first(p.name)
+			def nullable := f.contains(null)
+			f.remove(null)
+			Console.writeLine("    first: \{f} (nullable: \{nullable})")
+		}
+		for s in states
+			Console.writeLine(s)
+	}
+
+	method writeActions(out:OutputStream) {
+		out.writeLine("    constant actions := createActions()")
+		out.writeLine("    @class")
+		out.writeLine("    function createActions():ImmutableArray<ImmutableArray<Action?>> {")
+		out.writeLine("        return [")
+		for i in 0 .. actions.length {
+			if i > 0
+				out.writeLine(",")
+			out.write("               createActions\{i}()")
+		}
+		out.writeLine()
+		out.writeLine("           ]")
+		out.writeLine("    }")
+		for i, row in actions {
+			while row[row.length - 1] = null
+				row.removeIndex(row.length - 1)
+			out.writeLine("    @class")
+			out.writeLine("    function createActions\{i}():ImmutableArray<Action?> {")
+			def actionMap := new HashMap<Action, Int>()
+			for a in row {
+				if a != null & !actionMap.contains(a) {
+					def id := actionMap.length
+					actionMap[a] := id
+					out.writeLine("        def action\{id} := \{a}")
+				}
+			}
+			out.write("        return [")
+			for j, a in row {
+				if j > 0
+					out.write(", ")
+				if a != null {
+					def id := actionMap[a]
+					assert id != null
+					out.write("action" + id)
+				}
+				else
+					out.write("null")
+			}
+			out.writeLine("]")
+			out.writeLine("    }")
+		}
+	}
+
+	method writeGotos(out:OutputStream) {
+		out.writeLine("    constant gotos := createGotos()")
+		out.writeLine("    @class")
+		out.writeLine("    function createGotos():ImmutableArray<ImmutableArray<Int?>> {")
+		out.writeLine("        return [")
+		for i in 0 .. gotos.length {
+			if i > 0
+				out.writeLine(",")
+			out.write("               createGotos\{i}()")
+		}
+		out.writeLine()
+		out.writeLine("           ]")
+		out.writeLine("    }")
+		for i, row in gotos {
+			while row[row.length - 1] = null
+				row.removeIndex(row.length - 1)
+			out.writeLine("    @class")
+			out.writeLine("    function createGotos\{i}():ImmutableArray<Int?> {")
+			out.write("        return [")
+			for j, g in row {
+				if j > 0
+					out.write(", ")
+				if g != null
+					out.write(g)
+				else
+					out.write("null")
+			}
+			out.writeLine("]")
+			out.writeLine("    }")
+		}
+	}
+
+	method writeProductions(out:OutputStream) {
+		out.writeLine("    constant productionIds := createProductionIds()")
+		out.writeLine("    @class")
+		out.writeLine("    function createProductionIds():ImmutableArray<Int> {")
+		out.writeLine("        return [\{productionIds.join(', ')}]")
+		out.writeLine("    }")
+	}
+
+	function getType(node:Node):String? {
+		if node-?>(CharNode) | node-?>(CharClassNode)
+			return "String"
+		else if node-?>(IdentifierNode) {
+			def name := node->(IdentifierNode).id
+			for p in productions {
+				if p.name = name
+					return p.type
+			}
+		}
+		unreachable
+	}
+
+	method writeReductions(out:OutputStream) {
+		out.writeLine("    method reduce(production:Int, parserState:ParserState):Object {")
+		out.writeLine("    	   switch production {")
+		for i, p in productions {
+			out.writeLine("            case \{i}: {")
+			if p.code != null {
+				assert p.type != null : "no type for \{p}"
+				out.writeLine("def result:\{p.type}")
+				for i in p.nodes.length - 1 ... 0 by -1 {
+					def node := p.nodes[i]
+					def name:String?
+					if node.name != null
+						name := node.name
+					else if node-?>(IdentifierNode) & getType(node) != null
+						name := node->(IdentifierNode).id
+					else
+						name := null
+					if name != null {
+						def type := getType(node)
+						assert type != null
+						out.writeLine("def \{name}:\{type} := parserState.state.output->(\{type})")
+					}
+					out.writeLine("parserState.state := parserState.state.next")
+				}
+				out.writeLine(p.code)
+				out.writeLine("return result")
+			}
+			else {
+				out.writeLine("for i in 0 .. \{p.nodes.length} parserState.state := parserState.state.next")
+				out.writeLine("return '<no output>'")
+			}
+			out.writeLine("}")
+		}
+		out.writeLine("        }")
+		out.writeLine("    }")
+	}
+
+	method writeParser(name:String, out:OutputStream) {
+		out.writeLine(grammar.code[1 .. grammar.code.length - 1])
+		out.writeLine("class \{name} : Immutable (Reducer) {")
+		out.writeLine("    -- I would love to just be able to include the parse tables as inline")
+		out.writeLine("    -- array literals, but Java complains about too much code in the init")
+		out.writeLine("    -- method when I do so")
+		writeProductions(out)
+		writeActions(out)
+		writeGotos(out)
+		writeReductions(out)
+		out.writeLine("    @class")
+		out.writeLine("    method createParser(text:String):Parser {")
+		out.writeLine("        return new Parser(productionIds, " +
+				"actions, gotos, new \{name}(), text)")
+		out.writeLine("    }")
+		out.writeLine("}")
+	}
+
+	@class
+	method main(args:PrimitiveArray<String>) {
+		def text := new File(args[0]).readAsString()
+        def parser := GrammarParser.createParser(text)
+        def result := parser.parse()
+        assert result[1]-?>(Grammar) : Parser.getPosition(result[0], text) + ": " + result[1]->>(String)
+		def grammar := result[1]->(Grammar)
+		def gen := new ParserGenerator(grammar)
+		gen.createParseTable()
+		def dest := new File(args[1])
+		assert dest.name.endsWith(".panda")
+		gen.writeParser(dest.simpleName, dest.openOutputStream())
+	}
+}

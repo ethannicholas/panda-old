@@ -1,0 +1,95 @@
+class Parser : Immutable {
+	constant EOF := 3->>(Char)
+
+	def productionIds:ImmutableArray<Int>
+
+	def actions:ImmutableArray<ImmutableArray<Action?>>
+
+	def gotos:ImmutableArray<ImmutableArray<Int?>>
+
+	def text:String
+
+	def reducer:Reducer
+
+	constructor(productionIds:ImmutableArray<Int>, 
+			actions:ImmutableArray<ImmutableArray<Action?>>, 
+			gotos:ImmutableArray<ImmutableArray<Int?>>, 
+			reducer:Reducer,
+			text:String) {
+		self.productionIds := productionIds
+		self.actions := actions
+		self.gotos := gotos
+		self.reducer := reducer
+		self.text := text + EOF
+	}
+
+	@class
+	function getPosition(pos:Int, text:String):String {
+	    def stream := new LineNumberInputStream(new MemoryInputStream(text))
+	    for i in 0 .. pos
+	        stream.readInt8()
+	    return stream.line + ':' + stream.column
+	}
+
+	function parse():(Int, Object) {
+		def parsers := new Stack<ParserState>()
+		var farthest:ParserState := new ParserState(0, 
+				new StateNode(actions.length - 3, "<START>", null))
+		parsers.push(farthest)
+
+		loop {
+			def top := parsers.peek()
+			if top.position = text.length
+				return (top.position, top.state.next.output)
+			def a := actions[top.state.state][text[top.position]->>(Int)]
+			if a = null {
+				parsers.pop()
+				if top.position > farthest.position
+					farthest := top
+				if parsers.length = 0 {
+					return (farthest.position, "error, found \{text[farthest.position]} in state \{farthest.state.state}")
+				}
+				continue
+			}
+			action(a, top, parsers)
+		}
+	}
+
+	method action(a:Action, parserState:ParserState, 
+			parsers:Stack<ParserState>) {
+		switch a.type {
+			case ActionType.SHIFT: {
+				parserState.state := new StateNode(a.target,
+						text[parserState.position]->>(String),
+						parserState.state)
+				parserState.position += 1
+			}
+			case ActionType.REDUCE: {
+				def output := reducer.reduce(a.target, parserState)
+				def next := gotos[parserState.state.state]
+						[productionIds[a.target]]
+				assert next != null
+				parserState.state := new StateNode(next, output, 
+						parserState.state)
+			}
+			case ActionType.MULTIPLE: {
+				def i := a.subactions.iterator()
+				assert !i.done()
+				def oldState := parserState.state
+				action(i.next(), parserState, parsers)
+				while !i.done() {
+					def sub := new ParserState(parserState.position, oldState)
+					action(i.next(), sub, parsers)
+					parsers.push(sub)
+				}
+			}
+			case ActionType.CUT: {
+				parserState.state := new StateNode(a.target, "<CUT>",
+						parserState.state)
+				parsers.clear()
+				parsers.push(parserState)
+			}
+			default: unreachable
+		}
+	}
+}

@@ -1,0 +1,440 @@
+{
+	package org.pandalanguage.pandac.parser
+
+	class RHS {
+		def terms:ListView<Node>
+
+		def code:String?
+
+		constructor(terms:ListView<Node>, code:String?) {
+			self.terms := new Array<Node>(terms)
+			self.code := code
+		}
+	}
+
+	class Range {
+		def start:Char
+
+		def end:Char
+
+		constructor(start:Char, end:Char) {
+			self.start := start
+			self.end := end
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(Range) {
+				def r := o->(Range)
+				return start = r.start & end = r.end
+			}
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return start.hash << 16 + end.hash
+		}		
+
+		@override
+		function format(fmt:String):String {
+			if start = end
+				return start->>(String)
+			else
+				return "\{start}-\{end}"
+		}
+	}
+
+	class CharClass {
+		def ranges:ListView<Range>
+
+		constructor(ranges:ListView<Range>) {
+			self.ranges := ranges
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(CharClass) {
+				def cl := o->(CharClass)
+				return ranges = cl.ranges
+			}
+			return false
+		}
+
+		@override
+		function hash():Int {
+			var result := 0
+			for r in ranges
+				result ||= r.hash -- FIXME use xor when parse bug is fixed
+			return result
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "[" + ranges.join("") + "]"
+		}		
+	}
+
+	class Node : Immutable {
+		def name:String?
+
+		constructor(name:String?) {
+			self.name := name
+		}
+	}
+
+	class CharNode : Node {
+		def char:Char
+
+		constructor(char:Char) {
+			super.constructor(null)
+			self.char := char
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(CharNode)
+				return char = o->(CharNode).char
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return char.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "'\{char}'"
+		}
+	}
+
+	class CharClassNode : Node {
+		constant START_CHAR := 9->>(Char)
+		constant END_CHAR := 127->>(Char)
+
+		def charClass:CharClass
+
+		constructor(name:String?, charClass:CharClass) {
+			super.constructor(name)
+			self.charClass := charClass
+		}
+
+		function chars():HashSet<Char> {
+			def chars := new HashSet<Char>()
+			if charClass.ranges[0].start = '^' & charClass.ranges[0].end = '^' {
+				for c in START_CHAR ... END_CHAR
+					chars.add(c)
+				for r in charClass.ranges[1..] {
+					for c in r.start ... r.end
+						chars.remove(c)
+				}
+			}
+			else {
+				for r in charClass.ranges {
+					for c in r.start ... r.end
+						chars.add(c)
+				}
+			}
+			return chars
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(CharClassNode)
+				return charClass = o->(CharClassNode).charClass
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return 0--charClass.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			return charClass->>(String)
+		}
+
+	}
+
+	class IdentifierNode : Node {
+		def id:String
+
+		constructor(name:String?, id:String) {
+			super.constructor(name)
+			self.id := id
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(IdentifierNode)
+				return id = o->(IdentifierNode).id
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return id.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			return id
+		}
+	}
+
+	class CutNode : Node {
+		constructor() {
+			super.constructor(null)
+		}
+
+		@override
+		function =(o:Object):Bit {
+			return o-?>(CutNode)
+		}
+
+		@override
+		function hash():Int {
+			return 0
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "^"
+		}
+	}
+
+	class EOFNode : CharNode {
+		constructor() {
+			super.constructor(Parser.EOF)
+		}
+
+		@override
+		function =(o:Object):Bit {
+			return o-?>(EOFNode)
+		}
+
+		@override
+		function hash():Int {
+			return 1
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "$"
+		}
+	}
+
+	class Production : Immutable {
+		def name:String
+
+		def type:String?
+
+		def nodes:ImmutableArray<Node>
+
+		def code:String?
+
+		constructor(name:String, type:String?, nodes:ListView<Node>, code:String?) {
+			self.name := name
+			self.type := type
+			self.nodes := new ImmutableArray<Node>(nodes)
+			self.code := code
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(Production) {
+				def p := o->(Production)
+				if name != p.name
+					return false
+				if type != p.type
+					return false
+				if code != p.code
+					return false
+				if nodes.length != p.nodes.length
+					return false
+				for i, n in nodes {
+					if n != p.nodes[i]
+						return false
+				}
+				return true
+			}
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return name.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			def result := new MutableString(name)
+			if type != null
+				result.append(":" + type)
+			result.append(" = " + nodes.join(' '))
+			if code != null
+				result.append("\n     \{code}")
+			return result->>(String)
+		}
+	}
+
+	class Grammar {
+		def productions:ListView<Production>
+
+		def code:String?
+
+		constructor(productions:ListView<Production>, code:String?) {
+			self.productions := productions
+			self.code := code
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := "{ \{self.code} }\n"
+			else
+				code := ""
+			return code + productions.join("\n")
+		}
+	}
+
+	class Util {
+		@class
+		function unescape(text:String):String {
+			return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
+					"\t").replace("\\[", "[").replace("\\]", "]").
+					replace("\\\\", "\\").replace("\\'", "'")
+		}
+	}
+}
+
+start:Grammar = grammar
+	{ result := grammar }
+grammar:Grammar = WS code productions
+	{ result := new Grammar(productions, code) }
+grammar:Grammar = WS productions
+	{ result := new Grammar(productions, null) }
+code:String = codeBlock WS
+	{ result := codeBlock }
+codeBlock:String = '{' codeChars '}'
+ 	{ result := "{" + codeChars + "}" }
+codeChars:String = codeChars codeChar
+	{ result := codeChars + codeChar }
+codeChars:String =
+	{ result := "" }
+codeChar:String = char:[^{}]
+	{ result := char->>(String) }
+codeChar:String = codeBlock 
+	{ result := codeBlock }
+productions:Array<Production> = productions production
+	{ 
+		result := new Array<Production>()
+		result.addAll(productions)
+		result.add(production)
+	}
+productions:Array<Production> =
+	{ result := [] }
+production:Production = identifier COLON type EQUAL ^ rhs
+	{ result := new Production(identifier, type, rhs.terms, rhs.code) }
+production:Production = identifier EQUAL ^ rhs
+	{ result := new Production(identifier, null, rhs.terms, rhs.code) }
+rhs:RHS = terms code
+	{ result := new RHS(terms, code) }
+rhs:RHS = terms
+	{ result := new RHS(terms, null) }
+terms:Array<Node> = term terms
+	{
+		result := [term]
+		result.addAll(terms)
+	}
+terms:Array<Node> =
+	{ result := [] }
+term:Node = identifier
+	{ result := new IdentifierNode(null, identifier) }
+term:Node = literal
+	{ result := new CharNode(literal[0]) }
+term:Node = cl:class
+	{ result := new CharClassNode(null, cl) }
+term:Node = label:identifier COLON id:identifier
+	{ result := new IdentifierNode(label, id) }
+term:Node = identifier COLON cl:class
+	{ result := new CharClassNode(identifier, cl) }
+term:Node = CARET
+	{ result := new CutNode() }
+types:String = types COMMA type
+	{ result := types + ", " + type }
+types:String = type
+	{ result := type }
+genericParameters:String = LT types GT
+	{ result := "<\{types}>" }
+genericParameters:String =
+	{ result := "" }
+type:String = identifier genericParameters QUESTION
+	{ result := identifier + genericParameters + "?" }
+type:String = identifier genericParameters
+	{ result := identifier + genericParameters }
+identifier:String = identifierText WS
+	{ result := identifierText }
+identifierText:String = identifierStart identifierChars
+	{ result := identifierStart + identifierChars }
+identifierStart:String = char:[a-zA-Z_]
+	{ result := char }
+identifierChars:String = chars:identifierChars char:[a-zA-Z_0-9]
+	{ result := chars + char }
+identifierChars:String = 
+	{ result := "" }
+class:CharClass = '[' ranges ']' WS
+	{ result := new CharClass(ranges) }
+class:CharClass = '.'
+	{ result := new CharClass([new Range("^", "^")]) }
+ranges:Array<Range> = ranges range
+	{ 
+		result := new Array<Range>()
+		result.addAll(ranges)
+		result.add(range)
+	}
+ranges:Array<Range> =
+	{ result := [] }
+range:Range = r1:rangeChar '-' r2:rangeChar
+	{ result := new Range(r1[0], r2[0]) }
+range:Range = rangeChar
+	{ result := new Range(rangeChar[0], rangeChar[0]) }
+rangeChar:String = char:[^\\\]]
+	{ result := char }
+rangeChar:String = escape
+	{ result := escape }
+escape:String = '\\' char:[nrt'"\]\\]
+	{ result := Util.unescape('\\' + char) }
+literal:String = ['] literalCharsSingle ['] WS
+	{ result := literalCharsSingle }
+literalCharsSingle:String = literalCharsSingle literalCharSingle
+	{ result := literalCharsSingle + literalCharSingle }
+literalCharsSingle:String =
+	{ result := "" }
+literalCharSingle:String = char:[^']
+	{ result := char }
+literalCharSingle:String = escape
+	{ result := escape }
+literal:String = '"' literalCharsDouble '"' WS
+	{ result := literalCharsDouble }
+literalCharsDouble:String = literalCharsDouble literalCharDouble
+	{ result := literalCharsDouble + literalCharDouble }
+literalCharsDouble:String =
+	{ result := "" }
+literalCharDouble:String = char:[^"]
+	{ result := char }
+literalCharDouble:String = escape
+	{ result := escape }
+
+WS = [ \n\r\t] WS
+WS =
+COLON = ':' WS
+EQUAL = '=' WS
+LT = '<' WS
+GT = '>' WS
+COMMA = ',' WS
+QUESTION = '?' WS
+CARET = '^' WS
