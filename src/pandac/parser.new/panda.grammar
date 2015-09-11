@@ -1,0 +1,796 @@
+{
+    uses org.pandalanguage.pandac.ast.ASTBitLiteral
+    uses org.pandalanguage.pandac.ast.ASTExpression
+    uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
+    uses org.pandalanguage.pandac.ast.ASTStringLiteral
+    uses org.pandalanguage.pandac.tree.BinaryOperationType
+    uses org.pandalanguage.pandac.tree.Position
+    uses org.pandalanguage.pandac.tree.UnaryOperationType
+    uses org.pandalanguage.pandac.tree.VariableType
+
+    class Util {
+        constant position := new Position(new File("<internal>"), 0)
+    
+        @class
+        @pre(base >= 2 & base <= 36)
+        function parseInt(s:String, base:UInt):UInt64? {
+            var result:UInt64 := 0
+            constant DIGITS := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            constant DIGITS_LOWER := "0123456789abcdefghijklmnopqrstuvwxyz"
+            for i in 0 .. s.length {
+                var digit := DIGITS.indexOf(s[i])
+                if digit = null {
+                    digit := DIGITS_LOWER.indexOf(s[i])
+                }
+                if digit = null | digit >= base {
+                    return null
+                }
+                result := result * base + digit->(UInt64)
+            }
+            return result
+        }
+
+        @class
+        function unescape(text:String):String {
+            return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
+                    "\t").replace("\\[", "[").replace("\\]", "]").
+                    replace("\\\\", "\\").replace("\\'", "'")
+        }
+
+        @class
+        method main(args:PrimitiveArray<String>) {
+            def text := new File(args[0]).readAsString()
+            def parser := Test.createParser(text)
+            def result := parser.parse()
+            Console.writeLine(Parser.getPosition(result[0], text) + ": " + result[1])
+        }
+    }
+}
+start:Object = file
+    { result := file }
+file:Object = expression
+    { result := expression }
+
+statement:ASTStatement = varDeclaration
+    { result := varDeclaration }
+statement:ASTStatement = ifStatement
+    { result := ifStatement }
+statement:ASTStatement = forLoop 
+    { result := forLoop }
+statement:ASTStatement = whileLoop 
+    { result := whileLoop }
+statement:ASTStatement = doLoop 
+    { result := doLoop }
+statement:ASTStatement = loop 
+    { result := loop }
+statement:ASTStatement = expressionOrAssignment
+    { result := expressionOrAssignment }
+statement:ASTStatement = assertStatement 
+    { result := aassertStatement }
+statement:ASTStatement = switchStatement
+    { result := switchStatement }
+statement:ASTStatement = tryStatement 
+    { result := tryStatement }
+statement:ASTStatement = block
+    { result := block }
+
+varDeclaration:ASTVarDeclaration = VAR varDeclarations
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.VAR, 
+                varDeclarations, null) 
+    }
+varDeclaration:ASTVarDeclaration = DEF varDeclarations
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.DEF, 
+                varDeclarations, null) 
+    }
+varDeclaration:ASTVarDeclaration = PROPERTY varDeclarations
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.PROPERTY, 
+                varDeclarations, null) 
+    }
+varDeclaration:ASTVarDeclaration = CONSTANT varDeclarations
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.CONSTANT, 
+                varDeclarations, null) 
+    }
+varDeclaration:ASTVarDeclaration = VAR varDeclarations ASSIGNMENT expression
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.VAR, 
+                varDeclarations, expression) 
+    }
+varDeclaration:ASTVarDeclaration = DEF varDeclarations ASSIGNMENT expression
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.DEF, 
+                varDeclarations, expression) 
+    }
+varDeclaration:ASTVarDeclaration = PROPERTY varDeclarations ASSIGNMENT expression
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.PROPERTY, 
+                varDeclarations, expression) 
+    }
+varDeclaration:ASTVarDeclaration = CONSTANT varDeclarations ASSIGNMENT expression
+    { 
+        result := new ASTVarDeclaration(Util.position, VariableType.CONSTANT, 
+                varDeclarations, expression) 
+    }
+varDeclarations:Array<ASTTypedIdentifier> = varDeclarations COMMA 
+        optionallyTypedIdentifier
+    { 
+        result := [] 
+        result.addAll(varDeclarations)
+        result.add(optionallyTypedIdentifier)
+    }
+varDeclarations:Array<ASTTypedIdentifier> = optionallyTypedIdentifier
+    { resut := optionallyTypedIdentifier }
+optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER
+    { result := new ASTTypedIdentifier(Util.position, IDENTIFIER, null) }
+optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER COLON type
+    { result := new ASTTypedIdentifier(Util.position, IDENTIFIER, type) }
+
+ifStatement:ASTIf = IF ^ expression e1:statement ELSE e2:statement
+    { result := new ASTIf(Util.position, expression, e1, e2) }
+ifStatement:ASTIf = IF ^ expression statement
+    { result := new ASTIf(Util.position, expression, statement, null) }
+
+forLoop:ASTFor = label FOR ^ optionallyTypedIdentifier IN expression 
+        statementOrBlock
+    { }
+
+type:ASTType = IDENTIFIER 
+    { 
+        result := new ASTClassType(Util.position, IDENTIFIER.identifier, null,
+                false) 
+    }
+type:ASTType = IDENTIFIER QUESTION
+    { 
+        result := new ASTClassType(Util.position, IDENTIFIER.identifier, null,
+                true) 
+    }
+type:ASTType = IDENTIFIER genericParameters
+    { 
+        result := new ASTClassType(Util.position, IDENTIFIER.identifier,
+                genericParameters, false) 
+    }
+type:ASTType = IDENTIFIER genericParameters QUESTION
+    { 
+        result := new ASTClassType(Util.position, IDENTIFIER.identifier,
+                genericParameters, true) 
+    }
+type:ASTType = LPAREN typeList RPAREN
+    { result := new ASTTupleType(Util.position, typeList, false) }
+type:ASTType = LPAREN typeList RPAREN QUESTION
+    { result := new ASTTupleType(Util.position, typeList, true) }
+type:ASTType = LPAREN typeList RPAREN YIELDS LPAREN type RPAREN
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, false, true,
+                false) 
+    }
+type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD LPAREN type RPAREN
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, false, false,
+                false) 
+    }
+type:ASTType = LPAREN typeList RPAREN YIELDS_IMMUTABLE LPAREN type RPAREN
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, false, true,
+                true) 
+    }
+type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD_IMMUTABLE LPAREN type RPAREN
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, false, false,
+                true) 
+    }
+type:ASTType = LPAREN typeList RPAREN YIELDS LPAREN type RPAREN QUESTION
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, true, true,
+                false) 
+    }
+type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD LPAREN type RPAREN QUESTION
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, true, false,
+                false) 
+    }
+type:ASTType = LPAREN typeList RPAREN YIELDS_IMMUTABLE LPAREN type RPAREN
+        QUESTION
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, true, true,
+                true) 
+    }
+type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD_IMMUTABLE LPAREN type RPAREN
+        QUESTION
+    { 
+        result := new ASTMethodType(Util.position, typeList, type, true, false,
+                true) 
+    }
+genericParameters:Array<ASTType> = LT typeList GT
+    { result := typeList }
+typeList:Array<ASTType> = typeList COMMA type
+    { 
+        result := []
+        result.addAll(typeList)
+        result.add(type)
+    }
+typeList:Array<ASTType> = type
+    { result := [type] }
+
+expression:ASTExpression = orExpression
+    { result := orExpression }
+orExpression:ASTExpression = andExpression 
+    { result := comparisonExpression }
+orExpression:ASTExpression = orExpression OR andExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.OR, orExpression,
+                andExpression)
+    }
+andExpression:ASTExpression = comparisonExpression 
+    { result := comparisonExpression }
+andExpression:ASTExpression = andExpression AND comparisonExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.AND, orExpression,
+                andExpression)
+    }
+
+comparisonExpression:ASTExpression = rangeExpression
+    { result := rangeExpression }
+comparisonExpression:ASTExpression = comparisonExpression EQ rangeExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.EQUAL, 
+                comparisonExpression, rangeExpression)
+    }
+comparisonExpression:ASTExpression = comparisonExpression NEQ rangeExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.NOT_EQUAL, 
+                comparisonExpression, rangeExpression)
+    }
+comparisonExpression:ASTExpression = comparisonExpression IDENTITY 
+        rangeExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.IDENTITY, 
+                comparisonExpression, rangeExpression)
+    }
+comparisonExpression:ASTExpression = comparisonExpression NIDENTITY 
+        rangeExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.NOT_IDENTITY, 
+                comparisonExpression, rangeExpression)
+    }
+comparisonExpression:ASTExpression = comparisonExpression GT rangeExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.GREATER_THAN, 
+                comparisonExpression, rangeExpression)
+    }
+comparisonExpression:ASTExpression = comparisonExpression LT rangeExpression 
+    { 
+        result := new ASTBinaryExpression(BinaryOperationType.LESS_THAN, 
+                comparisonExpression, rangeExpression)
+    }
+comparisonExpression:ASTExpression = comparisonExpression GTEQ rangeExpression 
+    { 
+        result := new ASTBinaryExpression(
+                BinaryOperationType.GREATER_THAN_OR_EQUAL, 
+                comparisonExpression, rangeExpression)
+    }
+comparisonExpression:ASTExpression = comparisonExpression LTEQ rangeExpression 
+    { 
+        result := new ASTBinaryExpression(
+                BinaryOperationType.LESS_THAN_OR_EQUAL, 
+                comparisonExpression, rangeExpression)
+    }
+
+rangeExpression:ASTExpression = additiveExpression
+    { result := additiveExpression }
+rangeExpression:ASTExpression = DOTDOT
+    { result := new ASTRangeExpression(Util.position, null, null, null, false) }
+rangeExpression:ASTExpression = ELLIPSIS
+    { result := new ASTRangeExpression(Util.position, null, null, null, true) }
+rangeExpression:ASTExpression = l:additiveExpression DOTDOT
+    { result := new ASTRangeExpression(Util.position, l, null, null, false) }
+rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS
+    { result := new ASTRangeExpression(Util.position, l, null, null, true) }
+rangeExpression:ASTExpression = DOTDOT r:additiveExpression
+    { result := new ASTRangeExpression(Util.position, null, r, null, false) }
+rangeExpression:ASTExpression = ELLIPSIS r:additiveExpression
+    { result := new ASTRangeExpression(Util.position, null, r, null, true) }
+rangeExpression:ASTExpression = l:additiveExpression DOTDOT r:additiveExpression
+    { result := new ASTRangeExpression(Util.position, l, r, null, false) }
+rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS 
+        r:additiveExpression
+    { result := new ASTRangeExpression(Util.position, l, r, null, true) }
+rangeExpression:ASTExpression = DOTDOT BY s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, null, null, s, false) }
+rangeExpression:ASTExpression = ELLIPSIS BY s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, null, null, s, true) }
+rangeExpression:ASTExpression = l:additiveExpression DOTDOT BY 
+        s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, l, null, s, false) }
+rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS BY 
+        s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, l, null, s, true) }
+rangeExpression:ASTExpression = DOTDOT r:additiveExpression BY 
+        s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, null, r, s, false) }
+rangeExpression:ASTExpression = ELLIPSIS r:additiveExpression BY 
+        s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, null, r, s, true) }
+rangeExpression:ASTExpression = l:additiveExpression DOTDOT r:additiveExpression
+        BY s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, l, r, s, false) }
+rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS 
+        r:additiveExpression BY s:additiveExpression
+    { result := new ASTRangeExpression(Util.position, l, r, s, true) }
+
+additiveExpression:ASTExpression = multiplicativeExpression
+    { result := multiplicativeExpression }
+additiveExpression:ASTExpression = additiveExpression ADD 
+        multiplicativeExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.ADD, 
+                additiveExpression, multiplicativeExpression) 
+    }
+additiveExpression:ASTExpression = additiveExpression SUB 
+        multiplicativeExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.SUBTRACT, 
+                additiveExpression, multiplicativeExpression) 
+    }
+additiveExpression:ASTExpression = additiveExpression BITWISEOR
+        multiplicativeExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.BITWISEOR, 
+                additiveExpression, multiplicativeExpression) 
+    }
+
+multiplicativeExpression:ASTExpression = unaryExpression
+    { result := unaryExpression }
+multiplicativeExpression:ASTExpression = multiplicativeExpression MUL
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.MULTIPLY, 
+                multiplicativeExpression, unaryExpression) 
+    }
+multiplicativeExpression:ASTExpression = multiplicativeExpression DIV
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.DIVIDE, 
+                multiplicativeExpression, unaryExpression) 
+    }
+multiplicativeExpression:ASTExpression = multiplicativeExpression INTDIV
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.INT_DIVIDE, 
+                multiplicativeExpression, unaryExpression) 
+    }
+multiplicativeExpression:ASTExpression = multiplicativeExpression REM
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.REMAINDER, 
+                multiplicativeExpression, unaryExpression) 
+    }
+multiplicativeExpression:ASTExpression = multiplicativeExpression SHIFTLEFT
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.SHIFT_LEFT, 
+                multiplicativeExpression, unaryExpression) 
+    }
+multiplicativeExpression:ASTExpression = multiplicativeExpression SHIFTRIGHT
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.SHIFT_RIGHT, 
+                multiplicativeExpression, unaryExpression) 
+    }
+multiplicativeExpression:ASTExpression = multiplicativeExpression BITWISEAND
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.BITWISE_AND, 
+                multiplicativeExpression, unaryExpression) 
+    }
+multiplicativeExpression:ASTExpression = multiplicativeExpression BITWISEXOR
+        unaryExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.BITWISE_XOR, 
+                multiplicativeExpression, unaryExpression) 
+    }
+
+unaryExpression:ASTExpression = exponentExpression
+    { result := exponentExpression }
+unaryExpression:ASTExpression = SUB exponentExpression
+    { 
+        result := new ASTUnaryExpression(Util.position, 
+                UnaryOperationType.MINUS, exponentExpression) 
+    }
+unaryExpression:ASTExpression = NOT exponentExpression
+    { 
+        result := new ASTUnaryExpression(Util.position, UnaryOperationType.NOT,
+                exponentExpression) 
+    }
+unaryExpression:ASTExpression = BITWISENOT exponentExpression
+    { 
+        result := new ASTUnaryExpression(Util.position, 
+                UnaryOperationType.BITWISE_NOT, exponentExpression) 
+    }
+
+exponentExpression:ASTExpression = callExpression
+    { result := callExpression }
+exponentExpression:ASTExpression = callExpression exponentExpression
+    { 
+        result := new ASTBinaryOperation(BinaryOperationType.POWER, 
+                callExpression, exponentExpression)
+    }
+
+callExpression:ASTExpression = term
+callExpression:ASTExpression = callExpression parameters
+    { result := new ASTCallExpression(callExpression, parameters) }
+callExpression:ASTExpression = callExpression LBRACKET expression RBRACKET
+    { result := new ASTIndex(callExpression, parameters) }
+callExpression:ASTExpression = callExpression LBRACKET expression RBRACKET
+    { result := new ASTIndex(callExpression, expression) }
+callExpression:ASTExpression = callExpression DOT IDENTIFIER
+    { result := new ASTDotExpression(callExpression, IDENTIFIER.identifier) }
+callExpression:ASTExpression = callExpression DOT IDENTIFIER
+    { result := new ASTDotExpression(callExpression, IDENTIFIER.identifier) }
+callExpression:ASTExpression = callExpression DOT CLASS
+    { result := new ASTDotExpression(callExpression, "$class") }
+callExpression:ASTExpression = callExpression DOT CONSTRUCTOR
+    { result := new ASTDotExpression(callExpression, "constructor") }
+callExpression:ASTExpression = callExpression INSTANCEOF typeExpression
+    { 
+        result := new ASTArrowExpression(ArrowOperationType.INSTANCE_OF,
+                callExpression, typeExpression) 
+    }
+callExpression:ASTExpression = callExpression NINSTANCEOF typeExpression
+    { 
+        result := new ASTArrowExpression(ArrowOperationType.NOT_INSTANCE_OF,
+                callExpression, typeExpression) 
+    }
+callExpression:ASTExpression = callExpression CAST typeExpression
+    { 
+        result := new ASTArrowExpression(ArrowOperationType.CAST,
+                callExpression, typeExpression) 
+    }
+callExpression:ASTExpression = callExpression CONVERT typeExpression
+    { 
+        result := new ASTArrowExpression(ArrowOperationType.CONVERT,
+                callExpression, typeExpression) 
+    }
+typeExpression:ASTType = type
+    { result := type }
+typeExpression:ASTType = LPAREN type RPAREN
+    { result := type }
+
+parameters:Array<ASTExpression> = LPAREN expressionList RPAREN
+    { result := expressionList }
+parameters:Array<ASTExpression> = LPAREN RPAREN
+    { result := [] }
+expressionList:Array<ASTExpression> = expressionList COMMA expression
+    { 
+        result := [] 
+        result.addAll(expressionList)
+        result.add(expression)
+    }
+expressionList:Array<ASTExpression> = expression
+    { result := [expression] }
+
+term:ASTExpression = IDENTIFIER
+    { result := new ASTIdentifier(Util.position, IDENTIFIER) }
+term:ASTExpression = INTEGER
+    { result := INTEGER }
+term:ASTExpression = STRING
+    { result := STRING }
+term:ASTExpression = REAL
+    { result := REAL }
+term:ASTExpression = TRUE
+    { result := new ASTBitLiteral(Util.position, true) }
+term:ASTExpression = FALSE
+    { result := new ASTBitLiteral(Util.position, true) }
+term:ASTExpression = NULL
+    { result := new ASTNullLiteral(Util.position) }
+term:ASTExpression = SELF
+    { result := new ASTSelf(Util.position) }
+term:ASTExpression = SUPER
+    { result := new ASTSuper(Util.position) }
+term:ASTExpression = CLASS
+    { result := new ASTDotExpression(new ASTSelf(Util.position), "$class") }
+term:ASTExpression = LPAREN expressionList RPAREN
+    {  
+        if expressionList.length = 1
+            result := expressionList[0]
+        else
+            result := new ASTTupleExpression(position, expressionList)
+    }
+term:ASTExpression = NEW type parameters
+    { result := new ASTNew(Util.position, type, parameters) }
+term:ASTExpression = LBRACKET expressionList RBRACKET
+    { result := new ASTArrayLiteral(Util.position, expressionList) }
+term:ASTExpression = LBRACKET RBRACKET
+    { result := new ASTArrayLiteral(Util.position, []) }
+term:ASTExpression = lambda
+    { result := lambda }
+
+lambda:ASTExpression = lambdaParameters YIELDS expression
+    { result := new ASTLambda(Util.position, lambdaParameters, expression) }
+lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
+    { 
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+                null)]
+    }
+lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
+    { 
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+                type)]
+    }
+lambdaParameters:Array<ASTTypedIdentifier> = LPAREN RPAREN
+    { result := [] }
+lambdaParameters:Array<ASTTypedIdentifier> = LPAREN untypedLambdaParameters 
+        RPAREN
+    { result := untypedLambdaParameters }
+lambdaParameters:Array<ASTTypedIdentifier> = LPAREN typedLambdaParameters RPAREN
+    { result := untypedLambdaParameters }
+untypedLambdaParameters:Array<ASTTypedIdentifier> = untypedLambdaParameters 
+        COMMA IDENTIFIER
+    { 
+        result := []
+        result.addAll(untypedLambdaParameters)
+        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+                null))
+    }
+untypedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
+    {  
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+                null)]
+    }
+typedLambdaParameters:Array<ASTTypedIdentifier> = typedLambdaParameters 
+        COMMA IDENTIFIER COLON type
+    { 
+        result := []
+        result.addAll(untypedLambdaParameters)
+        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+                type))
+    }
+typedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
+    {  
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+                type)]
+    }
+
+IDENTIFIER:String = identifierText WS
+    { result := identifierText }
+identifierText:String = identifierStart identifierChars
+    { result := identifierStart + identifierChars }
+identifierText:String = identifierStart
+    { result := identifierStart }
+identifierStart:String = char:[a-zA-Z_]
+    { result := char }
+identifierChars:String = chars:identifierChars identifierChar
+    { result := chars + identifierChar }
+identifierChars:String = identifierChar
+    { result := identifierChar }
+identifierChar:String = char:[a-zA-Z_0-9]
+    { result := identifierChar }
+
+INTEGER:ASTIntegerLiteral = DECIMAL_CHARS WS
+    { result := new ASTIntegerLiteral(Util.position, DECIMAL_CHARS->>(UInt64)) }
+INTEGER:ASTIntegerLiteral = '0x' HEX_CHARS WS
+    { result := new ASTIntegerLiteral(Util.position, Util.parseInt(HEX_CHARS, 16)) }
+INTEGER:ASTIntegerLiteral = '0b' BINARY_CHARS WS
+    { 
+        result := new ASTIntegerLiteral(Util.position, Util.parseInt(BINARY_CHARS, 
+                2)) 
+    }
+DECIMAL_CHARS:String = DECIMAL_CHARS DECIMAL_CHAR
+    { result := DECIMAL_CHARS + DECIMAL_CHAR }
+DECIMAL_CHARS:String = DECIMAL_CHAR
+    { result := DECIMAL_CHAR }
+DECIMAL_CHAR:String = digit:[0-9]
+    { result := digit }
+HEX_CHARS:String = HEX_CHARS HEX_CHAR
+    { result := HEX_CHARS + HEX_CHAR }
+HEX_CHARS:String = HEX_CHAR
+    { result := HEX_CHAR }
+HEX_CHAR:String = digit:[0-9A-Fa-f]
+    { result := digit }
+BINARY_CHARS:String = BINARY_CHARS BINARY_CHAR
+    { result := BINARY_CHARS + BINARY_CHAR }
+BINARY_CHARS:String = BINARY_CHAR
+    { result := BINARY_CHAR }
+BINARY_CHAR:String = digit:[01]
+    { result := digit }
+
+REAL:ASTRealLiteral = '.' DECIMAL_CHARS WS
+    { 
+        result := new ASTRealLiteral(Util.position, ("." + 
+            DECIMAL_CHARS)->>(Real64))
+    }
+REAL:ASTRealLiteral = '.' DECIMAL_CHARS EXPONENT WS
+    { 
+        result := new ASTRealLiteral(Util.position, ("." + 
+            DECIMAL_CHARS + EXPONENT)->>(Real64))
+    }
+REAL:ASTRealLiteral = d1:DECIMAL_CHARS '.' d2:DECIMAL_CHARS WS
+    { result := new ASTRealLiteral(Util.position, (d1 + "." + d2)->>(Real64)) }
+REAL:ASTRealLiteral = DECIMAL_CHARS EXPONENT WS
+    { 
+        result := new ASTRealLiteral(Util.position, (DECIMAL_CHARS + 
+                EXPONENT)->>(Real64)) 
+    }
+REAL:ASTRealLiteral = d1:DECIMAL_CHARS '.' d2:DECIMAL_CHARS EXPONENT WS
+    { 
+        result := new ASTRealLiteral(Util.position, (d1 + "." + d2 + 
+                EXPONENT)->>(Real64))
+    }
+EXPONENT:String = [eE] DECIMAL_CHARS
+    { result := "e" + DECIMAL_CHARS }
+EXPONENT:String = [eE] sign:[+-] DECIMAL_CHARS
+    { result := "e" + sign + DECIMAL_CHARS }
+
+STRING:ASTStringLiteral = STRING_SINGLE WS
+    { result := STRING_SINGLE }
+STRING:ASTStringLiteral = STRING_DOUBLE WS
+    { result := STRING_DOUBLE }
+STRING_SINGLE:ASTStringLiteral = ['] STRING_CHARS_SINGLE [']
+    { result := new ASTStringLiteral(Util.position, STRING_CHARS_SINGLE) }
+STRING_CHARS_SINGLE:String = STRING_CHARS_SINGLE STRING_CHAR_SINGLE
+    { result := STRING_CHARS_SINGLE + STRING_CHAR_SINGLE }
+STRING_CHARS_SINGLE:String = 
+    { result := "" }
+STRING_CHAR_SINGLE:String = char:[^'\\]
+    { result := char }
+STRING_CHAR_SINGLE:String = ESCAPE
+    { result := ESCAPE }
+STRING_DOUBLE:ASTStringLiteral = ["] STRING_CHARS_DOUBLE ["]
+    { result := new ASTStringLiteral(Util.position, STRING_CHARS_DOUBLE) }
+STRING_CHARS_DOUBLE:String = STRING_CHARS_DOUBLE STRING_CHAR_DOUBLE
+    { result := STRING_CHARS_DOUBLE + STRING_CHAR_DOUBLE }
+STRING_CHARS_DOUBLE:String = 
+    { result := "" }
+STRING_CHAR_DOUBLE:String = char:[^"\\]
+    { result := char }
+STRING_CHAR_DOUBLE:String = ESCAPE
+    { result := ESCAPE }
+ESCAPE:String = '\\' char:[nrt'"\]\\]
+    { result := Util.unescape('\\' + char) }
+
+PACKAGE = 'package' WS
+CLASS = 'class' WS
+INTERFACE = 'interface' WS
+ENUM = 'enum' WS
+USES = 'uses' WS
+AS = 'as' WS
+METHOD = 'method' WS
+FUNCTION = 'function' WS
+CONSTRUCTOR = 'constructor' WS
+VAR:VariableType = 'var' WS
+    { result := VariableType.VAR }
+DEF:VariableType = 'def' WS
+    { result := VariableType.DEF }
+CONSTANT:VariableType = 'constant' WS
+    { result := VariableType.CONSTANT }
+PROPERTY:VariableType = 'property' WS 
+    { result := VariableType.PROPERTY }
+PROTECTED = '@protected' WS
+PRIVATE = '@private' WS
+ATCLASS = '@class' WS
+THREAD = '@thread' WS
+ABSTRACT = '@abstract' WS
+EXTERNAL = '@external' WS
+OVERRIDE = '@override' WS
+READONLY = '@readonly' WS
+LIMITED = '@limited' WS
+ATSELF = '@self' WS
+SAFERETURN = '@safeReturn' WS
+UNSAFEFUNCTION = '@unsafeFunction' WS
+FINAL = '@final' WS
+WRAPPER_METHOD = '@$wrapperMethod' WS
+MATH = '@math' WS
+OVERFLOW = 'overflow' WS
+INVARIANT = '@invariant' WS
+INSTANCE = '@$instance' WS
+PRE = '@pre' WS
+POST = '@post' WS
+PRE_OR = '@preOr' WS
+POST_AND = '@postAnd' WS
+ATRETURN = '@return' WS
+TRUE = 'true' WS
+FALSE = 'false' WS
+NULL = 'null' WS
+SELF = 'self' WS
+SUPER = 'super' WS
+NEW = 'new' WS
+BY = 'by' WS
+FOR = 'for' WS
+IN = 'in' WS
+WHILE = 'while' WS
+DO = 'do' WS
+LOOP = 'loop' WS
+IF = 'if' WS
+ELSE = 'else' WS
+SWITCH = 'switch' WS
+CASE = 'case' WS
+DEFAULT = 'default' WS
+ASSERT = 'assert' WS
+RETURN = 'return' WS
+BREAK = 'break' WS
+CONTINUE = 'continue' WS
+UNREACHABLE = 'unreachable' WS
+TRY = 'try' WS
+CATCH = 'catch' WS
+THROW = 'throw' WS
+COLON = ':' WS
+LBRACKET = '[' WS
+RBRACKET = ']' WS
+LBRACE = '{' WS
+RBRACE = '}' WS
+LPAREN = '(' WS
+RPAREN = ')' WS
+ADD = '+' WS
+SUB = '-' WS
+MUL = '*' WS
+DIV = '/' WS
+REM = '%' WS
+INTDIV = '//' WS
+AND = '&' WS
+OR = '|' WS
+XOR = '~' WS
+SHIFTLEFT = '<<' WS
+SHIFTRIGHT = '>>' WS
+BITWISEAND = '&&' WS
+BITWISEOR = '||' WS
+BITWISEXOR = '~~' WS
+POW = '^' WS
+EQ = '=' WS
+NEQ = '!=' WS
+LT = '<' WS
+GT = '>' WS
+LTEQ = '<=' WS
+GTEQ = '>=' WS
+IDENTITY = '==' WS
+NIDENTITY = '!==' WS
+NOT = '!' WS
+BITWISENOT = '!!' WS
+UNARY_MINUS = '-' WS
+ASSIGNMENT = ':=' WS
+ADDEQ = '+=' WS 
+SUBEQ = '-=' WS
+MULEQ = '*=' WS 
+DIVEQ = '/=' WS 
+INTDIVEQ = '//=' WS 
+POWEQ = '^=' WS 
+REMEQ = '%=' WS 
+ANDEQ = '&=' WS 
+BITWISEANDEQ = '&&=' WS 
+OREQ = '|=' WS 
+BITWISEOREQ = '||=' WS 
+XOREQ = '~=' WS 
+BITWISEXOREQ = '~~=' WS 
+SHIFTLEFTEQ = '<<=' WS 
+SHIFTRIGHTEQ = '>>=' WS 
+CAST = '->' WS
+INSTANCEOF = '-?>' WS
+NINSTANCEOF = '-!>' WS
+CONVERT = '->>' WS
+COMMA  = ',' WS
+STAR = '*' WS
+DOT = '.' WS
+DOTDOT = '..' WS
+ELLIPSIS = '...' WS
+QUESTION = '?' WS
+YIELDS = '=>' WS
+YIELDS_METHOD = '=&>' WS
+YIELDS_IMMUTABLE = '=>*' WS
+YIELDS_METHOD_IMMUTABLE = '=&>*' WS
+
+WS = WS WS_CHAR
+WS =
+WS_CHAR = [ \r\n\t]
+WS_CHAR = COMMENT
+COMMENT = LINE_COMMENT
+COMMENT = BLOCK_COMMENT
+LINE_COMMENT = '--' LINE_COMMENT_CHARS
+LINE_COMMENT_CHARS = LINE_COMMENT_CHARS [^\n]
+LINE_COMMENT_CHARS =
+BLOCK_COMMENT = '-*' BLOCK_COMMENT_CHARS '*-'
+BLOCK_COMMENT_CHARS = BLOCK_COMMENT_CHARS BLOCK_COMMENT_CHAR
+BLOCK_COMMENT_CHARS =
+BLOCK_COMMENT_CHAR = [^*]
+BLOCK_COMMENT_CHAR = '*' [^-]
+BLOCK_COMMENT_CHAR = BLOCK_COMMENT

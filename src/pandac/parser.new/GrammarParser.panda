@@ -1,0 +1,1908 @@
+
+	package org.pandalanguage.pandac.parser
+
+	class RHS {
+		def terms:ListView<Node>
+
+		def code:String?
+
+		constructor(terms:ListView<Node>, code:String?) {
+			self.terms := new Array<Node>(terms)
+			self.code := code
+		}
+	}
+
+	class Range {
+		def start:Char
+
+		def end:Char
+
+		constructor(start:Char, end:Char) {
+			self.start := start
+			self.end := end
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(Range) {
+				def r := o->(Range)
+				return start = r.start & end = r.end
+			}
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return start.hash << 16 + end.hash
+		}		
+
+		@override
+		function format(fmt:String):String {
+			if start = end
+				return start->>(String)
+			else
+				return "\{start}-\{end}"
+		}
+	}
+
+	class CharClass {
+		def ranges:ListView<Range>
+
+		constructor(ranges:ListView<Range>) {
+			self.ranges := ranges
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(CharClass) {
+				def cl := o->(CharClass)
+				return ranges = cl.ranges
+			}
+			return false
+		}
+
+		@override
+		function hash():Int {
+			var result := 0
+			for r in ranges
+				result ||= r.hash -- FIXME use xor when parse bug is fixed
+			return result
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "[" + ranges.join("") + "]"
+		}		
+	}
+
+	class Node : Immutable {
+		def name:String?
+
+		constructor(name:String?) {
+			self.name := name
+		}
+	}
+
+	class CharNode : Node {
+		def char:Char
+
+		constructor(char:Char) {
+			super.constructor(null)
+			self.char := char
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(CharNode)
+				return char = o->(CharNode).char
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return char.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "'\{char}'"
+		}
+	}
+
+	class CharClassNode : Node {
+		constant START_CHAR := 9->>(Char)
+		constant END_CHAR := 127->>(Char)
+
+		def charClass:CharClass
+
+		constructor(name:String?, charClass:CharClass) {
+			super.constructor(name)
+			self.charClass := charClass
+		}
+
+		function chars():HashSet<Char> {
+			def chars := new HashSet<Char>()
+			if charClass.ranges[0].start = '^' & charClass.ranges[0].end = '^' {
+				for c in START_CHAR ... END_CHAR
+					chars.add(c)
+				for r in charClass.ranges[1..] {
+					for c in r.start ... r.end
+						chars.remove(c)
+				}
+			}
+			else {
+				for r in charClass.ranges {
+					for c in r.start ... r.end
+						chars.add(c)
+				}
+			}
+			return chars
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(CharClassNode)
+				return charClass = o->(CharClassNode).charClass
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return 0--charClass.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			return charClass->>(String)
+		}
+
+	}
+
+	class IdentifierNode : Node {
+		def id:String
+
+		constructor(name:String?, id:String) {
+			super.constructor(name)
+			self.id := id
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(IdentifierNode)
+				return id = o->(IdentifierNode).id
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return id.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			return id
+		}
+	}
+
+	class CutNode : Node {
+		constructor() {
+			super.constructor(null)
+		}
+
+		@override
+		function =(o:Object):Bit {
+			return o-?>(CutNode)
+		}
+
+		@override
+		function hash():Int {
+			return 0
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "^"
+		}
+	}
+
+	class EOFNode : CharNode {
+		constructor() {
+			super.constructor(Parser.EOF)
+		}
+
+		@override
+		function =(o:Object):Bit {
+			return o-?>(EOFNode)
+		}
+
+		@override
+		function hash():Int {
+			return 1
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "$"
+		}
+	}
+
+	class Production : Immutable {
+		def name:String
+
+		def type:String?
+
+		def nodes:ImmutableArray<Node>
+
+		def code:String?
+
+		constructor(name:String, type:String?, nodes:ListView<Node>, code:String?) {
+			self.name := name
+			self.type := type
+			self.nodes := new ImmutableArray<Node>(nodes)
+			self.code := code
+		}
+
+		@override
+		function =(o:Object):Bit {
+			if o-?>(Production) {
+				def p := o->(Production)
+				if name != p.name
+					return false
+				if type != p.type
+					return false
+				if code != p.code
+					return false
+				if nodes.length != p.nodes.length
+					return false
+				for i, n in nodes {
+					if n != p.nodes[i]
+						return false
+				}
+				return true
+			}
+			return false
+		}
+
+		@override
+		function hash():Int {
+			return name.hash
+		}
+
+		@override
+		function format(fmt:String):String {
+			def result := new MutableString(name)
+			if type != null
+				result.append(":" + type)
+			result.append(" = " + nodes.join(' '))
+			if code != null
+				result.append("\n     \{code}")
+			return result->>(String)
+		}
+	}
+
+	class Grammar {
+		def productions:ListView<Production>
+
+		def code:String?
+
+		constructor(productions:ListView<Production>, code:String?) {
+			self.productions := productions
+			self.code := code
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := "{ \{self.code} }\n"
+			else
+				code := ""
+			return code + productions.join("\n")
+		}
+	}
+
+	class Util {
+		@class
+		function unescape(text:String):String {
+			return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
+					"\t").replace("\\[", "[").replace("\\]", "]").
+					replace("\\\\", "\\").replace("\\'", "'")
+		}
+	}
+
+class GrammarParser : Immutable (Reducer) {
+    -- I would love to just be able to include the parse tables as inline
+    -- array literals, but Java complains about too much code in the init
+    -- method when I do so
+    constant productionIds := createProductionIds()
+    @class
+    function createProductionIds():ImmutableArray<Int> {
+        return [0, 1, 2, 3, 0, 4, 5, 6, 7, 8, 9, 10, 11, 5, 12, 13, 14, 15, 16, 17, 11, 16, 8, 18, 3, 19, 20, 21, 22, 23, 24, 1, 10, 14, 25, 26, 27, 4, 28, 29, 27, 5, 17, 5, 28, 30, 31, 32, 33, 33, 24, 25, 34, 18, 30, 20, 26, 29, 35, 5, 15, 5, 36]
+    }
+    constant actions := createActions()
+    @class
+    function createActions():ImmutableArray<ImmutableArray<Action?>> {
+        return [
+               createActions0(),
+               createActions1(),
+               createActions2(),
+               createActions3(),
+               createActions4(),
+               createActions5(),
+               createActions6(),
+               createActions7(),
+               createActions8(),
+               createActions9(),
+               createActions10(),
+               createActions11(),
+               createActions12(),
+               createActions13(),
+               createActions14(),
+               createActions15(),
+               createActions16(),
+               createActions17(),
+               createActions18(),
+               createActions19(),
+               createActions20(),
+               createActions21(),
+               createActions22(),
+               createActions23(),
+               createActions24(),
+               createActions25(),
+               createActions26(),
+               createActions27(),
+               createActions28(),
+               createActions29(),
+               createActions30(),
+               createActions31(),
+               createActions32(),
+               createActions33(),
+               createActions34(),
+               createActions35(),
+               createActions36(),
+               createActions37(),
+               createActions38(),
+               createActions39(),
+               createActions40(),
+               createActions41(),
+               createActions42(),
+               createActions43(),
+               createActions44(),
+               createActions45(),
+               createActions46(),
+               createActions47(),
+               createActions48(),
+               createActions49(),
+               createActions50(),
+               createActions51(),
+               createActions52(),
+               createActions53(),
+               createActions54(),
+               createActions55(),
+               createActions56(),
+               createActions57(),
+               createActions58(),
+               createActions59(),
+               createActions60(),
+               createActions61(),
+               createActions62(),
+               createActions63(),
+               createActions64(),
+               createActions65(),
+               createActions66(),
+               createActions67(),
+               createActions68(),
+               createActions69(),
+               createActions70(),
+               createActions71(),
+               createActions72(),
+               createActions73(),
+               createActions74(),
+               createActions75(),
+               createActions76(),
+               createActions77(),
+               createActions78(),
+               createActions79(),
+               createActions80(),
+               createActions81(),
+               createActions82(),
+               createActions83(),
+               createActions84(),
+               createActions85(),
+               createActions86(),
+               createActions87(),
+               createActions88(),
+               createActions89(),
+               createActions90(),
+               createActions91(),
+               createActions92(),
+               createActions93(),
+               createActions94()
+           ]
+    }
+    @class
+    function createActions0():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions1():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions2():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 36)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions3():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 21)
+        def action1 := new Action(ActionType.SHIFT, 59)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1]
+    }
+    @class
+    function createActions4():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 21)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions5():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 38)
+        def action1 := new Action(ActionType.SHIFT, 6)
+        return [null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, null, null, null, null, action1, null, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1]
+    }
+    @class
+    function createActions6():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 47)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions7():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 42)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions8():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 27)
+        def action1 := new Action(ActionType.SHIFT, 9)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action0, action0, action0, action0, action0, action0, action0, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action0, action0, action0, action0, action1, action0, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action0, action0, action0, action0]
+    }
+    @class
+    function createActions9():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 19)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions10():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 18)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions11():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions12():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 58)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions13():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 43)
+        def action1 := new Action(ActionType.SHIFT, 88)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, action1]
+    }
+    @class
+    function createActions14():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.CUT, 15)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions15():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 53)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions16():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 26)
+        def action1 := new Action(ActionType.SHIFT, 26)
+        def action2 := new Action(ActionType.SHIFT, 17)
+        def action3 := new Action(ActionType.SHIFT, 37)
+        def action4 := new Action([new Action(ActionType.REDUCE, 26), new Action(ActionType.SHIFT, 6)])
+        def action5 := new Action(ActionType.SHIFT, 47)
+        def action6 := new Action(ActionType.SHIFT, 40)
+        def action7 := new Action(ActionType.SHIFT, 59)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, action1, null, null, null, null, action2, null, null, null, null, null, null, action3, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action5, null, null, action6, action4, null, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action4, action7]
+    }
+    @class
+    function createActions17():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 31)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions18():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 19)
+        def action1 := new Action(ActionType.SHIFT, 20)
+        def action2 := new Action(ActionType.SHIFT, 22)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action2, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions19():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 56)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions20():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions21():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 16)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions22():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 23)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, action0, null, action0]
+    }
+    @class
+    function createActions23():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 10)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions24():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 35)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions25():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 1)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions26():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 20)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions27():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 28)
+        def action1 := new Action(ActionType.SHIFT, 29)
+        def action2 := new Action([new Action(ActionType.SHIFT, 28), new Action(ActionType.SHIFT, 22)])
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action2, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions28():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 9)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions29():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions30():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 33)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions31():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 12)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions32():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 22)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions33():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 55)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions34():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 23)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions35():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions36():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 14)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions37():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 57)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions38():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 59)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions39():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 61)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions40():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions41():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 52)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions42():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 43)
+        def action1 := new Action([new Action(ActionType.REDUCE, 43), new Action(ActionType.SHIFT, 43)])
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions43():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions44():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 7)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions45():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 37)
+        def action1 := new Action(ActionType.SHIFT, 6)
+        def action2 := new Action(ActionType.SHIFT, 47)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action2, null, null, null, action1, null, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1]
+    }
+    @class
+    function createActions46():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 41)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions47():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 3)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions48():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 49)
+        def action1 := new Action(ActionType.SHIFT, 22)
+        def action2 := new Action(ActionType.SHIFT, 54)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action2, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions49():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 5)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions50():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 32)
+        def action1 := new Action([new Action(ActionType.REDUCE, 32), new Action(ActionType.SHIFT, 51)])
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions51():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 49)
+        def action1 := new Action(ActionType.SHIFT, 22)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions52():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 11)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions53():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 37)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions54():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions55():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 39)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions56():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 24)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions57():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 13)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions58():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 6)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions59():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 45)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions60():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 61)
+        def action1 := new Action(ActionType.SHIFT, 59)
+        def action2 := new Action(ActionType.SHIFT, 63)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action2, action0]
+    }
+    @class
+    function createActions61():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 49)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions62():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 48)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions63():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 25)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions64():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 54)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions65():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 50)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions66():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 6)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions67():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 51)
+        def action1 := new Action([new Action(ActionType.REDUCE, 51), new Action(ActionType.SHIFT, 82)])
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions68():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 6)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions69():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 70)
+        def action1 := new Action(ActionType.SHIFT, 72)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action1]
+    }
+    @class
+    function createActions70():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions71():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 15)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, action0, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions72():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions73():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 8)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions74():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 6)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions75():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 4)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions76():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 34)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions77():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 0)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions78():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 60)
+        def action1 := new Action([new Action(ActionType.REDUCE, 60), new Action(ActionType.SHIFT, 80)])
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions79():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 17)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions80():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions81():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 29)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions82():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions83():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 2)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, action0, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions84():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 88)
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0]
+    }
+    @class
+    function createActions85():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.CUT, 86)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions86():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 53)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions87():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 30)
+        return [null, null, null, action0, null, null, null, null, null, action0, action0, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, null, null, null, null, action0, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions88():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions89():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 28)
+        return [null, null, null, null, null, null, null, null, null, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions90():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 44)
+        def action1 := new Action(ActionType.SHIFT, 6)
+        return [null, null, null, action0, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, null, null, null, null, action1, null, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1, action1]
+    }
+    @class
+    function createActions91():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 46)
+        return [null, null, null, action0]
+    }
+    @class
+    function createActions92():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.REDUCE, 40)
+        def action1 := new Action([new Action(ActionType.REDUCE, 40), new Action(ActionType.SHIFT, 1)])
+        return [null, null, null, action0, null, null, null, null, null, action1, action1, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action1, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0, action0]
+    }
+    @class
+    function createActions93():ImmutableArray<Action?> {
+        def action0 := new Action(ActionType.SHIFT, 94)
+        return [null, null, null, action0]
+    }
+    @class
+    function createActions94():ImmutableArray<Action?> {
+        return []
+    }
+    constant gotos := createGotos()
+    @class
+    function createGotos():ImmutableArray<ImmutableArray<Int?>> {
+        return [
+               createGotos0(),
+               createGotos1(),
+               createGotos2(),
+               createGotos3(),
+               createGotos4(),
+               createGotos5(),
+               createGotos6(),
+               createGotos7(),
+               createGotos8(),
+               createGotos9(),
+               createGotos10(),
+               createGotos11(),
+               createGotos12(),
+               createGotos13(),
+               createGotos14(),
+               createGotos15(),
+               createGotos16(),
+               createGotos17(),
+               createGotos18(),
+               createGotos19(),
+               createGotos20(),
+               createGotos21(),
+               createGotos22(),
+               createGotos23(),
+               createGotos24(),
+               createGotos25(),
+               createGotos26(),
+               createGotos27(),
+               createGotos28(),
+               createGotos29(),
+               createGotos30(),
+               createGotos31(),
+               createGotos32(),
+               createGotos33(),
+               createGotos34(),
+               createGotos35(),
+               createGotos36(),
+               createGotos37(),
+               createGotos38(),
+               createGotos39(),
+               createGotos40(),
+               createGotos41(),
+               createGotos42(),
+               createGotos43(),
+               createGotos44(),
+               createGotos45(),
+               createGotos46(),
+               createGotos47(),
+               createGotos48(),
+               createGotos49(),
+               createGotos50(),
+               createGotos51(),
+               createGotos52(),
+               createGotos53(),
+               createGotos54(),
+               createGotos55(),
+               createGotos56(),
+               createGotos57(),
+               createGotos58(),
+               createGotos59(),
+               createGotos60(),
+               createGotos61(),
+               createGotos62(),
+               createGotos63(),
+               createGotos64(),
+               createGotos65(),
+               createGotos66(),
+               createGotos67(),
+               createGotos68(),
+               createGotos69(),
+               createGotos70(),
+               createGotos71(),
+               createGotos72(),
+               createGotos73(),
+               createGotos74(),
+               createGotos75(),
+               createGotos76(),
+               createGotos77(),
+               createGotos78(),
+               createGotos79(),
+               createGotos80(),
+               createGotos81(),
+               createGotos82(),
+               createGotos83(),
+               createGotos84(),
+               createGotos85(),
+               createGotos86(),
+               createGotos87(),
+               createGotos88(),
+               createGotos89(),
+               createGotos90(),
+               createGotos91(),
+               createGotos92(),
+               createGotos93(),
+               createGotos94()
+           ]
+    }
+    @class
+    function createGotos0():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 3, 91]
+    }
+    @class
+    function createGotos1():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 2]
+    }
+    @class
+    function createGotos2():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos3():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, 4, null, null, null, 90, null, null, 35]
+    }
+    @class
+    function createGotos4():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 5]
+    }
+    @class
+    function createGotos5():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 11, null, null, 10, null, null, null, null, null, null, null, 7, null, null, 13]
+    }
+    @class
+    function createGotos6():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos7():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 8]
+    }
+    @class
+    function createGotos8():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos9():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos10():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos11():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 12]
+    }
+    @class
+    function createGotos12():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos13():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, 66, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 14]
+    }
+    @class
+    function createGotos14():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos15():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 16, null, 65]
+    }
+    @class
+    function createGotos16():ImmutableArray<Int?> {
+        return [null, null, null, null, null, 34, null, null, null, null, null, null, 33, null, 39, null, null, null, null, 35, null, 11, null, null, null, null, null, null, null, 38, null, null, 7, null, 58, 42]
+    }
+    @class
+    function createGotos17():ImmutableArray<Int?> {
+        return [null, 18]
+    }
+    @class
+    function createGotos18():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, 24, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 25]
+    }
+    @class
+    function createGotos19():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos20():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 21]
+    }
+    @class
+    function createGotos21():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos22():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos23():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos24():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos25():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos26():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, 27]
+    }
+    @class
+    function createGotos27():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, 31, 32]
+    }
+    @class
+    function createGotos28():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos29():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 30]
+    }
+    @class
+    function createGotos30():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos31():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos32():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos33():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos34():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos35():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 36]
+    }
+    @class
+    function createGotos36():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos37():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos38():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos39():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos40():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 41]
+    }
+    @class
+    function createGotos41():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos42():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, 45]
+    }
+    @class
+    function createGotos43():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 44]
+    }
+    @class
+    function createGotos44():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos45():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 11, null, null, null, null, null, null, null, 46, null, null, 7, null, null, 57]
+    }
+    @class
+    function createGotos46():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos47():ImmutableArray<Int?> {
+        return [null, null, null, 48]
+    }
+    @class
+    function createGotos48():ImmutableArray<Int?> {
+        return [null, null, null, null, 50, null, null, null, null, 53, 56]
+    }
+    @class
+    function createGotos49():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos50():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos51():ImmutableArray<Int?> {
+        return [null, null, null, null, 52, null, null, null, null, 53]
+    }
+    @class
+    function createGotos52():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos53():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos54():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 55]
+    }
+    @class
+    function createGotos55():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos56():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos57():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos58():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos59():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 60]
+    }
+    @class
+    function createGotos60():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 62, null, null, null, null, null, null, null, null, null, null, null, null, null, 64]
+    }
+    @class
+    function createGotos61():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos62():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos63():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos64():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos65():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos66():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 84, null, null, null, null, null, 11, null, null, null, null, null, null, null, null, null, null, 7, null, null, 67]
+    }
+    @class
+    function createGotos67():ImmutableArray<Int?> {
+        return [null, null, 68, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 78]
+    }
+    @class
+    function createGotos68():ImmutableArray<Int?> {
+        return [69, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 77, null, null, null, null, null, 11, null, null, null, null, null, null, null, null, null, null, 7, null, null, 67]
+    }
+    @class
+    function createGotos69():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, 76, null, null, null, null, null, 74]
+    }
+    @class
+    function createGotos70():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 71]
+    }
+    @class
+    function createGotos71():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos72():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 73]
+    }
+    @class
+    function createGotos73():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos74():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 75, null, null, null, null, null, 11, null, null, null, null, null, null, null, null, null, null, 7, null, null, 67]
+    }
+    @class
+    function createGotos75():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos76():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos77():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos78():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 79]
+    }
+    @class
+    function createGotos79():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos80():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 81]
+    }
+    @class
+    function createGotos81():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos82():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 83]
+    }
+    @class
+    function createGotos83():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos84():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 85]
+    }
+    @class
+    function createGotos85():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos86():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 16, null, 87]
+    }
+    @class
+    function createGotos87():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos88():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 89]
+    }
+    @class
+    function createGotos89():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos90():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 11, null, null, 10, null, null, null, null, null, null, null, 7, null, null, 13]
+    }
+    @class
+    function createGotos91():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos92():ImmutableArray<Int?> {
+        return [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, 3, 91, null, null, 93]
+    }
+    @class
+    function createGotos93():ImmutableArray<Int?> {
+        return []
+    }
+    @class
+    function createGotos94():ImmutableArray<Int?> {
+        return []
+    }
+    method reduce(production:Int, parserState:ParserState):Object {
+    	   switch production {
+            case 0: {
+def result:String
+def type:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := type }
+return result
+}
+            case 1: {
+def result:String
+def literalCharSingle:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def literalCharsSingle:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := literalCharsSingle + literalCharSingle }
+return result
+}
+            case 2: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 3: {
+def result:Array<Range>
+{ result := [] }
+return result
+}
+            case 4: {
+def result:String
+def type:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def types:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := types + ", " + type }
+return result
+}
+            case 5: {
+def result:String
+def char:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := char }
+return result
+}
+            case 6: {
+def result:Array<Node>
+parserState.state := parserState.state.next
+{ result := [new CutNode()] }
+return result
+}
+            case 7: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 8: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 9: {
+def result:String
+def char:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := char }
+return result
+}
+            case 10: {
+def result:String
+def char:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := Util.unescape('\\' + char) }
+return result
+}
+            case 11: {
+def result:Range
+def r2:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def r1:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := new Range(r1[0], r2[0]) }
+return result
+}
+            case 12: {
+def result:String
+def literalCharDouble:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def literalCharsDouble:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := literalCharsDouble + literalCharDouble }
+return result
+}
+            case 13: {
+def result:Array<Node>
+def id:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def label:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := [new IdentifierNode(label, id)] }
+return result
+}
+            case 14: {
+def result:String
+parserState.state := parserState.state.next
+def codeBlock:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := codeBlock }
+return result
+}
+            case 15: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 16: {
+def result:String
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def literalCharsSingle:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := literalCharsSingle }
+return result
+}
+            case 17: {
+def result:String
+parserState.state := parserState.state.next
+def genericParameters:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def identifier:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := identifier + genericParameters + "?" }
+return result
+}
+            case 18: {
+def result:Array<Production>
+def production:Production := parserState.state.output->(Production)
+parserState.state := parserState.state.next
+def productions:Array<Production> := parserState.state.output->(Array<Production>)
+parserState.state := parserState.state.next
+{ 
+		result := new Array<Production>()
+		result.addAll(productions)
+		result.add(production)
+	}
+return result
+}
+            case 19: {
+def result:String
+def char:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def chars:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := chars + char }
+return result
+}
+            case 20: {
+def result:String
+{ result := "" }
+return result
+}
+            case 21: {
+def result:Array<Production>
+{ result := [] }
+return result
+}
+            case 22: {
+def result:String
+def escape:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := escape }
+return result
+}
+            case 23: {
+def result:Array<Node>
+def term:Array<Node> := parserState.state.output->(Array<Node>)
+parserState.state := parserState.state.next
+def terms:Array<Node> := parserState.state.output->(Array<Node>)
+parserState.state := parserState.state.next
+{
+		result := []
+		result.addAll(terms)
+		result.addAll(term)
+	}
+return result
+}
+            case 24: {
+def result:Array<Range>
+def range:Range := parserState.state.output->(Range)
+parserState.state := parserState.state.next
+def ranges:Array<Range> := parserState.state.output->(Array<Range>)
+parserState.state := parserState.state.next
+{ 
+		result := new Array<Range>()
+		result.addAll(ranges)
+		result.add(range)
+	}
+return result
+}
+            case 25: {
+def result:String
+parserState.state := parserState.state.next
+def codeChars:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := "{" + codeChars + "}" }
+return result
+}
+            case 26: {
+def result:RHS
+def terms:Array<Node> := parserState.state.output->(Array<Node>)
+parserState.state := parserState.state.next
+{ result := new RHS(terms, null) }
+return result
+}
+            case 27: {
+def result:String
+def identifierChars:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def identifierStart:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := identifierStart + identifierChars }
+return result
+}
+            case 28: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 29: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 30: {
+def result:Production
+def rhs:RHS := parserState.state.output->(RHS)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def type:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def identifier:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := new Production(identifier, type, rhs.terms, rhs.code) }
+return result
+}
+            case 31: {
+def result:String
+{ result := "" }
+return result
+}
+            case 32: {
+def result:Range
+def rangeChar:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := new Range(rangeChar[0], rangeChar[0]) }
+return result
+}
+            case 33: {
+def result:String
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def literalCharsDouble:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := literalCharsDouble }
+return result
+}
+            case 34: {
+def result:String
+parserState.state := parserState.state.next
+def types:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := "<\{types}>" }
+return result
+}
+            case 35: {
+def result:String
+def escape:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := escape }
+return result
+}
+            case 36: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 37: {
+def result:String
+def escape:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := escape }
+return result
+}
+            case 38: {
+def result:Grammar
+def productions:Array<Production> := parserState.state.output->(Array<Production>)
+parserState.state := parserState.state.next
+def code:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := new Grammar(productions, code) }
+return result
+}
+            case 39: {
+def result:CharClass
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def ranges:Array<Range> := parserState.state.output->(Array<Range>)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := new CharClass(ranges) }
+return result
+}
+            case 40: {
+for i in 0 .. 0 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 41: {
+def result:Array<Node>
+def cl:CharClass := parserState.state.output->(CharClass)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def identifier:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := [new CharClassNode(identifier, cl)] }
+return result
+}
+            case 42: {
+def result:String
+{ result := "" }
+return result
+}
+            case 43: {
+def result:Array<Node>
+def identifier:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := [new IdentifierNode(null, identifier)] }
+return result
+}
+            case 44: {
+def result:Grammar
+def productions:Array<Production> := parserState.state.output->(Array<Production>)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+{ result := new Grammar(productions, null) }
+return result
+}
+            case 45: {
+def result:String
+{ result := "" }
+return result
+}
+            case 46: {
+def result:Grammar
+def grammar:Grammar := parserState.state.output->(Grammar)
+parserState.state := parserState.state.next
+{ result := grammar }
+return result
+}
+            case 47: {
+def result:String
+def char:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := char }
+return result
+}
+            case 48: {
+def result:String
+def codeBlock:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := codeBlock }
+return result
+}
+            case 49: {
+def result:String
+def char:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := char->>(String) }
+return result
+}
+            case 50: {
+def result:Production
+def rhs:RHS := parserState.state.output->(RHS)
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+parserState.state := parserState.state.next
+def identifier:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := new Production(identifier, null, rhs.terms, rhs.code) }
+return result
+}
+            case 51: {
+def result:String
+{ result := "" }
+return result
+}
+            case 52: {
+for i in 0 .. 2 parserState.state := parserState.state.next
+return '<no output>'
+}
+            case 53: {
+def result:Array<Node>
+{ result := [] }
+return result
+}
+            case 54: {
+def result:String
+def codeChar:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def codeChars:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := codeChars + codeChar }
+return result
+}
+            case 55: {
+def result:RHS
+def code:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def terms:Array<Node> := parserState.state.output->(Array<Node>)
+parserState.state := parserState.state.next
+{ result := new RHS(terms, code) }
+return result
+}
+            case 56: {
+def result:String
+def char:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := char }
+return result
+}
+            case 57: {
+def result:CharClass
+parserState.state := parserState.state.next
+{ result := new CharClass([new Range("^", "^")]) }
+return result
+}
+            case 58: {
+def result:String
+parserState.state := parserState.state.next
+def identifierText:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := identifierText }
+return result
+}
+            case 59: {
+def result:Array<Node>
+def cl:CharClass := parserState.state.output->(CharClass)
+parserState.state := parserState.state.next
+{ result := [new CharClassNode(null, cl)] }
+return result
+}
+            case 60: {
+def result:String
+def genericParameters:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+def identifier:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ result := identifier + genericParameters }
+return result
+}
+            case 61: {
+def result:Array<Node>
+def literal:String := parserState.state.output->(String)
+parserState.state := parserState.state.next
+{ 
+		result := []
+		for c in literal
+			result.add(new CharNode(c)) 
+	}
+return result
+}
+            case 62: {
+def result:Object
+parserState.state := parserState.state.next
+def start:Grammar := parserState.state.output->(Grammar)
+parserState.state := parserState.state.next
+result := start
+return result
+}
+        }
+    }
+    @class
+    method createParser(text:String):Parser {
+        return new Parser(productionIds, actions, gotos, new GrammarParser(), text)
+    }
+}

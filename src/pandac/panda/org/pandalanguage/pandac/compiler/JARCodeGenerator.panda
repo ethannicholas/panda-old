@@ -120,23 +120,40 @@ class JARCodeGenerator (CodeGenerator) {
                 copyJAR(jar, parent, classPath, manifestClassPath) 
         }
         def javac := compilerSettings.javac
-        def params := new Array<String>()
-        params.add("-Xmaxerrs")
-        params.add("10000")
-        params.add("-d")
-        params.add(classesDir.absolutePath())
-        params.add("-cp")
-        params.add(classPath->>(String))
-        params.add("-source")
-        params.add("1.8")
+        def commonParams := new Array<String>()
+        commonParams.add("-d")
+        commonParams.add(classesDir.absolutePath())
+        commonParams.add("-cp")
+        commonParams.add(classPath->>(String))
+        commonParams.add("-source")
+        commonParams.add("1.8")
+        -- Ideally, we'd just create a big command line containing the name of
+        -- every file to compile. Unfortunately, we easily run afoul of command
+        -- line length limits when we do that. Instead compile the files in
+        -- batches.
+        var params := new Array<String>(commonParams)
+        constant BATCH_SIZE := 250
+        var count := 0
         for f in javaFiles {
             var p := f.path
             assert p.startsWith(javaDir.path)
             p := p[javaDir.path.length + 1..]
-            params.add(p)
+            assert p.endsWith(".java")
+            def target := classesDir.resolve(p[..p.length - ".java".length] +
+                    ".class")
+            if !target.exists() {
+                params.add(p)
+                count += 1
+                if count = BATCH_SIZE {
+                    System.exec(javac, javaDir, params...)
+                    params := new Array<String>(commonParams)
+                    count := 0
+                }
+            }
         }
+        if count >= 1
+            System.exec(javac, javaDir, params...)
 
-        System.exec(javac, javaDir, params...)
 
         def manifest := tmpDir.resolve("manifest.mf")
         writeManifest(manifest, manifestClassPath->>(String))
@@ -145,8 +162,7 @@ class JARCodeGenerator (CodeGenerator) {
         jarParams.add("cfm")
         jarParams.add(target.absolutePath())
         jarParams.add(manifest.absolutePath())
-        def classFiles := listTree(classesDir, ".class")
-        for f in classFiles {
+        for f in classesDir.list() {
             var p := f.path
             assert p.startsWith(classesDir.path)
             p := p[classesDir.path.length + 1..]

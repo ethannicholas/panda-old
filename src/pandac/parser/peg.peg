@@ -1,0 +1,375 @@
+{
+	class Grammar {
+		def definitions:ListView<Definition>
+
+		def code:String?
+
+		constructor(definitions:ListView<Definition>, code:String?) {
+			self.definitions := definitions
+			if code != null
+				self.code := code.trim()
+			else
+				self.code := null
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := "{ \{self.code} }\n"
+			else
+				code := ""
+			return code + definitions.join("\n")
+		}
+	}
+
+	@abstract
+	class Term {
+		var name:String?
+
+		constructor() {
+		}
+
+		constructor(name:String) {
+			self.name := name
+		}
+	}
+
+	class Identifier : Term {
+		def text:String
+
+		constructor(text:String) {
+			self.text := text
+		}
+
+		constructor(text:Array<String>) {
+			self.text := text.join("")
+		}
+
+		@override
+		function format(fmt:String):String {
+			return text
+		}
+	}
+
+	class Definition {
+		def name:String
+
+		def type:String?
+
+		def definition:Options
+
+		constructor(name:String, type:String?, definition:Options) {
+			self.name := name
+			self.type := type
+			self.definition := definition
+		}
+
+		@override
+		function format(fmt:String):String {
+			def type:String
+			if self.type != null
+				type := ":" + self.type
+			else
+				type := ""
+			return "\{name}\{type} = \{definition}"
+		}
+	}
+
+	class Options : Term {
+		def sequences:ListView<Sequence>
+
+		constructor(sequences:ListView<Sequence>) {
+			self.sequences := sequences
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "(" + sequences.join(" / ") + ")"
+		}
+	}
+
+	class Sequence {
+		def terms:ListView<Term>
+
+		var code:String?
+
+		constructor(terms:ListView<Term>, code:String?) {
+			self.terms := terms
+			if code != null
+				self.code := code.trim()
+			else
+				self.code := null
+		}
+
+		@override
+		function format(fmt:String):String {
+			def code:String
+			if self.code != null
+				code := " { \{self.code} }"
+			else
+				code := ""
+			return terms.join(" ") + code
+		}
+	}
+
+	class Range {
+		def start:Char
+
+		def end:Char
+
+		constructor(start:Char, end:Char) {
+			self.start := start
+			self.end := end
+		}
+
+		@override
+		function format(fmt:String):String {
+			if start = end
+				return start->>(String)
+			else
+				return "\{start}-\{end}"
+		}
+	}
+
+	class CharClass : Term {
+		def ranges:ListView<Range>
+
+		constructor(ranges:ListView<Range>) {
+			self.ranges := ranges
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "[" + ranges.join("") + "]"
+		}		
+	}
+
+	class Quantifier : Term {
+		def term:Term
+
+		constructor(term:Term) {
+			self.term := term
+		}
+	}
+
+	class And : Quantifier {
+		constructor(name:Identifier?, term:Term) {
+			super.constructor(term)
+			assert term != null
+			if name != null
+				self.name := name.text
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "&" + term
+		}
+	}
+
+	class Not : Quantifier {
+		constructor(name:Identifier?, term:Term) {
+			super.constructor(term)
+			if name != null
+				self.name := name.text
+		}
+
+		@override
+		function format(fmt:String):String {
+			return "!" + term
+		}
+	}
+
+	class Optional : Quantifier {
+		constructor(term:Term) {
+			super.constructor(term)
+		}
+
+		@override
+		function format(fmt:String):String {
+			return term + "?"
+		}
+	}
+
+	class Star : Quantifier {
+		constructor(term:Term) {
+			super.constructor(term)
+		}
+
+		@override
+		function format(fmt:String):String {
+			return term + "*"
+		}
+	}
+
+	class Plus : Quantifier {
+		constructor(term:Term) {
+			super.constructor(term)
+		}
+
+		@override
+		function format(fmt:String):String {
+			return term + "+"
+		}
+	}
+
+	class Literal : Term {
+		def text:String
+
+		constructor(text:String) {
+			self.text := text
+		}
+
+		@override
+		function format(fmt:String):String {
+			return text
+		}		
+	}
+
+	class Cut : Term {
+		@override
+		function format(fmt:String):String {
+			return "^"
+		}		
+	}
+
+	class Dot : Term {
+		@override
+		function format(fmt:String):String {
+			return "."
+		}
+	}
+
+	class Util {
+		@class
+		function unescape(text:String):String {
+			return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
+					"\t").replace("\\[", "[").replace("\\]", "]").
+					replace("\\\\", "\\").replace("\\'", "'")
+		}
+	}
+}
+
+Grammar:Grammar = Spacing code:Code? definitions:Definition+ EndOfFile 
+	{ result := new Grammar(definitions, code) }
+Code:String = c:'{' (c:Code / !'}' c:.)* c:'}' Spacing
+	{ result := c.join("") }
+Definition:Definition = id:Identifier (COLON type:Type)? EQUAL expr:Expression 
+	{ result := new Definition(id.text, type, expr) }
+Type:String = id:Identifier (LT t:Type (COMMA t:Type)* GT)? nullable:QUESTION? 
+	{
+ 		var text := id.text.trim 
+ 		if t.length > 0
+ 			text += "<\{t.join(',')}>"
+ 		if nullable != null
+ 			text += "?"
+ 		result := text
+ 	}
+Expression:Options = seq:Sequence (SLASH seq:Sequence)* 
+	{ result := new Options(seq) }
+Sequence:Sequence = terms:Prefix* code:Code? 
+	{ result := new Sequence(terms, code) }
+Prefix:Term = id1:Label? a:AND s1:Suffix
+	{ result := new And(id1, s1) }
+/ 
+	id2:Label? n:NOT s2:Suffix
+	{ result := new Not(id2, s2) }
+/
+	id3:Label? s3:Suffix
+	{ 
+		if id3 != null
+			s3.name := id3.text
+		result := s3
+	}
+/
+	CUT
+	{ result := new Cut() }
+Suffix:Term = value:Primary (q:QUESTION / st:STAR / p:PLUS)?
+	{
+		if q != null
+			result := new Optional(value)
+		else if st != null
+			result := new Star(value)
+		else if p != null
+			result := new Plus(value)
+		else
+			result := value
+	}
+Primary:Term = i:Identifier !EQUAL 
+	{ result := i }
+/ 
+	OPEN e:Expression CLOSE 
+	{ result := e }
+/ 
+	l:Literal 
+	{ result := l }
+/ 
+	cl:Class 
+	{ result := cl }
+/ 
+	d:DOT  
+	{ result := d }
+
+Identifier:Identifier = text:IdentStart text:IdentCont* Spacing  
+	{ result := new Identifier(text.join("")) }
+
+Label:Identifier = a:AT? id:Identifier COLON
+	{ 
+		if a != null 
+			result := new Identifier(id.text)
+		else
+			result := id
+	}
+
+Range:Range = start:Char '-' end:Char
+	{ result := new Range(start[0], end[0]) }
+/ 
+	single:Char 
+	{ result := new Range(single[0], single[0]) }
+
+Class:CharClass = '[' (!']' ranges:Range)* ']' Spacing 
+	{ result := new CharClass(ranges) }
+
+IdentStart:String = c:[a-zA-Z_]
+	{ result := c }
+IdentCont:String = c1:IdentStart
+	{ result := c1 }
+/ 
+	c2:[0-9]
+	{ result := c2 }
+Literal:Literal = ['] (!['] text:Char)* ['] Spacing 
+	{ result := new Literal(Util.unescape(text.join(""))) }
+/ ["] (!["] text:Char)* ["] Spacing 
+	{ result := new Literal(Util.unescape(text.join(""))) }
+DOT:Dot = '.' Spacing
+	{ result := new Dot() }
+Char:String = '\\' char1:[nrt'"\[\]\\] 
+	{ result := Util.unescape("\\" + char1) }
+/ !'\\' char2:.
+	{ result := char2 }
+EQUAL = '=' Spacing 
+SLASH = '/' Spacing 
+AND:Bit = '&' Spacing 
+	{ result := true }
+NOT:Bit = '!' Spacing 
+	{ result := true }
+CUT = '^' Spacing
+LT = '<' Spacing 
+GT = '>' Spacing 
+COMMA = ',' Spacing 
+AT:Bit = '@' Spacing
+	{ result := true }
+STAR:Bit = '*' Spacing 
+	{ result := true }
+PLUS:Bit = '+' Spacing 
+	{ result := true }
+OPEN = '(' Spacing 
+CLOSE = ')' Spacing 
+COLON = ':' Spacing
+QUESTION:Bit = '?' Spacing
+	{ result := true }
+Spacing = (Space / Comment)*
+Comment = '#' (!EndOfLine .)* EndOfLine 
+Space = ' ' / '\t' / EndOfLine 
+EndOfLine = '\r\n' / '\n' / '\r' 
+EndOfFile = !.

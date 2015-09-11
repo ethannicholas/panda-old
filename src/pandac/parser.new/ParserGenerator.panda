@@ -132,7 +132,7 @@ eventually upgrade this to Minimal LR, but 'working' is more important than
 ================================================================================
 class ParserGenerator {
 	constant START_CHAR := 9->>(Char)
-	constant END_CHAR := 126->>(Char)
+	constant END_CHAR := 127->>(Char)
 
 	def grammar:Grammar
 
@@ -150,10 +150,36 @@ class ParserGenerator {
 
 	def gotos := new Array<List<Int?>>()
 
-	constructor(grammar:Grammar) {
+	def firsts := new HashMap<String, HashSet<Char?>>()
+
+	def follows := new HashMap<String, HashSet<Char?>>()
+
+	def validating:Bit
+
+	constructor(grammar:Grammar, validating:Bit) {
 		self.grammar := grammar
+		self.validating := validating
 
 		self.productions := new Array<Production>(grammar.productions)
+		if validating {
+			for i, p in productions {
+				productions[i] := new Production(p.name, "String", p.nodes, 
+						"result := '<success>'")
+			}
+		}
+		shuffle(self.productions)
+	}
+
+	method shuffle(list:List<Production>) {
+		def seed := -1384703668
+		Console.writeLine("seed: \{seed}")
+		def r := new XorShiftRandom(seed)
+		for i in 0 .. list.length {
+			def j := r.int(list.length - i) + i
+			def temp := list[i]
+			list[i] := list[j]
+			list[j] := temp
+		}
 	}
 
 	method computeClosure(fragments:HashSet<StateFragment>) {
@@ -209,10 +235,22 @@ class ParserGenerator {
 		result.add(null)
 	}
 
+	function contains(p:Production, name:String):Bit {
+		for n in p.nodes {
+			if n-?>(IdentifierNode) & n->(IdentifierNode).id = name
+				return true
+		}
+		return false
+	}
+
 	method computeFirst(name:String, evaluating:HashSet<Production>,
 			result:HashSet<Char?>) {
 		for p in productions {
-			if p.name = name & !evaluating.contains(p)
+			if p.name = name & !evaluating.contains(p) & contains(p, name)
+				computeFirst(p, evaluating, result)
+		}
+		for p in productions {
+			if p.name = name & !evaluating.contains(p) & !contains(p, name)
 				computeFirst(p, evaluating, result)
 		}
 	}
@@ -253,8 +291,12 @@ class ParserGenerator {
 	}
 
 	method first(name:String):HashSet<Char?> {
-		def result := new HashSet<Char?>()
-		computeFirst(name, new HashSet<Production>(), result)
+		var result := firsts[name]
+		if result = null {
+			result := new HashSet<Char?>()
+			computeFirst(name, new HashSet<Production>(), result)
+			firsts[name] := result
+		}
 		return result
 	}
 
@@ -276,19 +318,23 @@ class ParserGenerator {
 		return result
 	}
 
-	function follow(name:String):HashSet<Char?> {
-		def result := follow(name, new HashSet<String>())
-		if name = "identifierText" {
-			-- ugly, ugly hack. Make sure identifiers cannot be followed by
-			-- identifier characters.
-			for c in "A" ... "Z"
-				result.remove(c)
-			for c in "a" ... "z"
-				result.remove(c)
-			for c in "0" ... "9"
-				result.remove(c)
-			result.remove("_")
-			result.remove("$")
+	method follow(name:String):HashSet<Char?> {
+		var result := follows[name]
+		if result = null {
+			result := follow(name, new HashSet<String>())
+			if name = "identifierText" {
+				-- ugly, ugly hack. Make sure identifiers cannot be followed by
+				-- identifier characters.
+				for c in "A" ... "Z"
+					result.remove(c)
+				for c in "a" ... "z"
+					result.remove(c)
+				for c in "0" ... "9"
+					result.remove(c)
+				result.remove("_")
+				result.remove("$")
+			}
+			follows[name] := result
 		}
 		return result
 	}
@@ -346,6 +392,8 @@ class ParserGenerator {
 					}
 				}
 				assert found : "no production named '\{name}'"
+				while gotos[state.id].length <= id
+					gotos[state.id].add(null)
 				gotos[state.id][id] := target
 			}
 			else if node-?>(CharNode) {
@@ -379,7 +427,7 @@ class ParserGenerator {
 		}
 		states.add(state)
 		actions.add(new Array<Action?>(END_CHAR->>(Int), null))
-		gotos.add(new Array<Int?>(END_CHAR->>(Int), null))
+		gotos.add(new Array<Int?>())
 		computeTransitions(state, states)
 		return state.id
 	}
@@ -417,7 +465,7 @@ class ParserGenerator {
 		def fragments := new HashSet<StateFragment>()
 		fragments.add(new StateFragment(start, 0))
 		addState(fragments, states)
-		for i, p in productions {
+-*		for i, p in productions {
 			Console.writeLine(i + ": " + p)
 			Console.writeLine("    follows: \{follow(p.name)}")
 			def f := first(p.name)
@@ -427,6 +475,10 @@ class ParserGenerator {
 		}
 		for s in states
 			Console.writeLine(s)
+		for i, a in actions
+			Console.writeLine("actions \{i}: \{a}")
+		for i, g in gotos
+			Console.writeLine("gotos \{i}: \{g}")*-
 	}
 
 	method writeActions(out:OutputStream) {
@@ -521,8 +573,9 @@ class ParserGenerator {
 				if p.name = name
 					return p.type
 			}
+			assert false : "no production for \{name}"
 		}
-		unreachable
+		assert false : "getting type of \{node.class}"
 	}
 
 	method writeReductions(out:OutputStream) {
@@ -563,7 +616,8 @@ class ParserGenerator {
 	}
 
 	method writeParser(name:String, out:OutputStream) {
-		out.writeLine(grammar.code[1 .. grammar.code.length - 1])
+		if grammar.code != null & !validating
+			out.writeLine(grammar.code[1 .. grammar.code.length - 1])
 		out.writeLine("class \{name} : Immutable (Reducer) {")
 		out.writeLine("    -- I would love to just be able to include the parse tables as inline")
 		out.writeLine("    -- array literals, but Java complains about too much code in the init")
@@ -582,14 +636,21 @@ class ParserGenerator {
 
 	@class
 	method main(args:PrimitiveArray<String>) {
-		def text := new File(args[0]).readAsString()
+		var index := 0
+		var validating := false
+		if args[index] = "-validating" {
+			validating := true
+			index += 1
+		}
+		def text := new File(args[index]).readAsString()
+		index += 1
         def parser := GrammarParser.createParser(text)
         def result := parser.parse()
         assert result[1]-?>(Grammar) : Parser.getPosition(result[0], text) + ": " + result[1]->>(String)
 		def grammar := result[1]->(Grammar)
-		def gen := new ParserGenerator(grammar)
+		def gen := new ParserGenerator(grammar, validating)
 		gen.createParseTable()
-		def dest := new File(args[1])
+		def dest := new File(args[index])
 		assert dest.name.endsWith(".panda")
 		gen.writeParser(dest.simpleName, dest.openOutputStream())
 	}
