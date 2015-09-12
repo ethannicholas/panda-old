@@ -41,14 +41,19 @@ class Parser : Immutable {
 			def top := parsers.peek()
 			if top.position = text.length
 				return (top.position, top.state.next.output)
-			def a := actions[top.state.state][text[top.position]->>(Int)]
+			def row := actions[top.state.state]
+			def a:Action?
+			def index := text[top.position]->>(Int)
+			if index < row.length
+				a := row[index]
+			else
+				a := null
 			if a = null {
 				parsers.pop()
 				if top.position > farthest.position
 					farthest := top
-				if parsers.length = 0 {
+				if parsers.length = 0
 					return (farthest.position, "error, found \{text[farthest.position]} in state \{farthest.state.state}")
-				}
 				continue
 			}
 			action(a, top, parsers)
@@ -57,7 +62,6 @@ class Parser : Immutable {
 
 	method action(a:Action, parserState:ParserState, 
 			parsers:Stack<ParserState>) {
-		Console.writeLine("action: \{a} at \{parserState.position} with stack: \{parserState.state}")
 		switch a.type {
 			case ActionType.SHIFT: {
 				parserState.state := new StateNode(a.target,
@@ -78,9 +82,10 @@ class Parser : Immutable {
 				def i := a.subactions.iterator()
 				assert !i.done() : "empty multiple action"
 				def oldState := parserState.state
+				def oldPosition := parserState.position
 				action(i.next(), parserState, parsers)
 				while !i.done() {
-					def sub := new ParserState(parserState.position, oldState)
+					def sub := new ParserState(oldPosition, oldState)
 					action(i.next(), sub, parsers)
 					parsers.push(sub)
 				}

@@ -38,6 +38,11 @@
         }
 
         @class
+        function isExternal():Bit {
+            return false
+        }
+
+        @class
         method main(args:PrimitiveArray<String>) {
             def text := new File(args[0]).readAsString()
             def parser := Test.createParser(text)
@@ -48,8 +53,370 @@
 }
 start:Object = file
     { result := file }
-file:Object = expression
-    { result := expression }
+file:Array<ASTNode> = file bodyEntry
+    { 
+        result := []
+        result.addAll(file)
+        result.add(bodyEntry)
+    }
+file:Object = bodyEntry
+    { result := [bodyEntry] }
+file:Object = WS
+    { result := [] }
+
+temp:ASTExpression = NEW type parameters
+    { result := new ASTNew(Util.position, type, parameters) }
+
+bodyEntry:ASTNode = usesStatement 
+    { result := usesStatement }
+bodyEntry:ASTNode = classDeclaration 
+    { result := classDeclaration }
+bodyEntry:ASTNode = interfaceDeclaration 
+    { result := interfaceDeclaration }
+bodyEntry:ASTNode = enumDeclaration
+    { result := enumDeclaration }
+bodyEntry:ASTNode = methodDeclaration
+    { result := methodDeclaration }
+bodyEntry:ASTNode = functionDeclaration
+    { result := functionDeclaration }
+bodyEntry:ASTNode = packageDeclaration 
+    { result := packageDeclaration }
+bodyEntry:ASTNode = instanceDeclaration 
+    { result := instanceDeclaration }
+bodyEntry:ASTNode = statement
+    { result := statement }
+
+packageDeclaration:ASTPackageDeclaration = PACKAGE ^ dottedName
+    { result := new ASTPackageDeclaration(Util.position, dottedName) }
+dottedName:String = dottedName DOT IDENTIFIER
+    { result := dottedName + "." + IDENTIFIER }
+dottedName:String = IDENTIFIER
+    { result := IDENTIFIER }
+usesStatement:ASTUsesDeclaration = USES ^ usesName
+    { result := new ASTUsesDeclaration(Util.position, usesName, null) }
+usesStatement:ASTUsesDeclaration = USES ^ id:dottedName AS alias:dottedName
+    { result := new ASTUsesDeclaration(Util.position, id, alias) }
+usesName:String = dottedName DOT STAR
+    { result := dottedName + ".*" }
+usesName:String = dottedName
+    { result := dottedName }
+instanceDeclaration:ASTInstanceDeclaration = INSTANCE ^ t:type
+    { result := new ASTInstanceDeclaration(new Position(file, pos), t) }
+
+classDeclaration:ASTClass = optionalDoccomment optionalAnnotations CLASS ^ 
+        IDENTIFIER optionalGenericsDeclaration optionalTypeDeclaration
+        optionalInterfaces LBRACE classMembers RBRACE
+    { 
+        def methods := new Array<ASTMethod>()
+        def fields := new Array<ASTField>()
+        def invariants := new Array<ASTInvariant>()
+        for m in body {
+            if m-?>(ASTMethod)
+                methods.add(m->(ASTMethod))
+            else if m-?>(ASTField)
+                fields.add(m->(ASTField))
+            else if m-?>(ASTInvariant)
+                invariants.add(m->(ASTInvariant))
+            else
+                unreachable
+        }
+        result := new ASTClass(Util.position, IDENTIFIER, false, 
+                optionalDoccomment, optionalAnnotations, 
+                optionalTypeDeclaration, optionalInterfaces, 
+                optionalGenericsDeclaration, methods, fields, invariants, 
+                Util.isExternal())
+    }
+interfaceDeclaration:ASTClass = optionalDoccomment optionalAnnotations 
+        INTERFACE ^ IDENTIFIER optionalGenericsDeclaration 
+        optionalTypeDeclarations LBRACE classMembers RBRACE
+    { 
+        def methods := new Array<ASTMethod>()
+        def fields := new Array<ASTField>()
+        def invariants := new Array<ASTInvariant>()
+        for m in body {
+            if m-?>(ASTMethod)
+                methods.add(m->(ASTMethod))
+            else if m-?>(ASTField)
+                fields.add(m->(ASTField))
+            else if m-?>(ASTInvariant)
+                invariants.add(m->(ASTInvariant))
+            else
+                unreachable
+        }
+        result := new ASTClass(Util.position, IDENTIFIER, true, 
+                optionalDoccomment, optionalAnnotations, 
+                null, optionalTypeDeclarations, optionalGenericsDeclaration, 
+                methods, fields, invariants, Util.isExternal())
+    }
+enumDeclaration:ASTEnum = optionalDoccomment optionalAnnotations ENUM ^ 
+        IDENTIFIER LBRACE enumValues RBRACE
+    {
+        result := new ASTEnum(Util.position, IDENTIFIER, optionalDoccomment, 
+                optionalAnnotations, enumValues, Utils.isExternal())
+    }
+enumValues:Array<ASTEnumValue> = enumValues enumValue
+    {
+        result := []
+        result.addAll(enumValues)
+        result.add(enumValue)
+    }
+enumValues:Array<ASTEnumValue> = enumValue
+    { result := [enumValue] }
+enumValue:ASTEnumValue = optionalDoccomment IDENTIFIER
+    { 
+        result := new ASTEnumValue(Util.position, IDENTIFIER, 
+                optionalDoccomment) 
+    }
+optionalDoccomment:String? = DOCCOMMENT
+    { result := DOCCOMMENT }
+optionalDoccomment:String? =
+    { result := null }
+optionalAnnotations:Array<ASTAnnotation>? = annotations
+    { result := annotations }
+optionalAnnotations:Array<ASTAnnotation>? =
+    { result := null }
+optionalTypeDeclarations:Array<ASTType>? = COLON typeList
+    { result := typeList }
+optionalTypeDeclarations:Array<ASTType>? =
+    { result := null }
+optionalTypeDeclaration:ASTType? = typeDeclaration 
+    { result := typeDeclaration }
+optionalTypeDeclaration:ASTType? =
+    { result := null }
+typeDeclaration:ASTType = COLON type
+    { result := type }
+optionalGenericsDeclaration:Array<ASTType>? = LT genericsDeclarations GT
+    { result := typeList }
+optionalGenericsDeclaration:Array<ASTType>? =
+    { result := null }
+genericsDeclarations:Array<ASTTypedIdentifier> = genericsDeclarations COMMA
+        optionallyTypedIdentifier
+    { 
+        result := []
+        result.addAll(genericsDeclarations)
+        result.add(optionallyTypedIdentifier)
+    }
+genericsDeclarations:Array<ASTTypedIdentifier> = optionallyTypedIdentifier
+    { result := optionallyTypedIdentifier }
+optionalInterfaces:Array<ASTType>? = LPAREN typeList RPAREN
+    { result := typeList }
+optionalInterfaces:Array<ASTType>? =
+    { result := null }
+classMembers:Array<ASTNode> = classMemberList
+    { result := classMemberList }
+classMembers:Array<ASTNode> =
+    { result := null }
+classMemberList:Array<ASTNode> = classMemberList classMember
+    { 
+        result := []
+        result.addAll(classMemberList)
+        result.add(classMember)
+    }
+classMemberList:Array<ASTNode> =
+    { result := [] }
+classMember:ASTNode = invariant 
+    { result := invariant }
+classMember:ASTNode = methodDeclaration 
+    { result := methodDeclaration }
+classMember:ASTNode = functionDeclaration 
+    { result := functionDeclaration }
+classMember:ASTNode = constructorDeclaration 
+    { result := constructorDeclaration }
+classMember:ASTNode = fieldDeclaration 
+    { result := fieldDeclaration }
+annotations:Array<ASTAnnotation> = annotations annotation
+    {
+        result := []
+        result.addAll(annotations)
+        result.add(annotation)
+    }
+annotations:Array<ASTAnnotation> = annotation
+    { result := [annotation] }
+annotation:ASTAnnotation = PROTECTED 
+    { result := new ASTSimpleAnnotation(Util.position, "protected") }
+annotation:ASTAnnotation = PRIVATE 
+    { result := new ASTSimpleAnnotation(Util.position, "private") }
+annotation:ASTAnnotation = ATCLASS 
+    { result := new ASTSimpleAnnotation(Util.position, "class") }
+annotation:ASTAnnotation = THREAD 
+    { result := new ASTSimpleAnnotation(Util.position, "thread") }
+annotation:ASTAnnotation = ABSTRACT 
+    { result := new ASTSimpleAnnotation(Util.position, "abstract") }
+annotation:ASTAnnotation = EXTERNAL 
+    { result := new ASTSimpleAnnotation(Util.position, "external") }
+annotation:ASTAnnotation = OVERRIDE 
+    { result := new ASTSimpleAnnotation(Util.position, "override") }
+annotation:ASTAnnotation = READONLY 
+    { result := new ASTSimpleAnnotation(Util.position, "readonly") }
+annotation:ASTAnnotation = LIMITED 
+    { result := new ASTSimpleAnnotation(Util.position, "limited") }
+annotation:ASTAnnotation = ATSELF 
+    { result := new ASTSimpleAnnotation(Util.position, "self") }
+annotation:ASTAnnotation = SAFERETURN 
+    { result := new ASTSimpleAnnotation(Util.position, "safeReturn") }
+annotation:ASTAnnotation = UNSAFEFUNCTION 
+    { result := new ASTSimpleAnnotation(Util.position, "unsafeFunction") }
+annotation:ASTAnnotation = FINAL 
+    { result := new ASTSimpleAnnotation(Util.position, "final") }
+annotation:ASTAnnotation = WRAPPER_METHOD 
+    { result := new ASTSimpleAnnotation(Util.position, "$wrapperMethod") }
+annotation:ASTAnnotation = MATH LPAREN OVERFLOW RPAREN
+    { result := new ASTSimpleAnnotation(Util.position, "math(overflow)") }
+annotation:ASTAnnotation = PRE LPAREN expression RPAREN
+    { result := new ASTPrecondition(Util.position, expression, false) }
+annotation:ASTAnnotation = PRE_OR LPAREN expression RPAREN
+    { result := new ASTPrecondition(Util.position, expression, true) }
+postcondition:ASTAnnotation = POST LPAREN expression RPAREN
+    { result := new ASTPostcondition(Util.position, expression, false) }
+postcondition:ASTAnnotation = POST_AND LPAREN expression RPAREN
+    { result := new ASTPostcondition(Util.position, expression, true) }
+postconditions:Array<ASTAnnotation> = postconditions postcondition
+    {
+        result := []
+        result.addAll(postconditions)
+        rsult.add(postcondition)
+    }
+postconditions:Array<ASTAnnotation> = postcondition
+    { result := [postcondition] }
+optionalPostconditions:Array<ASTAnnotation>? = postconditions
+    { result := postconditions }
+optionalPostconditions:Array<ASTAnnotation>? = 
+    { result := null }
+
+invariant:ASTInvariant = INVARIANT LPAREN expression RPAREN
+    { result := new ASTInvariant(Util.position, expression) }
+
+methodDeclaration:ASTMethod = optionalDoccomment optionalAnnotations 
+        METHOD ^ methodName formalParameters optionalTypeDeclaration 
+        optionalBlock optionalPostconditions
+    {
+        result := new ASTMethod(Util.position, methodName, 
+                MethodNodeType.METHOD, optionalDoccomment, 
+                optionalAnnotations, formalParameters, optionalTypeDeclaration, 
+                optionalBlock, optionalPostconditions)
+    }
+methodName:String = IDENTIFIER 
+    { result := IDENTIFIER }
+methodName:String = IDENTIFIER ASSIGNMENT
+    { result := IDENTIFIER + ":=" }
+methodName:String = CONVERT
+    { result := "->>" }
+methodName:String = SHIFTLEFT
+    { result := "<<" }
+methodName:String = SHIFTRIGHT
+    { result := ">>" }
+methodName:String = ADD
+    { result := "+" }
+methodName:String = SUB
+    { result := "-" }
+methodName:String = MUL
+    { result := "*" }
+methodName:String = DIV
+    { result := "/" }
+methodName:String = INTDIV
+    { result := "//" }
+methodName:String = REM
+    { result := "%" }
+methodName:String = AND
+    { result := "&" }
+methodName:String = OR
+    { result := "|" }
+methodName:String = XOR
+    { result := "~" }
+methodName:String = BITWISEAND
+    { result := "&&" }
+methodName:String = BITWISEOR
+    { result := "||" }
+methodName:String = BITWISEXOR
+    { result := "~~" }
+methodName:String = POW
+    { result := "^" }
+methodName:String = NOT
+    { result := "!" }
+methodName:String = BITWISENOT
+    { result := "!!" }
+methodName:String = '[]' WS
+    { result := "[]" }
+methodName:String = '[..]' WS
+    { result := "[..]" }
+methodName:String = '[...]' WS
+    { result := "[...]" }
+methodName:String = '[]:=' WS
+    { result := "[]:=" }
+methodName:String = '[..]:=' WS
+    { result := "[..]:=" }
+methodName:String = '[...]:=' WS
+    { result := "[...]:=" }
+methodName:String = EQ
+    { result := "=" }
+methodName:String = GT
+    { result := ">" }
+methodName:String = LT
+    { result := "<" }
+methodName:String = GTEQ
+    { result := ">=" }
+methodName:String = LTEQ
+    { result := "<=" }
+formalParameters:Array<ASTParameter> = LPAREN parameterList RPAREN
+    { result := parameterList }
+formalParameters:Array<ASTParameter> = LPAREN RPAREN
+    { result := [] }
+parameterList:Array<ASTParameter> = parameterList COMMA parameter
+    {
+        result := []
+        result.addAll(parameterList)
+        result.add(parameter)
+    }
+parameterList:Array<ASTParameter> = parameter
+    { result := [parameter] }
+parameter:ASTParameter = optionalVar IDENTIFIER optionalConvert type 
+        optionalEllipsis
+    { 
+        result := new ASTParameter(Util.position, IDENTIFIER, type, optionalVar, 
+                optionalConvert, optionalEllipsis)
+    }
+optionalVar:Bit = VAR
+    { result := true }
+optionalVar:Bit =
+    { result := false }
+optionalConvert:Bit = CONVERT
+    { result := true }
+optionalConvert:Bit = COLON
+    { result := false }
+optionalEllipsis:Bit = ELLIPSIS
+    { result := true }
+optionalEllipsis:Bit =
+    { result := false }
+optionalBlock:Block? = block
+    { result := block }
+optionalBlock:Block? = 
+    { result := null }
+
+functionDeclaration:ASTMethod = optionalDoccomment optionalAnnotations 
+        FUNCTION ^ methodName formalParameters typeDeclaration optionalBlock
+        optionalPostconditions
+    {
+        result := new ASTMethod(Util.position, methodName, 
+                MethodNodeType.FUNCTION, optionalDoccomment, 
+                optionalAnnotations, formalParameters, typeDeclaration, 
+                optionalBlock, optionalPostconditions)
+    }
+
+constructorDeclaration:ASTMethod = optionalDoccomment optionalAnnotations 
+        CONSTRUCTOR ^ formalParameters optionalBlock optionalPostconditions
+    {
+        result := new ASTMethod(Util.position, MethodNode.CONSTRUCTOR_NAME, 
+                MethodNodeType.CONSTRUCTOR, optionalDoccomment, 
+                optionalAnnotations, formalParameters, null, 
+                block, optionalPostconditions)
+    }
+
+fieldDeclaration:ASTField = optionalDoccomment optionalAnnotations 
+        varDeclaration
+    { 
+        result := new ASTField(optionalDoccomment, optionalAnnotations, 
+                varDeclaration) 
+    }
 
 statement:ASTStatement = varDeclaration
     { result := varDeclaration }
@@ -61,18 +428,23 @@ statement:ASTStatement = whileLoop
     { result := whileLoop }
 statement:ASTStatement = doLoop 
     { result := doLoop }
-statement:ASTStatement = loop 
-    { result := loop }
+statement:ASTStatement = loopLoop
+    { result := loopLoop }
 statement:ASTStatement = expressionOrAssignment
     { result := expressionOrAssignment }
 statement:ASTStatement = assertStatement 
-    { result := aassertStatement }
+    { result := assertStatement }
 statement:ASTStatement = switchStatement
     { result := switchStatement }
 statement:ASTStatement = tryStatement 
     { result := tryStatement }
 statement:ASTStatement = block
     { result := block }
+
+statementOrBlock:ASTStatement = statement 
+    { result := statement }
+statementOrBlock:ASTStatement = terminalStatement 
+    { result := terminalStatement }
 
 varDeclaration:ASTVarDeclaration = VAR varDeclarations
     { 
@@ -128,80 +500,206 @@ optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER
 optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER COLON type
     { result := new ASTTypedIdentifier(Util.position, IDENTIFIER, type) }
 
-ifStatement:ASTIf = IF ^ expression e1:statement ELSE e2:statement
+ifStatement:ASTIf = IF ^ expression e1:statement optionalElse
     { result := new ASTIf(Util.position, expression, e1, e2) }
-ifStatement:ASTIf = IF ^ expression statement
-    { result := new ASTIf(Util.position, expression, statement, null) }
+optionalElse:ASTStatement? = ELSE statement
+    { result := statement }
+optionalElse:ASTStatement? =
+    { result := null }
 
-forLoop:ASTFor = label FOR ^ optionallyTypedIdentifier IN expression 
+forLoop:ASTFor = optionalLabel FOR ^ forTarget IN ^ expression 
         statementOrBlock
-    { }
+    { 
+        result := new ASTFor(Util.position, optionalLabel, null, 
+                optionallyTypedIdentifier, [expression], statementOrBlock) 
+    }
+optionalLabel:String? = IDENTIFIER COLON
+    { result := IDENTIFIER }
+optionalLabel:String? =
+    { result := null }
+forTarget:ForTarget = optionallyTypedIdentifier
+forTarget:ForTarget = optionallyTypedIdentifier COMMA optionallyTypedIdentifier
+forTarget:ForTarget = forTuple
+forTarget:ForTarget = optionallyTypedIdentifier COMMA forTuple
+forTuple:Array<ASTTypedIdentifier> = LPAREN varDeclarations RPAREN
+    { result := varDeclarations }
 
-type:ASTType = IDENTIFIER 
+whileLoop:ASTWhile = optionalLabel WHILE ^ expression statementOrBlock
     { 
-        result := new ASTClassType(Util.position, IDENTIFIER.identifier, null,
-                false) 
+        result := new ASTWhile(Util.position, optionalLabel, expression, 
+                statementOrBlock)
     }
-type:ASTType = IDENTIFIER QUESTION
+
+doLoop:ASTDo = optionalLabel DO ^ statementOrBlock WHILE expression
     { 
-        result := new ASTClassType(Util.position, IDENTIFIER.identifier, null,
-                true) 
+        result := new ASTWhile(Util.position, optionalLabel, expression, 
+                statementOrBlock)
     }
-type:ASTType = IDENTIFIER genericParameters
+
+loopLoop:ASTLoop = optionalLabel LOOP ^ statementOrBlock
+    { result := new ASTLoop(Util.position, optionalLabel, statementOrBlock) }
+
+expressionOrAssignment:ASTStatement = expression 
+    { result := new ASTExpressionStatement(expression) }
+expressionOrAssignment:ASTStatement = left:expression assignmentOperator ^
+        right:expression
+    { result := new ASTAssignment(left, assignmentOperator, right) }
+assignmentOperator:BinaryOperationType? = ASSIGNMENT
+    { result := null }
+assignmentOperator:BinaryOperationType? = ADDEQ
+    { result := BinaryOperationType.ADD }
+assignmentOperator:BinaryOperationType? = SUBEQ
+    { result := BinaryOperationType.SUBTRACT }
+assignmentOperator:BinaryOperationType? = MULEQ 
+    { result := BinaryOperationType.MULTIPLY }
+assignmentOperator:BinaryOperationType? = DIVEQ 
+    { result := BinaryOperationType.DIVIDE }
+assignmentOperator:BinaryOperationType? = INTDIVEQ 
+    { result := BinaryOperationType.INT_DIVIDE }
+assignmentOperator:BinaryOperationType? = POWEQ 
+    { result := BinaryOperationType.POWER }
+assignmentOperator:BinaryOperationType? = REMEQ 
+    { result := BinaryOperationType.REMAINDER }
+assignmentOperator:BinaryOperationType? = ANDEQ 
+    { result := BinaryOperationType.AND }
+assignmentOperator:BinaryOperationType? = BITWISEANDEQ 
+    { result := BinaryOperationType.BITWISE_AND }
+assignmentOperator:BinaryOperationType? = OREQ 
+    { result := BinaryOperationType.OR }
+assignmentOperator:BinaryOperationType? = BITWISEOREQ 
+    { result := BinaryOperationType.BITWISE_OR }
+assignmentOperator:BinaryOperationType? = XOREQ 
+    { result := BinaryOperationType.XOR }
+assignmentOperator:BinaryOperationType? = BITWISEXOREQ 
+    { result := BinaryOperationType.BITWISE_OR }
+assignmentOperator:BinaryOperationType? = SHIFTLEFTEQ 
+    { result := BinaryOperationType.SHIFT_LEFT }
+assignmentOperator:BinaryOperationType? = SHIFTRIGHTEQ
+    { result := BinaryOperationType.SHIFT_RIGHT }
+
+assertStatement:ASTAssert = ASSERT expression
+    { result := new ASTAssert(Util.position, expression, null) }
+assertStatement:ASTAssert = ASSERT test:expression COLON ^ msg:expression
+    { result := new ASTAssert(Util.position, test, msg) }
+
+switchStatement:ASTSwitch = SWITCH expression LBRACE switchCases RBRACE ^
+    { result := new ASTSwitch(Util.position, expression, switchCases, null) }
+switchStatement:ASTSwitch = SWITCH expression LBRACE switchCases defaultCase 
+        RBRACE ^
     { 
-        result := new ASTClassType(Util.position, IDENTIFIER.identifier,
-                genericParameters, false) 
+        result := new ASTSwitch(Util.position, expression, switchCases, 
+                defaultCase) 
     }
-type:ASTType = IDENTIFIER genericParameters QUESTION
+switchCases:Array<ASTSwitchCase> = switchCases switchCase
     { 
-        result := new ASTClassType(Util.position, IDENTIFIER.identifier,
-                genericParameters, true) 
+        result := []
+        result.addAll(switchCases)
+        result.add(switchCase)
     }
-type:ASTType = LPAREN typeList RPAREN
-    { result := new ASTTupleType(Util.position, typeList, false) }
-type:ASTType = LPAREN typeList RPAREN QUESTION
-    { result := new ASTTupleType(Util.position, typeList, true) }
-type:ASTType = LPAREN typeList RPAREN YIELDS LPAREN type RPAREN
-    { 
-        result := new ASTMethodType(Util.position, typeList, type, false, true,
-                false) 
+switchCases:Array<ASTSwitchCase> = switchCase
+    { result := [switchCase] }
+switchCase:ASTSwitchCase = CASE ^ expressionList COLON statementOrBlock
+    {
+        result := new ASTSwitchCase(Util.position, expressionList, 
+                statementOrBlock)
     }
-type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD LPAREN type RPAREN
+defaultCase:ASTStatement = DEFAULT COLON statement
+    { result := statement }
+
+tryStatement:ASTStatement = TRY ^ statementOrBlock catchBlocks
+    { result := new ASTTry(Util.position, statementOrBlock, catchBlocks, null) }
+catchBlocks:Array<ASTCatch> = catchBlocks catchBlock
     { 
-        result := new ASTMethodType(Util.position, typeList, type, false, false,
-                false) 
+        result := []
+        result.addAll(catchBlocks)
+        result.add(catchBlock)
     }
-type:ASTType = LPAREN typeList RPAREN YIELDS_IMMUTABLE LPAREN type RPAREN
-    { 
-        result := new ASTMethodType(Util.position, typeList, type, false, true,
-                true) 
+catchBlocks:Array<ASTCatch> = catchBlock
+    { result := [catchBlock] }
+catchBlock:Array<ASTCatch> = CATCH IDENTIFIER type:typeDeclaration
+        statement:statementOrBlock
+    { result := new ASTCatch(Util.position, IDENTIFIER, type, statement) }
+
+block:Array<ASTStatement> = LBRACE statements RBRACE
+    { result := statements }
+block:Array<ASTStatement> = LBRACE RBRACE
+    { result := [] }
+statements:Array<ASTStatement> = statements statement
+    {
+        result := []
+        result.addAll(statements)
+        result.add(statement)
     }
-type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD_IMMUTABLE LPAREN type RPAREN
+statements:Array<ASTStatement> = statement
+    { result := [statement] }
+
+terminalStatement:ASTStatement = returnStatement 
+    { result := returnStatement }
+terminalStatement:ASTStatement = breakStatement 
+    { result := breakStatement }
+terminalStatement:ASTStatement = continueStatement 
+    { result := continueStatement }
+terminalStatement:ASTStatement = throwStatement 
+    { result := throwStatement }
+terminalStatement:ASTStatement = unreachableStatement 
+    { result := unreachableStatement }
+
+returnStatement:ASTReturn = 'return' WS
+    { result := new ASTReturn(Util.position, null) }
+returnStatement:ASTReturn = 'return' WS_SAMELINE expression ^
+    { result := new ASTReturn(Util.position, expression) }
+
+breakStatement:ASTBreak = 'break' 
+    { result := new ASTBreak(Util.position, null) }
+breakStatement:ASTBreak = 'break' WS_SAMELINE IDENTIFIER ^
+    { result := new ASTBreak(Util.position, IDENTIFIER) }
+
+continueStatement:ASTContinue = 'continue' 
+    { result := new ASTContinue(Util.position, null) }
+continueStatement:ASTContinue = 'continue' WS_SAMELINE IDENTIFIER ^
+    { result := new ASTContinue(Util.position, IDENTIFIER) }
+
+throwStatement:ASTThrow = THROW ^ expression
+    { result := new ASTThrow(Util.position, expression) }
+
+unreachableStatement:ASTUnreachable = UNREACHABLE
+    { result := new ASTUnreachable(Util.position) }
+
+type:ASTType = dottedName optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, type, false, false,
-                true) 
+        result := new ASTClassType(Util.position, IDENTIFIER, null,
+                optionalQuestion) 
     }
-type:ASTType = LPAREN typeList RPAREN YIELDS LPAREN type RPAREN QUESTION
+type:ASTType = dottedName genericParameters optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, type, true, true,
-                false) 
+        result := new ASTClassType(Util.position, IDENTIFIER,
+                genericParameters, optionalQuestion) 
     }
-type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD LPAREN type RPAREN QUESTION
+type:ASTType = LPAREN optionalTypeList RPAREN optionalQuestion
+    { result := new ASTTupleType(Util.position, typeList, optionalQuestion) }
+type:ASTType = LPAREN optionalTypeList RPAREN YIELDS methodReturnType 
+        optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, type, true, false,
-                false) 
+        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
+                true, true, false) 
     }
-type:ASTType = LPAREN typeList RPAREN YIELDS_IMMUTABLE LPAREN type RPAREN
-        QUESTION
+type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_METHOD methodReturnType 
+        optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, type, true, true,
-                true) 
+        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
+                optionalQuestion, false, false) 
     }
-type:ASTType = LPAREN typeList RPAREN YIELDS_METHOD_IMMUTABLE LPAREN type RPAREN
-        QUESTION
+type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_IMMUTABLE methodReturnType
+        optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, type, true, false,
-                true) 
+        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
+                optionalQuestion, true, true) 
+    }
+type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_METHOD_IMMUTABLE 
+        methodReturnType optionalQuestion
+    { 
+        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
+                optionalQuestion, false, true) 
     }
 genericParameters:Array<ASTType> = LT typeList GT
     { result := typeList }
@@ -213,6 +711,18 @@ typeList:Array<ASTType> = typeList COMMA type
     }
 typeList:Array<ASTType> = type
     { result := [type] }
+optionalTypeList:Array<ASTType> = typeList
+    { result := typeList }
+optionalTypeList:Array<ASTType> =
+    { result := [] }
+optionalQuestion:Bit = QUESTION
+    { result := true }
+optionalQuestion:Bit = 
+    { result := false }
+methodReturnType:ASTType? = LPAREN RPAREN
+    { result := null }
+methodReturnType:ASTType? = LPAREN type RPAREN
+    { result := type }
 
 expression:ASTExpression = orExpression
     { result := orExpression }
@@ -412,7 +922,7 @@ unaryExpression:ASTExpression = BITWISENOT exponentExpression
 
 exponentExpression:ASTExpression = callExpression
     { result := callExpression }
-exponentExpression:ASTExpression = callExpression exponentExpression
+exponentExpression:ASTExpression = callExpression POW exponentExpression
     { 
         result := new ASTBinaryOperation(BinaryOperationType.POWER, 
                 callExpression, exponentExpression)
@@ -426,9 +936,9 @@ callExpression:ASTExpression = callExpression LBRACKET expression RBRACKET
 callExpression:ASTExpression = callExpression LBRACKET expression RBRACKET
     { result := new ASTIndex(callExpression, expression) }
 callExpression:ASTExpression = callExpression DOT IDENTIFIER
-    { result := new ASTDotExpression(callExpression, IDENTIFIER.identifier) }
+    { result := new ASTDotExpression(callExpression, IDENTIFIER) }
 callExpression:ASTExpression = callExpression DOT IDENTIFIER
-    { result := new ASTDotExpression(callExpression, IDENTIFIER.identifier) }
+    { result := new ASTDotExpression(callExpression, IDENTIFIER) }
 callExpression:ASTExpression = callExpression DOT CLASS
     { result := new ASTDotExpression(callExpression, "$class") }
 callExpression:ASTExpression = callExpression DOT CONSTRUCTOR
@@ -511,12 +1021,12 @@ lambda:ASTExpression = lambdaParameters YIELDS expression
     { result := new ASTLambda(Util.position, lambdaParameters, expression) }
 lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
     { 
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
                 null)]
     }
 lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
     { 
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
                 type)]
     }
 lambdaParameters:Array<ASTTypedIdentifier> = LPAREN RPAREN
@@ -531,12 +1041,12 @@ untypedLambdaParameters:Array<ASTTypedIdentifier> = untypedLambdaParameters
     { 
         result := []
         result.addAll(untypedLambdaParameters)
-        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER,
                 null))
     }
 untypedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
     {  
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
                 null)]
     }
 typedLambdaParameters:Array<ASTTypedIdentifier> = typedLambdaParameters 
@@ -544,12 +1054,12 @@ typedLambdaParameters:Array<ASTTypedIdentifier> = typedLambdaParameters
     { 
         result := []
         result.addAll(untypedLambdaParameters)
-        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER,
                 type))
     }
 typedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
     {  
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER.identifier,
+        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
                 type)]
     }
 
@@ -559,13 +1069,13 @@ identifierText:String = identifierStart identifierChars
     { result := identifierStart + identifierChars }
 identifierText:String = identifierStart
     { result := identifierStart }
-identifierStart:String = char:[a-zA-Z_]
+identifierStart:String = char:[a-zA-Z_$]
     { result := char }
 identifierChars:String = chars:identifierChars identifierChar
     { result := chars + identifierChar }
 identifierChars:String = identifierChar
     { result := identifierChar }
-identifierChar:String = char:[a-zA-Z_0-9]
+identifierChar:String = char:[a-zA-Z_$0-9]
     { result := identifierChar }
 
 INTEGER:ASTIntegerLiteral = DECIMAL_CHARS WS
@@ -649,6 +1159,8 @@ STRING_CHAR_DOUBLE:String = ESCAPE
     { result := ESCAPE }
 ESCAPE:String = '\\' char:[nrt'"\]\\]
     { result := Util.unescape('\\' + char) }
+ESCAPE:String = '\\{' expression '}'
+    { result := '\\' + expression }
 
 PACKAGE = 'package' WS
 CLASS = 'class' WS
@@ -783,6 +1295,10 @@ WS = WS WS_CHAR
 WS =
 WS_CHAR = [ \r\n\t]
 WS_CHAR = COMMENT
+WS_SAMELINE = WS_SAMELINE WS_SAMELINE_CHAR
+WS_SAMELINE =
+WS_SAMELINE_CHAR = [ \t]
+WS_SAMELINE_CHAR = SINGLE_LINE_BLOCK_COMMENT
 COMMENT = LINE_COMMENT
 COMMENT = BLOCK_COMMENT
 LINE_COMMENT = '--' LINE_COMMENT_CHARS
@@ -794,3 +1310,27 @@ BLOCK_COMMENT_CHARS =
 BLOCK_COMMENT_CHAR = [^*]
 BLOCK_COMMENT_CHAR = '*' [^-]
 BLOCK_COMMENT_CHAR = BLOCK_COMMENT
+SINGLE_LINE_BLOCK_COMMENT = '-*' SINGLE_LINE_BLOCK_COMMENT_CHARS '*-'
+SINGLE_LINE_BLOCK_COMMENT_CHARS = SINGLE_LINE_BLOCK_COMMENT_CHARS 
+        SINGLE_LINE_BLOCK_COMMENT_CHAR
+SINGLE_LINE_BLOCK_COMMENT_CHARS =
+SINGLE_LINE_BLOCK_COMMENT_CHAR = [^*\n\r]
+SINGLE_LINE_BLOCK_COMMENT_CHAR = '*' [^-]
+SINGLE_LINE_BLOCK_COMMENT_CHAR = SINGLE_LINE_BLOCK_COMMENT
+DOCCOMMENT:String = '===' TRAILING_EQUALS DOCCOMMENT_CHARS '===' TRAILING_EQUALS
+        WS
+    { result := DOCCOMMENT_CHARS }
+DOCCOMMENT_CHARS:String = DOCCOMMENT_CHARS DOCCOMMENT_CHAR
+    { result := DOCCOMMENT_CHARS + DOCCOMMENT_CHAR }
+DOCCOMMENT_CHARS:String = DOCCOMMENT_CHAR
+    { result := DOCCOMMENT_CHAR }
+DOCCOMMENT_CHAR:String = char:[^=]
+    { result := char }
+DOCCOMMENT_CHAR:String = '=' char:[^=]
+    { result := "=" + char }
+DOCCOMMENT_CHAR:String = '==' char:[^=]
+    { result := "==" + char }
+TRAILING_EQUALS = TRAILING_EQUALS_CHARS
+TRAILING_EQUALS =
+TRAILING_EQUALS_CHARS = TRAILING_EQUALS_CHARS '='
+TRAILING_EQUALS_CHARS = '='
