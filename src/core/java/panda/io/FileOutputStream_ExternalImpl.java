@@ -34,7 +34,7 @@ class FileOutputStream_ExternalImpl implements panda.io.FileOutputStream_Externa
     }
 
     @Override
-    public void writeInt8Array(java.lang.Object nativeFile, panda.collections.ListView$LTpanda$core$Int8$GT b, int offset, int length) {
+    public void writeInt8Array(java.lang.Object nativeFile, panda.collections.ListView$.$Lpanda$core$Int8$R b, int offset, int length) {
         try {
             byte[] buffer = new byte[length];
             for (int i = 0; i < length; i++)

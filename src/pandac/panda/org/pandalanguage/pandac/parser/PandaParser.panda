@@ -4,7 +4,9 @@ uses org.pandalanguage.pandac.ast.ASTAnnotation
 uses org.pandalanguage.pandac.ast.ASTBlock
 uses org.pandalanguage.pandac.ast.ASTExpression
 uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.ast.ASTFormatExpression
 uses org.pandalanguage.pandac.ast.ASTMethod
+uses org.pandalanguage.pandac.ast.ASTNode
 uses org.pandalanguage.pandac.ast.ASTStatement
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.compiler.ErrorReporter
@@ -15,18 +17,27 @@ class PandaParser {
 
     def fileText := new HashMap<File, String>()
 
+    def lrParser := new PandaLRParser()
+
     constructor(errors:ErrorReporter) {
         self.errors := errors
+    }
+
+    method reportErrors(errorList:ListView<ParseError>, offset:Position) {
+        for e in errorList {
+            errors.error(e.error, new Position(offset.file, 
+                    e.offset + offset.offset))
+            Panda.dumpStack()
+        }
     }
 
     method parseFile(file:File, text:String):ASTFile? {
         assert self.fileText[file] = null
         self.fileText[file] := text
-        def pegParser := new PandaPEGParser(file, text)
-        def result := pegParser._file(0)
-        if result != null
-            return new ASTFile(file, result[1])
-        errors.error("Error parsing \{file.name} at \{pegParser.getPosition(pegParser.maxPos)}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
+        def result := lrParser.file(file, text)
+        reportErrors(result[1], new Position(file, 0))
+        if result[0] != null
+            return new ASTFile(file, result[0])
         return null
     }
 
@@ -35,75 +46,52 @@ class PandaParser {
         return parseFile(file, text)
     }
 
-    @self
-    method parseType(s:String, start:Position):ASTType {
-        def pegParser := new PandaPEGParser(start.file, s)
-        def result := pegParser._type(0)
-        if result != null
-            return result[1]
-        errors.error("Error parsing type at \{start}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
-        return null
+    method parseType(s:String, start:Position):ASTType? {
+        def result, errors := lrParser.type(start.file, s)
+        reportErrors(errors, start)
+        return result
     }
 
     @self
     method parseStatement(s:String, start:Position):ASTStatement? {
-        def pegParser := new PandaPEGParser(start.file, s)
-        def result := pegParser._statement(0)
-        if result != null
-            return result[1]
-        errors.error("Error parsing statement at \{start}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
-        return null
+        def result, errors := lrParser.statement(start.file, s)
+        reportErrors(errors, start)
+        return result
     }
 
     @self
     method parseMethodValue(s:String, start:Position):ASTExpression? {
-        def pegParser := new PandaPEGParser(start.file, s)
-        def result := pegParser._methodValue(0)
-        if result != null
-            return result[1]
-        errors.error("Error parsing method value at \{start}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
-        return null
+        def result, errors := lrParser.methodValue(start.file, s)
+        reportErrors(errors, start)
+        return result
     }
 
     @self
     method parseBlock(s:String, start:Position):ASTBlock? {
-        def pegParser := new PandaPEGParser(start.file, s)
-        def result := pegParser._block(0)
-        if result != null
-            return result[1]
-        errors.error("Error parsing block at \{start}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
-        return null
+        def result, errors := lrParser.block(start.file, s)
+        reportErrors(errors, start)
+        return result
     }
 
     @self
     method parseMethodDeclaration(s:String, doccomment:String?, 
             annotations:ListView<ASTAnnotation>?, start:Position):ASTMethod? {
-        def pegParser := new PandaPEGParser(start.file, s)
-        def result := pegParser._methodOrFunction(0)
-        if result != null
-            return result[1]
-        errors.error("Error parsing method at \{start}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
-        return null
+        def result, errors := lrParser.anyMethod(start.file, s)
+        reportErrors(errors, start)
+        return result
     }
 
     @self
-    method parseExpressionWithExtraText(s:String, start:Position):(ASTExpression?, 
-            String) {
-        def pegParser := new PandaPEGParser(start.file, s)
-        def result := pegParser._expression(0)
-        if result != null
-            return (result[1], "")
-        errors.error("Error parsing expression at \{start}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
-        return null
+    method parseFormatExpression(s:String, start:Position):ASTFormatExpression {
+        def result, errors := lrParser.formatExpression(start.file, s)
+        reportErrors(errors, start)
+        return result
     }
 
     @self
     method parseExpression(s:String, start:Position):ASTExpression? {
-        def pegParser := new PandaPEGParser(start.file, s)
-        def result := pegParser._expression(0)
-        if result != null
-            return result[1]
-        errors.error("Error parsing type at \{start}: expected one of \{pegParser.maxLiterals}, but found '\{pegParser.text[pegParser.maxPos]}'", Position.INTERNAL)
-        return null
+        def result, errors := lrParser.expression(start.file, s)
+        reportErrors(errors, start)
+        return result
     }
 }

@@ -1,16 +1,114 @@
 {
+    package org.pandalanguage.pandac.parser
+    
+    uses org.pandalanguage.pandac.ast.Alignment
+    uses org.pandalanguage.pandac.ast.ASTArrayLiteral
+    uses org.pandalanguage.pandac.ast.ASTArrowExpression
+    uses org.pandalanguage.pandac.ast.ArrowOperationType
+    uses org.pandalanguage.pandac.ast.ASTAnnotation
+    uses org.pandalanguage.pandac.ast.ASTAssert
+    uses org.pandalanguage.pandac.ast.ASTAssignment
+    uses org.pandalanguage.pandac.ast.ASTAtReturn
+    uses org.pandalanguage.pandac.ast.ASTBinaryExpression
     uses org.pandalanguage.pandac.ast.ASTBitLiteral
+    uses org.pandalanguage.pandac.ast.ASTBlock
+    uses org.pandalanguage.pandac.ast.ASTBreak
+    uses org.pandalanguage.pandac.ast.ASTCallExpression
+    uses org.pandalanguage.pandac.ast.ASTCatch
+    uses org.pandalanguage.pandac.ast.ASTClass
+    uses org.pandalanguage.pandac.ast.ASTClassLiteral
+    uses org.pandalanguage.pandac.ast.ASTClassType
+    uses org.pandalanguage.pandac.ast.ASTContinue
+    uses org.pandalanguage.pandac.ast.ASTDo
+    uses org.pandalanguage.pandac.ast.ASTDotExpression
+    uses org.pandalanguage.pandac.ast.ASTEnum
+    uses org.pandalanguage.pandac.ast.ASTEnumValue
     uses org.pandalanguage.pandac.ast.ASTExpression
+    uses org.pandalanguage.pandac.ast.ASTExpressionStatement
+    uses org.pandalanguage.pandac.ast.ASTField
+    uses org.pandalanguage.pandac.ast.ASTFile
+    uses org.pandalanguage.pandac.ast.ASTFor
+    uses org.pandalanguage.pandac.ast.ASTFormatExpression
+    uses org.pandalanguage.pandac.ast.ASTIdentifier
+    uses org.pandalanguage.pandac.ast.ASTIf
+    uses org.pandalanguage.pandac.ast.ASTIndex
+    uses org.pandalanguage.pandac.ast.ASTInstanceDeclaration
     uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
+    uses org.pandalanguage.pandac.ast.ASTInvariant
+    uses org.pandalanguage.pandac.ast.ASTLambdaExpression
+    uses org.pandalanguage.pandac.ast.ASTLoop
+    uses org.pandalanguage.pandac.ast.ASTMethod
+    uses org.pandalanguage.pandac.ast.ASTMethodType
+    uses org.pandalanguage.pandac.ast.ASTMethodValue
+    uses org.pandalanguage.pandac.ast.ASTNew
+    uses org.pandalanguage.pandac.ast.ASTNode
+    uses org.pandalanguage.pandac.ast.ASTNullLiteral
+    uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
+    uses org.pandalanguage.pandac.ast.ASTParameter
+    uses org.pandalanguage.pandac.ast.ASTPlugin
+    uses org.pandalanguage.pandac.ast.ASTPostcondition
+    uses org.pandalanguage.pandac.ast.ASTPre
+    uses org.pandalanguage.pandac.ast.ASTPrecondition
+    uses org.pandalanguage.pandac.ast.ASTRangeExpression
+    uses org.pandalanguage.pandac.ast.ASTRealLiteral
+    uses org.pandalanguage.pandac.ast.ASTReturn
+    uses org.pandalanguage.pandac.ast.ASTSelf
+    uses org.pandalanguage.pandac.ast.ASTSimpleAnnotation
+    uses org.pandalanguage.pandac.ast.ASTStatement
     uses org.pandalanguage.pandac.ast.ASTStringLiteral
+    uses org.pandalanguage.pandac.ast.ASTSuper
+    uses org.pandalanguage.pandac.ast.ASTSwitch
+    uses org.pandalanguage.pandac.ast.ASTSwitchCase
+    uses org.pandalanguage.pandac.ast.ASTThrow
+    uses org.pandalanguage.pandac.ast.ASTTry
+    uses org.pandalanguage.pandac.ast.ASTTupleExpression
+    uses org.pandalanguage.pandac.ast.ASTTupleType
+    uses org.pandalanguage.pandac.ast.ASTType
+    uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
+    uses org.pandalanguage.pandac.ast.ASTUnaryExpression
+    uses org.pandalanguage.pandac.ast.ASTUnreachable
+    uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
+    uses org.pandalanguage.pandac.ast.ASTVarDeclaration
+    uses org.pandalanguage.pandac.ast.ASTWhile
     uses org.pandalanguage.pandac.tree.BinaryOperationType
+    uses org.pandalanguage.pandac.tree.MethodNode
+    uses org.pandalanguage.pandac.tree.MethodNodeType
     uses org.pandalanguage.pandac.tree.Position
     uses org.pandalanguage.pandac.tree.UnaryOperationType
     uses org.pandalanguage.pandac.tree.VariableType
 
-    class Util {
-        constant position := new Position(new File("<internal>"), 0)
-    
+    class ForTarget {
+        def index:ASTTypedIdentifier?
+        def loopVars:ListView<ASTTypedIdentifier>
+
+        constructor(index:ASTTypedIdentifier?, 
+                loopVars:ListView<ASTTypedIdentifier>) {
+            self.index := index
+            self.loopVars := loopVars
+        }
+    }
+
+    class FormatField {
+        def fillChar:Char
+        def alignment:Alignment
+        def width:Int
+
+        constructor(fillChar:Char, alignment:Alignment, width:Int) {
+            self.fillChar := fillChar
+            self.alignment := alignment
+            self.width := width
+        }
+    }
+
+    class ParserUtil {
+        constant KEYWORDS := new HashSet<String>(["package", "uses", "as", 
+                    "class", "method", "function", "constructor", "var", "def", 
+                    "property", "constant", "do", "while", "for", "by", "loop", 
+                    "if", "else", "switch", "case", "default", "self", "true",
+                     "false", "enum", "return", "break", "continue", "null", 
+                     "new", "assert", "unreachable", "try", "catch", "finally", 
+                     "throw", "super"])
+
         @class
         @pre(base >= 2 & base <= 36)
         function parseInt(s:String, base:UInt):UInt64? {
@@ -34,38 +132,31 @@
         function unescape(text:String):String {
             return text.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", 
                     "\t").replace("\\[", "[").replace("\\]", "]").
-                    replace("\\\\", "\\").replace("\\'", "'")
+                    replace("\\:", ":").replace("\\\\", "\\").
+                    replace("\\'", "'")
         }
 
         @class
-        function isExternal():Bit {
-            return false
-        }
-
-        @class
-        method main(args:PrimitiveArray<String>) {
-            def text := new File(args[0]).readAsString()
-            def parser := Test.createParser(text)
-            def result := parser.parse()
-            Console.writeLine(Parser.getPosition(result[0], text) + ": " + result[1])
+        function isExternal(file:File):Bit {
+            return file.name.endsWith(".plink")
         }
     }
 }
-start:Object = file
-    { result := file }
-file:Array<ASTNode> = file bodyEntry
+
+@file:Array<ASTNode> = WS bodyEntries optionalTrailingLineComment
+    { result := bodyEntries }
+@file:Array<ASTNode> = WS optionalTrailingLineComment
+    { result := [] }
+bodyEntries:Array<ASTNode> = bodyEntries bodyEntry
     { 
-        result := []
-        result.addAll(file)
+        result := [] 
+        result.addAll(bodyEntries)
         result.add(bodyEntry)
     }
-file:Object = bodyEntry
+bodyEntries:Array<ASTNode> = bodyEntry
     { result := [bodyEntry] }
-file:Object = WS
-    { result := [] }
-
-temp:ASTExpression = NEW type parameters
-    { result := new ASTNew(Util.position, type, parameters) }
+optionalTrailingLineComment = TRAILING_LINE_COMMENT
+optionalTrailingLineComment =
 
 bodyEntry:ASTNode = usesStatement 
     { result := usesStatement }
@@ -87,30 +178,30 @@ bodyEntry:ASTNode = statement
     { result := statement }
 
 packageDeclaration:ASTPackageDeclaration = PACKAGE ^ dottedName
-    { result := new ASTPackageDeclaration(Util.position, dottedName) }
+    { result := new ASTPackageDeclaration(new Position(file, parserState.position), dottedName) }
 dottedName:String = dottedName DOT IDENTIFIER
     { result := dottedName + "." + IDENTIFIER }
 dottedName:String = IDENTIFIER
     { result := IDENTIFIER }
-usesStatement:ASTUsesDeclaration = USES ^ usesName
-    { result := new ASTUsesDeclaration(Util.position, usesName, null) }
-usesStatement:ASTUsesDeclaration = USES ^ id:dottedName AS alias:dottedName
-    { result := new ASTUsesDeclaration(Util.position, id, alias) }
+usesStatement:ASTUsesDeclaration = USES usesName
+    { result := new ASTUsesDeclaration(new Position(file, parserState.position), usesName, null) }
+usesStatement:ASTUsesDeclaration = USES id:dottedName AS ^ alias:dottedName
+    { result := new ASTUsesDeclaration(new Position(file, parserState.position), id, alias) }
 usesName:String = dottedName DOT STAR
     { result := dottedName + ".*" }
 usesName:String = dottedName
     { result := dottedName }
-instanceDeclaration:ASTInstanceDeclaration = INSTANCE ^ t:type
-    { result := new ASTInstanceDeclaration(new Position(file, pos), t) }
+instanceDeclaration:ASTInstanceDeclaration = INSTANCE ^ type
+    { result := new ASTInstanceDeclaration(new Position(file, parserState.position), type) }
 
-classDeclaration:ASTClass = optionalDoccomment optionalAnnotations CLASS ^ 
+classDeclaration:ASTClass = optionalDoccomment optionalAnnotations CLASS 
         IDENTIFIER optionalGenericsDeclaration optionalTypeDeclaration
-        optionalInterfaces LBRACE classMembers RBRACE
+        optionalInterfaces LBRACE ^ classMembers RBRACE
     { 
         def methods := new Array<ASTMethod>()
         def fields := new Array<ASTField>()
         def invariants := new Array<ASTInvariant>()
-        for m in body {
+        for m in classMembers {
             if m-?>(ASTMethod)
                 methods.add(m->(ASTMethod))
             else if m-?>(ASTField)
@@ -120,11 +211,11 @@ classDeclaration:ASTClass = optionalDoccomment optionalAnnotations CLASS ^
             else
                 unreachable
         }
-        result := new ASTClass(Util.position, IDENTIFIER, false, 
+        result := new ASTClass(new Position(file, parserState.position), IDENTIFIER, false, 
                 optionalDoccomment, optionalAnnotations, 
                 optionalTypeDeclaration, optionalInterfaces, 
                 optionalGenericsDeclaration, methods, fields, invariants, 
-                Util.isExternal())
+                ParserUtil.isExternal(file))
     }
 interfaceDeclaration:ASTClass = optionalDoccomment optionalAnnotations 
         INTERFACE ^ IDENTIFIER optionalGenericsDeclaration 
@@ -133,7 +224,7 @@ interfaceDeclaration:ASTClass = optionalDoccomment optionalAnnotations
         def methods := new Array<ASTMethod>()
         def fields := new Array<ASTField>()
         def invariants := new Array<ASTInvariant>()
-        for m in body {
+        for m in classMembers {
             if m-?>(ASTMethod)
                 methods.add(m->(ASTMethod))
             else if m-?>(ASTField)
@@ -143,18 +234,18 @@ interfaceDeclaration:ASTClass = optionalDoccomment optionalAnnotations
             else
                 unreachable
         }
-        result := new ASTClass(Util.position, IDENTIFIER, true, 
+        result := new ASTClass(new Position(file, parserState.position), IDENTIFIER, true, 
                 optionalDoccomment, optionalAnnotations, 
                 null, optionalTypeDeclarations, optionalGenericsDeclaration, 
-                methods, fields, invariants, Util.isExternal())
+                methods, fields, invariants, ParserUtil.isExternal(file))
     }
 enumDeclaration:ASTEnum = optionalDoccomment optionalAnnotations ENUM ^ 
         IDENTIFIER LBRACE enumValues RBRACE
     {
-        result := new ASTEnum(Util.position, IDENTIFIER, optionalDoccomment, 
-                optionalAnnotations, enumValues, Utils.isExternal())
+        result := new ASTEnum(new Position(file, parserState.position), IDENTIFIER, optionalDoccomment, 
+                optionalAnnotations, enumValues, ParserUtil.isExternal(file))
     }
-enumValues:Array<ASTEnumValue> = enumValues enumValue
+enumValues:Array<ASTEnumValue> = enumValues COMMA enumValue
     {
         result := []
         result.addAll(enumValues)
@@ -164,7 +255,7 @@ enumValues:Array<ASTEnumValue> = enumValue
     { result := [enumValue] }
 enumValue:ASTEnumValue = optionalDoccomment IDENTIFIER
     { 
-        result := new ASTEnumValue(Util.position, IDENTIFIER, 
+        result := new ASTEnumValue(new Position(file, parserState.position), IDENTIFIER, 
                 optionalDoccomment) 
     }
 optionalDoccomment:String? = DOCCOMMENT
@@ -185,9 +276,10 @@ optionalTypeDeclaration:ASTType? =
     { result := null }
 typeDeclaration:ASTType = COLON type
     { result := type }
-optionalGenericsDeclaration:Array<ASTType>? = LT genericsDeclarations GT
-    { result := typeList }
-optionalGenericsDeclaration:Array<ASTType>? =
+optionalGenericsDeclaration:Array<ASTTypedIdentifier>? = LT genericsDeclarations 
+        GT
+    { result := genericsDeclarations }
+optionalGenericsDeclaration:Array<ASTTypedIdentifier>? =
     { result := null }
 genericsDeclarations:Array<ASTTypedIdentifier> = genericsDeclarations COMMA
         optionallyTypedIdentifier
@@ -197,7 +289,7 @@ genericsDeclarations:Array<ASTTypedIdentifier> = genericsDeclarations COMMA
         result.add(optionallyTypedIdentifier)
     }
 genericsDeclarations:Array<ASTTypedIdentifier> = optionallyTypedIdentifier
-    { result := optionallyTypedIdentifier }
+    { result := [optionallyTypedIdentifier] }
 optionalInterfaces:Array<ASTType>? = LPAREN typeList RPAREN
     { result := typeList }
 optionalInterfaces:Array<ASTType>? =
@@ -205,7 +297,7 @@ optionalInterfaces:Array<ASTType>? =
 classMembers:Array<ASTNode> = classMemberList
     { result := classMemberList }
 classMembers:Array<ASTNode> =
-    { result := null }
+    { result := [] }
 classMemberList:Array<ASTNode> = classMemberList classMember
     { 
         result := []
@@ -233,64 +325,64 @@ annotations:Array<ASTAnnotation> = annotations annotation
 annotations:Array<ASTAnnotation> = annotation
     { result := [annotation] }
 annotation:ASTAnnotation = PROTECTED 
-    { result := new ASTSimpleAnnotation(Util.position, "protected") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "protected") }
 annotation:ASTAnnotation = PRIVATE 
-    { result := new ASTSimpleAnnotation(Util.position, "private") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "private") }
 annotation:ASTAnnotation = ATCLASS 
-    { result := new ASTSimpleAnnotation(Util.position, "class") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "class") }
 annotation:ASTAnnotation = THREAD 
-    { result := new ASTSimpleAnnotation(Util.position, "thread") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "thread") }
 annotation:ASTAnnotation = ABSTRACT 
-    { result := new ASTSimpleAnnotation(Util.position, "abstract") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "abstract") }
 annotation:ASTAnnotation = EXTERNAL 
-    { result := new ASTSimpleAnnotation(Util.position, "external") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "external") }
 annotation:ASTAnnotation = OVERRIDE 
-    { result := new ASTSimpleAnnotation(Util.position, "override") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "override") }
 annotation:ASTAnnotation = READONLY 
-    { result := new ASTSimpleAnnotation(Util.position, "readonly") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "readonly") }
 annotation:ASTAnnotation = LIMITED 
-    { result := new ASTSimpleAnnotation(Util.position, "limited") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "limited") }
 annotation:ASTAnnotation = ATSELF 
-    { result := new ASTSimpleAnnotation(Util.position, "self") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "self") }
 annotation:ASTAnnotation = SAFERETURN 
-    { result := new ASTSimpleAnnotation(Util.position, "safeReturn") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "safeReturn") }
 annotation:ASTAnnotation = UNSAFEFUNCTION 
-    { result := new ASTSimpleAnnotation(Util.position, "unsafeFunction") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "unsafeFunction") }
 annotation:ASTAnnotation = FINAL 
-    { result := new ASTSimpleAnnotation(Util.position, "final") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "final") }
 annotation:ASTAnnotation = WRAPPER_METHOD 
-    { result := new ASTSimpleAnnotation(Util.position, "$wrapperMethod") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "$wrapperMethod") }
 annotation:ASTAnnotation = MATH LPAREN OVERFLOW RPAREN
-    { result := new ASTSimpleAnnotation(Util.position, "math(overflow)") }
+    { result := new ASTSimpleAnnotation(new Position(file, parserState.position), "math(overflow)") }
 annotation:ASTAnnotation = PRE LPAREN expression RPAREN
-    { result := new ASTPrecondition(Util.position, expression, false) }
+    { result := new ASTPrecondition(new Position(file, parserState.position), expression, false) }
 annotation:ASTAnnotation = PRE_OR LPAREN expression RPAREN
-    { result := new ASTPrecondition(Util.position, expression, true) }
-postcondition:ASTAnnotation = POST LPAREN expression RPAREN
-    { result := new ASTPostcondition(Util.position, expression, false) }
-postcondition:ASTAnnotation = POST_AND LPAREN expression RPAREN
-    { result := new ASTPostcondition(Util.position, expression, true) }
-postconditions:Array<ASTAnnotation> = postconditions postcondition
+    { result := new ASTPrecondition(new Position(file, parserState.position), expression, true) }
+postcondition:ASTPostcondition = POST LPAREN expression RPAREN
+    { result := new ASTPostcondition(new Position(file, parserState.position), expression, false) }
+postcondition:ASTPostcondition = POST_AND LPAREN expression RPAREN
+    { result := new ASTPostcondition(new Position(file, parserState.position), expression, true) }
+postconditions:Array<ASTPostcondition> = postconditions postcondition
     {
         result := []
         result.addAll(postconditions)
-        rsult.add(postcondition)
+        result.add(postcondition)
     }
-postconditions:Array<ASTAnnotation> = postcondition
+postconditions:Array<ASTPostcondition> = postcondition
     { result := [postcondition] }
-optionalPostconditions:Array<ASTAnnotation>? = postconditions
+optionalPostconditions:Array<ASTPostcondition>? = postconditions
     { result := postconditions }
-optionalPostconditions:Array<ASTAnnotation>? = 
+optionalPostconditions:Array<ASTPostcondition>? = 
     { result := null }
 
 invariant:ASTInvariant = INVARIANT LPAREN expression RPAREN
-    { result := new ASTInvariant(Util.position, expression) }
+    { result := new ASTInvariant(new Position(file, parserState.position), expression) }
 
 methodDeclaration:ASTMethod = optionalDoccomment optionalAnnotations 
         METHOD ^ methodName formalParameters optionalTypeDeclaration 
         optionalBlock optionalPostconditions
     {
-        result := new ASTMethod(Util.position, methodName, 
+        result := new ASTMethod(new Position(file, parserState.position), methodName, 
                 MethodNodeType.METHOD, optionalDoccomment, 
                 optionalAnnotations, formalParameters, optionalTypeDeclaration, 
                 optionalBlock, optionalPostconditions)
@@ -372,7 +464,7 @@ parameterList:Array<ASTParameter> = parameter
 parameter:ASTParameter = optionalVar IDENTIFIER optionalConvert type 
         optionalEllipsis
     { 
-        result := new ASTParameter(Util.position, IDENTIFIER, type, optionalVar, 
+        result := new ASTParameter(new Position(file, parserState.position), IDENTIFIER, type, optionalVar, 
                 optionalConvert, optionalEllipsis)
     }
 optionalVar:Bit = VAR
@@ -387,17 +479,24 @@ optionalEllipsis:Bit = ELLIPSIS
     { result := true }
 optionalEllipsis:Bit =
     { result := false }
-optionalBlock:Block? = block
+optionalBlock:ASTBlock? = block
     { result := block }
-optionalBlock:Block? = 
+optionalBlock:ASTBlock? = 
     { result := null }
+
+@anyMethod:ASTMethod = functionDeclaration
+    { result := functionDeclaration }
+@anyMethod:ASTMethod = methodDeclaration
+    { result := methodDeclaration }
+@anyMethod:ASTMethod = constructorDeclaration
+    { result := constructorDeclaration }
 
 functionDeclaration:ASTMethod = optionalDoccomment optionalAnnotations 
         FUNCTION ^ methodName formalParameters typeDeclaration optionalBlock
         optionalPostconditions
     {
-        result := new ASTMethod(Util.position, methodName, 
-                MethodNodeType.FUNCTION, optionalDoccomment, 
+        result := new ASTMethod(new Position(file, parserState.position), 
+                methodName, MethodNodeType.FUNCTION, optionalDoccomment, 
                 optionalAnnotations, formalParameters, typeDeclaration, 
                 optionalBlock, optionalPostconditions)
     }
@@ -405,10 +504,11 @@ functionDeclaration:ASTMethod = optionalDoccomment optionalAnnotations
 constructorDeclaration:ASTMethod = optionalDoccomment optionalAnnotations 
         CONSTRUCTOR ^ formalParameters optionalBlock optionalPostconditions
     {
-        result := new ASTMethod(Util.position, MethodNode.CONSTRUCTOR_NAME, 
+        result := new ASTMethod(new Position(file, parserState.position), 
+                MethodNode.CONSTRUCTOR_NAME, 
                 MethodNodeType.CONSTRUCTOR, optionalDoccomment, 
                 optionalAnnotations, formalParameters, null, 
-                block, optionalPostconditions)
+                optionalBlock, optionalPostconditions)
     }
 
 fieldDeclaration:ASTField = optionalDoccomment optionalAnnotations 
@@ -418,27 +518,29 @@ fieldDeclaration:ASTField = optionalDoccomment optionalAnnotations
                 varDeclaration) 
     }
 
-statement:ASTStatement = varDeclaration
+@statement:ASTStatement = varDeclaration
     { result := varDeclaration }
-statement:ASTStatement = ifStatement
+@statement:ASTStatement = ifStatement
     { result := ifStatement }
-statement:ASTStatement = forLoop 
+@statement:ASTStatement = forLoop 
     { result := forLoop }
-statement:ASTStatement = whileLoop 
+@statement:ASTStatement = whileLoop 
     { result := whileLoop }
-statement:ASTStatement = doLoop 
+@statement:ASTStatement = doLoop 
     { result := doLoop }
-statement:ASTStatement = loopLoop
+@statement:ASTStatement = loopLoop
     { result := loopLoop }
-statement:ASTStatement = expressionOrAssignment
-    { result := expressionOrAssignment }
-statement:ASTStatement = assertStatement 
+@statement:ASTStatement = methodCall
+    { result := new ASTExpressionStatement(methodCall) }
+@statement:ASTStatement = assignment
+    { result := assignment }
+@statement:ASTStatement = assertStatement 
     { result := assertStatement }
-statement:ASTStatement = switchStatement
+@statement:ASTStatement = switchStatement
     { result := switchStatement }
-statement:ASTStatement = tryStatement 
+@statement:ASTStatement = tryStatement 
     { result := tryStatement }
-statement:ASTStatement = block
+@statement:ASTStatement = block
     { result := block }
 
 statementOrBlock:ASTStatement = statement 
@@ -448,42 +550,42 @@ statementOrBlock:ASTStatement = terminalStatement
 
 varDeclaration:ASTVarDeclaration = VAR varDeclarations
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.VAR, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.VAR, 
                 varDeclarations, null) 
     }
 varDeclaration:ASTVarDeclaration = DEF varDeclarations
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.DEF, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.DEF, 
                 varDeclarations, null) 
     }
 varDeclaration:ASTVarDeclaration = PROPERTY varDeclarations
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.PROPERTY, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.PROPERTY, 
                 varDeclarations, null) 
     }
 varDeclaration:ASTVarDeclaration = CONSTANT varDeclarations
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.CONSTANT, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.CONSTANT, 
                 varDeclarations, null) 
     }
 varDeclaration:ASTVarDeclaration = VAR varDeclarations ASSIGNMENT expression
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.VAR, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.VAR, 
                 varDeclarations, expression) 
     }
 varDeclaration:ASTVarDeclaration = DEF varDeclarations ASSIGNMENT expression
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.DEF, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.DEF, 
                 varDeclarations, expression) 
     }
 varDeclaration:ASTVarDeclaration = PROPERTY varDeclarations ASSIGNMENT expression
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.PROPERTY, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.PROPERTY, 
                 varDeclarations, expression) 
     }
 varDeclaration:ASTVarDeclaration = CONSTANT varDeclarations ASSIGNMENT expression
     { 
-        result := new ASTVarDeclaration(Util.position, VariableType.CONSTANT, 
+        result := new ASTVarDeclaration(new Position(file, parserState.position), VariableType.CONSTANT, 
                 varDeclarations, expression) 
     }
 varDeclarations:Array<ASTTypedIdentifier> = varDeclarations COMMA 
@@ -494,56 +596,73 @@ varDeclarations:Array<ASTTypedIdentifier> = varDeclarations COMMA
         result.add(optionallyTypedIdentifier)
     }
 varDeclarations:Array<ASTTypedIdentifier> = optionallyTypedIdentifier
-    { resut := optionallyTypedIdentifier }
+    { result := [optionallyTypedIdentifier] }
 optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER
-    { result := new ASTTypedIdentifier(Util.position, IDENTIFIER, null) }
+    { result := new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER, null) }
 optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER COLON type
-    { result := new ASTTypedIdentifier(Util.position, IDENTIFIER, type) }
+    { result := new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER, type) }
 
-ifStatement:ASTIf = IF ^ expression e1:statement optionalElse
-    { result := new ASTIf(Util.position, expression, e1, e2) }
-optionalElse:ASTStatement? = ELSE statement
-    { result := statement }
+ifStatement:ASTIf = IF ^ expression statementOrBlock optionalElse
+    { 
+        result := new ASTIf(new Position(file, parserState.position), expression, statementOrBlock, 
+                optionalElse) 
+    }
+optionalElse:ASTStatement? = ELSE statementOrBlock
+    { result := statementOrBlock }
 optionalElse:ASTStatement? =
     { result := null }
 
 forLoop:ASTFor = optionalLabel FOR ^ forTarget IN ^ expression 
         statementOrBlock
     { 
-        result := new ASTFor(Util.position, optionalLabel, null, 
-                optionallyTypedIdentifier, [expression], statementOrBlock) 
+        result := new ASTFor(new Position(file, parserState.position), optionalLabel, forTarget.index, 
+                forTarget.loopVars, expression, statementOrBlock) 
     }
 optionalLabel:String? = IDENTIFIER COLON
     { result := IDENTIFIER }
 optionalLabel:String? =
     { result := null }
 forTarget:ForTarget = optionallyTypedIdentifier
-forTarget:ForTarget = optionallyTypedIdentifier COMMA optionallyTypedIdentifier
+    { result := new ForTarget(null, [optionallyTypedIdentifier]) }
+forTarget:ForTarget = index:optionallyTypedIdentifier COMMA 
+        loopVar:optionallyTypedIdentifier
+    { result := new ForTarget(index, [loopVar]) }
 forTarget:ForTarget = forTuple
+    { result := new ForTarget(null, forTuple) }
 forTarget:ForTarget = optionallyTypedIdentifier COMMA forTuple
+    { result := new ForTarget(optionallyTypedIdentifier, forTuple) }
 forTuple:Array<ASTTypedIdentifier> = LPAREN varDeclarations RPAREN
     { result := varDeclarations }
 
 whileLoop:ASTWhile = optionalLabel WHILE ^ expression statementOrBlock
     { 
-        result := new ASTWhile(Util.position, optionalLabel, expression, 
+        result := new ASTWhile(new Position(file, parserState.position), optionalLabel, expression, 
                 statementOrBlock)
     }
 
 doLoop:ASTDo = optionalLabel DO ^ statementOrBlock WHILE expression
     { 
-        result := new ASTWhile(Util.position, optionalLabel, expression, 
+        result := new ASTDo(new Position(file, parserState.position), optionalLabel, expression, 
                 statementOrBlock)
     }
 
 loopLoop:ASTLoop = optionalLabel LOOP ^ statementOrBlock
-    { result := new ASTLoop(Util.position, optionalLabel, statementOrBlock) }
+    { result := new ASTLoop(new Position(file, parserState.position), optionalLabel, statementOrBlock) }
 
-expressionOrAssignment:ASTStatement = expression 
-    { result := new ASTExpressionStatement(expression) }
-expressionOrAssignment:ASTStatement = left:expression assignmentOperator ^
-        right:expression
-    { result := new ASTAssignment(left, assignmentOperator, right) }
+methodCall:ASTExpression = callExpression parameters
+    { result := new ASTCallExpression(callExpression, parameters) }
+methodCall:ASTExpression = CONSTRUCTOR parameters
+    { 
+        result := new ASTCallExpression(
+                new ASTIdentifier(new Position(file, parserState.position), 
+                    "constructor"), 
+                parameters) 
+    }
+assignment:ASTStatement = expressionList assignmentOperator expression
+    { 
+        result := new ASTAssignment(expressionList, assignmentOperator, 
+                expression) 
+    }
 assignmentOperator:BinaryOperationType? = ASSIGNMENT
     { result := null }
 assignmentOperator:BinaryOperationType? = ADDEQ
@@ -578,16 +697,16 @@ assignmentOperator:BinaryOperationType? = SHIFTRIGHTEQ
     { result := BinaryOperationType.SHIFT_RIGHT }
 
 assertStatement:ASTAssert = ASSERT expression
-    { result := new ASTAssert(Util.position, expression, null) }
+    { result := new ASTAssert(new Position(file, parserState.position), expression, null) }
 assertStatement:ASTAssert = ASSERT test:expression COLON ^ msg:expression
-    { result := new ASTAssert(Util.position, test, msg) }
+    { result := new ASTAssert(new Position(file, parserState.position), test, msg) }
 
 switchStatement:ASTSwitch = SWITCH expression LBRACE switchCases RBRACE ^
-    { result := new ASTSwitch(Util.position, expression, switchCases, null) }
+    { result := new ASTSwitch(new Position(file, parserState.position), expression, switchCases, null) }
 switchStatement:ASTSwitch = SWITCH expression LBRACE switchCases defaultCase 
         RBRACE ^
     { 
-        result := new ASTSwitch(Util.position, expression, switchCases, 
+        result := new ASTSwitch(new Position(file, parserState.position), expression, switchCases, 
                 defaultCase) 
     }
 switchCases:Array<ASTSwitchCase> = switchCases switchCase
@@ -600,14 +719,14 @@ switchCases:Array<ASTSwitchCase> = switchCase
     { result := [switchCase] }
 switchCase:ASTSwitchCase = CASE ^ expressionList COLON statementOrBlock
     {
-        result := new ASTSwitchCase(Util.position, expressionList, 
+        result := new ASTSwitchCase(new Position(file, parserState.position), expressionList, 
                 statementOrBlock)
     }
-defaultCase:ASTStatement = DEFAULT COLON statement
-    { result := statement }
+defaultCase:ASTStatement = DEFAULT ^ COLON statementOrBlock
+    { result := statementOrBlock }
 
 tryStatement:ASTStatement = TRY ^ statementOrBlock catchBlocks
-    { result := new ASTTry(Util.position, statementOrBlock, catchBlocks, null) }
+    { result := new ASTTry(new Position(file, parserState.position), statementOrBlock, catchBlocks, null) }
 catchBlocks:Array<ASTCatch> = catchBlocks catchBlock
     { 
         result := []
@@ -616,21 +735,33 @@ catchBlocks:Array<ASTCatch> = catchBlocks catchBlock
     }
 catchBlocks:Array<ASTCatch> = catchBlock
     { result := [catchBlock] }
-catchBlock:Array<ASTCatch> = CATCH IDENTIFIER type:typeDeclaration
-        statement:statementOrBlock
-    { result := new ASTCatch(Util.position, IDENTIFIER, type, statement) }
+catchBlock:ASTCatch = CATCH ^ IDENTIFIER typeDeclaration statementOrBlock
+    { 
+        result := new ASTCatch(new Position(file, parserState.position), IDENTIFIER, typeDeclaration, 
+                statementOrBlock) 
+    }
 
-block:Array<ASTStatement> = LBRACE statements RBRACE
-    { result := statements }
-block:Array<ASTStatement> = LBRACE RBRACE
-    { result := [] }
-statements:Array<ASTStatement> = statements statement
+@block:ASTBlock = LBRACE statements RBRACE
+    { result := new ASTBlock(new Position(file, parserState.position), statements) }
+@block:ASTBlock = LBRACE RBRACE
+    { result := new ASTBlock(new Position(file, parserState.position), []) }
+statements:Array<ASTStatement> = statementList
+    { result := statementList }
+statements:Array<ASTStatement> = terminalStatement
+    { result := [terminalStatement] }
+statements:Array<ASTStatement> = statementList terminalStatement
     {
         result := []
-        result.addAll(statements)
+        result.addAll(statementList)
+        result.add(terminalStatement)
+    }
+statementList:Array<ASTStatement> = statementList statement
+    {
+        result := []
+        result.addAll(statementList)
         result.add(statement)
     }
-statements:Array<ASTStatement> = statement
+statementList:Array<ASTStatement> = statement
     { result := [statement] }
 
 terminalStatement:ASTStatement = returnStatement 
@@ -644,62 +775,62 @@ terminalStatement:ASTStatement = throwStatement
 terminalStatement:ASTStatement = unreachableStatement 
     { result := unreachableStatement }
 
-returnStatement:ASTReturn = 'return' WS
-    { result := new ASTReturn(Util.position, null) }
-returnStatement:ASTReturn = 'return' WS_SAMELINE expression ^
-    { result := new ASTReturn(Util.position, expression) }
+returnStatement:ASTReturn = RETURN_TEXT WS
+    { result := new ASTReturn(new Position(file, parserState.position), null) }
+returnStatement:ASTReturn = RETURN_TEXT WS_SAMELINE expression ^
+    { result := new ASTReturn(new Position(file, parserState.position), expression) }
 
-breakStatement:ASTBreak = 'break' 
-    { result := new ASTBreak(Util.position, null) }
-breakStatement:ASTBreak = 'break' WS_SAMELINE IDENTIFIER ^
-    { result := new ASTBreak(Util.position, IDENTIFIER) }
+breakStatement:ASTBreak = BREAK_TEXT WS
+    { result := new ASTBreak(new Position(file, parserState.position), null) }
+breakStatement:ASTBreak = BREAK_TEXT WS_SAMELINE IDENTIFIER ^
+    { result := new ASTBreak(new Position(file, parserState.position), IDENTIFIER) }
 
-continueStatement:ASTContinue = 'continue' 
-    { result := new ASTContinue(Util.position, null) }
-continueStatement:ASTContinue = 'continue' WS_SAMELINE IDENTIFIER ^
-    { result := new ASTContinue(Util.position, IDENTIFIER) }
+continueStatement:ASTContinue = CONTINUE_TEXT WS
+    { result := new ASTContinue(new Position(file, parserState.position), null) }
+continueStatement:ASTContinue = CONTINUE_TEXT WS_SAMELINE IDENTIFIER ^
+    { result := new ASTContinue(new Position(file, parserState.position), IDENTIFIER) }
 
 throwStatement:ASTThrow = THROW ^ expression
-    { result := new ASTThrow(Util.position, expression) }
+    { result := new ASTThrow(new Position(file, parserState.position), expression) }
 
 unreachableStatement:ASTUnreachable = UNREACHABLE
-    { result := new ASTUnreachable(Util.position) }
+    { result := new ASTUnreachable(new Position(file, parserState.position)) }
 
-type:ASTType = dottedName optionalQuestion
+@type:ASTType = dottedName optionalQuestion
     { 
-        result := new ASTClassType(Util.position, IDENTIFIER, null,
+        result := new ASTClassType(new Position(file, parserState.position), dottedName, null,
                 optionalQuestion) 
     }
-type:ASTType = dottedName genericParameters optionalQuestion
+@type:ASTType = dottedName genericParameters optionalQuestion
     { 
-        result := new ASTClassType(Util.position, IDENTIFIER,
+        result := new ASTClassType(new Position(file, parserState.position), dottedName,
                 genericParameters, optionalQuestion) 
     }
-type:ASTType = LPAREN optionalTypeList RPAREN optionalQuestion
-    { result := new ASTTupleType(Util.position, typeList, optionalQuestion) }
-type:ASTType = LPAREN optionalTypeList RPAREN YIELDS methodReturnType 
+@type:ASTType = LPAREN typeList RPAREN optionalQuestion
+    { result := new ASTTupleType(new Position(file, parserState.position), typeList, optionalQuestion) }
+@type:ASTType = LPAREN optionalTypeList RPAREN YIELDS methodReturnType 
         optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
-                true, true, false) 
+        result := new ASTMethodType(new Position(file, parserState.position), optionalTypeList, 
+                methodReturnType, true, true, false) 
     }
-type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_METHOD methodReturnType 
+@type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_METHOD methodReturnType 
         optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
-                optionalQuestion, false, false) 
+        result := new ASTMethodType(new Position(file, parserState.position), optionalTypeList, 
+                methodReturnType, optionalQuestion, false, false) 
     }
-type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_IMMUTABLE methodReturnType
+@type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_IMMUTABLE methodReturnType
         optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
-                optionalQuestion, true, true) 
+        result := new ASTMethodType(new Position(file, parserState.position), optionalTypeList, 
+                methodReturnType, optionalQuestion, true, true) 
     }
-type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_METHOD_IMMUTABLE 
+@type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_METHOD_IMMUTABLE 
         methodReturnType optionalQuestion
     { 
-        result := new ASTMethodType(Util.position, typeList, methodReturnType, 
-                optionalQuestion, false, true) 
+        result := new ASTMethodType(new Position(file, parserState.position), optionalTypeList, 
+                methodReturnType, optionalQuestion, false, true) 
     }
 genericParameters:Array<ASTType> = LT typeList GT
     { result := typeList }
@@ -724,10 +855,10 @@ methodReturnType:ASTType? = LPAREN RPAREN
 methodReturnType:ASTType? = LPAREN type RPAREN
     { result := type }
 
-expression:ASTExpression = orExpression
+@expression:ASTExpression = orExpression
     { result := orExpression }
 orExpression:ASTExpression = andExpression 
-    { result := comparisonExpression }
+    { result := andExpression }
 orExpression:ASTExpression = orExpression OR andExpression 
     { 
         result := new ASTBinaryExpression(BinaryOperationType.OR, orExpression,
@@ -737,8 +868,8 @@ andExpression:ASTExpression = comparisonExpression
     { result := comparisonExpression }
 andExpression:ASTExpression = andExpression AND comparisonExpression 
     { 
-        result := new ASTBinaryExpression(BinaryOperationType.AND, orExpression,
-                andExpression)
+        result := new ASTBinaryExpression(BinaryOperationType.AND, 
+                andExpression, comparisonExpression)
     }
 
 comparisonExpression:ASTExpression = rangeExpression
@@ -791,63 +922,63 @@ comparisonExpression:ASTExpression = comparisonExpression LTEQ rangeExpression
 rangeExpression:ASTExpression = additiveExpression
     { result := additiveExpression }
 rangeExpression:ASTExpression = DOTDOT
-    { result := new ASTRangeExpression(Util.position, null, null, null, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, null, null, false) }
 rangeExpression:ASTExpression = ELLIPSIS
-    { result := new ASTRangeExpression(Util.position, null, null, null, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, null, null, true) }
 rangeExpression:ASTExpression = l:additiveExpression DOTDOT
-    { result := new ASTRangeExpression(Util.position, l, null, null, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, null, null, false) }
 rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS
-    { result := new ASTRangeExpression(Util.position, l, null, null, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, null, null, true) }
 rangeExpression:ASTExpression = DOTDOT r:additiveExpression
-    { result := new ASTRangeExpression(Util.position, null, r, null, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, r, null, false) }
 rangeExpression:ASTExpression = ELLIPSIS r:additiveExpression
-    { result := new ASTRangeExpression(Util.position, null, r, null, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, r, null, true) }
 rangeExpression:ASTExpression = l:additiveExpression DOTDOT r:additiveExpression
-    { result := new ASTRangeExpression(Util.position, l, r, null, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, r, null, false) }
 rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS 
         r:additiveExpression
-    { result := new ASTRangeExpression(Util.position, l, r, null, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, r, null, true) }
 rangeExpression:ASTExpression = DOTDOT BY s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, null, null, s, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, null, s, false) }
 rangeExpression:ASTExpression = ELLIPSIS BY s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, null, null, s, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, null, s, true) }
 rangeExpression:ASTExpression = l:additiveExpression DOTDOT BY 
         s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, l, null, s, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, null, s, false) }
 rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS BY 
         s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, l, null, s, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, null, s, true) }
 rangeExpression:ASTExpression = DOTDOT r:additiveExpression BY 
         s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, null, r, s, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, r, s, false) }
 rangeExpression:ASTExpression = ELLIPSIS r:additiveExpression BY 
         s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, null, r, s, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), null, r, s, true) }
 rangeExpression:ASTExpression = l:additiveExpression DOTDOT r:additiveExpression
         BY s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, l, r, s, false) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, r, s, false) }
 rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS 
         r:additiveExpression BY s:additiveExpression
-    { result := new ASTRangeExpression(Util.position, l, r, s, true) }
+    { result := new ASTRangeExpression(new Position(file, parserState.position), l, r, s, true) }
 
 additiveExpression:ASTExpression = multiplicativeExpression
     { result := multiplicativeExpression }
 additiveExpression:ASTExpression = additiveExpression ADD 
         multiplicativeExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.ADD, 
+        result := new ASTBinaryExpression(BinaryOperationType.ADD, 
                 additiveExpression, multiplicativeExpression) 
     }
 additiveExpression:ASTExpression = additiveExpression SUB 
         multiplicativeExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.SUBTRACT, 
+        result := new ASTBinaryExpression(BinaryOperationType.SUBTRACT, 
                 additiveExpression, multiplicativeExpression) 
     }
 additiveExpression:ASTExpression = additiveExpression BITWISEOR
         multiplicativeExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.BITWISEOR, 
+        result := new ASTBinaryExpression(BinaryOperationType.BITWISE_OR, 
                 additiveExpression, multiplicativeExpression) 
     }
 
@@ -856,49 +987,49 @@ multiplicativeExpression:ASTExpression = unaryExpression
 multiplicativeExpression:ASTExpression = multiplicativeExpression MUL
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.MULTIPLY, 
+        result := new ASTBinaryExpression(BinaryOperationType.MULTIPLY, 
                 multiplicativeExpression, unaryExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression DIV
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.DIVIDE, 
+        result := new ASTBinaryExpression(BinaryOperationType.DIVIDE, 
                 multiplicativeExpression, unaryExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression INTDIV
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.INT_DIVIDE, 
+        result := new ASTBinaryExpression(BinaryOperationType.INT_DIVIDE, 
                 multiplicativeExpression, unaryExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression REM
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.REMAINDER, 
+        result := new ASTBinaryExpression(BinaryOperationType.REMAINDER, 
                 multiplicativeExpression, unaryExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression SHIFTLEFT
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.SHIFT_LEFT, 
+        result := new ASTBinaryExpression(BinaryOperationType.SHIFT_LEFT, 
                 multiplicativeExpression, unaryExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression SHIFTRIGHT
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.SHIFT_RIGHT, 
+        result := new ASTBinaryExpression(BinaryOperationType.SHIFT_RIGHT, 
                 multiplicativeExpression, unaryExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression BITWISEAND
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.BITWISE_AND, 
+        result := new ASTBinaryExpression(BinaryOperationType.BITWISE_AND, 
                 multiplicativeExpression, unaryExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression BITWISEXOR
         unaryExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.BITWISE_XOR, 
+        result := new ASTBinaryExpression(BinaryOperationType.BITWISE_XOR, 
                 multiplicativeExpression, unaryExpression) 
     }
 
@@ -906,17 +1037,17 @@ unaryExpression:ASTExpression = exponentExpression
     { result := exponentExpression }
 unaryExpression:ASTExpression = SUB exponentExpression
     { 
-        result := new ASTUnaryExpression(Util.position, 
+        result := new ASTUnaryExpression(new Position(file, parserState.position), 
                 UnaryOperationType.MINUS, exponentExpression) 
     }
 unaryExpression:ASTExpression = NOT exponentExpression
     { 
-        result := new ASTUnaryExpression(Util.position, UnaryOperationType.NOT,
+        result := new ASTUnaryExpression(new Position(file, parserState.position), UnaryOperationType.NOT,
                 exponentExpression) 
     }
 unaryExpression:ASTExpression = BITWISENOT exponentExpression
     { 
-        result := new ASTUnaryExpression(Util.position, 
+        result := new ASTUnaryExpression(new Position(file, parserState.position), 
                 UnaryOperationType.BITWISE_NOT, exponentExpression) 
     }
 
@@ -924,15 +1055,14 @@ exponentExpression:ASTExpression = callExpression
     { result := callExpression }
 exponentExpression:ASTExpression = callExpression POW exponentExpression
     { 
-        result := new ASTBinaryOperation(BinaryOperationType.POWER, 
+        result := new ASTBinaryExpression(BinaryOperationType.POWER, 
                 callExpression, exponentExpression)
     }
 
 callExpression:ASTExpression = term
-callExpression:ASTExpression = callExpression parameters
-    { result := new ASTCallExpression(callExpression, parameters) }
-callExpression:ASTExpression = callExpression LBRACKET expression RBRACKET
-    { result := new ASTIndex(callExpression, parameters) }
+    { result := term }
+callExpression:ASTExpression = methodCall
+    { result := methodCall }
 callExpression:ASTExpression = callExpression LBRACKET expression RBRACKET
     { result := new ASTIndex(callExpression, expression) }
 callExpression:ASTExpression = callExpression DOT IDENTIFIER
@@ -982,7 +1112,7 @@ expressionList:Array<ASTExpression> = expression
     { result := [expression] }
 
 term:ASTExpression = IDENTIFIER
-    { result := new ASTIdentifier(Util.position, IDENTIFIER) }
+    { result := new ASTIdentifier(new Position(file, parserState.position), IDENTIFIER) }
 term:ASTExpression = INTEGER
     { result := INTEGER }
 term:ASTExpression = STRING
@@ -990,43 +1120,63 @@ term:ASTExpression = STRING
 term:ASTExpression = REAL
     { result := REAL }
 term:ASTExpression = TRUE
-    { result := new ASTBitLiteral(Util.position, true) }
+    { result := new ASTBitLiteral(new Position(file, parserState.position), true) }
 term:ASTExpression = FALSE
-    { result := new ASTBitLiteral(Util.position, true) }
+    { result := new ASTBitLiteral(new Position(file, parserState.position), false) }
 term:ASTExpression = NULL
-    { result := new ASTNullLiteral(Util.position) }
+    { result := new ASTNullLiteral(new Position(file, parserState.position)) }
 term:ASTExpression = SELF
-    { result := new ASTSelf(Util.position) }
+    { result := new ASTSelf(new Position(file, parserState.position)) }
 term:ASTExpression = SUPER
-    { result := new ASTSuper(Util.position) }
+    { result := new ASTSuper(new Position(file, parserState.position)) }
 term:ASTExpression = CLASS
-    { result := new ASTDotExpression(new ASTSelf(Util.position), "$class") }
+    { result := new ASTDotExpression(new ASTSelf(new Position(file, parserState.position)), "$class") }
 term:ASTExpression = LPAREN expressionList RPAREN
     {  
         if expressionList.length = 1
             result := expressionList[0]
         else
-            result := new ASTTupleExpression(position, expressionList)
+            result := new ASTTupleExpression(new Position(file, parserState.position), expressionList)
     }
 term:ASTExpression = NEW type parameters
-    { result := new ASTNew(Util.position, type, parameters) }
+    { result := new ASTNew(new Position(file, parserState.position), type, parameters) }
 term:ASTExpression = LBRACKET expressionList RBRACKET
-    { result := new ASTArrayLiteral(Util.position, expressionList) }
+    { result := new ASTArrayLiteral(new Position(file, parserState.position), expressionList) }
 term:ASTExpression = LBRACKET RBRACKET
-    { result := new ASTArrayLiteral(Util.position, []) }
+    { result := new ASTArrayLiteral(new Position(file, parserState.position), []) }
 term:ASTExpression = lambda
     { result := lambda }
+term:ASTExpression = CLASS LPAREN type RPAREN
+    { result := new ASTClassLiteral(type) }
+term:ASTExpression = methodValue
+    { result := methodValue }
+term:ASTExpression = plugin
+    { result := plugin }
+term:ASTExpression = PRE LPAREN expression RPAREN
+    { result := new ASTPre(new Position(file, parserState.position), expression) }
+term:ASTExpression = ATRETURN
+    { result := new ASTAtReturn(new Position(file, parserState.position)) }
+
+plugin:ASTPlugin = '#' pluginChars '#' WS
+    { result := new ASTPlugin(new Position(file, parserState.position), pluginChars) }
+pluginChars:String = pluginChars char:[^#]
+    { result := pluginChars + char }
+pluginChars:String = char:[^#]
+    { result := char }
 
 lambda:ASTExpression = lambdaParameters YIELDS expression
-    { result := new ASTLambda(Util.position, lambdaParameters, expression) }
+    { 
+        result := new ASTLambdaExpression(new Position(file, parserState.position), lambdaParameters, 
+                expression) 
+    }
 lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
     { 
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
+        result := [new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER,
                 null)]
     }
 lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
     { 
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
+        result := [new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER,
                 type)]
     }
 lambdaParameters:Array<ASTTypedIdentifier> = LPAREN RPAREN
@@ -1035,70 +1185,95 @@ lambdaParameters:Array<ASTTypedIdentifier> = LPAREN untypedLambdaParameters
         RPAREN
     { result := untypedLambdaParameters }
 lambdaParameters:Array<ASTTypedIdentifier> = LPAREN typedLambdaParameters RPAREN
-    { result := untypedLambdaParameters }
+    { result := typedLambdaParameters }
 untypedLambdaParameters:Array<ASTTypedIdentifier> = untypedLambdaParameters 
         COMMA IDENTIFIER
     { 
         result := []
         result.addAll(untypedLambdaParameters)
-        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER,
+        result.add(new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER,
                 null))
     }
 untypedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
     {  
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
+        result := [new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER,
                 null)]
     }
 typedLambdaParameters:Array<ASTTypedIdentifier> = typedLambdaParameters 
         COMMA IDENTIFIER COLON type
     { 
         result := []
-        result.addAll(untypedLambdaParameters)
-        result.add(new ASTTypedIdentifier(Util.position, IDENTIFIER,
+        result.addAll(typedLambdaParameters)
+        result.add(new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER,
                 type))
     }
 typedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
     {  
-        result := [new ASTTypedIdentifier(Util.position, IDENTIFIER,
+        result := [new ASTTypedIdentifier(new Position(file, parserState.position), IDENTIFIER,
                 type)]
     }
 
+@methodValue:ASTMethodValue = METHOD formalParameters ^ optionalTypeDeclaration 
+        block
+    {
+        result := new ASTMethodValue(new Position(file, parserState.position), MethodNodeType.METHOD, 
+                formalParameters, optionalTypeDeclaration, block)
+    }
+@methodValue:ASTMethodValue = FUNCTION formalParameters ^ 
+        optionalTypeDeclaration block
+    {
+        result := new ASTMethodValue(new Position(file, parserState.position), MethodNodeType.FUNCTION, 
+                formalParameters, optionalTypeDeclaration, block)
+    }
+
+
 IDENTIFIER:String = identifierText WS
-    { result := identifierText }
-identifierText:String = identifierStart identifierChars
+    {
+        if ParserUtil.KEYWORDS.contains(identifierText)
+            return Parser.DIE
+        else
+            result := identifierText 
+    }
+identifierText:String = identifierStart identifierChars ![A-Za-z_$0-9]
     { result := identifierStart + identifierChars }
-identifierText:String = identifierStart
+identifierText:String = identifierStart ![A-Za-z_$0-9]
     { result := identifierStart }
 identifierStart:String = char:[a-zA-Z_$]
     { result := char }
-identifierChars:String = chars:identifierChars identifierChar
-    { result := chars + identifierChar }
+identifierChars:String = identifierChars identifierChar
+    { result := identifierChars + identifierChar }
 identifierChars:String = identifierChar
     { result := identifierChar }
 identifierChar:String = char:[a-zA-Z_$0-9]
-    { result := identifierChar }
+    { result := char }
 
-INTEGER:ASTIntegerLiteral = DECIMAL_CHARS WS
-    { result := new ASTIntegerLiteral(Util.position, DECIMAL_CHARS->>(UInt64)) }
-INTEGER:ASTIntegerLiteral = '0x' HEX_CHARS WS
-    { result := new ASTIntegerLiteral(Util.position, Util.parseInt(HEX_CHARS, 16)) }
-INTEGER:ASTIntegerLiteral = '0b' BINARY_CHARS WS
+INTEGER:ASTIntegerLiteral = DECIMAL_TEXT WS
+    { result := new ASTIntegerLiteral(new Position(file, parserState.position), DECIMAL_TEXT->>(UInt64)) }
+INTEGER:ASTIntegerLiteral = '0x' HEX_TEXT WS
+    { result := new ASTIntegerLiteral(new Position(file, parserState.position), ParserUtil.parseInt(HEX_TEXT, 16)) }
+INTEGER:ASTIntegerLiteral = '0b' BINARY_TEXT WS
     { 
-        result := new ASTIntegerLiteral(Util.position, Util.parseInt(BINARY_CHARS, 
+        result := new ASTIntegerLiteral(new Position(file, parserState.position), ParserUtil.parseInt(BINARY_TEXT, 
                 2)) 
     }
+DECIMAL_TEXT:String = DECIMAL_CHARS ![A-Za-z_$0-9]
+    { result := DECIMAL_CHARS }
 DECIMAL_CHARS:String = DECIMAL_CHARS DECIMAL_CHAR
     { result := DECIMAL_CHARS + DECIMAL_CHAR }
 DECIMAL_CHARS:String = DECIMAL_CHAR
     { result := DECIMAL_CHAR }
 DECIMAL_CHAR:String = digit:[0-9]
     { result := digit }
+HEX_TEXT:String = HEX_CHARS ![A-Za-z_$0-9]
+    { result := HEX_CHARS }
 HEX_CHARS:String = HEX_CHARS HEX_CHAR
     { result := HEX_CHARS + HEX_CHAR }
 HEX_CHARS:String = HEX_CHAR
     { result := HEX_CHAR }
 HEX_CHAR:String = digit:[0-9A-Fa-f]
     { result := digit }
+BINARY_TEXT:String = BINARY_CHARS ![A-Za-z_$0-9]
+    { result := BINARY_CHARS }
 BINARY_CHARS:String = BINARY_CHARS BINARY_CHAR
     { result := BINARY_CHARS + BINARY_CHAR }
 BINARY_CHARS:String = BINARY_CHAR
@@ -1106,39 +1281,39 @@ BINARY_CHARS:String = BINARY_CHAR
 BINARY_CHAR:String = digit:[01]
     { result := digit }
 
-REAL:ASTRealLiteral = '.' DECIMAL_CHARS WS
+REAL:ASTRealLiteral = '.' DECIMAL_TEXT WS
     { 
-        result := new ASTRealLiteral(Util.position, ("." + 
-            DECIMAL_CHARS)->>(Real64))
+        result := new ASTRealLiteral(new Position(file, parserState.position), ("." + 
+            DECIMAL_TEXT)->>(Real64))
     }
 REAL:ASTRealLiteral = '.' DECIMAL_CHARS EXPONENT WS
     { 
-        result := new ASTRealLiteral(Util.position, ("." + 
+        result := new ASTRealLiteral(new Position(file, parserState.position), ("." + 
             DECIMAL_CHARS + EXPONENT)->>(Real64))
     }
-REAL:ASTRealLiteral = d1:DECIMAL_CHARS '.' d2:DECIMAL_CHARS WS
-    { result := new ASTRealLiteral(Util.position, (d1 + "." + d2)->>(Real64)) }
+REAL:ASTRealLiteral = d1:DECIMAL_CHARS '.' d2:DECIMAL_TEXT WS
+    { result := new ASTRealLiteral(new Position(file, parserState.position), (d1 + "." + d2)->>(Real64)) }
 REAL:ASTRealLiteral = DECIMAL_CHARS EXPONENT WS
     { 
-        result := new ASTRealLiteral(Util.position, (DECIMAL_CHARS + 
+        result := new ASTRealLiteral(new Position(file, parserState.position), (DECIMAL_CHARS + 
                 EXPONENT)->>(Real64)) 
     }
 REAL:ASTRealLiteral = d1:DECIMAL_CHARS '.' d2:DECIMAL_CHARS EXPONENT WS
     { 
-        result := new ASTRealLiteral(Util.position, (d1 + "." + d2 + 
+        result := new ASTRealLiteral(new Position(file, parserState.position), (d1 + "." + d2 + 
                 EXPONENT)->>(Real64))
     }
-EXPONENT:String = [eE] DECIMAL_CHARS
-    { result := "e" + DECIMAL_CHARS }
-EXPONENT:String = [eE] sign:[+-] DECIMAL_CHARS
-    { result := "e" + sign + DECIMAL_CHARS }
+EXPONENT:String = [eE] DECIMAL_TEXT
+    { result := "e" + DECIMAL_TEXT }
+EXPONENT:String = [eE] sign:[+-] DECIMAL_TEXT
+    { result := "e" + sign + DECIMAL_TEXT }
 
 STRING:ASTStringLiteral = STRING_SINGLE WS
     { result := STRING_SINGLE }
 STRING:ASTStringLiteral = STRING_DOUBLE WS
     { result := STRING_DOUBLE }
 STRING_SINGLE:ASTStringLiteral = ['] STRING_CHARS_SINGLE [']
-    { result := new ASTStringLiteral(Util.position, STRING_CHARS_SINGLE) }
+    { result := new ASTStringLiteral(new Position(file, parserState.position), STRING_CHARS_SINGLE) }
 STRING_CHARS_SINGLE:String = STRING_CHARS_SINGLE STRING_CHAR_SINGLE
     { result := STRING_CHARS_SINGLE + STRING_CHAR_SINGLE }
 STRING_CHARS_SINGLE:String = 
@@ -1148,7 +1323,7 @@ STRING_CHAR_SINGLE:String = char:[^'\\]
 STRING_CHAR_SINGLE:String = ESCAPE
     { result := ESCAPE }
 STRING_DOUBLE:ASTStringLiteral = ["] STRING_CHARS_DOUBLE ["]
-    { result := new ASTStringLiteral(Util.position, STRING_CHARS_DOUBLE) }
+    { result := new ASTStringLiteral(new Position(file, parserState.position), STRING_CHARS_DOUBLE) }
 STRING_CHARS_DOUBLE:String = STRING_CHARS_DOUBLE STRING_CHAR_DOUBLE
     { result := STRING_CHARS_DOUBLE + STRING_CHAR_DOUBLE }
 STRING_CHARS_DOUBLE:String = 
@@ -1157,76 +1332,170 @@ STRING_CHAR_DOUBLE:String = char:[^"\\]
     { result := char }
 STRING_CHAR_DOUBLE:String = ESCAPE
     { result := ESCAPE }
-ESCAPE:String = '\\' char:[nrt'"\]\\]
-    { result := Util.unescape('\\' + char) }
-ESCAPE:String = '\\{' expression '}'
-    { result := '\\' + expression }
+ESCAPE:String = '\\' char:[nrt'":\\]
+    { result := '\\' + char }
+ESCAPE:String = '\\{' formatExpression '}'
+    { result := "\\{" + formatExpression + "}" }
+@formatExpression:ASTFormatExpression = expression optionalField 
+        optionalFormatString
+    { 
+        if optionalField != null {
+            result := new ASTFormatExpression(expression, optionalFormatString,
+                    optionalField.fillChar, optionalField.alignment, 
+                    optionalField.width)
+        }
+        else {
+            result := new ASTFormatExpression(expression, optionalFormatString,
+                    null, null, null)
+        }
+    }
+optionalField:FormatField? = COMMA optionalFillChar alignment DECIMAL_CHARS
+    { 
+        result := new FormatField(optionalFillChar, alignment, 
+                DECIMAL_CHARS->>(Int)) 
+    }
+optionalField:FormatField? =
+    { result := null }
+optionalFillChar:Char = char:[^:\n\r\\]
+    { result := char[0] }
+optionalFillChar:Char = ESCAPE
+    { result := ParserUtil.unescape(ESCAPE)[0] }
+optionalFillChar:Char =
+    { result := " " }
+alignment:Alignment = '<'
+    { result := Alignment.LEFT }
+alignment:Alignment = '^'
+    { result := Alignment.CENTER }
+alignment:Alignment = '>'
+    { result := Alignment.RIGHT }
+formatString:String = formatString char:[^\\}]
+    { result := formatString + char }
+formatString:String = char:[^\\}]
+    { result := char }
+optionalFormatString:String? = COLON formatString
+    { result := formatString }
+optionalFormatString:String? =
+    { result := null }
 
-PACKAGE = 'package' WS
-CLASS = 'class' WS
-INTERFACE = 'interface' WS
-ENUM = 'enum' WS
-USES = 'uses' WS
-AS = 'as' WS
-METHOD = 'method' WS
-FUNCTION = 'function' WS
-CONSTRUCTOR = 'constructor' WS
-VAR:VariableType = 'var' WS
+PACKAGE_TEXT = 'package' ![A-Za-z_$0-9]
+PACKAGE = PACKAGE_TEXT WS
+CLASS_TEXT = 'class' ![A-Za-z_$0-9]
+CLASS = CLASS_TEXT WS
+INTERFACE_TEXT = 'interface' ![A-Za-z_$0-9]
+INTERFACE = INTERFACE_TEXT WS
+ENUM_TEXT = 'enum' ![A-Za-z_$0-9]
+ENUM = ENUM_TEXT WS
+USES_TEXT = 'uses' ![A-Za-z_$0-9]
+USES = USES_TEXT WS
+AS_TEXT = 'as' ![A-Za-z_$0-9]
+AS = AS_TEXT WS
+METHOD_TEXT = 'method' ![A-Za-z_$0-9]
+METHOD = METHOD_TEXT WS
+FUNCTION_TEXT = 'function' ![A-Za-z_$0-9]
+FUNCTION = FUNCTION_TEXT WS
+CONSTRUCTOR_TEXT = 'constructor' ![A-Za-z_$0-9]
+CONSTRUCTOR = CONSTRUCTOR_TEXT WS
+VAR_TEXT = 'var' ![A-Za-z_$0-9]
+VAR:VariableType = VAR_TEXT WS
     { result := VariableType.VAR }
-DEF:VariableType = 'def' WS
+DEF_TEXT = 'def' ![A-Za-z_$0-9]
+DEF:VariableType = DEF_TEXT WS
     { result := VariableType.DEF }
+CONSTANT_TET = 'constant' ![A-Za-z_$0-9]
 CONSTANT:VariableType = 'constant' WS
     { result := VariableType.CONSTANT }
-PROPERTY:VariableType = 'property' WS 
+PROPERTY_TEXT = 'property' ![A-Za-z_$0-9]
+PROPERTY:VariableType = PROPERTY_TEXT WS 
     { result := VariableType.PROPERTY }
-PROTECTED = '@protected' WS
-PRIVATE = '@private' WS
-ATCLASS = '@class' WS
-THREAD = '@thread' WS
-ABSTRACT = '@abstract' WS
-EXTERNAL = '@external' WS
-OVERRIDE = '@override' WS
-READONLY = '@readonly' WS
-LIMITED = '@limited' WS
-ATSELF = '@self' WS
-SAFERETURN = '@safeReturn' WS
-UNSAFEFUNCTION = '@unsafeFunction' WS
-FINAL = '@final' WS
+PROTECTED_TEXT = '@protected' ![A-Za-z_$0-9]
+PROTECTED = PROTECTED_TEXT WS
+PRIVATE_TEXT = '@private' ![A-Za-z_$0-9]
+PRIVATE = PRIVATE_TEXT WS
+ATCLASS_TEXT = '@class' ![A-Za-z_$0-9]
+ATCLASS = ATCLASS_TEXT WS
+THREAD_TEXT = '@thread' ![A-Za-z_$0-9]
+THREAD = THREAD_TEXT WS
+ABSTRACT_TEXT = '@abstract' ![A-Za-z_$0-9]
+ABSTRACT = ABSTRACT_TEXT WS
+EXTERNAL_TEXT = '@external' ![A-Za-z_$0-9]
+EXTERNAL = EXTERNAL_TEXT WS
+OVERRIDE_TEXT = '@override' ![A-Za-z_$0-9]
+OVERRIDE = OVERRIDE_TEXT WS
+READONLY_TEXT = '@readonly' ![A-Za-z_$0-9]
+READONLY = READONLY_TEXT WS
+LIMITED_TEXT = '@limited' ![A-Za-z_$0-9]
+LIMITED = LIMITED_TEXT WS
+ATSELF_TEXT = '@self' ![A-Za-z_$0-9]
+ATSELF = ATSELF_TEXT WS
+SAFERETURN_TEXT = '@safeReturn' ![A-Za-z_$0-9]
+SAFERETURN = SAFERETURN_TEXT WS
+UNSAFEFUNCTION_TEXT = '@unsafeFunction' ![A-Za-z_$0-9]
+UNSAFEFUNCTION = UNSAFEFUNCTION_TEXT WS
+FINAL_TEXT = '@final' ![A-Za-z_$0-9]
+FINAL = FINAL_TEXT WS
 WRAPPER_METHOD = '@$wrapperMethod' WS
-MATH = '@math' WS
-OVERFLOW = 'overflow' WS
-INVARIANT = '@invariant' WS
+MATH_TEXT = '@math' ![A-Za-z_$0-9]
+MATH = MATH_TEXT WS
+OVERFLOW_TEXT = 'overflow' ![A-Za-z_$0-9]
+OVERFLOW = OVERFLOW_TEXT WS
+INVARIANT_TEXT = '@invariant' ![A-Za-z_$0-9]
+INVARIANT = INVARIANT_TEXT WS
 INSTANCE = '@$instance' WS
-PRE = '@pre' WS
-POST = '@post' WS
+PRE_TEXT = '@pre' ![A-Za-z_$0-9]
+PRE = PRE_TEXT WS
+POST_TEXT = '@post' ![A-Za-z_$0-9]
+POST = POST_TEXT WS
 PRE_OR = '@preOr' WS
 POST_AND = '@postAnd' WS
-ATRETURN = '@return' WS
-TRUE = 'true' WS
-FALSE = 'false' WS
-NULL = 'null' WS
-SELF = 'self' WS
-SUPER = 'super' WS
-NEW = 'new' WS
-BY = 'by' WS
-FOR = 'for' WS
-IN = 'in' WS
-WHILE = 'while' WS
-DO = 'do' WS
-LOOP = 'loop' WS
-IF = 'if' WS
-ELSE = 'else' WS
-SWITCH = 'switch' WS
-CASE = 'case' WS
-DEFAULT = 'default' WS
-ASSERT = 'assert' WS
-RETURN = 'return' WS
-BREAK = 'break' WS
-CONTINUE = 'continue' WS
-UNREACHABLE = 'unreachable' WS
-TRY = 'try' WS
-CATCH = 'catch' WS
-THROW = 'throw' WS
+ATRETURN_TEXT = '@return' ![A-Za-z_$0-9]
+ATRETURN = ATRETURN_TEXT WS
+TRUE_TEXT = 'true' ![A-Za-z_$0-9]
+TRUE = TRUE_TEXT WS
+FALSE_TEXT = 'false' ![A-Za-z_$0-9]
+FALSE = FALSE_TEXT WS
+NULL_TEXT = 'null' ![A-Za-z_$0-9]
+NULL = NULL_TEXT WS
+SELF_TEXT = 'self' ![A-Za-z_$0-9]
+SELF = SELF_TEXT WS
+SUPER_TEXT = 'super' ![A-Za-z_$0-9]
+SUPER = SUPER_TEXT WS
+NEW_TEXT = 'new' ![A-Za-z_$0-9]
+NEW = NEW_TEXT WS
+BY_TEXT = 'by' ![A-Za-z_$0-9]
+BY = BY_TEXT WS
+FOR_TEXT = 'for' ![A-Za-z_$0-9]
+FOR = FOR_TEXT WS
+IN_TEXT = 'in' ![A-Za-z_$0-9]
+IN = IN_TEXT WS
+WHILE_TEXT = 'while' ![A-Za-z_$0-9]
+WHILE = WHILE_TEXT WS
+DO_TEXT = 'do' ![A-Za-z_$0-9]
+DO = DO_TEXT WS
+LOOP_TEXT = 'loop' ![A-Za-z_$0-9]
+LOOP = LOOP_TEXT WS
+IF_TEXT = 'if' ![A-Za-z_$0-9]
+IF = IF_TEXT WS
+ELSE_TEXT = 'else' ![A-Za-z_$0-9]
+ELSE = ELSE_TEXT WS
+SWITCH_TEXT = 'switch' ![A-Za-z_$0-9]
+SWITCH = SWITCH_TEXT WS
+CASE_TEXT = 'case' ![A-Za-z_$0-9]
+CASE = CASE_TEXT WS
+DEFAULT_TEXT = 'default' ![A-Za-z_$0-9]
+DEFAULT = DEFAULT_TEXT WS
+RETURN_TEXT = 'return' ![A-Za-z_$0-9]
+CONTINUE_TEXT = 'continue' ![A-Za-z_$0-9]
+BREAK_TEXT = 'break' ![A-Za-z_$0-9]
+ASSERT_TEXT = 'assert' ![A-Za-z_$0-9]
+ASSERT = ASSERT_TEXT WS
+UNREACHABLE_TEXT = 'unreachable' ![A-Za-z_$0-9]
+UNREACHABLE = UNREACHABLE_TEXT WS
+TRY_TEXT = 'try' ![A-Za-z_$0-9]
+TRY = TRY_TEXT WS
+CATCH_TEXT = 'catch' ![A-Za-z_$0-9]
+CATCH = CATCH_TEXT WS
+THROW_TEXT = 'throw' ![A-Za-z_$0-9]
+THROW = THROW_TEXT WS
 COLON = ':' WS
 LBRACKET = '[' WS
 RBRACKET = ']' WS
@@ -1259,7 +1528,6 @@ IDENTITY = '==' WS
 NIDENTITY = '!==' WS
 NOT = '!' WS
 BITWISENOT = '!!' WS
-UNARY_MINUS = '-' WS
 ASSIGNMENT = ':=' WS
 ADDEQ = '+=' WS 
 SUBEQ = '-=' WS
@@ -1301,9 +1569,10 @@ WS_SAMELINE_CHAR = [ \t]
 WS_SAMELINE_CHAR = SINGLE_LINE_BLOCK_COMMENT
 COMMENT = LINE_COMMENT
 COMMENT = BLOCK_COMMENT
-LINE_COMMENT = '--' LINE_COMMENT_CHARS
+LINE_COMMENT = '--' LINE_COMMENT_CHARS [\n]
 LINE_COMMENT_CHARS = LINE_COMMENT_CHARS [^\n]
 LINE_COMMENT_CHARS =
+TRAILING_LINE_COMMENT = '--' LINE_COMMENT_CHARS
 BLOCK_COMMENT = '-*' BLOCK_COMMENT_CHARS '*-'
 BLOCK_COMMENT_CHARS = BLOCK_COMMENT_CHARS BLOCK_COMMENT_CHAR
 BLOCK_COMMENT_CHARS =

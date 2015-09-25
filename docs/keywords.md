@@ -43,30 +43,3 @@ reserves the following keywords:
 * finally
 * throw
 * super
-* overflow
-
-Additionally, several currently-unused words are reserved for possible future 
-use:
-
-* go
-* to
-* on
-* at
-* over
-* annotation
-* operator
-* use
-* using
-* with
-* repeat
-* concurrent
-* parallel
-* serial
-* from
-* import
-* lazy
-* extend 
-
-Note that there are no concrete plans surrounding any of these possible future
-keywords; it just seemed like a good idea to have a few words set aside in case
-they prove useful at some point.

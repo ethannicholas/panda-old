@@ -144,6 +144,8 @@ class ParserGenerator {
 
 	def states := new HashSet<State>()
 
+	def startStates := new HashMap<Production, Int>()
+
 	def syntheticCount := 0
 
 	def actions := new Array<List<Action?>>()
@@ -152,19 +154,39 @@ class ParserGenerator {
 
 	def firsts := new HashMap<String, HashSet<Char?>>()
 
-	def follows := new HashMap<String, HashSet<Char?>>()
+	def follows := new HashMap<String, HashSet<Char>>()
 
 	def validating:Bit
+
+	var updated := false
+
+	def followExcludes := new HashMap<String, HashSet<Char>>()
 
 	constructor(grammar:Grammar, validating:Bit) {
 		self.grammar := grammar
 		self.validating := validating
 
 		self.productions := new Array<Production>(grammar.productions)
+		for p in productions {
+			if p.exclusions != null {
+-*				assert followExcludes[p.name] = null | 
+						followExcludes[p.name] = p.exclusions.chars : 
+						"conflicting exclusions on \{p.name}"*-
+				followExcludes[p.name] := p.exclusions.chars
+			}
+		}
+		def alpha := new HashSet<Char>()
+		alpha.addAll("A" ... "Z")
+		alpha.addAll("a" ... "z")
+		alpha.addAll("0" ... "9")
+		alpha.add("_")
+		alpha.add("$")
+		followExcludes["identifierText"] := alpha
+
 		if validating {
 			for i, p in productions {
 				productions[i] := new Production(p.name, "String", p.nodes, 
-						"result := '<success>'")
+						null, "result := '<success>'")
 			}
 		}
 	}
@@ -175,12 +197,14 @@ class ParserGenerator {
 			startSize := fragments.length
 			def newFragments := new HashSet<StateFragment>()
 			for f in fragments {
-				def node := f.production.nodes[f.position]
-				if node-?>(IdentifierNode) {
-					def name := node->(IdentifierNode).id
-					for p in productions {
-						if p.name = name
-							newFragments.add(new StateFragment(p, 0))
+				if f.position < f.production.nodes.length {
+					def node := f.production.nodes[f.position]
+					if node-?>(IdentifierNode) {
+						def name := node->(IdentifierNode).id
+						for p in productions {
+							if p.name = name
+								newFragments.add(new StateFragment(p, 0))
+						}
 					}
 				}
 			}
@@ -204,63 +228,58 @@ class ParserGenerator {
 	}
 
 	@pre(!evaluating.contains(p))
-	method computeFirst(p:Production, 
-			evaluating:HashSet<Production>, 
-			result:HashSet<Char?>) {
-		evaluating.add(p)
+	method computeFirst(p:Production):HashSet<Char?> {
+		var result := firsts[p.name]
+		if result = null {
+			result := new HashSet<Char?>()
+			firsts[p.name] := result
+		}
 		for i, node in p.nodes {
 			if node-?>(CutNode)
 				continue
-			result.remove(null)
 			if node-?>(IdentifierNode) {
-				computeFirst(node, evaluating, result)
-				if !result.contains(null)
-					return
+				def chars := first(node)
+				def nullable := chars.contains(null)
+				for c in chars {
+					if c != null & !result.contains(c) {
+						result.add(c)
+						updated := true
+					}
+				}
+				if !nullable
+					return result
 			}
 			else {
-				computeFirst(node, evaluating, result)
+				def chars := first(node)
+				assert !chars.contains(null)
+				for c in chars {
+					if !result.contains(c) {
+						result.add(c)
+						updated := true
+					}
+				}
+				return result
 			}
 		}
-		result.add(null)
-	}
-
-	function contains(p:Production, name:String):Bit {
-		for n in p.nodes {
-			if n-?>(IdentifierNode) & n->(IdentifierNode).id = name
-				return true
+		if !result.contains(null) {
+			result.add(null)
+			updated := true
 		}
-		return false
+		return result
 	}
 
-	method computeFirst(name:String, evaluating:HashSet<Production>,
-			result:HashSet<Char?>) {
+	method computeFirst(name:String):HashSet<Char?> {
 		for p in productions {
-			if p.name = name & !evaluating.contains(p) & contains(p, name)
-				computeFirst(p, evaluating, result)
+			if p.name = name
+				computeFirst(p)
 		}
-		for p in productions {
-			if p.name = name & !evaluating.contains(p) & !contains(p, name)
-				computeFirst(p, evaluating, result)
-		}
+		def result := firsts[name]
+		assert result != null : "no firsts for \{name}"
+		return result
 	}
 
-	function foo(s:HashSet<Char?>):String {
-		def result := new MutableString()
-		result.append("[")
-		for i, c in s {
-			if i > 0
-				result.append(", ")
-			if c = null
-				result.append("null")
-			else
-				result.append(c)
-		}
-		result.append("]")
-		return result->>(String)
-	}
-
-	method computeFirst(node:Node, evaluating:HashSet<Production>, 
-			result:HashSet<Char?>) {
+	method first(node:Node):HashSet<Char?> {
+		def result := new HashSet<Char?>()
 		if node-?>(CharNode)
 			result.add(node->(CharNode).char)
 		else if node-?>(CharClassNode) {
@@ -268,74 +287,68 @@ class ParserGenerator {
 				result.add(c)
 		}
 		else if node-?>(IdentifierNode)
-			computeFirst(node->(IdentifierNode).id, evaluating, result)
+			return first(node->(IdentifierNode).id)
 		else
-			assert false : "unsupported node \{node}:\{node.class.name}"
-	}
-
-	method first(node:Node):HashSet<Char?> {
-		def result := new HashSet<Char?>()
-		computeFirst(node, new HashSet<Production>(), result)
+			throw new Error("unsupported node \{node}:\{node.class.name}")
 		return result
 	}
 
 	method first(name:String):HashSet<Char?> {
 		var result := firsts[name]
-		if result = null {
-			result := new HashSet<Char?>()
-			computeFirst(name, new HashSet<Production>(), result)
-			firsts[name] := result
-		}
+		if result = null
+			result := computeFirst(name)
 		return result
 	}
 
-	function follow(p:Production, pos:Int, 
-			evaluating:HashSet<String>):HashSet<Char?> {
-		def result := new HashSet<Char?>()
+	method addFollows(name:String, newFollows:HashSet<Char>) {
+		var result := follows[name]
+		if result = null {
+			result := new HashSet<Char>()
+			follows[name] := result
+		}
+		var excludes := followExcludes[name]
+		if excludes = null
+			excludes := new HashSet<Char>()
+		for c in newFollows {
+			if !result.contains(c) & !excludes.contains(c) {
+				result.add(c)
+				updated := true
+			}
+		}
+	}
+
+	method computeFollow(name:String, p:Production, pos:Int) {
 		for i, node in p.nodes[pos + 1..] {
 			if node-?>(CutNode)
 				continue
 			def next := first(node)
 			def nullable := next.contains(null)
-			next.remove(null)
-			result.addAll(next)
-			if !nullable
-				return result
-		}
-		if !evaluating.contains(p.name)
-			result.addAll(follow(p.name, evaluating))
-		return result
-	}
-
-	method follow(name:String):HashSet<Char?> {
-		var result := follows[name]
-		if result = null {
-			result := follow(name, new HashSet<String>())
-			if name = "identifierText" {
-				-- ugly, ugly hack. Make sure identifiers cannot be followed by
-				-- identifier characters.
-				for c in "A" ... "Z"
-					result.remove(c)
-				for c in "a" ... "z"
-					result.remove(c)
-				for c in "0" ... "9"
-					result.remove(c)
-				result.remove("_")
-				result.remove("$")
+			def chars := new HashSet<Char>()
+			for c in next {
+				if c != null
+					chars.add(c)
 			}
-			follows[name] := result
+			addFollows(name, chars)
+			if !nullable
+				return
 		}
-		return result
+		addFollows(name, follow(p.name))
+		return
 	}
 
-	function follow(name:String, evaluating:HashSet<String>):HashSet<Char?> {
-		evaluating.add(name)
-		def result := new HashSet<Char?>()
+	method computeFollow(name:String) {
 		for p in productions {
 			for i, n in p.nodes {
 				if n-?>(IdentifierNode) & n->(IdentifierNode).id = name
-					result.addAll(follow(p, i, evaluating))
+					computeFollow(name, p, i)
 			}
+		}
+	}
+
+	method follow(name:String):HashSet<Char> {
+		var result := follows[name]
+		if result = null {
+			result := new HashSet<Char>()
 		}
 		return result
 	}
@@ -357,8 +370,6 @@ class ParserGenerator {
 				for i, p in productions {
 					if p = f.production {
 						def follows := follow(p.name)
-						assert p.name = "@start" | follows.length > 0 : 
-								"no follows for \{p.name}"
 						for c in follows {
 							setAction(start, c, new Action(ActionType.REDUCE, 
 									i))
@@ -397,6 +408,8 @@ class ParserGenerator {
 			else if node-?>(CutNode) {
 				for c in START_CHAR ... END_CHAR
 					setAction(state.id, c, new Action(ActionType.CUT, target))
+				setAction(state.id, Parser.EOF, new Action(ActionType.CUT, 
+						target))
 			}
 			else
 				unreachable
@@ -415,18 +428,61 @@ class ParserGenerator {
 			}
 		}
 		states.add(state)
-		actions.add(new Array<Action?>(END_CHAR->>(Int), null))
+		actions.add(new Array<Action?>(END_CHAR->>(Int) + 1, null))
 		gotos.add(new Array<Int?>())
 		computeTransitions(state, states)
 		return state.id
 	}
 
+	function printable(chars:CollectionView<Char?>):String {
+		def result := new MutableString("[")
+		for i, c in chars {
+			if i > 0
+				result.append(", ")
+			if c = null
+				result.append("<null>")
+			else if c->(Char)->>(Int) >= 33 & c->(Char)->>(Int) <= 126
+				result.append(c)
+			else
+				result.append("(" + c->(Char)->>(Int) + ")")
+		}
+		return result + "]"
+	}
+
+	function printable(chars:CollectionView<Char>):String {
+		def result := new MutableString("[")
+		for i, c in chars {
+			if i > 0
+				result.append(", ")
+			if c->>(Int) >= 33 & c->>(Int) <= 126
+				result.append(c)
+			else
+				result.append("(" + c->>(Int) + ")")
+		}
+		return result + "]"
+	}
+
 	method createParseTable() {
 		def states := new HashSet<State>()
-		def start := new Production("@start", "Object",
-				[new IdentifierNode(null, "start"), new EOFNode()],
-				"result := start")
-		productions.add(start)
+		def startProductions := new HashSet<Production>()
+		for p in productions {
+			if p.isStart {
+				def start := new Production(p.name + "_START", p.type,
+						[new IdentifierNode(null, p.name), new EOFNode()],
+						null, "result := " + p.name)
+				productions.add(start)
+				startProductions.add(start)
+			}
+		}
+
+		do {
+			updated := false
+			for p in productions {
+				computeFirst(p)
+				computeFollow(p.name)
+			}
+		}
+		while updated
 		def names := new Array<String>()
 		for p in productions {
 			var nameFound := false
@@ -443,24 +499,16 @@ class ParserGenerator {
 			}
 			productionCounts.add(p.nodes.length)
 		}
-		for p in productions {
-			if p.name = "start" {
-				def fragments := new HashSet<StateFragment>()
-				fragments.add(new StateFragment(p, 0))
-				addState(fragments, states)
-			}
+		for p in startProductions {
+			def fragments := new HashSet<StateFragment>()
+			fragments.add(new StateFragment(p, 0))
+			startStates[p] := addState(fragments, states)
 		}
-		def startId := states.length
-		def fragments := new HashSet<StateFragment>()
-		fragments.add(new StateFragment(start, 0))
-		addState(fragments, states)
+		-*
 		for i, p in productions {
 			Console.writeLine("production " + i + ": " + p)
-			Console.writeLine("    follows: \{follow(p.name)}")
-			def f := first(p.name)
-			def nullable := f.contains(null)
-			f.remove(null)
-			Console.writeLine("    first: \{f} (nullable: \{nullable})")
+			Console.writeLine("    follows: \{printable(follow(p.name))}")
+			Console.writeLine("    first: \{printable(first(p.name))}")
 		}
 		for s in states
 			Console.writeLine(s)
@@ -468,6 +516,7 @@ class ParserGenerator {
 			Console.writeLine("actions \{i}: \{a}")
 		for i, g in gotos
 			Console.writeLine("gotos \{i}: \{g}")
+		*-
 	}
 
 	method writeActions(out:OutputStream) {
@@ -484,7 +533,7 @@ class ParserGenerator {
 		out.writeLine("           ]")
 		out.writeLine("    }")
 		for i, row in actions {
-			while row[row.length - 1] = null
+			while row.length > 0 & row[row.length - 1] = null
 				row.removeIndex(row.length - 1)
 			out.writeLine("    @class")
 			out.writeLine("    function createActions\{i}():ImmutableArray<Action?> {")
@@ -527,7 +576,7 @@ class ParserGenerator {
 		out.writeLine("           ]")
 		out.writeLine("    }")
 		for i, row in gotos {
-			while row[row.length - 1] = null
+			while row.length > 0 & row[row.length - 1] = null
 				row.removeIndex(row.length - 1)
 			out.writeLine("    @class")
 			out.writeLine("    function createGotos\{i}():ImmutableArray<Int?> {")
@@ -553,22 +602,48 @@ class ParserGenerator {
 		out.writeLine("    }")
 	}
 
+	method writeStarts(out:OutputStream) {
+		for (p, state) in startStates {
+			assert p.name.endsWith("_START")
+			def name := p.name[0 .. p.name.length - "_START".length]
+			var type := p.type
+			if !type.endsWith("?")
+				type += "?"
+			out.writeLine("function \{name}(file:File, text:String):(\{type}," +
+					" ListView<ParseError>) {")
+			out.writeLine("    def parser := new Parser(productionIds, " +
+					"actions, gotos, self)")
+			out.writeLine("    def result, errors := parser.parse(file, text, " +
+					state + ")")
+			out.writeLine("	   return (result->(\{type}), errors)")
+			out.writeLine("}")
+		}
+	}
+
 	function getType(node:Node):String? {
 		if node-?>(CharNode) | node-?>(CharClassNode)
 			return "String"
 		else if node-?>(IdentifierNode) {
 			def name := node->(IdentifierNode).id
+			var type:String? := null
+			var found := false
 			for p in productions {
-				if p.name = name
-					return p.type
+				if p.name = name {
+					found := true
+					if type = null
+						type := p.type
+					else
+						assert type = p.type : "inconsistent types for \{name}"
+				}
 			}
-			assert false : "no production for \{name}"
+			assert found : "no production for \{name}"
+			return type
 		}
-		assert false : "getting type of \{node.class}"
+		throw new Error("getting type of \{node.class}")
 	}
 
 	method writeReductions(out:OutputStream) {
-		out.writeLine("    method reduce(production:Int, parserState:ParserState):Object {")
+		out.writeLine("    method reduce(production:Int, file:File, parserState:ParserState):Object {")
 		-- FIXME need to change back to using a switch instead of these ifs,
 		-- but the current hacked way switch is implemented results in 
 		-- too-deeply-nested code that crashes javac
@@ -631,6 +706,7 @@ class ParserGenerator {
 				out.writeLine("return result")
 			}
 			else {
+				assert p.type = null : "expected code for production \{p.name}"
 				out.writeLine("for i in 0 .. \{p.nodes.length} parserState.state := parserState.state.next")
 				out.writeLine("return '<no output>'")
 			}
@@ -640,8 +716,12 @@ class ParserGenerator {
 	}
 
 	method writeParser(name:String, out:OutputStream) {
-		if grammar.code != null & !validating
-			out.writeLine(grammar.code[1 .. grammar.code.length - 1])
+		if !validating {
+			if grammar.code != null 
+				out.writeLine(grammar.code[1 .. grammar.code.length - 1])
+		}
+		else
+			out.writeLine("uses org.pandalanguage.pandac.parser.*")
 		out.writeLine("class \{name} : Immutable (Reducer) {")
 		out.writeLine("    -- I would love to just be able to include the parse tables as inline")
 		out.writeLine("    -- array literals, but Java complains about too much code in the init")
@@ -650,11 +730,7 @@ class ParserGenerator {
 		writeActions(out)
 		writeGotos(out)
 		writeReductions(out)
-		out.writeLine("    @class")
-		out.writeLine("    method createParser(text:String):Parser {")
-		out.writeLine("        return new Parser(productionIds, " +
-				"actions, gotos, new \{name}(), text)")
-		out.writeLine("    }")
+		writeStarts(out)
 		out.writeLine("}")
 	}
 
@@ -666,12 +742,13 @@ class ParserGenerator {
 			validating := true
 			index += 1
 		}
-		def text := new File(args[index]).readAsString()
+		def path := new File(args[index])
+		def text := path.readAsString()
 		index += 1
-        def parser := GrammarParser.createParser(text)
-        def result := parser.parse()
-        assert result[1]-?>(Grammar) : Parser.getPosition(result[0], text) + ": " + result[1]->>(String)
-		def grammar := result[1]->(Grammar)
+        def parser := new GrammarParser()
+        def result := parser.file(path, text)
+        assert result[1].length = 0 : Parser.getPosition(result[1][0].offset, text) + ": " + result[1][0].error
+		def grammar := result[0]->(Grammar)
 		def gen := new ParserGenerator(grammar, validating)
 		gen.createParseTable()
 		def dest := new File(args[index])

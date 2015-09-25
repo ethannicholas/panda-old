@@ -1,5 +1,20 @@
+package org.pandalanguage.pandac.parser
+
+class ParseError : Immutable {
+	def file:File
+	def offset:Int
+	def error:String
+
+	constructor(file:File, offset:Int, error:String) {
+		self.file := file
+		self.offset := offset
+		self.error := error
+	}
+}
+
 class Parser : Immutable {
 	constant EOF := 3->>(Char)
+	constant DIE := new ParseError(new File("/die"), -1, "die")
 
 	def productionIds:ImmutableArray<Int>
 
@@ -7,60 +22,68 @@ class Parser : Immutable {
 
 	def gotos:ImmutableArray<ImmutableArray<Int?>>
 
-	def text:String
-
 	def reducer:Reducer
 
 	constructor(productionIds:ImmutableArray<Int>, 
 			actions:ImmutableArray<ImmutableArray<Action?>>, 
 			gotos:ImmutableArray<ImmutableArray<Int?>>, 
-			reducer:Reducer,
-			text:String) {
+			reducer:Reducer) {
 		self.productionIds := productionIds
 		self.actions := actions
 		self.gotos := gotos
 		self.reducer := reducer
-		self.text := text + EOF
 	}
 
 	@class
-	function getPosition(pos:Int, text:String):String {
+	function getPosition(pos:Int, text:String):(Int, Int) {
 	    def stream := new LineNumberInputStream(new MemoryInputStream(text))
 	    for i in 0 .. pos
 	        stream.readInt8()
-	    return stream.line + ':' + stream.column
+	    return (stream.line, stream.column)
 	}
 
-	function parse():(Int, Object) {
+	function parse(file:File, rawText:String, startState:Int):(Object?, 
+			ListView<ParseError>) {
+		def text := rawText + EOF
 		def parsers := new Stack<ParserState>()
 		var farthest:ParserState := new ParserState(0, 
-				new StateNode(actions.length - 3, "<START>", null))
+				new StateNode(startState, "<START>", null))
 		parsers.push(farthest)
 
 		loop {
+			if parsers.length = 0 {
+				return (null, [new ParseError(file, farthest.position, 
+							"found \{text[farthest.position]} (\{text[farthest.position]->>(Int)}) in states \{farthest.state}")])
+			}
 			def top := parsers.peek()
 			if top.position = text.length
-				return (top.position, top.state.next.output)
+				return (top.state.next.output, [])
+			if top.state.state < 0 {
+				parsers.pop()
+				continue
+			}
 			def row := actions[top.state.state]
-			def a:Action?
 			def index := text[top.position]->>(Int)
+			def a:Action?
 			if index < row.length
 				a := row[index]
 			else
 				a := null
 			if a = null {
+				def expected := new Array<Char>()
+				for i, v in row
+					if v != null
+						expected.add(i->>(Char))
 				parsers.pop()
 				if top.position > farthest.position
 					farthest := top
-				if parsers.length = 0
-					return (farthest.position, "error, found \{text[farthest.position]} in state \{farthest.state.state}")
 				continue
 			}
-			action(a, top, parsers)
+			action(a, file, text, top, parsers)
 		}
 	}
 
-	method action(a:Action, parserState:ParserState, 
+	method action(a:Action, file:File, text:String, parserState:ParserState, 
 			parsers:Stack<ParserState>) {
 		switch a.type {
 			case ActionType.SHIFT: {
@@ -70,7 +93,12 @@ class Parser : Immutable {
 				parserState.position += 1
 			}
 			case ActionType.REDUCE: {
-				def output := reducer.reduce(a.target, parserState)
+				def output := reducer.reduce(a.target, file, parserState)
+				if output = DIE {
+					parserState.state := new StateNode(-1, output, 
+							parserState.state)
+					return
+				}
 				def next := gotos[parserState.state.state]
 						[productionIds[a.target]]
 				assert next != null : "no goto for \{parserState.state.state}" +
@@ -83,10 +111,10 @@ class Parser : Immutable {
 				assert !i.done() : "empty multiple action"
 				def oldState := parserState.state
 				def oldPosition := parserState.position
-				action(i.next(), parserState, parsers)
+				action(i.next(), file, text, parserState, parsers)
 				while !i.done() {
 					def sub := new ParserState(oldPosition, oldState)
-					action(i.next(), sub, parsers)
+					action(i.next(), file, text, sub, parsers)
 					parsers.push(sub)
 				}
 			}

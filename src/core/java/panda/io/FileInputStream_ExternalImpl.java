@@ -39,7 +39,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
     }
 
     @Override
-    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$LTpanda$core$Int8$GT dest, int max) {
+    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$.$Lpanda$core$Int8$R dest, int max) {
         try {
             byte[] buffer = new byte[max];
             int result = ((java.io.InputStream) in.$nativeFile).read(buffer);
@@ -55,7 +55,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
     }
 
     @Override
-    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$LTpanda$core$UInt8$GT dest, int max) {
+    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$.$Lpanda$core$UInt8$R dest, int max) {
         try {
             byte[] buffer = new byte[max];
             int result = ((java.io.InputStream) in.$nativeFile).read(buffer);
@@ -71,7 +71,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
     }
 
     @Override
-    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$LTpanda$core$Char$GT dest, int max) {
+    public panda.core.Int32Wrapper read(panda.io.FileInputStream in, panda.collections.ListWriter$.$Lpanda$core$Char$R dest, int max) {
         try {
             byte[] buffer = new byte[max];
             int result = ((java.io.InputStream) in.$nativeFile).read(buffer);

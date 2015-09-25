@@ -4,10 +4,13 @@
 	class RHS {
 		def terms:ListView<Node>
 
+		def exclusions:CharClass?
+
 		def code:String?
 
-		constructor(terms:ListView<Node>, code:String?) {
+		constructor(terms:ListView<Node>, exclusions:CharClass?, code:String?) {
 			self.terms := new Array<Node>(terms)
+			self.exclusions := exclusions
 			self.code := code
 		}
 	}
@@ -46,6 +49,9 @@
 	}
 
 	class CharClass {
+		constant START_CHAR := 9->>(Char)
+		constant END_CHAR := 127->>(Char)
+
 		def ranges:ListView<Range>
 
 		constructor(ranges:ListView<Range>) {
@@ -56,7 +62,13 @@
 		function =(o:Object):Bit {
 			if o-?>(CharClass) {
 				def cl := o->(CharClass)
-				return ranges = cl.ranges
+				if ranges.length != cl.ranges.length
+					return false
+				for i, r in ranges {
+					if r != cl.ranges[i]
+						return false
+				}
+				return true
 			}
 			return false
 		}
@@ -67,6 +79,25 @@
 			for r in ranges
 				result ||= r.hash -- FIXME use xor when parse bug is fixed
 			return result
+		}
+
+		function chars():HashSet<Char> {
+			def chars := new HashSet<Char>()
+			if ranges[0].start = '^' & ranges[0].end = '^' {
+				for c in START_CHAR ... END_CHAR
+					chars.add(c)
+				for r in ranges[1..] {
+					for c in r.start ... r.end
+						chars.remove(c)
+				}
+			}
+			else {
+				for r in ranges {
+					for c in r.start ... r.end
+						chars.add(c)
+				}
+			}
+			return chars
 		}
 
 		@override
@@ -110,9 +141,6 @@
 	}
 
 	class CharClassNode : Node {
-		constant START_CHAR := 9->>(Char)
-		constant END_CHAR := 127->>(Char)
-
 		def charClass:CharClass
 
 		constructor(name:String?, charClass:CharClass) {
@@ -121,22 +149,7 @@
 		}
 
 		function chars():HashSet<Char> {
-			def chars := new HashSet<Char>()
-			if charClass.ranges[0].start = '^' & charClass.ranges[0].end = '^' {
-				for c in START_CHAR ... END_CHAR
-					chars.add(c)
-				for r in charClass.ranges[1..] {
-					for c in r.start ... r.end
-						chars.remove(c)
-				}
-			}
-			else {
-				for r in charClass.ranges {
-					for c in r.start ... r.end
-						chars.add(c)
-				}
-			}
-			return chars
+			return charClass.chars
 		}
 
 		@override
@@ -235,11 +248,24 @@
 
 		def code:String?
 
-		constructor(name:String, type:String?, nodes:ListView<Node>, code:String?) {
-			self.name := name
+		def isStart:Bit
+
+		def exclusions:CharClass?
+
+		constructor(name:String, type:String?, nodes:ListView<Node>, 
+				exclusions:CharClass?, code:String?) {
+			if name.startsWith("@") {
+				self.name := name[1..]
+				isStart := true
+			}
+			else {
+				self.name := name
+				isStart := false
+			}
 			self.type := type
 			self.nodes := new ImmutableArray<Node>(nodes)
 			self.code := code
+			self.exclusions := exclusions
 		}
 
 		@override
@@ -251,6 +277,8 @@
 				if type != p.type
 					return false
 				if code != p.code
+					return false
+				if exclusions != p.exclusions
 					return false
 				if nodes.length != p.nodes.length
 					return false
@@ -311,7 +339,7 @@
 	}
 }
 
-start:Grammar = grammar
+@file:Grammar = grammar
 	{ result := grammar }
 grammar:Grammar = WS code productions
 	{ result := new Grammar(productions, code) }
@@ -338,13 +366,25 @@ productions:Array<Production> = productions production
 productions:Array<Production> =
 	{ result := [] }
 production:Production = identifier COLON type EQUAL ^ rhs
-	{ result := new Production(identifier, type, rhs.terms, rhs.code) }
+	{ 
+		result := new Production(identifier, type, rhs.terms, rhs.exclusions, 
+				rhs.code) 
+	}
 production:Production = identifier EQUAL ^ rhs
-	{ result := new Production(identifier, null, rhs.terms, rhs.code) }
-rhs:RHS = terms code
-	{ result := new RHS(terms, code) }
-rhs:RHS = terms
-	{ result := new RHS(terms, null) }
+	{ 
+		result := new Production(identifier, null, rhs.terms, rhs.exclusions,
+				rhs.code) 
+	}
+rhs:RHS = terms optionalExclusions optionalCode
+	{ result := new RHS(terms, optionalExclusions, optionalCode) }
+optionalExclusions:CharClass? = '!' cl:class
+	{ result := cl }
+optionalExclusions:CharClass? =
+	{ result := null }
+optionalCode:String? = code
+	{ result := code }
+optionalCode:String? =
+	{ result := null }
 terms:Array<Node> = terms term
 	{
 		result := []
@@ -383,9 +423,9 @@ type:String = identifier genericParameters
 	{ result := identifier + genericParameters }
 identifier:String = identifierText WS
 	{ result := identifierText }
-identifierText:String = identifierStart identifierChars
+identifierText:String = identifierStart identifierChars ![a-zA-Z_0-9]
 	{ result := identifierStart + identifierChars }
-identifierStart:String = char:[a-zA-Z_]
+identifierStart:String = char:[a-zA-Z_@]
 	{ result := char }
 identifierChars:String = chars:identifierChars char:[a-zA-Z_0-9]
 	{ result := chars + char }

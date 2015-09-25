@@ -1,7 +1,7 @@
 package panda.core;
 
-import panda.collections.PrimitiveArray$LTChar$GT;
-import panda.collections.PrimitiveArray$LTpanda$core$String$GT;
+import panda.collections.PrimitiveArray$.$LChar$R;
+import panda.collections.PrimitiveArray$.$Lpanda$core$String$R;
 import panda.core.Class;
 
 /**
@@ -37,7 +37,7 @@ public class PandaCore {
     }
 
     public static panda.core.String newString(java.lang.String string) {
-        PrimitiveArray$LTChar$GT chars = new PrimitiveArray$LTChar$GT();
+        panda.collections.PrimitiveArray$.$LChar$R chars = new panda.collections.PrimitiveArray$.$LChar$R();
         chars.$cl = getClass("panda.collections.Array<Char>");
         chars.$$length = string.length();
         chars.contents = string.toCharArray();
@@ -73,8 +73,9 @@ public class PandaCore {
                 newString(value + " is not an instance of " + dest)));
     }
 
-    public static PrimitiveArray$LTpanda$core$String$GT convertArgs(java.lang.String[] arg) {
-        PrimitiveArray$LTpanda$core$String$GT result = new PrimitiveArray$LTpanda$core$String$GT();
+    public static panda.collections.PrimitiveArray$.$Lpanda$core$String$R convertArgs(java.lang.String[] arg) {
+        panda.collections.PrimitiveArray$.$Lpanda$core$String$R result = 
+                new panda.collections.PrimitiveArray$.$Lpanda$core$String$R();
         result.$$length = arg.length;
         panda.core.String[] contents = new panda.core.String[arg.length];
         for (int i = 0; i < arg.length; i++)

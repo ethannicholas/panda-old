@@ -25,9 +25,9 @@ class File_ExternalImpl implements panda.io.File_External {
     }
 
     @Override
-    public panda.collections.ListView$LTpanda$io$File$GT list(panda.io.File self) {
-        panda.collections.Array$LTpanda$io$File$GT result = 
-                panda.collections.Array$LTpanda$io$File$GT.createnew$constructor();
+    public panda.collections.ListView$.$Lpanda$io$File$R list(panda.io.File self) {
+        panda.collections.Array$.$Lpanda$io$File$R result = 
+                panda.collections.Array$.$Lpanda$io$File$R.createnew$constructor();
         java.io.File dir = new java.io.File(PandaCore.toJavaString(self.$path));
         java.io.File[] files = dir.listFiles();
         for (int i = 0; i < files.length; i++) {

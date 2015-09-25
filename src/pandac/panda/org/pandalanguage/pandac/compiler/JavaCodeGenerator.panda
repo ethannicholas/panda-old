@@ -77,7 +77,7 @@ class JavaCodeGenerator (CodeGenerator) {
     constant NAME := "JavaCodeGenerator.name"
     constant PANDACORE := "panda.core.PandaCore"
     constant STRING_CONSTANT_PREFIX := "$STRING_CONSTANT_"
-    constant MAX_LENGTH := 128
+    constant MAX_LENGTH := 0
     
     def context:Context
     def program:Program
@@ -113,10 +113,17 @@ class JavaCodeGenerator (CodeGenerator) {
         return getJavaType(cl.type)
     }
 
-    function hash(fullName:String, className:String):String {
+    function shorten(fullName:String):String {
         if fullName.endsWith("?")
-            return hash(fullName[0 .. fullName.length - 1], className)
-        return "panda.hashed." + className + fullName.hash->>(UInt32)->>(String)
+            return shorten(fullName[..fullName.length - 1])
+        def result := fullName.replace("(", "$.$l").replace(")", "$r").
+                replace("<", "$.$L").replace(">", "$R").replace(",", "$.$C").
+                replace("?", "$Z").replace(#/\.+/#, ".")
+        while result.startsWith(".")
+            result := result[1..]
+        while result.endsWith(".")
+            result := result[..result.length - 1]
+        return escape(result)
     }
 
     method getDisplayName(cl:ClassStub):String {
@@ -245,14 +252,14 @@ class JavaCodeGenerator (CodeGenerator) {
             else
                 eName := getJavaType(eType)
             if eType.isNullable
-                eName += "$Z"
+                eName += "$Z1"
             if t.isImmutable(context)
                 result := class(ImmutablePrimitiveArray).name + "<" + eName + ">"
             else
                 result := class(PrimitiveArray).name + "<" + eName + ">"
         } 
         else if t.unwrapNullable-?>(MethodType)
-            return getJavaMethodType(t->(MethodType))
+            return getJavaMethodType(t->>(MethodType))
         else
             result := t.name.replace(#/\w+/#, token => filterNameToken(token))
         def lt := result.indexOf("<")
@@ -263,7 +270,7 @@ class JavaCodeGenerator (CodeGenerator) {
         if !result.contains(".")
             result := UNNAMED + "." + result
         if result.length > MAX_LENGTH
-            return hash(result, "Class")
+            return shorten(result)
         return escape(result)
     }
 
@@ -290,7 +297,7 @@ class JavaCodeGenerator (CodeGenerator) {
         if lt != null
             result := result[..lt] + result[lt..].replace(".", "$")
         if result.length > MAX_LENGTH
-            return hash(result, "Method")
+            return shorten(result)
         return escape(result)
     }
 
@@ -1112,7 +1119,7 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         if m.parameters.length = 0 & getName(m) = 
                 JavaMethodNamingStrategy.PANDAMAIN_NAME
-            out.write("panda.collections.PrimitiveArray$LTpanda$core$String$GT $arg")
+            out.write("panda.collections.PrimitiveArray$.$Lpanda$core$String$R $arg")
         out.write(");")
 
     }
@@ -1158,7 +1165,7 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         if m.parameters.length = 0 & getName(m.stub) = 
                 JavaMethodNamingStrategy.PANDAMAIN_NAME
-            out.write("panda.collections.PrimitiveArray$LTpanda$core$String$GT $arg")
+            out.write("panda.collections.PrimitiveArray$.$Lpanda$core$String$R $arg")
         out.write(")")
         if m.stub.annotations.isAbstract
             out.writeLine(";")
@@ -1253,7 +1260,7 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         if m.parameters.length = 0 & getName(m) = 
                 JavaMethodNamingStrategy.PANDAMAIN_NAME
-            out.write("panda.collections.PrimitiveArray$LTpanda$core$String$GT $arg")
+            out.write("panda.collections.PrimitiveArray$.$Lpanda$core$String$R $arg")
         out.writeLine(") {")
         if m.returnType != VoidType.VOID
             out.write("return ")

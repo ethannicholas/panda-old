@@ -42,7 +42,8 @@ echo "Compiling pandac (native)..."
 
 mkdir -p $NATIVE_TARGET/pandac/bin
 $PANDAC -XpreserveTempArtifacts -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
-    $STATIC_SETTINGS $SHARED_TARGET/PandaPEGParser.panda
+    $STATIC_SETTINGS $SHARED_TARGET/PandaLRParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda \
+    src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
 
 PANDAC=$NATIVE_TARGET/pandac/bin/pandac
 

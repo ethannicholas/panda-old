@@ -19,6 +19,8 @@ CORE_FILES="src/core/panda/panda/core/*.panda\
 
 echo "Compiling core (Java)..."
 
+mkdir -p $JAVA_TARGET/core/java
+
 $PANDAC -XnoCoreLib -f javah -o $JAVA_TARGET/core/java $CORE_FILES
 mkdir -p $JAVA_TARGET/core/lib
 $PANDAC -XnoCoreLib -f java -o $JAVA_TARGET/core/java $CORE_FILES
@@ -36,10 +38,9 @@ cp $JAVA_TARGET/core/lib/PandaCoreClasses.jar $JAVA_TARGET/pandac/bin/panda.jar
 export PANDA_HOME="$BASEDIR/build"
 
 echo "Creating parser..."
-mkdir -p $JAVA_TARGET
-$PANDAC -o $JAVA_TARGET/peggenerator.jar -f jar src/pandac/parser/PEGGenerator.panda src/pandac/parser/PEGParser.panda
+$PANDAC -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
 mkdir -p $SHARED_TARGET
-java -jar $JAVA_TARGET/peggenerator.jar src/pandac/parser/panda.peg $SHARED_TARGET/PandaPEGParser.panda
+java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/panda.grammar $SHARED_TARGET/PandaLRParser.panda
 
 echo "Compiling pandac (Java)..."
 
@@ -85,4 +86,5 @@ echo "}" >> "$STATIC_SETTINGS"
 
 mkdir -p "$JAVA_TARGET/pandac/bin"
 $PANDAC -XpreserveTempArtifacts -o "$JAVA_TARGET/pandac/bin/pandac.jar" -f jar `find src/pandac/panda -name "*.panda"` \
-    "$STATIC_SETTINGS" $SHARED_TARGET/PandaPEGParser.panda
+    "$STATIC_SETTINGS" $SHARED_TARGET/PandaLRParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda \
+    src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
