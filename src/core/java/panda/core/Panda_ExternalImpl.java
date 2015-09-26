@@ -55,11 +55,21 @@ class Panda_ExternalImpl implements panda.core.Panda_External {
     public boolean instanceOf(panda.core.Object o, panda.core.Class c, boolean nullable) {
         if (o == null)
             return nullable;
-        panda.core.Class oc = o.$cl;
-        while (oc != null) {
-            if (oc.$name.equals(c.$name))
+        return instanceOf(o.$cl, c);
+    }
+
+    private boolean instanceOf(panda.core.Class o, panda.core.Class c) {
+        while (o != null) {
+            if (o == c)
                 return true;
-            oc = oc.$superclass;
+            panda.core.Class[] interfaces = PandaCore.interfaces.get(o);
+            if (interfaces != null) {
+                for (panda.core.Class intf : interfaces) {
+                    if (instanceOf(intf, c))
+                        return true;
+                }
+            }
+            o = o.$superclass;
         }
         return false;
     }

@@ -15,6 +15,9 @@ public class PandaCore {
     private static java.util.Map<java.lang.String, panda.core.Class> classes = 
             new java.util.HashMap<java.lang.String, panda.core.Class>();
 
+    static java.util.Map<panda.core.Class, panda.core.Class[]> interfaces = 
+            new java.util.HashMap<panda.core.Class, panda.core.Class[]>();
+
     public static synchronized panda.core.Class getClass(
             java.lang.String name) {
         return getClass(name, name);
@@ -34,6 +37,12 @@ public class PandaCore {
     public static void initClass(panda.core.Class cl,
             panda.core.Class superclass) {
         cl.$superclass = superclass;
+    }
+
+    public static void initClass(panda.core.Class cl,
+            panda.core.Class superclass, panda.core.Class[] interfaces) {
+        cl.$superclass = superclass;
+        PandaCore.interfaces.put(cl, interfaces);
     }
 
     public static panda.core.String newString(java.lang.String string) {

@@ -1297,6 +1297,28 @@ class JavaCodeGenerator (CodeGenerator) {
                     superclass.name = ClassType.MUTABLE_METHOD)
     }
 
+    method writeClassInitializer(cl:ClassStub) {
+        out.write("static { " + PANDACORE + ".initClass(" + PANDACORE + 
+                '.getClass("' + getName(cl) + '", "' +
+                getDisplayName(cl) + '"), ')
+        if cl.superclass != null {
+            out.write('panda.core.PandaCore.getClass("' + 
+                    getName(getStub(cl.superclass)) + '", "' + 
+                    getDisplayName(getStub(cl.superclass)) + '")')
+        }
+        else
+            out.write("null")
+        out.write(", new panda.core.Class[] { ")
+        for i, intf in cl.interfaces {
+            if i > 0
+                out.write(", ")
+            out.write('panda.core.PandaCore.getClass("' + 
+                    getName(getStub(intf)) + '", "' + 
+                    getDisplayName(getStub(intf)) + '")')
+        }
+        out.writeLine("}); }")    
+    }
+
     method generateClassCode(cl:ClassNode) {
         if cl.stub.isExternal
             return
@@ -1337,9 +1359,9 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write("interface ")
         else 
             out.write("class ")
-        var simpleName := getSimpleName(cl.stub)
+        def simpleName := getSimpleName(cl.stub)
         out.write(simpleName)
-        var superclass := cl.stub.superclass
+        def superclass := cl.stub.superclass
         if cl.stub.isInterface {
             for i, intf in cl.stub.interfaces {
                 if i = 0
@@ -1391,18 +1413,18 @@ class JavaCodeGenerator (CodeGenerator) {
             }
         }
 
-        if !cl.stub.isInterface {
-            out.write("static { " + PANDACORE + ".initClass(" + PANDACORE + 
-                    '.getClass("' + getName(cl.stub) + '", "' +
-                    getDisplayName(cl.stub) + '"), ')
-            if superclass != null {
-                out.write('panda.core.PandaCore.getClass("' + 
-                        getName(getStub(superclass)) + '", "' + 
-                        getDisplayName(getStub(superclass)) + '")')
-            }
-            else
-                out.write("null")
-            out.writeLine("); }")
+        if !cl.stub.isInterface
+            writeClassInitializer(cl.stub)
+        else {
+            def initializerName := "$CLINIT"
+            out.writeLine("static class \{initializerName} {")
+            out.level += 1
+            writeClassInitializer(cl.stub)
+            out.writeLine("static final java.lang.Object init() { return null; }")
+            out.level -= 1
+            out.writeLine("}")
+            out.writeLine("static final java.lang.Object $force = " +
+                    initializerName + ".init();")
         }
 
         if cl.stub.type.isPrimitiveArray() {
