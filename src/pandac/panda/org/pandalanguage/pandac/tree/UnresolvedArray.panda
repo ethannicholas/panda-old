@@ -27,14 +27,25 @@ class UnresolvedArray : UnresolvedValue {
 
     @class
     method getValue(context:Context, position:Position, 
-    		values:ListView<Value>):Value {
+    		values:ListView<Value>):Value? {
         var elementType:Type
         if values.length = 0
         	elementType := NullableType.ANY
         else {
-        	elementType := values[0].type
-        	for i in 1 .. values.length
-        		elementType := Type.union(context, elementType, values[i].type)
+            if values[0].isValid {
+            	elementType := values[0].preferredType(context)
+            	for i in 1 .. values.length {
+                    def v := values[i]
+                    if v.isValid {
+            		    elementType := Type.union(context, elementType, 
+                                v.preferredType(context))
+                    }
+                    else
+                        return null
+                }
+            }
+            else
+                return null
         }
         if elementType = StringOrCharType.STRING_OR_CHAR
             elementType := CharType.CHAR
@@ -43,7 +54,10 @@ class UnresolvedArray : UnresolvedValue {
         def typeList := new Array<Type>()
         typeList.add(elementType)
         def type := new GenericType(ClassType.ARRAY, typeList)
-        return context.createArrayLiteral(position, type, values)
+        def casted := new Array<Value>()
+        for v in values
+            casted.add(v.implicitCast(context, elementType))
+        return context.createArrayLiteral(position, type, casted)
     }
 
     function isCollection(context:Context, base:ClassType):Bit {
