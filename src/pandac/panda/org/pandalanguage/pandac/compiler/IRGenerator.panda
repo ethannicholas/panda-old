@@ -172,8 +172,8 @@ class IRGenerator {
 
     @class
     function makeExplicit(v:Value):Value {
-        if v-?>(Cast) {
-            return new Cast(v.position, v->(Cast).value, v.type, 
+        if v-?>Cast {
+            return new Cast(v.position, v->Cast.value, v.type, 
                     CastType.EXPLICIT)
         }
         return v
@@ -191,7 +191,7 @@ class IRGenerator {
         if allowNoArgFunctions {
             def result := context.testCall(position, contextValue, f.name, 
                     new Array<Value>())
-            if result != null & result->(MethodCall).methodStub.methodType =
+            if result != null & result->MethodCall.methodStub.methodType =
                     MethodNodeType.FUNCTION
                 return result
         }
@@ -208,14 +208,14 @@ class IRGenerator {
             var name:String, allowNoArgFunctions:Bit):Value? {
         if name = "class"
             name := "$class"
-        if contextValue-?>(ClassLiteral) {
-            def type := contextValue->(ClassLiteral).value->>(ClassType)
+        if contextValue-?>ClassLiteral {
+            def type := contextValue->ClassLiteral.value->>ClassType
             def member := context.getSymbolTable(context.getStub(type))[name]
             if member != null
                 return symbolReference(position, contextValue, member)
         }
-        if contextValue-?>(Super) {
-            def type := context.getStub(context.getSelf(position).type->(ClassType)).superclass->(ClassType)
+        if contextValue-?>Super {
+            def type := context.getStub(context.getSelf(position).type->ClassType).superclass->ClassType
             def member := context.getSymbolTable(context.getStub(type))[name]
             if member != null
                 return symbolReference(position, contextValue, member)
@@ -225,12 +225,12 @@ class IRGenerator {
             contextValue := resolved
         else
             return null
-        if contextValue.type-?>(VoidType) {
+        if contextValue.type-?>VoidType {
             context.errors.error("this expression does not have any members", 
                     position)
             return null
         }
-        def type := contextValue.type->>(ClassType)
+        def type := contextValue.type->>ClassType
         def member := context.getSymbolTable(context.getStub(type))[name]
         if member != null {
             return symbolReference(position, contextValue.implicitCast(context,
@@ -245,7 +245,7 @@ class IRGenerator {
         var target := convertExpression(c.target)
         if target = null
             return null
-        if c.parameters.length = 0 & target-?>(MethodCall)
+        if c.parameters.length = 0 & target-?>MethodCall
             return target
         def parameters := new Array<Value>()
         for p in c.parameters {
@@ -254,23 +254,23 @@ class IRGenerator {
                 return null
             parameters.add(converted)
         }
-        if target-?>(UnresolvedIdentifier) {
+        if target-?>UnresolvedIdentifier {
             if context.isInstance {
                 def test := context.testCall(c.position, context.getSelf(
                             c.position),
-                        target->(UnresolvedIdentifier).name, parameters)
+                        target->UnresolvedIdentifier.name, parameters)
                 if test != null
                     return test
             }
             def test := context.testCall(c.position, new ClassLiteral(
                     c.position, context.currentClass.type),
-                    target->(UnresolvedIdentifier).name, parameters)
+                    target->UnresolvedIdentifier.name, parameters)
             if test != null
                 return test
         }
-        if target-?>(UnresolvedDotExpression) {
-            def u := target->(UnresolvedDotExpression)
-            if u.left-?>(Super) {
+        if target-?>UnresolvedDotExpression {
+            def u := target->UnresolvedDotExpression
+            if u.left-?>Super {
                 if !context.isInstance {
                     context.errors.error(SuperType.ERROR_MESSAGE, 
                             target.position)
@@ -283,11 +283,11 @@ class IRGenerator {
                 return null
             return context.call(c.position, left, u.right, parameters)
         }
-        if target-?>(UnresolvedMethod) {
-            def u := target->(UnresolvedMethod)
+        if target-?>UnresolvedMethod {
+            def u := target->UnresolvedMethod
             def finalTarget:Value
             if u.target != null 
-                finalTarget := u.target->(Value)
+                finalTarget := u.target->Value
             else if context.isInstance {
                 finalTarget := new InstanceContext(c.position, 
                         context.getSelf(c.position))
@@ -298,21 +298,21 @@ class IRGenerator {
             }
             return context.call(c.position, finalTarget, u.methods, parameters)
         }
-        if target-?>(MethodReference) {
-            def m := target->(MethodReference)
+        if target-?>MethodReference {
+            def m := target->MethodReference
             return context.call(c.position, m.target, m.methodStub, parameters)
         }
         target := resolve(target)
         if target = null
             return null
         def type := target.type.unwrapNullable
-        if type-!>(MethodType) {
+        if type-!>MethodType {
             context.errors.error("expected a method, but found " +
                     "'\{target.type.displayName}'", target.position)
             return null
         }
         def unwrapped := target.implicitCast(context, type)
-        def parameterTypes := type->(MethodType).methodParameters
+        def parameterTypes := type->MethodType.methodParameters
         if parameters.length != parameterTypes.length {
             def expected:String
             if parameterTypes.length = 1
@@ -341,8 +341,8 @@ class IRGenerator {
         def left := convertExpression(d.left)
         if left = null
             return null
-        if left-?>(PackageReference) {
-            def p := left->(PackageReference).value
+        if left-?>PackageReference {
+            def p := left->PackageReference.value
             def child := p[d.right]
             if child != null
                 return symbolReference(d.position, child)
@@ -353,7 +353,7 @@ class IRGenerator {
             }
         }
         def resolved:Value?
-        if left-!>(Super)
+        if left-!>Super
             resolved := resolve(left)
         else
             resolved := left
@@ -431,7 +431,7 @@ class IRGenerator {
             }
             i := next + 2
         }
-        return result->>(String)
+        return result->>String
     }
 
     method convertStringLiteral(string:ASTStringLiteral):Value? {
@@ -476,7 +476,7 @@ class IRGenerator {
             def chars := convertStringChars(string.position, s[lastEnd..], false)
             if chars != null
                 result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
-            s := result->>(String)
+            s := result->>String
             values.insert(0, new StringLiteral(string.position, s))
             return context.call(string.position, new ClassLiteral(
                     string.position, ClassType.STRING), "format", values)
@@ -497,8 +497,8 @@ class IRGenerator {
         var operand := resolve(u.expression)
         if operand = null
             return null
-        if u.operation = UnaryOperationType.MINUS & operand-?>(IntegerLiteral) {
-            def i := operand->(IntegerLiteral)
+        if u.operation = UnaryOperationType.MINUS & operand-?>IntegerLiteral {
+            def i := operand->IntegerLiteral
             switch i.value {
                 case 128: operand := new IntegerLiteral(i.position, i.value, 
                         IntType.INT8, false)
@@ -526,7 +526,7 @@ class IRGenerator {
     method convertInstanceOf(position:Position, var object:Value, 
             var type:Type):Value? {
         if object.type = StringOrCharType.STRING_OR_CHAR {
-            -- hardcode STRING_OR_CHAR-?>(Char) and STRING_OR_CHAR-?>(String)
+            -- hardcode STRING_OR_CHAR-?>Char and STRING_OR_CHAR-?>String
             -- as true
             if type = CharType.CHAR | ClassType.STRING.canImplicitCastTo(
                     context, type)
@@ -546,7 +546,7 @@ class IRGenerator {
             return new BitLiteral(position, true)
 
         if !primitiveSource & type.isPrimitive
-            type := type->>(ClassType)
+            type := type->>ClassType
 
         if !object.canExplicitCastTo(context, type) {
             context.errors.error("'\{object.type.displayName}' " +
@@ -557,7 +557,7 @@ class IRGenerator {
         def parameters := new Array<Value>()
         parameters.add(object)
         if !primitiveTarget
-            parameters.add(new ClassLiteral(position, type->>(ClassType)))
+            parameters.add(new ClassLiteral(position, type->>ClassType))
 
         var methodName := "instanceOf"
         if primitiveTarget {
@@ -626,7 +626,7 @@ class IRGenerator {
     function check(v:Value?):Bit {
         if v = null
             return true
-        return v.type-!>(UnresolvedType)
+        return v.type-!>UnresolvedType
     }
 
     method symbolReference(position:Position, s:Symbol):Value? {
@@ -635,11 +635,11 @@ class IRGenerator {
 
     method symbolReference(position:Position, var target:Value?, 
             s:Symbol):Value? {
-        if s-?>(FieldNode) {
-            def f := s->(FieldNode)
+        if s-?>FieldNode {
+            def f := s->FieldNode
             inferFieldType(f)
             if f.annotations.isClass | f.annotations.isThread {
-                if target != null & target-!>(ClassLiteral) {
+                if target != null & target-!>ClassLiteral {
                     context.errors.error("cannot reference class field " +
                             "'\{f}' from an instance context", position)
                 }
@@ -662,8 +662,8 @@ class IRGenerator {
                 return new FieldReference(position, target, f)
             }
         }
-        if s-?>(Methods) {
-            def methods := s->(Methods).methods
+        if s-?>Methods {
+            def methods := s->Methods.methods
             if target = null {
                 if context.isInstance
                     target := new InstanceContext(position, 
@@ -684,19 +684,19 @@ class IRGenerator {
             }
             return new UnresolvedMethod(position, target, methods)
         }
-        if s-?>(Variable) {
-            def v := s->(Variable)
-            if v-?>(Parameter) & v->(Parameter).owner != context.currentMethod
+        if s-?>Variable {
+            def v := s->Variable
+            if v-?>Parameter & v->Parameter.owner != context.currentMethod
                 context.captures.peek.add(v)
-            else if v-?>(LocalVariable) & 
-                    v->(LocalVariable).owner != context.currentMethod
+            else if v-?>LocalVariable & 
+                    v->LocalVariable.owner != context.currentMethod
                 context.captures.peek.add(v)
-            return new VariableReference(position, s->(Variable))
+            return new VariableReference(position, s->Variable)
         }
-        if s-?>(Package)
-            return new PackageReference(position, s->(Package))
-        if s-?>(TypeSymbol)
-            return new ClassLiteral(position, s->(TypeSymbol).type)
+        if s-?>Package
+            return new PackageReference(position, s->Package)
+        if s-?>TypeSymbol
+            return new ClassLiteral(position, s->TypeSymbol.type)
         unreachable
     }
 
@@ -710,7 +710,7 @@ class IRGenerator {
     }
 
     method resolve(v:Value):Value? {
-        if v.type-?>(UnresolvedType) {
+        if v.type-?>UnresolvedType {
             if !v.checkValid(context)
                 return null
             def type := v.preferredType(context)
@@ -718,7 +718,7 @@ class IRGenerator {
         }
         return v
     }
-    @post(@return = null | @return.type-!>(UnresolvedType))
+    @post(@return = null | @return.type-!>UnresolvedType)
 
     method resolve(e:ASTExpression):Value? {
         var result := convertExpression(e)
@@ -742,27 +742,27 @@ class IRGenerator {
                 return null
             parameters.add(expr)
         }
-        if type-?>(PrimitiveArrayType) {
-            def elementType := type->(PrimitiveArrayType).parameters[0]
+        if type-?>PrimitiveArrayType {
+            def elementType := type->PrimitiveArrayType.parameters[0]
             if parameters.length = 1 &
                     parameters[0].canImplicitCastTo(context, IntType.INT32) {
                 def cast := parameters[0].implicitCast(context, IntType.INT32)
-                context.getStub(type->>(PrimitiveArrayType))
+                context.getStub(type->>PrimitiveArrayType)
                 return new NewPrimitiveArrayWithLength(n.position, 
-                        type->>(PrimitiveArrayType), cast)
+                        type->>PrimitiveArrayType, cast)
             }
             else if parameters.length = 1 &
                     parameters[0].type.isPrimitiveArray &
-                    parameters[0].type->(PrimitiveArrayType).parameters[0] =
+                    parameters[0].type->PrimitiveArrayType.parameters[0] =
                         elementType {
-                context.getStub(type->(PrimitiveArrayType))
+                context.getStub(type->PrimitiveArrayType)
                 return new PrimitiveArrayCopy(n.position, 
-                        type->(PrimitiveArrayType), parameters[0])
+                        type->PrimitiveArrayType, parameters[0])
             }
             else if parameters.length = 0 {
-                context.getStub(type->>(PrimitiveArrayType))
+                context.getStub(type->>PrimitiveArrayType)
                 return new NewPrimitiveArrayWithLength(n.position, 
-                        type->>(PrimitiveArrayType), new IntegerLiteral(
+                        type->>PrimitiveArrayType, new IntegerLiteral(
                             n.position, 0, IntType.INT32, true))
             }
             else {
@@ -770,10 +770,10 @@ class IRGenerator {
                 for p in parameters
                     casted.add(p.implicitCast(context, elementType))
                 return new NewPrimitiveArrayWithValues(n.position, 
-                        type->>(PrimitiveArrayType), casted)
+                        type->>PrimitiveArrayType, casted)
             }
         }
-        def stub := context.getStub(type->>(ClassType))
+        def stub := context.getStub(type->>ClassType)
         if stub.isInterface {
             context.errors.error("interfaces may not be instantiated",
                     n.position)
@@ -783,9 +783,9 @@ class IRGenerator {
         def constructors := symbolTable[MethodNode.CONSTRUCTOR_NAME]
         assert constructors != null
         def call := context.call(n.position, new ClassLiteral(n.position, type), 
-                constructors->(Methods).methods, parameters)
+                constructors->Methods.methods, parameters)
         if call != null
-            return new Construct(call->(MethodCall))
+            return new Construct(call->MethodCall)
         else
             return null
     }
@@ -797,19 +797,19 @@ class IRGenerator {
         var index := convertExpression(i.index)
         if index = null
             return null
-        if index-?>(UnresolvedRange) {
-            def range := index->(UnresolvedRange)
+        if index-?>UnresolvedRange {
+            def range := index->UnresolvedRange
             return new UnresolvedSlice(context, i.position, target, range.left, 
                     range.right, range.step, range.endInclusive)
         }
         index := resolve(index)
         if index = null
             return null
-        if target.type.unwrapNullable-?>(TupleType) & index-?>(IntegerLiteral) {
+        if target.type.unwrapNullable-?>TupleType & index-?>IntegerLiteral {
             return getMember(i.position, target, TupleType.FIELD_PREFIX + 
-                    index->(IntegerLiteral).value)
+                    index->IntegerLiteral.value)
         }
-        if target.type.unwrapNullable-?>(PrimitiveArrayType)
+        if target.type.unwrapNullable-?>PrimitiveArrayType
             return new PrimitiveArrayIndexValue(target, 
                     index.implicitCast(context, IntType.INT32))
         return new UnresolvedIndex(context, i.position, target, index)
@@ -818,7 +818,7 @@ class IRGenerator {
     method convertRangeExpression(r:ASTRangeExpression):Value? {
         def left:Value?
         if r.left != null {
-            left := resolve(r.left->(ASTExpression))
+            left := resolve(r.left->ASTExpression)
             if left = null
                 return null
         }
@@ -826,7 +826,7 @@ class IRGenerator {
             left := null
         def right:Value?
         if r.right != null {
-            right := resolve(r.right->(ASTExpression))
+            right := resolve(r.right->ASTExpression)
             if right = null
                 return null
         }
@@ -834,7 +834,7 @@ class IRGenerator {
             right := null
         def step:Value?
         if r.step != null {
-            step := resolve(r.step->(ASTExpression))
+            step := resolve(r.step->ASTExpression)
             if step = null
                 return null
         }
@@ -855,7 +855,7 @@ class IRGenerator {
                     parameters)
             if result = null
                 return null
-            return new Construct(result->(MethodCall))
+            return new Construct(result->MethodCall)
         }
         throw new CompilerException("unsupported plugin: \{s}", p.position)    
     }
@@ -899,7 +899,7 @@ class IRGenerator {
             var lastCase:Statement? := null
             def cases := new Array<If>()
             if s.defaultCase != null {
-                def defaultStatement := convertStatement(s.defaultCase->(ASTStatement))
+                def defaultStatement := convertStatement(s.defaultCase->ASTStatement)
                 if defaultStatement != null
                     lastCase := defaultStatement
                 else
@@ -955,49 +955,49 @@ class IRGenerator {
     method convertExpression(e:ASTExpression):Value? {
         switch e.class {
             case class(ASTCallExpression):
-                return convertCallExpression(e->(ASTCallExpression))
+                return convertCallExpression(e->ASTCallExpression)
             case class(ASTIdentifier):
-                return convertIdentifier(e->(ASTIdentifier))
+                return convertIdentifier(e->ASTIdentifier)
             case class(ASTDotExpression):
-                return convertDotExpression(e->(ASTDotExpression))
+                return convertDotExpression(e->ASTDotExpression)
             case class(ASTIntegerLiteral):
-                return convertIntegerLiteral(e->(ASTIntegerLiteral))
+                return convertIntegerLiteral(e->ASTIntegerLiteral)
             case class(ASTRealLiteral):
-                return convertRealLiteral(e->(ASTRealLiteral))
+                return convertRealLiteral(e->ASTRealLiteral)
             case class(ASTStringLiteral):
-                return convertStringLiteral(e->(ASTStringLiteral))
+                return convertStringLiteral(e->ASTStringLiteral)
             case class(ASTBitLiteral):
-                return convertBitLiteral(e->(ASTBitLiteral))
+                return convertBitLiteral(e->ASTBitLiteral)
             case class(ASTNullLiteral):
                 return new NullLiteral(e.position)
             case class(ASTUnaryExpression):
-                return convertUnaryExpression(e->(ASTUnaryExpression))
+                return convertUnaryExpression(e->ASTUnaryExpression)
             case class(ASTBinaryExpression):
-                return convertBinaryExpression(e->(ASTBinaryExpression))
+                return convertBinaryExpression(e->ASTBinaryExpression)
             case class(ASTArrowExpression):
-                return convertArrowExpression(e->(ASTArrowExpression))
+                return convertArrowExpression(e->ASTArrowExpression)
             case class(ASTNew):
-                return convertNew(e->(ASTNew))
+                return convertNew(e->ASTNew)
             case class(ASTSelf):
                 return getIdentifier(e.position, "self")
             case class(ASTSuper):
-                return convertSuper(e->(ASTSuper))
+                return convertSuper(e->ASTSuper)
             case class(ASTIndex):
-                return convertIndex(e->(ASTIndex))
+                return convertIndex(e->ASTIndex)
             case class(ASTRangeExpression):
-                return convertRangeExpression(e->(ASTRangeExpression))
+                return convertRangeExpression(e->ASTRangeExpression)
             case class(ASTPlugin):
-                return convertPlugin(e->(ASTPlugin))
+                return convertPlugin(e->ASTPlugin)
             case class(ASTArrayLiteral):
-                return convertArray(e->(ASTArrayLiteral))
+                return convertArray(e->ASTArrayLiteral)
             case class(ASTTupleExpression): 
-                return convertTuple(e->(ASTTupleExpression))
+                return convertTuple(e->ASTTupleExpression)
             case class(ASTClassLiteral):
-                return convertClassLiteral(e->(ASTClassLiteral))
+                return convertClassLiteral(e->ASTClassLiteral)
             case class(ASTLambdaExpression):
-                return convertLambda(e->(ASTLambdaExpression))
+                return convertLambda(e->ASTLambdaExpression)
             case class(ASTMethodValue):
-                return convertMethodValue(e->(ASTMethodValue))
+                return convertMethodValue(e->ASTMethodValue)
             default:
                 throw new InternalCompilerException("unsupported expression: " +
                         e.class.name, e.position)
@@ -1007,7 +1007,7 @@ class IRGenerator {
     method convertVarDeclaration(v:ASTVarDeclaration):Statement? {
         var initializer:Value?
         if v.initializer != null {
-            initializer := convertExpression(v.initializer->(ASTExpression))
+            initializer := convertExpression(v.initializer->ASTExpression)
             if initializer = null
                 return null
         }
@@ -1017,10 +1017,10 @@ class IRGenerator {
         for i, decl in v.vars {
             def type:Type?
             if decl.type != null {
-                type := resolve(decl.type->(ASTType))
+                type := resolve(decl.type->ASTType)
                 if type = null {
-                    context.errors.error("unknown class '\{decl.type->(ASTType)}'",
-                            decl.type->(ASTType).position)
+                    context.errors.error("unknown class '\{decl.type->ASTType}'",
+                            decl.type->ASTType.position)
                     return null
                 }
             }
@@ -1036,12 +1036,12 @@ class IRGenerator {
                 def initializerType := initializer.preferredVariableType(
                         context)
                 if v.vars.length > 1 {
-                    if initializerType.unwrapNullable-!>(TupleType) {
+                    if initializerType.unwrapNullable-!>TupleType {
                         context.errors.error("assigning to multiple " +
                                 "variables from a non-tuple expression",
                                 initializer.position)
                     }
-                    type := initializerType.unwrapNullable->(TupleType).types[i]
+                    type := initializerType.unwrapNullable->TupleType.types[i]
                 }
                 else
                     type := initializerType
@@ -1094,7 +1094,7 @@ class IRGenerator {
             return null
         def elseStatement:Statement?
         if i.elseStatement != null {
-            elseStatement := convertStatement(i.elseStatement->(ASTStatement))
+            elseStatement := convertStatement(i.elseStatement->ASTStatement)
             if elseStatement = null
                 return null
         }
@@ -1105,7 +1105,7 @@ class IRGenerator {
 
     @private
     method castToIterable(value:Value):Value? {
-        def cl := context.getStub(value.type->>(ClassType))
+        def cl := context.getStub(value.type->>ClassType)
         for intf in cl.allInterfaces(context) {
             if intf.name.startsWith("panda.collections.Iterable<")
                 return value.implicitCast(context, intf.type)
@@ -1120,11 +1120,11 @@ class IRGenerator {
         def list := castToIterable(rawList)
         if list = null
             return null
-        def elementType := list.type->(GenericType).parameters[0]
+        def elementType := list.type->GenericType.parameters[0]
         def valueVars := new Array<LocalVariable>()
         if f.valueVars.length > 1 {
-            if elementType-!>(TupleType) | 
-                    elementType->(TupleType).types.length != f.valueVars.length {
+            if elementType-!>TupleType | 
+                    elementType->TupleType.types.length != f.valueVars.length {
                 context.errors.error("'for' loop expected a list of " +
                         "tuples of length \{f.valueVars.length}, but found " + 
                         "'\{rawList.type.displayName}'", f.position)
@@ -1134,7 +1134,7 @@ class IRGenerator {
         for i, v in f.valueVars {
             var type:Type?
             if v.type != null {
-                type := resolve(v.type->(ASTType))
+                type := resolve(v.type->ASTType)
                 if type = null
                     return null
             }
@@ -1142,7 +1142,7 @@ class IRGenerator {
                 if f.valueVars.length = 1
                     type := elementType
                 else {
-                    def tuple := elementType->(TupleType)
+                    def tuple := elementType->TupleType
                     type := tuple.types[i]
                 }
             }
@@ -1222,20 +1222,20 @@ class IRGenerator {
     @private
     function getLiteral(i:Int64, t:Type):Value {
         if t.isReal
-            return new RealLiteral(Position.INTERNAL, i, t->(RealType))
+            return new RealLiteral(Position.INTERNAL, i, t->RealType)
         if i < 0 {
             return new UnaryOperation(Position.INTERNAL, 
                     UnaryOperationType.MINUS,
-                    new IntegerLiteral(Position.INTERNAL, i.abs->(UInt64), 
-                    t->(IntType), true))
+                    new IntegerLiteral(Position.INTERNAL, i.abs->UInt64, 
+                    t->IntType, true))
         }        
-        return new IntegerLiteral(Position.INTERNAL, i->(UInt64), 
-                t->(PrimitiveType), true)
+        return new IntegerLiteral(Position.INTERNAL, i->UInt64, 
+                t->PrimitiveType, true)
     }
 
     @private
     function unsignedVersion(var t:Type):Type {
-        t := t->>(PrimitiveType)
+        t := t->>PrimitiveType
         switch t {
             case IntType.INT8: return IntType.UINT8
             case IntType.INT16: return IntType.UINT16
@@ -1315,7 +1315,7 @@ class IRGenerator {
                 stepLiteral)
         def label:String
         if f.label != null
-            label := f.label->(String)
+            label := f.label->String
         else
             label := "$numericForLoops\{f.hash}"
         def breakIf := new If(f.position, breakTest, new Break(f.position, 
@@ -1395,7 +1395,7 @@ class IRGenerator {
 
         def label:String
         if f.label != null
-            label := f.label->(String)
+            label := f.label->String
         else
             label := "$numericForLoops\{f.hash}"
 
@@ -1479,7 +1479,7 @@ class IRGenerator {
         def continueStatements := new Array<Statement>()
         def label:String
         if f.label != null
-            label := f.label->(String)
+            label := f.label->String
         else
             label := "$numericForLoops\{f.hash}"
         if loopVar.type.isReal {
@@ -1549,12 +1549,12 @@ class IRGenerator {
         def v := f.valueVars[0]
         var type:Type?
         if v.type != null {
-            type := resolve(v.type->(ASTType))
+            type := resolve(v.type->ASTType)
             if type = null
                 return null
         }
         else {
-            type := range.value->(Value).type->(GenericType).parameters[0]
+            type := range.value->Value.type->GenericType.parameters[0]
         }
         def loopVar := new LocalVariable(v.position, v.identifier, type,
                 VariableType.DEF, context.currentMethod)
@@ -1562,37 +1562,37 @@ class IRGenerator {
         context.symbolTable[loopVar.name] := loopVar
         def step := range.step
         if step = null {
-            return convertRangeFor(f, loopVar, range.left->(Value), 
-                    range.right->(Value), range.endInclusive)
+            return convertRangeFor(f, loopVar, range.left->Value, 
+                    range.right->Value, range.endInclusive)
         }
-        else if step-?>(IntegerLiteral) {
-            return convertRangeForConstantStep(f, loopVar, range.left->(Value), 
-                    range.right->(Value), 
-                    step->(IntegerLiteral).value->>(Int32), range.endInclusive)
+        else if step-?>IntegerLiteral {
+            return convertRangeForConstantStep(f, loopVar, range.left->Value, 
+                    range.right->Value, 
+                    step->IntegerLiteral.value->>Int32, range.endInclusive)
         }
-        else if step-?>(UnaryOperation) {
-            def u := step->(UnaryOperation)
+        else if step-?>UnaryOperation {
+            def u := step->UnaryOperation
             if u.operation = UnaryOperationType.MINUS & 
-                    u.operand-?>(IntegerLiteral) {
+                    u.operand-?>IntegerLiteral {
                 return convertRangeForConstantStep(f, loopVar, 
-                        range.left->(Value), range.right->(Value), 
-                        -u.operand->(IntegerLiteral).value->>(Int32),
+                        range.left->Value, range.right->Value, 
+                        -u.operand->IntegerLiteral.value->>Int32,
                         range.endInclusive)
             }
         }
-        return convertRangeForVariableStep(f, loopVar, range.left->(Value), 
-                range.right->(Value), step, range.endInclusive)
+        return convertRangeForVariableStep(f, loopVar, range.left->Value, 
+                range.right->Value, step, range.endInclusive)
     }
 
     method convertPrimitiveArrayFor(f:ASTFor, rawArray:Value,
             var indexVar:LocalVariable?):Statement? {
         def array := new ReusedValueDefinition(rawArray)
-        def elementType := array.type->>(PrimitiveArrayType).elementType
+        def elementType := array.type->>PrimitiveArrayType.elementType
         def valueVars := new Array<Variable>()
         for v in f.valueVars {
             var type:Type?
             if v.type != null {
-                type := resolve(v.type->(ASTType))
+                type := resolve(v.type->ASTType)
                 if type = null
                     return null
             }
@@ -1619,7 +1619,7 @@ class IRGenerator {
         context.localVariables.add(lengthVar)
         statements.add(new ValueStatement(new VariableAssignment(f.position, 
                 lengthVar, getMember(f.position, array.createReference(), 
-                    "length")->(Value), 
+                    "length")->Value, 
                 true)))
         def typeParams := new Array<Type>()
         typeParams.add(elementType)
@@ -1655,10 +1655,10 @@ class IRGenerator {
     method convertFor(f:ASTFor):Statement? {
         def indexVar:LocalVariable?
         if f.indexVar != null {
-            def astVar := f.indexVar->(ASTTypedIdentifier)
+            def astVar := f.indexVar->ASTTypedIdentifier
             def type:Type?
             if astVar.type != null {
-                type := resolve(astVar.type->(ASTType))
+                type := resolve(astVar.type->ASTType)
                 if type = null
                     return null
             }
@@ -1674,8 +1674,8 @@ class IRGenerator {
         var list := convertExpression(f.list)
         if list = null
             return null
-        if indexVar = null & list-?>(UnresolvedRange)
-            return convertRangeFor(f, list->(UnresolvedRange))
+        if indexVar = null & list-?>UnresolvedRange
+            return convertRangeFor(f, list->UnresolvedRange)
         list := resolve(list)
         if list = null
             return null
@@ -1735,10 +1735,10 @@ class IRGenerator {
     method signMattersCast(position:Position, v:Value, t:Type, 
             signMatters:Bit):Value? {
         if !signMatters {
-            def srcType := v.type->>(PrimitiveType)
+            def srcType := v.type->>PrimitiveType
             if srcType.isInteger & t.isInteger & 
-                    srcType->(IntType).signed != t->(IntType).signed & 
-                    srcType->>(PrimitiveType).size <= t->>(PrimitiveType).size
+                    srcType->IntType.signed != t->IntType.signed & 
+                    srcType->>PrimitiveType.size <= t->>PrimitiveType.size
                 return v.explicitCast(context, t)
         }
         return v.implicitCast(context, t)
@@ -1834,8 +1834,8 @@ class IRGenerator {
 
     @class
     method unwrapCast(v:Value):Value {
-        if v-?>(Cast)
-            return unwrapCast(v->(Cast).value)
+        if v-?>Cast
+            return unwrapCast(v->Cast.value)
         return v
     }
 
@@ -1863,7 +1863,7 @@ class IRGenerator {
         if u.right = null & u.step = null {
             def params := new Array<Value>()
             if u.left != null
-                params.add(u.left->(Value))
+                params.add(u.left->Value)
             else
                 params.add(new NullLiteral(u.position))
             params.add(v)
@@ -1874,11 +1874,11 @@ class IRGenerator {
         if u.step = null {
             def params := new Array<Value>()
             if u.left != null
-                params.add(u.left->(Value))
+                params.add(u.left->Value)
             else
                 params.add(new NullLiteral(u.position))
             if u.right != null
-                params.add(u.right->(Value))
+                params.add(u.right->Value)
             else
                 params.add(new NullLiteral(u.position))
             params.add(v)
@@ -1888,15 +1888,15 @@ class IRGenerator {
         }
         def params := new Array<Value>()
         if u.left != null
-            params.add(u.left->(Value))
+            params.add(u.left->Value)
         else
             params.add(new NullLiteral(u.position))
         if u.right != null
-            params.add(u.right->(Value))
+            params.add(u.right->Value)
         else
             params.add(new NullLiteral(u.position))
         if u.step != null
-            params.add(u.step->(Value))
+            params.add(u.step->Value)
         else
             params.add(new IntegerLiteral(u.position, 1))
         params.add(v)
@@ -1907,8 +1907,8 @@ class IRGenerator {
             params:ListView<Value>):Value? {
         if name = "[..]" | name = "[...]" {
             -- check for reduced argument methods first
-            if params.length = 4 & params[2]-?>(IntegerLiteral) & 
-                    params[2]->(IntegerLiteral).value = 1 {
+            if params.length = 4 & params[2]-?>IntegerLiteral & 
+                    params[2]->IntegerLiteral.value = 1 {
                 def newParams := new Array<Value>()
                 newParams.add(params[0])
                 newParams.add(params[1])
@@ -1917,7 +1917,7 @@ class IRGenerator {
                 if result != null
                     return result
             }
-            else if params.length = 3 & params[1]-?>(NullLiteral) {
+            else if params.length = 3 & params[1]-?>NullLiteral {
                 def newParams := new Array<Value>()
                 newParams.add(params[0])
                 newParams.add(params[2])
@@ -1925,7 +1925,7 @@ class IRGenerator {
                 if result != null
                     return result
             }
-            else if params.length = 2 & params[0]-?>(NullLiteral) {
+            else if params.length = 2 & params[0]-?>NullLiteral {
                 def newParams := new Array<Value>()
                 newParams.add(params[1])
                 var result := findAssignmentMethod(target, name, newParams)
@@ -1967,8 +1967,8 @@ class IRGenerator {
     -- eliminate quite as much complexity as I had hoped.
     method processSingleAssignment(var left:Value, right:Value, 
             reuse:Bit):Statement? {
-        if left-?>(UnresolvedIndex) {
-            def index := left->(UnresolvedIndex)
+        if left-?>UnresolvedIndex {
+            def index := left->UnresolvedIndex
             def params := new Array<Value>()
             params.add(index.index)
             params.add(right)
@@ -1982,8 +1982,8 @@ class IRGenerator {
                     "'\{right.type.displayName}'", index.index.position)
             return null
         }
-        else if left-?>(UnresolvedSlice) {
-            def slice := left->(UnresolvedSlice)
+        else if left-?>UnresolvedSlice {
+            def slice := left->UnresolvedSlice
             def call := getSliceAssignmentCall(slice, right)
             if call != null
                 return new ValueStatement(call)
@@ -1994,15 +1994,15 @@ class IRGenerator {
                 name := "'[..]:=' (exclusive slice assignment)"
             def types := new Array<String>()
             if slice.left != null
-                types.add(slice.left->(Value).type.displayName)
+                types.add(slice.left->Value.type.displayName)
             else
                 types.add("null")
             if slice.right != null
-                types.add(slice.right->(Value).type.displayName)
+                types.add(slice.right->Value.type.displayName)
             else
                 types.add("null")
             if slice.step != null
-                types.add(slice.step->(Value).type.displayName)
+                types.add(slice.step->Value.type.displayName)
             else
                 types.add("null")
             types.add(right.type.displayName)
@@ -2016,10 +2016,10 @@ class IRGenerator {
         if resolvedLeft = null
             return null
         resolvedLeft := unwrapCast(resolvedLeft)
--*        if left-?>(Unresolved) {
+-*        if left-?>Unresolved {
             -- could be an assignment method
-            var contextValue := left->(Unresolved).contextValue
-            def name := left->(Unresolved).name
+            var contextValue := left->Unresolved.contextValue
+            def name := left->Unresolved.name
             if contextValue = null {
                 if context.isInstance
                     contextValue := context.getSelf(left.position)
@@ -2038,8 +2038,8 @@ class IRGenerator {
                 resolve(left)
             }
         }
-        else if left-?>(AmbiguousReference) {
-            var a := left->(AmbiguousReference)
+        else if left-?>AmbiguousReference {
+            var a := left->AmbiguousReference
             var object := a.context
             if reuse {
                 def reusable := makeReusable(object)
@@ -2052,19 +2052,19 @@ class IRGenerator {
             currentNode.add(implicitCast(right.position, right, a.type))
             close(class(FieldAssignment))
         } *-
-        if resolvedLeft-?>(VariableReference) {
-            def variable := resolvedLeft->(VariableReference).variable
+        if resolvedLeft-?>VariableReference {
+            def variable := resolvedLeft->VariableReference.variable
             def cast := right.implicitCast(context, variable.type)
             def assignment := new VariableAssignment(left.position,
                     variable, cast)
             return new ValueStatement(assignment)
         }
-        else if resolvedLeft-?>(FieldReference) {
-            def fv := resolvedLeft->(FieldReference)
+        else if resolvedLeft-?>FieldReference {
+            def fv := resolvedLeft->FieldReference
             def object:Value
             def finalRight:Value
-            if reuse & fv.object-!>(ClassLiteral) {
-                def old := unwrapCast(right)->(BinaryOperation)
+            if reuse & fv.object-!>ClassLiteral {
+                def old := unwrapCast(right)->BinaryOperation
                 assert old.left = fv
                 object := new ReusedValueDefinition(fv.object)
                 def newRight := new BinaryOperation(old.position, old.operation,
@@ -2081,17 +2081,17 @@ class IRGenerator {
             return new FieldAssignment(fv.position, object, fv.field,
                     finalRight)
         }
-        else if resolvedLeft-?>(PrimitiveArrayIndexValue) {
-            def iv := left->(PrimitiveArrayIndexValue)
+        else if resolvedLeft-?>PrimitiveArrayIndexValue {
+            def iv := left->PrimitiveArrayIndexValue
             if reuse {
-                def old := unwrapCast(right)->(BinaryOperation)
+                def old := unwrapCast(right)->BinaryOperation
                 assert old.left = iv
                 def array := new ReusedValueDefinition(iv.array)
                 def index := new ReusedValueDefinition(iv.index)
                 def newRight := new BinaryOperation(old.position, old.operation,
                         new PrimitiveArrayIndexValue(array, index), old.right)
                 def cast := newRight.implicitCast(context,
-                        array.type->>(PrimitiveArrayType).elementType)
+                        array.type->>PrimitiveArrayType.elementType)
                 return new PrimitiveArrayIndexAssignment(left.position,
                         array.createReference(), index.createReference(), cast)
             }
@@ -2099,14 +2099,14 @@ class IRGenerator {
                 def array := iv.array
                 def index := iv.index
                 def cast := right.implicitCast(context,
-                        array.type->>(PrimitiveArrayType).elementType)
+                        array.type->>PrimitiveArrayType.elementType)
                 return new PrimitiveArrayIndexAssignment(left.position, 
                         array, index, cast)
             }
         }
 -*
-        else if left-?>(PossibleIndexedAssignment) {
-            var pia := left->(PossibleIndexedAssignment)
+        else if left-?>PossibleIndexedAssignment {
+            var pia := left->PossibleIndexedAssignment
             var params := [pia.index, right]
             var call := callAssignmentMethod(pia.context, "[]", params)
             if call != null
@@ -2122,10 +2122,10 @@ class IRGenerator {
             }
         }
 *-
-        else if left-?>(MethodCall) {
+        else if left-?>MethodCall {
             -- assigning to a method call. We need to look for a corresponding
             -- assignment method / field.
-            def mc := left->(MethodCall)
+            def mc := left->MethodCall
             def methodStub := mc.methodStub
             if !methodStub.annotations.isClass & (mc.parameters.length = 0 | 
                     methodStub.name = "[]" | methodStub.name = "[..]" |
@@ -2219,7 +2219,7 @@ class IRGenerator {
             -- deal with situations like int8 += 1 (which resolves into
             -- int8 := int8 + 1, and the right side promotes to an Int32, so we
             -- need to downcast)
-            def resolved := resolve(lvalue)->(Value)
+            def resolved := resolve(lvalue)->Value
             if right.type.isInteger & resolved.type.isInteger
                 right := right.explicitCast(context, resolved.type)
             def newLeft := new Array<Value?>()
@@ -2271,7 +2271,7 @@ class IRGenerator {
     method convertReturn(r:ASTReturn):Statement? {
         if r.value = null
             return new Return(r.position)
-        def converted := convertExpression(r.value->(ASTExpression))
+        def converted := convertExpression(r.value->ASTExpression)
         if converted = null
             return null
         def cast := converted.implicitCast(context, 
@@ -2280,12 +2280,12 @@ class IRGenerator {
     }
 
     method convertAssert(a:ASTAssert):Statement? {
-        def test := resolve(a.test->(ASTExpression))
+        def test := resolve(a.test->ASTExpression)
         if test = null
             return null
         def error:Value?
         if a.error != null {
-            def resolved := resolve(a.error->(ASTExpression))
+            def resolved := resolve(a.error->ASTExpression)
             if resolved = null
                 return null
             if resolved.canImplicitCastTo(context, ClassType.STRING)
@@ -2306,43 +2306,43 @@ class IRGenerator {
     method convertStatement(s:ASTStatement):Statement? {
         switch s.class {
             case class(ASTExpressionStatement): {
-                def expr := resolve(s->(ASTExpressionStatement).expression)
+                def expr := resolve(s->ASTExpressionStatement.expression)
                 if expr != null
                     return new ValueStatement(expr)
                 return null
             }
             case class(ASTIf):
-                return convertIf(s->(ASTIf))
+                return convertIf(s->ASTIf)
             case class(ASTFor):
-                return convertFor(s->(ASTFor))
+                return convertFor(s->ASTFor)
             case class(ASTLoop):
-                return convertLoop(s->(ASTLoop))
+                return convertLoop(s->ASTLoop)
             case class(ASTWhile):
-                return convertWhile(s->(ASTWhile))
+                return convertWhile(s->ASTWhile)
             case class(ASTDo):
-                return convertDo(s->(ASTDo))
+                return convertDo(s->ASTDo)
             case class(ASTSwitch):
-                return convertSwitch(s->(ASTSwitch))
+                return convertSwitch(s->ASTSwitch)
             case class(ASTBreak):
-                return convertBreak(s->(ASTBreak))
+                return convertBreak(s->ASTBreak)
             case class(ASTContinue):
-                return convertContinue(s->(ASTContinue))
+                return convertContinue(s->ASTContinue)
             case class(ASTVarDeclaration):
-                return convertVarDeclaration(s->(ASTVarDeclaration))
+                return convertVarDeclaration(s->ASTVarDeclaration)
             case class(ASTAssignment):
-                return convertAssignment(s->(ASTAssignment))
+                return convertAssignment(s->ASTAssignment)
             case class(ASTReturn):
-                return convertReturn(s->(ASTReturn))
+                return convertReturn(s->ASTReturn)
             case class(ASTBlock):
-                return convertBlock(s->(ASTBlock))
+                return convertBlock(s->ASTBlock)
             case class(ASTTry):
-                return convertTry(s->(ASTTry))
+                return convertTry(s->ASTTry)
             case class(ASTThrow):
-                return convertThrow(s->(ASTThrow))
+                return convertThrow(s->ASTThrow)
             case class(ASTAssert):
-                return convertAssert(s->(ASTAssert))
+                return convertAssert(s->ASTAssert)
             case class(ASTUnreachable):
-                return convertUnreachable(s->(ASTUnreachable))
+                return convertUnreachable(s->ASTUnreachable)
             default:
                 throw new InternalCompilerException("unsupported statement: " +
                         s.class.name, s.position)
@@ -2401,14 +2401,14 @@ class IRGenerator {
     @class
     function toASTType(position:Position, var t:Type):ASTType {
         def nullable:Bit
-        if t-?>(NullableType) {
+        if t-?>NullableType {
             nullable := true
-            t := t->(NullableType).base
+            t := t->NullableType.base
         }
         else
             nullable := false
-        if t-?>(MethodType) {
-            def m := t->(MethodType)
+        if t-?>MethodType {
+            def m := t->MethodType
             def parameters := new Array<ASTType>()
             for p in m.methodParameters
                 parameters.add(toASTType(position, p))
@@ -2416,15 +2416,15 @@ class IRGenerator {
                     toASTType(position, m.returnType), nullable, m.isFunction, 
                     m.immutableMethod)
         }
-        else if t-?>(TupleType) {
-            def tuple := t->(TupleType)
+        else if t-?>TupleType {
+            def tuple := t->TupleType
             def types := new Array<ASTType>()
             for type in tuple.types
                 types.add(toASTType(position, type))
             return new ASTTupleType(position, types, nullable)
         }
-        else if t-?>(GenericType) {
-            def g := t->(GenericType)
+        else if t-?>GenericType {
+            def g := t->GenericType
             def parameters := new Array<ASTType>()
             for p in g.parameters
                 parameters.add(toASTType(position, p))
@@ -2441,8 +2441,8 @@ class IRGenerator {
             def parameters := new Array<ASTParameter>()
             for p in l.parameters {
                 parameters.add(new ASTParameter(p.position, p.identifier, 
-                        p.type->(ASTType), false, false, false))
-                def type := resolve(p.type->(ASTType))
+                        p.type->ASTType, false, false, false))
+                def type := resolve(p.type->ASTType)
                 if type = null
                     return null
                 context.symbolTable[p.identifier] := new LocalVariable(
@@ -2523,7 +2523,7 @@ class IRGenerator {
         }
         def returnType:Type?
         if m.returnType != null {
-            returnType := resolve(m.returnType->(ASTType))
+            returnType := resolve(m.returnType->ASTType)
             if returnType = null
                 return null
         }
@@ -2555,7 +2555,7 @@ class IRGenerator {
         }
         context.captures.push(new HashSet<Variable>())
         -- need to convertBlock in order to grab captures
-        convertBlock(m.body->(ASTBlock))
+        convertBlock(m.body->ASTBlock)
         for f in context.captures.peek
             if f.name = "self"
                 Console.writeLine("CAPTURED SELF AT: \{m.position}")
@@ -2618,10 +2618,10 @@ class IRGenerator {
     function callsOtherSelfConstructor(owner:ClassType,
             statements:ListView<Statement>):Bit {
         if statements.length > 0 {
-            if statements[0]-?>(ValueStatement) {
-                var value := statements[0]->(ValueStatement).value
-                if value-?>(MethodCall) {
-                    var call := value->(MethodCall)
+            if statements[0]-?>ValueStatement {
+                var value := statements[0]->ValueStatement.value
+                if value-?>MethodCall {
+                    var call := value->MethodCall
                     if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
                         return call.methodStub.owner = owner
                 }
@@ -2633,10 +2633,10 @@ class IRGenerator {
     function callsSuperConstructor(owner:ClassType,
             statements:ListView<Statement>):Bit {
         if statements.length > 0 {
-            if statements[0]-?>(ValueStatement) {
-                var value := statements[0]->(ValueStatement).value
-                if value-?>(MethodCall) {
-                    var call := value->(MethodCall)
+            if statements[0]-?>ValueStatement {
+                var value := statements[0]->ValueStatement.value
+                if value-?>MethodCall {
+                    var call := value->MethodCall
                     if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
                         return call.target.type != owner
                 }
@@ -2660,14 +2660,14 @@ class IRGenerator {
         if !m.annotations.isClass {
             def selfType:Type
             if m.annotations.isWrapperMethod
-                selfType := m.owner->>(PrimitiveType)
+                selfType := m.owner->>PrimitiveType
             else
                 selfType := m.owner
             def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
                     selfType, false, false, false, context.currentMethod)
             context.symbolTable[selfParam.name] := selfParam
         }
-        var body := convertBlock(m.body->(ASTBlock))
+        var body := convertBlock(m.body->ASTBlock)
         if m.methodType = MethodNodeType.CONSTRUCTOR {
             def callsOther := callsOtherSelfConstructor(m.owner, body.statements)
             def callsSuper := callsSuperConstructor(m.owner, body.statements)
@@ -2677,7 +2677,7 @@ class IRGenerator {
                     if !f.annotations.isClass & !f.annotations.isThread {
                         if f.initialValue != null {
                             def initialValue := resolve(
-                                    f.initialValue->(ASTExpression))
+                                    f.initialValue->ASTExpression)
                             if initialValue != null {
                                 statements.add(new FieldAssignment(f.position,
                                         context.getSelf(f.position), f,
@@ -2726,7 +2726,7 @@ class IRGenerator {
     }
 
     method inferFieldType(f:FieldNode) {
-        if f.type-!>(UnresolvedType)
+        if f.type-!>UnresolvedType
             return
         if f.initialValue = null {
             context.errors.error("field '\{f.name}' has neither an explicit " +
@@ -2739,7 +2739,7 @@ class IRGenerator {
                     "to a circular dependency involving:")
             for msgField in currentlyInferring
                 msg.append("\n    '\{msgField.name}': \{msgField.position}")
-            context.errors.error(msg->>(String), f.position)
+            context.errors.error(msg->>String, f.position)
             f.type := VoidType.VOID
             return
         }
@@ -2751,7 +2751,7 @@ class IRGenerator {
                     f.owner, false, false, false, context.currentMethod)
             context.symbolTable[selfParam.name] := selfParam
         }        
-        def expr := resolve(f.initialValue->(ASTExpression))
+        def expr := resolve(f.initialValue->ASTExpression)
         context.popSymbolTable()
         context.currentClass := old
         if expr != null {
@@ -2766,22 +2766,22 @@ class IRGenerator {
     method createStub(t:Type) {
         if !t.isPrimitive & t != VoidType.VOID & 
                 t != NativePointerType.NATIVE_POINTER
-        context.getStub(t->>(ClassType))
+        context.getStub(t->>ClassType)
     }
 
     @private
     method createAllStubs() {
         for (_, cl) in context.stubGenerator.types {
-            if cl-?>(ClassType) & cl-!>(GenericParameterType) {
+            if cl-?>ClassType & cl-!>GenericParameterType {
                 def astClass := context.stubGenerator.astClasses[cl.name]
                 if astClass != null {
                     if !astClass[0].isExternal
-                        createStub(cl->(ClassType))  
+                        createStub(cl->ClassType)  
                 } 
                 else {
                     def astEnum := context.stubGenerator.astEnums[cl.name]
                     if astEnum != null & !astEnum[0].isExternal
-                        createStub(cl->(ClassType))  
+                        createStub(cl->ClassType)  
                 }
             }
         }
@@ -2828,12 +2828,12 @@ class IRGenerator {
             if i < components.length - 1 {
                 var next := currentPackage[c]
                 if next = null {
-                    next := new MutablePackage(currentName->>(String))
+                    next := new MutablePackage(currentName->>String)
                     currentPackage[c] := next
                 }
-                else if next-!>(MutablePackage)
+                else if next-!>MutablePackage
                     unreachable
-                currentPackage := next->(MutablePackage)
+                currentPackage := next->MutablePackage
             }
             else {
                 if currentPackage[c] = null
@@ -2978,7 +2978,7 @@ class IRGenerator {
         def root := new MutablePackage("")
         for cl in context.classes.values
             addClass(cl, root)
-        return new Program(root->>(Package), context.classes, classes, 
+        return new Program(root->>Package, context.classes, classes, 
                 context.stubGenerator)
     }
 }

@@ -32,11 +32,11 @@ class Value : Node {
     }
 
     method preferredType(context:Context, preferImmutable:Bit):Type {
-        assert type-!>(UnresolvedType) : 
+        assert type-!>UnresolvedType : 
                 "'\{self}':\{class.name} has unresolved type at \{position}"
         return type
     }
-    @post(@return-!>(UnresolvedType))
+    @post(@return-!>UnresolvedType)
 
     @final
     method preferredVariableType(context:Context):Type {
@@ -72,13 +72,13 @@ class Value : Node {
         return implicitCastCost(context, t) != null
     }
 
-    @pre(t-!>(UnresolvedType))
+    @pre(t-!>UnresolvedType)
     function implicitCastCost(context:Context, t:Type):Int? {
         return type.implicitCastCost(context, t)
     }
 
     @final
-    @pre(t-!>(UnresolvedType))
+    @pre(t-!>UnresolvedType)
     method implicitCast(context:Context, t:Type):Value {
         return implicitCast(position, context, t)
     }
@@ -92,7 +92,7 @@ class Value : Node {
         if type.isPrimitive & !t.isPrimitive
             return wrapped(context, t, false)
         if type.isNullable & !t.isNullable {
-            def base := type->(NullableType).base
+            def base := type->NullableType.base
             if base != t {
                 def nonNull := implicitCast(position, context, base)
                 return nonNull.implicitCast(position, context, t)
@@ -100,7 +100,7 @@ class Value : Node {
             return new Cast(position, self, t, CastType.IMPLICIT)
         }
         if !type.isNullable & t.isNullable {
-            def first := implicitCast(position, context, t->(NullableType).base)
+            def first := implicitCast(position, context, t->NullableType.base)
             return new Cast(position, first, t, CastType.IMPLICIT)
         }
         if type.isWrapper & (t.isPrimitive | t.isWrapper)
@@ -136,7 +136,7 @@ class Value : Node {
         if type.isWrapper & (t.isPrimitive | t.isWrapper)
             return unwrap(context).explicitCast(position, context, t)
         if !type.isPrimitive & t.isPrimitive
-            t := t->>(WrapperType)
+            t := t->>WrapperType
         def result := new Cast(position, self, t, CastType.EXPLICIT)
         if !canExplicitCastTo(context, t) {
             context.errors.error("'\{type.displayName}' cannot possibly be " +
@@ -151,7 +151,7 @@ class Value : Node {
     function findConverter(context:Context, t:Type):MethodStub? {
         var best := Int.MAX
         var bestMatch:MethodStub? := null
-        def stub := context.getStub(type->>(ClassType))
+        def stub := context.getStub(type->>ClassType)
         for m in stub.instanceMethods(context) {
             if m.name = MethodNode.CONVERT_NAME & m.returnType = t {
                 if type.isPrimitive
@@ -161,7 +161,7 @@ class Value : Node {
                 bestMatch := m
             }
         }
-        def targetStub := context.getStub(t->>(ClassType))
+        def targetStub := context.getStub(t->>ClassType)
         def params := new Array<Value>()
         params.add(self)
         for m in targetStub.methods {
@@ -197,8 +197,8 @@ class Value : Node {
             return new Dummy(position, t)
         }
         if type.isNumeric & t.isNumeric {
-            def initial := implicitCast(context, type->>(PrimitiveType))
-            def target := t->>(PrimitiveType)
+            def initial := implicitCast(context, type->>PrimitiveType)
+            def target := t->>PrimitiveType
             if initial.type = target
                 return initial
             return new Cast(position, initial, target, 
@@ -230,15 +230,15 @@ class Value : Node {
     method wrapped(context:Context, t:Type, explicit:Bit):Value {
         def wrapper:WrapperType
         if t.isWrapper
-            wrapper := t->>(WrapperType)
+            wrapper := t->>WrapperType
         else
-            wrapper := type->>(WrapperType)
+            wrapper := type->>WrapperType
         def params := new Array<Value>()
         def cast:Value
         if explicit
-            cast := explicitCast(context, wrapper->>(PrimitiveType))
+            cast := explicitCast(context, wrapper->>PrimitiveType)
         else
-            cast := implicitCast(context, wrapper->>(PrimitiveType))
+            cast := implicitCast(context, wrapper->>PrimitiveType)
         params.add(cast)
         def constructorStub := context.getMethod(new ClassLiteral(position, 
                 wrapper), MethodNode.CONSTRUCTOR_NAME, params)
@@ -255,8 +255,8 @@ class Value : Node {
     @private
     @pre(type.isWrapper)
     method unwrap(context:Context):Value {
-        def wrapper := implicitCast(position, context, type->>(WrapperType))
-        def wrapperStub := context.getStub(wrapper.type->(ClassType))
+        def wrapper := implicitCast(position, context, type->>WrapperType)
+        def wrapperStub := context.getStub(wrapper.type->ClassType)
         def fields := wrapperStub.fields.filter(f => f.name = 'value')
         assert fields.length = 1 : 
                 "expected exactly one field named 'value' in \{wrapperStub}"

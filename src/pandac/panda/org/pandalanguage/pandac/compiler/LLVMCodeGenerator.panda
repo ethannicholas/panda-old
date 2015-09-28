@@ -251,9 +251,9 @@ class LLVMCodeGenerator (CodeGenerator) {
                     case VoidType.VOID: result := "void"
                     case NativePointerType.NATIVE_POINTER: result := "i8*"
                     default: {
-                        var cl := t->>(ClassType)
-                        if cl-?>(MethodType) {
-                            if cl->(MethodType).immutableMethod
+                        var cl := t->>ClassType
+                        if cl-?>MethodType {
+                            if cl->MethodType.immutableMethod
                                 cl := ClassType.METHOD
                             else
                                 cl := ClassType.MUTABLE_METHOD
@@ -292,7 +292,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             result.append(getLLVMType(p.type))
         }
         result.append(")*")
-        return result->>(String)
+        return result->>String
     }
 
     method getLLVMMethodType(t:MethodType):String {
@@ -307,12 +307,12 @@ class LLVMCodeGenerator (CodeGenerator) {
             result.append(getLLVMType(p))
         }
         result.append(")*")
-        return result->>(String)
+        return result->>String
     }
 
     method getSelfType(m:MethodStub):String {
         if m.annotations.isWrapperMethod
-            return getLLVMType(m.owner->>(PrimitiveType))
+            return getLLVMType(m.owner->>PrimitiveType)
         return getLLVMType(m.owner)
     }
 
@@ -349,8 +349,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     method getName(v:Variable):String {
         var result := variableNames[v]
         if result = null {
-            if v-?>(FieldNode) {
-                def field := v->(FieldNode)
+            if v-?>FieldNode {
+                def field := v->FieldNode
                 def name := getName(getStub(field.owner)) + "$" + v.name
                 if field.annotations.isClass
                     result := "class_" + name
@@ -359,7 +359,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             else
                 result := v.name
-            if v-?>(LocalVariable)
+            if v-?>LocalVariable
                 result += variableNames.length
             variableNames[v] := result
         }
@@ -368,7 +368,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     function getClass(cl:ClassType):ClassNode {
-        return classes[cl.name]->(ClassNode)
+        return classes[cl.name]->ClassNode
     }
 
     @private
@@ -379,8 +379,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     @private
     method size(t:Type):Int {
         if t.isPrimitive
-            return t->>(PrimitiveType).size
-        def stub := getStub(t->>(ClassType))
+            return t->>PrimitiveType.size
+        def stub := getStub(t->>ClassType)
         var total := 0
         def sc := stub.superclass
         if sc != null
@@ -411,10 +411,10 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     function endsInBranch(s:Statement):Bit {
-        if s-?>(Return) | s-?>(Break) | s-?>(Continue)
+        if s-?>Return | s-?>Break | s-?>Continue
             return true
-        if s-?>(Block)
-            return s->(Block).endsInBranch
+        if s-?>Block
+            return s->Block.endsInBranch
         return false
     }
     
@@ -427,9 +427,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method writeTypeDescriptor(var t:Type) {
         t := t.unwrapNullable
-        if !t.isPrimitive & t-!>(MethodType) & 
+        if !t.isPrimitive & t-!>MethodType & 
                 t != NativePointerType.NATIVE_POINTER
-            writeTypeDescriptor(getStub(t->>(ClassType)))
+            writeTypeDescriptor(getStub(t->>ClassType))
     }
     
     @protected
@@ -498,7 +498,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method createConstructReference(construct:Construct):String {
         def targetType := construct.type
-        def target := getStub(targetType->>(ClassType))
+        def target := getStub(targetType->>ClassType)
         def cc := getClassConstant(target)
         def cast := getTempVariable()
         def classType := getLLVMType(ClassType.CLASS)
@@ -522,12 +522,12 @@ class LLVMCodeGenerator (CodeGenerator) {
             text.append(getTypedReference(p))
         }
         text.append(")")
-        call(text->>(String))
+        call(text->>String)
         return result
     }
 
     @private
-    @pre(target-!>(ClassLiteral))
+    @pre(target-!>ClassLiteral)
     method getVirtualMethodReference(target:Value, index:Int, 
             type:String):String {
         -- load class constant entry
@@ -571,7 +571,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def m := mc.methodStub
         def methodType := getLLVMMethodType(m)
         -- load class constant entry
-        def cl := getStub(mc.target.type->>(ClassType))
+        def cl := getStub(mc.target.type->>ClassType)
         def enter := createLabel()
         body.writeLine("br label %" + enter)
         createBlock(enter, "itable search entrance")
@@ -651,10 +651,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     method createMethodCallReference(mc:MethodCall):String? {
         def m := mc.methodStub
         def methodRef:String
-        if program.isEffectivelyVirtual(m) & IRGenerator.unwrapCast(mc.target)-!>(Super) {
+        if program.isEffectivelyVirtual(m) & IRGenerator.unwrapCast(mc.target)-!>Super {
             assert !m.annotations.isClass : "expected method not to be @class"
-            def target := mc.target->(Value)
-            def classStub := getStub(target.type->>(ClassType))
+            def target := mc.target->Value
+            def classStub := getStub(target.type->>ClassType)
             if classStub.isInterface
                 methodRef := getInterfaceMethodReference(mc)
             else
@@ -666,7 +666,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def text := new MutableString("fastcc \{getLLVMMethodType(m)} \{methodRef}(")
         def parameters := mc.parameters
         if !m.annotations.isClass {
-            text.append(getTypedReference(mc.target->(Value)))
+            text.append(getTypedReference(mc.target->Value))
             if parameters.length > 0
                 text.append(", ")
         }
@@ -677,11 +677,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         text.append(")")
         if mc.type = VoidType.VOID {
-            call(text->>(String))
+            call(text->>String)
             return null
         }
         else
-            return createCallReference(text->>(String), mc->>(String))
+            return createCallReference(text->>String, mc->>String)
     }
 
     @protected
@@ -692,7 +692,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         assert result != null : 
                 "expected non-null result in createVariableAssignmentReference"
         writeBody("store " + getLLVMType(variable.type) + " " + result + ", " + 
-                lref, va->>(String))
+                lref, va->>String)
         return result
     }
     
@@ -831,7 +831,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         for i, c in chars {
             if i != 0
                 header.write(", ")
-            header.write(getLLVMType(CharType.CHAR) + " " + c->(Int))
+            header.write(getLLVMType(CharType.CHAR) + " " + c->Int)
         }
         header.writeLine("]")
 
@@ -879,7 +879,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def right := getTypedReference(value.right)
         def result := createCommandReference("call { " + typeString + 
                 ", i1 } @llvm." + op + ".with.overflow." + typeString + "(" + 
-                left + ", " + right + ")", value->>(String))
+                left + ", " + right + ")", value->>String)
                 var flag := getTempVariable()
         writeBody(flag + " = extractvalue { " + typeString + 
                 ", i1 } " + result + ", 1", "extract overflow flag")
@@ -899,7 +899,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 !cm.stub.annotations.isOverflow &
                 context.compilerSettings.overflowChecking &
                 !b.permitOverflow {
-            if b.type.isInteger & b.type->(IntType).signed
+            if b.type.isInteger & b.type->IntType.signed
                 op := "s" + op
             else
                 op := "u" + op
@@ -910,7 +910,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         assert left != null & right != null : 
                 "expected left and right to be non-null in createBinaryOperationReference"
         return createCommandReference(op + " " + getLLVMType(b.left.type) + 
-                " " + left + ", " + right, b->>(String))
+                " " + left + ", " + right, b->>String)
     }
     
     @private
@@ -921,7 +921,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if operandType.isReal
             op := fop
         else if operandType = CharType.CHAR | (operandType.isInteger & 
-                !operandType->(IntType).signed)
+                !operandType->IntType.signed)
             op := uop
         else
             op := sop
@@ -941,7 +941,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method createPrimitiveArrayIndexValueReference(iv:PrimitiveArrayIndexValue):String {
         def ep := getPrimitiveArrayElementPointer(iv.array, iv.index)
         return createCommandReference("load \{getLLVMType(iv.type)}* \{ep}", 
-                iv->>(String))
+                iv->>String)
     }
     
     @pre(and.operation = BinaryOperationType.AND)
@@ -1008,25 +1008,25 @@ class LLVMCodeGenerator (CodeGenerator) {
                 var valueRef := getReference(u.operand)
                 assert valueRef != null : "expected non-null valueRef"
                 return createCommandReference(op + " " + getLLVMType(u.type) + 
-                        " " + zeroRef + ", " + valueRef, u->>(String))
+                        " " + zeroRef + ", " + valueRef, u->>String)
             }
             case UnaryOperationType.NOT: {
                 return createCommandReference("xor " + 
-                        getTypedReference(u.operand) + ", 1", u->>(String))
+                        getTypedReference(u.operand) + ", 1", u->>String)
             }
             case UnaryOperationType.BITWISE_NOT: {
                 return createCommandReference("xor " + 
-                        getTypedReference(u.operand) + ", -1", u->>(String))
+                        getTypedReference(u.operand) + ", -1", u->>String)
             }
             default: unreachable
         }
     }
 
     method createNewPrimitiveArrayWithLengthReference(na:NewPrimitiveArrayWithLength):String {
-        def arrayClass := getStub(na.type->>(ClassType))
+        def arrayClass := getStub(na.type->>ClassType)
         def cc := getClassConstant(arrayClass)
         def cast := getTempVariable()
-        def elementType := na.type->>(PrimitiveArrayType).elementType
+        def elementType := na.type->>PrimitiveArrayType.elementType
         def classType := getLLVMType(ClassType.CLASS)
         writeBody("\{cast} = bitcast \{cc.type}* @\{cc.name} to \{classType}",
                 "convert class pointer")
@@ -1042,10 +1042,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
     
     method createPrimitiveArrayCopyReference(na:PrimitiveArrayCopy):String {
-        def arrayClass := getStub(na.type->(PrimitiveArrayType))
+        def arrayClass := getStub(na.type->PrimitiveArrayType)
         def cc := getClassConstant(arrayClass)
         def cast := getTempVariable()
-        def elementType := na.type->(PrimitiveArrayType).elementType
+        def elementType := na.type->PrimitiveArrayType.elementType
         def classType := getLLVMType(ClassType.CLASS)
         writeBody("\{cast} = bitcast \{cc.type}* @\{cc.name} to \{classType}", 
                 "convert class pointer")
@@ -1065,8 +1065,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
        
     method createNewPrimitiveArrayWithValuesReference(na:NewPrimitiveArrayWithValues):String {
-        def elementType := na.type->(PrimitiveArrayType).elementType
-        def arrayClass := getStub(na.type->(PrimitiveArrayType))
+        def elementType := na.type->PrimitiveArrayType.elementType
+        def arrayClass := getStub(na.type->PrimitiveArrayType)
         def cc := getClassConstant(arrayClass)
         def cast := getTempVariable()
         def classType := getLLVMType(ClassType.CLASS)
@@ -1116,13 +1116,13 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         def code := ("i8* (\{classType}, i32, i32, ...)* " +
                 "@pandaNewPrimitiveArrayWithValues(\{classType} \{cast}, i32 " + 
-                "\{na.values.length}, i32 \{type}")->>(MutableString)
+                "\{na.values.length}, i32 \{type}")->>MutableString
         for r in references {
             code.append(", ")
             code.append(r)
         }
         code.append(")")
-        def alloc := createCallReference(code->>(String), "allocate " + 
+        def alloc := createCallReference(code->>String, "allocate " + 
                 na.type.name)
         def result := createCommandReference("bitcast i8* \{alloc} to " + 
                 getLLVMType(na.type), "cast array to final type")
@@ -1142,7 +1142,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 return createBinaryOperationReference(b, null, "fdiv")
             case BinaryOperationType.INT_DIVIDE: {
                 var op:String
-                if b.type->(IntType).signed
+                if b.type->IntType.signed
                     op := "sdiv"
                 else
                     op := "udiv"
@@ -1153,7 +1153,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case BinaryOperationType.SHIFT_LEFT: 
                 return createBinaryOperationReference(b, "shl", null)
             case BinaryOperationType.SHIFT_RIGHT: {
-                if b.type->(IntType).signed
+                if b.type->IntType.signed
                     return createBinaryOperationReference(b, "ashr", null)
                 else
                     return createBinaryOperationReference(b, "lshr", null)
@@ -1203,8 +1203,8 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     method callClassInit(cl:ClassStub) {
-        if currentMethod->(MethodNode).stub.name = MethodNode.CLASS_INIT_NAME &
-                currentMethod->(MethodNode).stub.owner = cl.type
+        if currentMethod->MethodNode.stub.name = MethodNode.CLASS_INIT_NAME &
+                currentMethod->MethodNode.stub.owner = cl.type
             return
         def classInit := cl.methods.filter(
                 m => m.name = MethodNode.CLASS_INIT_NAME)
@@ -1224,7 +1224,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             return "@" + getName(field)
         }
         else {
-            def cl := getStub(object.type->>(ClassType))
+            def cl := getStub(object.type->>ClassType)
             def fields := cl.instanceFields(context)
             for i, f in fields {
                 if f = field {
@@ -1255,14 +1255,14 @@ class LLVMCodeGenerator (CodeGenerator) {
             def threadLocalId := getTempVariable()
             def symbolTable := context.getSymbolTable(context.getStub(owner))
             def indexField := symbolTable[fr.field.name + 
-                    StubGenerator.INDEX_SUFFIX]->(FieldNode)
+                    StubGenerator.INDEX_SUFFIX]->FieldNode
             body.writeLine("load i32* @" + getName(indexField))
             def callString := new MutableString("fastcc " + getLLVMType(type) + 
                     " @panda$core$Panda$getThreadLocal" + suffix + 
                     "(i32 " + threadLocalId + ", ")
             def initializer := symbolTable[
                         IRGenerator.getThreadLocalInitializerName(fr.field)
-                    ]->(Methods?)
+                    ]->Methods?
             if initializer != null {
                 callString.append(
                         getLLVMType(NativePointerType.NATIVE_POINTER) + 
@@ -1272,7 +1272,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             else
                 callString.append("i8* null)") -- no initializer function
-            var ref := createCallReference(callString->>(String), fr->>(String))
+            var ref := createCallReference(callString->>String, fr->>String)
             if !fr.type.isPrimitive & fr.type != ClassType.OBJECT {
                 def cast := getTempVariable()
                 writeBody(cast + " = bitcast " + 
@@ -1284,7 +1284,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         def ep := getFieldPointer(fr.object, fr.field)
         return createCommandReference(
-                "load \{getLLVMType(fr.field.type)}* \{ep}", fr->>(String))
+                "load \{getLLVMType(fr.field.type)}* \{ep}", fr->>String)
     }
 
     @protected
@@ -1310,7 +1310,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             if actualSize > destSize
                 -- int narrowing
                 command := "trunc"
-            else if actualType->(IntType).signed
+            else if actualType->IntType.signed
                 -- signed int widening
                 command := "sext"
             else
@@ -1330,7 +1330,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             command := "fptosi"
         }
         else if actualType.isInteger & destType.isReal {
-            if actualType->(IntType).signed {
+            if actualType->IntType.signed {
                 -- signed int to real
                 command := "sitofp"
             }
@@ -1393,7 +1393,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                             c.value + " -> " + ClassType.OBJECT().name)
                 }
                 var callString := ("fastcc void @" + getName(check) + 
-                        "(")->>(MutableString)
+                        "(")->>MutableString
                 callString.append(getLLVMType(ClassType.OBJECT()) + " " + 
                         intermediate)
                 for i in 1 ... params.length - 1 {
@@ -1401,7 +1401,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     callString.append(getTypedReference(params[i]))
                 }
                 callString.append(")")
-                call(callString->>(String), null, "check cast " + c + ":" + 
+                call(callString->>String, null, "check cast " + c + ":" + 
                         c.position)*-
             }
             def actualLLVMType := getLLVMType(actualType)
@@ -1418,10 +1418,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method createVariableReference(vr:VariableReference):String {
         var variable := vr.variable
-        if variable-?>(Parameter) & variable.varType = VariableType.DEF
+        if variable-?>Parameter & variable.varType = VariableType.DEF
             return "%" + getName(variable)
         return createCommandReference("load " + getLLVMType(vr.type) + "* %" + 
-                getName(variable), vr->>(String))
+                getName(variable), vr->>String)
     }
         
     @protected
@@ -1447,11 +1447,11 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     @math(overflow)
     method createRealLiteralReference(r:RealLiteral):String {
-        var bits := Panda.real64Bits(r.value)->>(UInt64)
+        var bits := Panda.real64Bits(r.value)->>UInt64
         -- LLVM's float representation is completely insane -- it's not a float,
         -- it's a double with the 29 low-order bits zeroed
         if r.type = RealType.REAL32
-            bits := bits && ((-1)->(UInt64) << 29->(UInt64))
+            bits := bits && ((-1)->UInt64 << 29->UInt64)
 --        return "0x\{bits,0>16:h}"
         return "0x0000000000000000"
     }
@@ -1462,7 +1462,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         var methodValue := methodReferences[stub]
         if methodValue = null {
             methodValue := "@" + getName(stub) + "_value"
-            def methodClass := m.type->>(ClassType)
+            def methodClass := m.type->>ClassType
             def cc := getClassConstant(getStub(methodClass))
             header.writeLine("\{methodValue} = private unnamed_addr " +
                     "constant %\{getName(getStub(methodClass))} { " + 
@@ -1485,7 +1485,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             offset += 1 -- shimmed
         -- the "real" type of the method includes a reference to the method 
         -- object before the formal parameters
-        def baseType := d.methodValue.type->>(MethodType)
+        def baseType := d.methodValue.type->>MethodType
         def realParameters := new Array<Type>()
         realParameters.add(baseType)
         realParameters.addAll(baseType.methodParameters)
@@ -1493,7 +1493,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 baseType.isMethod, baseType.immutableMethod)
         def methodPtr := getVirtualMethodReference(d.methodValue, offset,
                 getLLVMMethodType(realType))
-        def c := "fastcc "->>(MutableString)
+        def c := "fastcc "->>MutableString
         c.append(getLLVMMethodType(realType))
         c.append(" ")
         c.append(methodPtr)
@@ -1509,7 +1509,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             result := null
         else
             result := getTempVariable()
-        call(c->>(String), result, d->>(String))
+        call(c->>String, result, d->>String)
         return result
     }
 
@@ -1526,30 +1526,30 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method createReference(v:Value):String? {
         switch v.class {
-            case class(VariableAssignment): return createVariableAssignmentReference(v->(VariableAssignment))
-            case class(UnaryOperation): return createUnaryOperationReference(v->(UnaryOperation))
-            case class(BinaryOperation): return createBinaryOperationReference(v->(BinaryOperation))
-            case class(Construct): return createConstructReference(v->(Construct))
-            case class(MethodCall): return createMethodCallReference(v->(MethodCall))
-            case class(StringLiteral): return getStringConstantReference(v->(StringLiteral).value)
-            case class(IntegerLiteral): return v->(IntegerLiteral).value->>(String)
-            case class(RealLiteral): return createRealLiteralReference(v->(RealLiteral))
-            case class(VariableReference): return createVariableReference(v->(VariableReference))
-            case class(FieldReference): return createFieldReference(v->(FieldReference))
-            case class(Cast): return createCastReference(v->(Cast))
-            case class(BitLiteral): return v->(BitLiteral).value->>(String)
-            case class(NewPrimitiveArrayWithLength): return createNewPrimitiveArrayWithLengthReference(v->(NewPrimitiveArrayWithLength))
-            case class(PrimitiveArrayCopy): return createPrimitiveArrayCopyReference(v->(PrimitiveArrayCopy))
-            case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->(NewPrimitiveArrayWithValues))
-            case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->(PrimitiveArrayIndexValue))
+            case class(VariableAssignment): return createVariableAssignmentReference(v->VariableAssignment)
+            case class(UnaryOperation): return createUnaryOperationReference(v->UnaryOperation)
+            case class(BinaryOperation): return createBinaryOperationReference(v->BinaryOperation)
+            case class(Construct): return createConstructReference(v->Construct)
+            case class(MethodCall): return createMethodCallReference(v->MethodCall)
+            case class(StringLiteral): return getStringConstantReference(v->StringLiteral.value)
+            case class(IntegerLiteral): return v->IntegerLiteral.value->>String
+            case class(RealLiteral): return createRealLiteralReference(v->RealLiteral)
+            case class(VariableReference): return createVariableReference(v->VariableReference)
+            case class(FieldReference): return createFieldReference(v->FieldReference)
+            case class(Cast): return createCastReference(v->Cast)
+            case class(BitLiteral): return v->BitLiteral.value->>String
+            case class(NewPrimitiveArrayWithLength): return createNewPrimitiveArrayWithLengthReference(v->NewPrimitiveArrayWithLength)
+            case class(PrimitiveArrayCopy): return createPrimitiveArrayCopyReference(v->PrimitiveArrayCopy)
+            case class(NewPrimitiveArrayWithValues): return createNewPrimitiveArrayWithValuesReference(v->NewPrimitiveArrayWithValues)
+            case class(PrimitiveArrayIndexValue): return createPrimitiveArrayIndexValueReference(v->PrimitiveArrayIndexValue)
             case class(NullLiteral): return "null"
-            case class(ClassLiteral): return createClassLiteralReference(v->(ClassLiteral))
-            case class(Unwrap): return createReference(v->(Unwrap).value)
-            case class(MethodReference): return createMethodReference(v->(MethodReference))
-            case class(DynamicCall): return createDynamicCallReference(v->(DynamicCall))
-            case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->(ReusedValueDefinition))
-            case class(ReusedValue): return createReusedValueReference(v->(ReusedValue)) 
-            case class(Super): return createSuperReference(v->(Super))
+            case class(ClassLiteral): return createClassLiteralReference(v->ClassLiteral)
+            case class(Unwrap): return createReference(v->Unwrap.value)
+            case class(MethodReference): return createMethodReference(v->MethodReference)
+            case class(DynamicCall): return createDynamicCallReference(v->DynamicCall)
+            case class(ReusedValueDefinition): return createReusedValueDefinitionReference(v->ReusedValueDefinition)
+            case class(ReusedValue): return createReusedValueReference(v->ReusedValue) 
+            case class(Super): return createSuperReference(v->Super)
             default: {
                 throw new CompilerException("unsupported value class: " + 
                         "\{v.class.name}: \{v}", v.position)
@@ -1594,7 +1594,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def arrayContentsPointer := createCommandReference("getelementptr " +
                 "inbounds \{arrayRef}, i32 0, i32 \{ARRAY_CONTENTS_INDEX}", 
                 "get pointer to pointer to array contents")
-        def elementType := array.type->>(PrimitiveArrayType).elementType
+        def elementType := array.type->>PrimitiveArrayType.elementType
         def arrayContents := createCommandReference("load " + 
                 getLLVMType(elementType) + 
                 "** " + arrayContentsPointer, 
@@ -1607,12 +1607,12 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method generatePrimitiveArrayIndexAssignmentCode(ia:PrimitiveArrayIndexAssignment) {
         def ep := getPrimitiveArrayElementPointer(ia.array, ia.index)
-        def elementType := ia.array.type->>(PrimitiveArrayType).elementType
+        def elementType := ia.array.type->>PrimitiveArrayType.elementType
         def lref := getLLVMType(elementType) + "* " + ep
         def ref := getReference(ia.value) 
         assert ref != null : "expected non-null ref in generateIndexAssignmentCode"
         writeBody("store \{getLLVMType(elementType)} \{ref}, \{lref}", 
-                ia->>(String))
+                ia->>String)
     }
     
     @protected
@@ -1623,14 +1623,14 @@ class LLVMCodeGenerator (CodeGenerator) {
             def vref := getReference(fa.value)
             assert vref != null : "expected non-null vref in generateFieldAssignmentCode"
             writeBody("store \{getLLVMType(fa.fieldNode.type)} \{vref}, " + 
-                    lref, fa->>(String))
+                    lref, fa->>String)
         }
         else {
             def owner := context.getStub(fa.fieldNode.owner)
             callClassInit(owner)
             def threadLocalId := getTempVariable()
             def indexField := owner.symbols[fa.fieldNode.name + 
-                    StubGenerator.INDEX_SUFFIX]->(Variable)
+                    StubGenerator.INDEX_SUFFIX]->Variable
             body.writeLine("load i32* @" + getName(indexField))
             var ref := getReference(fa.value)
             assert ref != null : "expected non-null ref in generateFieldAssignmentCode"
@@ -1690,7 +1690,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if value = null
             body.writeLine("ret void ; " + ret)
         else
-            writeBody("ret " + getTypedReference(value), ret->>(String))
+            writeBody("ret " + getTypedReference(value), ret->>String)
     }
     
     @protected
@@ -1802,7 +1802,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def loopNode := findLoop(br.label)
         def endLabel := endLabels[loopNode]
         assert endLabel != null : "expected non-null endLabel in generateBreakCode"
-        writeBody("br label %" + endLabel, br->>(String))
+        writeBody("br label %" + endLabel, br->>String)
     }
 
     @protected
@@ -1810,7 +1810,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def loopNode := findLoop(c.label)
         def nextLabel := nextLabels[loopNode]
         assert nextLabel != null : "expected non-null nextLabel in generateContinueCode"
-        writeBody("br label %" + nextLabel, c->>(String))
+        writeBody("br label %" + nextLabel, c->>String)
     }
 
     @protected
@@ -1858,29 +1858,29 @@ class LLVMCodeGenerator (CodeGenerator) {
     @protected
     method generateStatementCode(s:Statement) {
         if debug
-            body.writeLine("; statement:" + s->>(String).replace("\n", "\n; (statement cont) "))
+            body.writeLine("; statement:" + s->>String.replace("\n", "\n; (statement cont) "))
         switch s.class {
             case class(PrimitiveArrayIndexAssignment): 
-                    generatePrimitiveArrayIndexAssignmentCode(s->(PrimitiveArrayIndexAssignment))
+                    generatePrimitiveArrayIndexAssignmentCode(s->PrimitiveArrayIndexAssignment)
             case class(FieldAssignment): 
-                    generateFieldAssignmentCode(s->(FieldAssignment))
+                    generateFieldAssignmentCode(s->FieldAssignment)
             case class(ValueStatement):
-                    generateValueStatementCode(s->(ValueStatement))
-            case class(If): generateIfCode(s->(If))
-            case class(While): generateWhileCode(s->(While))
-            case class(Do): generateDoCode(s->(Do))
-            case class(Loop): generateLoopCode(s->(Loop))
+                    generateValueStatementCode(s->ValueStatement)
+            case class(If): generateIfCode(s->If)
+            case class(While): generateWhileCode(s->While)
+            case class(Do): generateDoCode(s->Do)
+            case class(Loop): generateLoopCode(s->Loop)
             case class(LoopWithContinueBlock): 
                     generateLoopWithContinueBlockCode(
-                        s->(LoopWithContinueBlock))
-            case class(Block): generateBlockCode(s->(Block))
-            case class(Return): generateReturnCode(s->(Return))
-            case class(Break): generateBreakCode(s->(Break))
-            case class(Continue): generateContinueCode(s->(Continue))
-            case class(Assert): generateAssertCode(s->(Assert))
-            case class(Throw): generateThrowCode(s->(Throw))
-            case class(Try): generateTryCode(s->(Try))
-            case class(Unreachable): generateUnreachableCode(s->(Unreachable))
+                        s->LoopWithContinueBlock)
+            case class(Block): generateBlockCode(s->Block)
+            case class(Return): generateReturnCode(s->Return)
+            case class(Break): generateBreakCode(s->Break)
+            case class(Continue): generateContinueCode(s->Continue)
+            case class(Assert): generateAssertCode(s->Assert)
+            case class(Throw): generateThrowCode(s->Throw)
+            case class(Try): generateTryCode(s->Try)
+            case class(Unreachable): generateUnreachableCode(s->Unreachable)
             default: 
                 throw new InternalCompilerException("unsupported statement: " + 
                         s, s.position)
@@ -1962,7 +1962,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         body.writeLine()
         if debug
-            body.writeLine("; method: " + m->>(String).replace("\n", "\n; (method cont) "))
+            body.writeLine("; method: " + m->>String.replace("\n", "\n; (method cont) "))
         body.write("declare ")
         if !external
             body.write("fastcc ")
@@ -2003,7 +2003,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def external := m.stub.annotations.isExternal
         body.writeLine()
         if debug
-            body.writeLine("; method: " + m->>(String).replace("\n", "\n; (method cont) "))
+            body.writeLine("; method: " + m->>String.replace("\n", "\n; (method cont) "))
         if external
             body.write("declare ")
         else
