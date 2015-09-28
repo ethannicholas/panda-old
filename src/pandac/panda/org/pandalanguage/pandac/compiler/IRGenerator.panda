@@ -586,9 +586,10 @@ class IRGenerator {
         def left := resolve(a.left)
         if left = null
             return null
-        def right := context.resolveType(a.right)
-        if right = null
+        def rightMatch := context.resolveTypeWithExtras(a.right)
+        if rightMatch = null
             return null
+        def right, extras := rightMatch
         if a.operation != ArrowOperationType.CONVERT &
                 !left.canExplicitCastTo(context, right) {
             context.errors.error("'\{left.type.displayName}' cannot " +
@@ -596,23 +597,30 @@ class IRGenerator {
                     a.position)
             return null
         }
+        var result:Value
         switch a.operation {
             case ArrowOperationType.CAST:
-                return left.explicitCast(a.position, context, right)
+                result := left.explicitCast(a.position, context, right)
             case ArrowOperationType.INSTANCE_OF:
-                return convertInstanceOf(a.position, left, right)
+                result := convertInstanceOf(a.position, left, right)
             case ArrowOperationType.NOT_INSTANCE_OF: {
                 def instanceOf := convertInstanceOf(a.position, left, right)
                 if instanceOf = null
                     return null
-                return new UnaryOperation(a.position, UnaryOperationType.NOT,
+                result := new UnaryOperation(a.position, UnaryOperationType.NOT,
                         instanceOf)
             }
             case ArrowOperationType.CONVERT:
-                return left.convert(context, right)
+                result := left.convert(context, right)
             default:
                 unreachable
         }
+        for e in extras {
+            result := getMember(result.position, result, e)
+            if result = null
+                return null
+        }
+        return result
     }
 
     function check(v:Value?):Bit {

@@ -394,22 +394,43 @@ class StubGenerator {
     }
 
     method resolveType(type:ASTType, symbols:MapView<String, Symbol>):Type? {
+        def result := resolveTypeWithExtras(type, symbols)
+        if result = null
+            return null
+        if result[1].length > 0 {
+            errors.error("type '\{type}' not found", type.position)
+            return null
+        }
+        return result[0]
+    }
+
+    method resolveTypeWithExtras(type:ASTType, 
+            symbols:MapView<String, Symbol>):(Type, ListView<String>)? {
         var result:Type?
         if type-?>(ASTClassType) {
             def name := type->(ASTClassType).name
+            def gps := type->(ASTClassType).genericParameters
             var base:Type?
             def baseSymbol := symbols[name]
             if baseSymbol-!>(TypeSymbol) {
                 base := types[name]
                 if base = null {
+                    if gps = null {
+                        def components := name.split(".")
+                        for i in components.length - 2 ... 0 by -1 {
+                            def symbol := symbols[components[0 ... i].join(".")]
+                            if symbol-?>(TypeSymbol) {
+                                return (symbol->(TypeSymbol).type, 
+                                        components[i + 1..])
+                            }
+                        }
+                    }
                     errors.error("type '\{type}' not found", type.position)
-                    Panda.dumpStack()
                     return null
                 }
             }
             else
                 base := baseSymbol->(TypeSymbol).type
-            def gps := type->(ASTClassType).genericParameters
             if gps != null {
                 if base-!>(ClassType) {
                     errors.error("type '\{base.name}' does not take generic " +
@@ -485,9 +506,9 @@ class StubGenerator {
         }
         def cached := types[result.name]
         if cached != null
-            return cached
+            return (cached, [])
         types[result.name] := result
-        return result
+        return (result, [])
     }
 
     @private
