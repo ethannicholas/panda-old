@@ -30,9 +30,11 @@ class HashMapIterator<K, V, R> (Iterator<R>) {
     def map:HashMap<K, V>
     var index := 0
     var entry:MutableMapEntry<K, V>?
+    var changeCount:Int
 
     constructor(map:HashMap<K, V>) {
         self.map := map
+        self.changeCount := map.changeCount
         entry := map.contents[0]
         while entry = null {
             index += 1
@@ -53,7 +55,10 @@ class HashMapIterator<K, V, R> (Iterator<R>) {
     @override
     @self
     method next():R {
-        assert entry != null
+        assert changeCount = map.changeCount : class.name + " was modified " +
+                "during iteration"
+        assert entry != null : "null entry at index " + index + 
+                ", map length " + map.contents.length
         def result := result(entry)
         entry := entry.next
         while entry = null {
@@ -134,6 +139,9 @@ class HashMap<K, V> (Map<K, V>) {
     
     @private 
     var threshold:Int32
+
+    @private
+    var changeCount := 0
     
     ============================================================================
     Creates a new, empty `HashMap`.
@@ -220,6 +228,7 @@ class HashMap<K, V> (Map<K, V>) {
     @override
     @self
     method []:=(key:K, value:V) {
+        changeCount += 1
         var index := indexFor(key)
         var e := contents[index]
         while e != null & e.key != key
@@ -239,6 +248,7 @@ class HashMap<K, V> (Map<K, V>) {
     @override
     @self
     method remove(key:K) {
+        changeCount += 1
         def index := indexFor(key)
         var e := contents[index]
         -- not found
@@ -280,6 +290,7 @@ class HashMap<K, V> (Map<K, V>) {
     @override
     @self
     method clear() {
+        changeCount += 1
         _length := 0
         contents := new PrimitiveArray<MutableMapEntry<K, V>?>(
                 DEFAULT_LENGTH)

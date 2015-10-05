@@ -98,8 +98,8 @@ class JavaCodeGenerator (CodeGenerator) {
     constructor(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         def errors := new FatalErrorReporter()
-        self.context := new Context(p.stubGenerator, p.root, p.stubs, errors, 
-                compilerSettings)
+        self.context := new IRGenerator(p.root, p.stubs, p.stubGenerator, 
+                compilerSettings, errors).context
         self.methodNamer := new MethodNamer(context, 
                 new JavaMethodNamingStrategy())
     }
@@ -224,6 +224,7 @@ class JavaCodeGenerator (CodeGenerator) {
         return s.replace("<", "$LT").replace(">", "$GT")
                 .replace(",", "$C").replace("(", "$LP").replace(")", "$RP")
                 .replace("=", "$EQ").replace("?", "$Z").replace(" ", "")
+                .replace("*", "$MUL").replace("&", "$AND")
     }
 
     method getJavaType(t:Type):String {
@@ -745,6 +746,8 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         else if v-?>ReusedValue
             generateReusedValueCode(v->ReusedValue)
+--       else if v-?>MethodReference
+--           generateMethodReferenceCode(v->MethodReference)
         else if v-?>DynamicCall
             generateDynamicCallCode(v->DynamicCall)
         else if v-?>Super
@@ -1372,9 +1375,8 @@ class JavaCodeGenerator (CodeGenerator) {
             }
         }
         else {
-            if superclass != null {
+            if superclass != null
                 out.write(" extends " + getName(getStub(superclass)))
-            }
             if cl.stub.type = ClassType.OBJECT
                 out.write(" implements java.lang.Cloneable")
             else if isMethodClass(cl.stub.type) {

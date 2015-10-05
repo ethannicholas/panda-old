@@ -160,13 +160,15 @@ class IRGenerator {
 
     def currentlyInferring := new HashSet<FieldNode>()
 
+    var addMethods := true
+
     @thread
     var nameCount := 0
 
     constructor(root:Package, classes:MapView<String, ClassStub>,
             stubGenerator:StubGenerator, compilerSettings:CompilerSettings,
             errors:ErrorReporter) {
-        context := new Context(stubGenerator, root, classes, errors, 
+        context := new Context(self, stubGenerator, root, classes, errors, 
                 compilerSettings)
     }
 
@@ -686,11 +688,20 @@ class IRGenerator {
         }
         if s-?>Variable {
             def v := s->Variable
-            if v-?>Parameter & v->Parameter.owner != context.currentMethod
-                context.captures.peek.add(v)
-            else if v-?>LocalVariable & 
-                    v->LocalVariable.owner != context.currentMethod
-                context.captures.peek.add(v)
+            if context.captures.length > 0 & 
+                    (v-?>Parameter | v-?>LocalVariable) {
+                def owner:MethodStub
+                if v-?>Parameter
+                    owner := v->Parameter.owner
+                else
+                    owner := v->LocalVariable.owner
+                for i in 0 .. context.captures.length {
+                    def capture := context.captures.peek(i)
+                    if owner = capture[0]
+                        break
+                    capture[1].add(v)
+                }
+            }
             return new VariableReference(position, s->Variable)
         }
         if s-?>Package
@@ -707,6 +718,35 @@ class IRGenerator {
         if context.isInstance
             return getMember(position, context.getSelf(position), name)
         return new UnresolvedIdentifier(position, name, null)
+    }
+
+    method makeClosure(ref:MethodReference):Value {
+        def parameters := new Array<ASTParameter>()
+        if ref.target-!>ClassLiteral
+            unreachable
+        for p in ref.methodStub.parameters {
+            parameters.add(new ASTParameter(p.position, p.name, 
+                    toASTType(p.position, p.type), p.isVar, p.isConvert, 
+                    p.isVarArg))
+        }
+        def nameComps := ref.target->ClassLiteral.value.name.split(".")
+        var classRef:ASTExpression := new ASTIdentifier(ref.position, nameComps[0])
+        for n in nameComps[1..]
+            classRef := new ASTDotExpression(classRef, n)
+        def methodRef := new ASTDotExpression(classRef, ref.methodStub.name)
+        def parameterRefs := new Array<ASTExpression>()
+        for p in ref.methodStub.parameters
+            parameterRefs.add(new ASTIdentifier(ref.position, p.name))
+        def call := new ASTCallExpression(methodRef, parameterRefs)
+        def statement:ASTStatement
+        if ref.methodStub.returnType != VoidType.VOID
+            statement := new ASTReturn(ref.position, call)
+        else
+            statement := new ASTExpressionStatement(call)
+        def value := new ASTMethodValue(ref.position, ref.methodStub.methodType, 
+                parameters, toASTType(ref.position, ref.methodStub.returnType), 
+                new ASTBlock(ref.position, [statement]))
+        return resolve(value)
     }
 
     method resolve(v:Value):Value? {
@@ -772,6 +812,11 @@ class IRGenerator {
                 return new NewPrimitiveArrayWithValues(n.position, 
                         type->>PrimitiveArrayType, casted)
             }
+        }
+        if type-?>MethodType | type-?>TupleType {
+            context.errors.error("type '\{type.displayName}' cannot be " +
+                    "instantiated", n.position)
+            return null
         }
         def stub := context.getStub(type->>ClassType)
         if stub.isInterface {
@@ -2269,8 +2314,19 @@ class IRGenerator {
     }
 
     method convertReturn(r:ASTReturn):Statement? {
-        if r.value = null
+        if r.value = null {
+            if context.currentMethod.returnType != VoidType.VOID {
+                context.errors.error("return expected a value of type '" +
+                        context.currentMethod.returnType.displayName + "'", 
+                        r.position)
+            }
             return new Return(r.position)
+        }
+        if context.currentMethod.returnType = VoidType.VOID {
+            context.errors.error("cannot return a value in a method with no " +
+                    "return type", r.position)
+            return null
+        }
         def converted := convertExpression(r.value->ASTExpression)
         if converted = null
             return null
@@ -2399,7 +2455,9 @@ class IRGenerator {
     }
 
     @class
-    function toASTType(position:Position, var t:Type):ASTType {
+    function toASTType(position:Position, var t:Type):ASTType? {
+        if t = VoidType.VOID
+            return null
         def nullable:Bit
         if t-?>NullableType {
             nullable := true
@@ -2449,16 +2507,29 @@ class IRGenerator {
                         p.position, p.identifier, type, VariableType.DEF,
                         context.currentMethod)
             }
-            def expr := resolve(l.value)
+            def ir := new IRGenerator(context.root, context.classes,
+                    context.stubGenerator, context.compilerSettings,
+                    context.errors)
+            ir.context.pushSymbolTable()
+            ir.context.symbolTable.addAll(context.symbolTable)
+            def expr := ir.resolve(l.value)
             if expr = null
                 return null
             context.popSymbolTable()
+            var returnType := expr.type
+            if returnType = VoidType.VOID {
+                context.errors.error("lambda must return a value",
+                        expr.position)
+                return null
+            }
+            if returnType = StringOrCharType.STRING_OR_CHAR
+                returnType := CharType.CHAR
             def statements := new Array<ASTStatement>()
             statements.add(new ASTReturn(l.position, l.value))
             def body := new ASTBlock(l.position, statements)
             def methodValue := new ASTMethodValue(l.position, 
                     MethodNodeType.FUNCTION, parameters, 
-                    toASTType(l.position, expr.type), body)
+                    toASTType(l.position, returnType), body)
             value := convertMethodValue(methodValue)
         }
         else
@@ -2539,8 +2610,10 @@ class IRGenerator {
         def parameters := new Array<Parameter>()
         for formal in m.parameters {
             def type := resolve(formal.type)
-            if type = null
+            if type = null {
+                context.currentMethod := lastMethod
                 return null
+            }
             def p := new Parameter(formal.position, formal.name, type, 
                     formal.isVar, formal.isConvert, formal.isVarArg, 
                     rawStub)
@@ -2553,15 +2626,15 @@ class IRGenerator {
                     selfType, false, false, false, rawStub)
             context.symbolTable[selfParam.name] := selfParam
         }
-        context.captures.push(new HashSet<Variable>())
+        context.captures.push((rawStub, new HashSet<Variable>()))
         -- need to convertBlock in order to grab captures
+        def oldAdd := addMethods
+        addMethods := false
         convertBlock(m.body->ASTBlock)
-        for f in context.captures.peek
-            if f.name = "self"
-                Console.writeLine("CAPTURED SELF AT: \{m.position}")
+        addMethods := oldAdd
         def closureSymbols := new OrderedMap<String, Symbol>()
         def closureConstructor, closureFields := createClosureConstructorAndFields(
-                m.position, context.captures.peek(), closureType)
+                m.position, context.captures.peek()[1], closureType)
         def closureAnnotations := new Array<AnnotationType>()
         closureAnnotations.add(AnnotationType.SYNTHETIC)
 
@@ -2599,13 +2672,14 @@ class IRGenerator {
                 superclass, new Array<ClassType>(), closureSymbols, lookupContext,
                 new Array<ASTInvariant>(), null, false, 
                 context.currentClass.type)
-        context.classes[closureStub.name] := closureStub
+        if addMethods
+            context.classes[closureStub.name] := closureStub
         context.popSymbolTable()
         context.localVariables.clear()
         context.localVariables.addAll(oldLocals)
         context.currentMethod := lastMethod
         def constructorParameters := new Array<Value>()
-        for v in context.captures.peek
+        for v in context.captures.peek[1]
             constructorParameters.add(new VariableReference(m.position, v))
         def closureInstance := new Construct(new MethodCall(m.position, 
                 new ClassLiteral(m.position, closureType), 
@@ -2771,7 +2845,8 @@ class IRGenerator {
 
     @private
     method createAllStubs() {
-        for (_, cl) in context.stubGenerator.types {
+        def types := new HashMap<String, Type>(context.stubGenerator.types)
+        for (_, cl) in types {
             if cl-?>ClassType & cl-!>GenericParameterType {
                 def astClass := context.stubGenerator.astClasses[cl.name]
                 if astClass != null {
@@ -2791,7 +2866,8 @@ class IRGenerator {
         def checked := new HashSet<ClassStub>()
         do {
             progress := false
-            for (_, cl) in context.classes {
+            def classes := new HashMap<String, ClassStub>(context.classes)
+            for (_, cl) in classes {
                 if checked.contains(cl)
                     continue
                 checked.add(cl)

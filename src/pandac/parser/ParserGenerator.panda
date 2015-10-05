@@ -641,10 +641,50 @@ class ParserGenerator {
 	}
 
 	method writeReductions(out:OutputStream) {
+		for i, p in productions {
+			out.writeLine("    @class")
+			out.writeLine("    method reduce\{i}(file:File, parserState:ParserState):Object {")
+			if p.code != null {
+				assert p.type != null : "no type for \{p}"
+				out.writeLine("def result:\{p.type}")
+				for i in p.nodes.length - 1 ... 0 by -1 {
+					def node := p.nodes[i]
+					def name:String?
+					if node.name != null
+						name := node.name
+					else if node-?>IdentifierNode & getType(node) != null
+						name := node->IdentifierNode.id
+					else
+						name := null
+					if name != null {
+						def type := getType(node)
+						assert type != null
+						out.writeLine("def \{name}:\{type} := parserState.state.output->\{type}")
+					}
+					out.writeLine("parserState.state := parserState.state.next")
+				}
+				out.writeLine(p.code)
+				out.writeLine("return result")
+			}
+			else {
+				assert p.type = null : "expected code for production \{p.name}"
+				out.writeLine("for i in 0 .. \{p.nodes.length} parserState.state := parserState.state.next")
+				out.writeLine("return '<no output>'")
+			}
+			out.writeLine("    }")
+		}
+		out.writeLine("    constant REDUCTIONS := [")
+		for i in 0 .. productions.length {
+			if i > 0
+				out.writeLine(",")
+			out.write("        reduce\{i}")
+		}
+		out.writeLine()
+		out.writeLine("    ]")
 		out.writeLine("    method reduce(production:Int, file:File, parserState:ParserState):Object {")
-		-- FIXME need to change back to using a switch instead of these ifs,
-		-- but the current hacked way switch is implemented results in 
-		-- too-deeply-nested code that crashes javac
+		out.writeLine("        return REDUCTIONS[production](file, parserState)")
+		out.writeLine("    }")
+		-- FIXME use switch when that's ready
 -*		out.writeLine("    	   switch production {")
 		for i, p in productions {
 			out.writeLine("            case \{i}: {")
@@ -678,40 +718,6 @@ class ParserGenerator {
 		}
 		out.writeLine("        }")
 		out.writeLine("    }") *-
-
-		for i in productions.length - 1 ... 0 by -1 {
-			def p := productions[i]
-			out.writeLine("if production = \{i} {")
-			if p.code != null {
-				assert p.type != null : "no type for \{p}"
-				out.writeLine("def result:\{p.type}")
-				for i in p.nodes.length - 1 ... 0 by -1 {
-					def node := p.nodes[i]
-					def name:String?
-					if node.name != null
-						name := node.name
-					else if node-?>IdentifierNode & getType(node) != null
-						name := node->IdentifierNode.id
-					else
-						name := null
-					if name != null {
-						def type := getType(node)
-						assert type != null
-						out.writeLine("def \{name}:\{type} := parserState.state.output->\{type}")
-					}
-					out.writeLine("parserState.state := parserState.state.next")
-				}
-				out.writeLine(p.code)
-				out.writeLine("return result")
-			}
-			else {
-				assert p.type = null : "expected code for production \{p.name}"
-				out.writeLine("for i in 0 .. \{p.nodes.length} parserState.state := parserState.state.next")
-				out.writeLine("return '<no output>'")
-			}
-			out.writeLine("}")
-		}
-		out.writeLine("unreachable}")
 	}
 
 	method writeParser(name:String, out:OutputStream) {

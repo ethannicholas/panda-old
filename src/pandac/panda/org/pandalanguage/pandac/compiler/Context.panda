@@ -54,11 +54,13 @@ uses org.pandalanguage.pandac.types.WrapperType
 class Context {
     def stubGenerator:StubGenerator
 
+    def irGenerator:IRGenerator
+
     var root:Package
 
     def classes:Map<String, ClassStub>
 
-    def errors:ErrorReporter
+    var errors:ErrorReporter
 
     def compilerSettings:CompilerSettings
 
@@ -75,7 +77,7 @@ class Context {
     Captures we have run into while compiling closures. The topmost entry of the
     stack is for the current (innermost) closure.
     ============================================================================
-    def captures := new Stack<Set<Variable>>()
+    def captures := new Stack<(MethodStub, Set<Variable>)>()
 
     var symbolTableStack := new Stack<SymbolTable>()
 
@@ -83,9 +85,10 @@ class Context {
 
     def symbolTables := new HashMap<ClassStub, SymbolTable>()
 
-    constructor(stubGenerator:StubGenerator, root:Package, 
-            classes:MapView<String, ClassStub>, errors:ErrorReporter, 
-            compilerSettings:CompilerSettings) {
+    constructor(irGenerator:IRGenerator, stubGenerator:StubGenerator, 
+            root:Package, classes:MapView<String, ClassStub>, 
+            errors:ErrorReporter, compilerSettings:CompilerSettings) {
+        self.irGenerator := irGenerator
         self.stubGenerator := stubGenerator
         self.root := root
         self.classes := new HashMap<String, ClassStub>(classes)
@@ -155,11 +158,12 @@ class Context {
 
     @private
     method createStub(name:String):ClassStub? {
-        def type := stubGenerator.resolveType(
+        var type := stubGenerator.resolveType(
                 new PandaParser(errors).parseType(name, Position.INTERNAL), 
                 symbolTable)
         if type = null
             return null
+        type := type.unwrapNullable
         if type-?>PrimitiveArrayType {
             def array := type->PrimitiveArrayType
             def unspecified:Bit
@@ -180,7 +184,7 @@ class Context {
             def parameterStubs := new Array<ClassStub?>()
             for p in generic.parameters {
                 if p-!>PrimitiveType & p-!>GenericParameterType
-                    parameterStubs.add(getStub(p.name))
+                    parameterStubs.add(getStub(p->>ClassType))
                 else
                     parameterStubs.add(null)
             }
@@ -208,6 +212,12 @@ class Context {
                 }
             }
             return tuple.createStub(unspecified, isKnown(type), self)
+        }
+        else if type-?>MethodType {
+            if type.isImmutable(self)
+                return getStub(ClassType.METHOD)
+            else
+                return getStub(ClassType.MUTABLE_METHOD)
         }
         else
             return stubGenerator.getStub(type.name)
@@ -687,9 +697,7 @@ class Context {
                 finalParams.add(params[i].convert(self, targetType))
             }
             else {
-                errors.error("expected value of type " +
-                        "'\{targetType.displayName}', but found " +
-                        "'\{params[i].type.displayName}'", params[i].position)
+                params[i].reportCastError(self, targetType)
                 return null
             }
         }

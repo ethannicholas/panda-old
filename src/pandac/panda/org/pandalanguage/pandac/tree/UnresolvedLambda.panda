@@ -12,6 +12,7 @@ uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.compiler.ErrorReporter
 uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.stubs.Methods
+uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.MethodType
@@ -20,6 +21,7 @@ uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
+uses org.pandalanguage.pandac.types.VoidType
 
 class DummyErrorReporter : ErrorReporter {
     @override
@@ -54,9 +56,12 @@ class UnresolvedLambda : UnresolvedValue {
                 new DummyErrorReporter())
         ir.context.pushSymbolTable()
         ir.context.symbolTable.addAll(context.symbolTable)
-        ir.context.captures.push(new HashSet<Variable>())
-        def dummyMethod := context.getSymbolTable(
-                context.getStub(ClassType.OBJECT))["constructor"]->Methods.methods[0]
+        def dummyMethod := new MethodStub(position, "<lambda dummy method>", 
+                new Annotations(position), MethodNodeType.METHOD, 
+                [], VoidType.VOID, new ASTBlock(position, []), 
+                context.currentMethod.owner)
+        ir.context.captures.push((dummyMethod, new HashSet<Variable>()))
+        def old := ir.context.currentMethod
         ir.context.currentMethod := dummyMethod
         for i, t in types {
             ir.context.symbolTable[parameterNames[i]] := new LocalVariable(
@@ -64,7 +69,9 @@ class UnresolvedLambda : UnresolvedValue {
                     dummyMethod)
         }
         def result := ir.convertExpression(expression)
-        if result != null
+        ir.context.captures.pop()
+        ir.context.currentMethod := old
+        if result != null & result.type != VoidType.VOID
             return result.type
         return null
     }
@@ -92,6 +99,8 @@ class UnresolvedLambda : UnresolvedValue {
 
     @override
     method implicitCast(position:Position, context:Context, t:Type):Value {
+        if value != null & value.type = t
+            return value
         if t.isMethod {
             def m := t->>MethodType
             def ir := new IRGenerator(context.root, context.classes,
