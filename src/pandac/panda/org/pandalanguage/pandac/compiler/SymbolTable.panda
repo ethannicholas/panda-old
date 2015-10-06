@@ -3,21 +3,89 @@ package org.pandalanguage.pandac.compiler
 uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.Symbol
 
-class SymbolTable (Map<String, Symbol>) {
-    @private
-    def symbols:OrderedMap<String, Symbol>
+class SymbolIterator (Iterator<(String, Symbol)>) {
+    def symbols:SymbolTable
 
-    constructor() {
-        symbols := new OrderedMap<String, Symbol>()
-    }
+    def parentIterator:Iterator<(String, Symbol)>
 
-    constructor(symbols:MapView<String, Symbol>) {
-        self.symbols := new OrderedMap<String, Symbol>(symbols)
+    def selfIterator:Iterator<(String, Symbol)>
+
+    def seen := new HashSet<String>()
+
+    def nextSelf:(String, Symbol)?
+
+    constructor(symbols:SymbolTable) {
+        assert symbols.parent != null
+        self.symbols := symbols
+        parentIterator := symbols.parent.iterator
+        selfIterator := symbols.symbols.iterator
     }
 
     @override
+    function done():Bit {
+        return parentIterator.done() & nextSelf = null
+    }
+
+    @private
+    @pre(parentIterator.done())
+    method getNextSelf() {
+        nextSelf := null
+        while !selfIterator.done() {
+            nextSelf := selfIterator.next()
+            if !seen.contains(nextSelf[0])
+                break
+        }
+    }
+
+    @override
+    method next():(String, Symbol) {
+        if !parentIterator.done() {
+            def name := parentIterator.next()[0]
+            seen.add(name)
+            if parentIterator.done()
+                getNextSelf()
+            return (name, symbols[name])
+        }
+        loop {
+            def result := nextSelf
+            getNextSelf()
+            return result
+        }
+    }
+}
+
+class SymbolTable (Map<String, Symbol>) {
+    @private
+    def parent:SymbolTable?
+
+    @private
+    def symbols := new OrderedMap<String, Symbol>()
+
+    constructor() {
+    }
+
+    constructor(symbols:MapView<String, Symbol>) {
+        self.symbols.addAll(symbols)
+    }
+
+    constructor(parent:SymbolTable) {
+        self.parent := parent
+    }    
+
+    @override
     function [](name:String):Symbol? {
-        return symbols[name]
+        var result := symbols[name]
+        if parent != null {
+            if result = null
+                return parent[name]
+            if result-?>Methods {
+                def prev := parent[name]
+                if prev-?>Methods {
+                    return prev->Methods + result->Methods
+                }
+            }
+        }
+        return result
     }
 
     @override
@@ -30,6 +98,8 @@ class SymbolTable (Map<String, Symbol>) {
     @override
     @safeReturn
     function iterator():Iterator<(String, Symbol)> {
+        if parent != null
+            return new SymbolIterator(self)
         return symbols.iterator
     }
 
