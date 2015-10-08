@@ -284,7 +284,7 @@ class StubGenerator {
                                 m.methodType, m.parameters, m.returnType, 
                                 m.body, m.owner)
                         checkMethodSignature(m)
-                        addSymbol(m, implicitClassSymbols, errors)
+                        addSymbol(m, implicitClassSymbols.mySymbols, errors)
                         needImplicit := true
                     }
                 }
@@ -308,7 +308,7 @@ class StubGenerator {
                         MethodNodeType.METHOD, new Array<FormalParameter>(), 
                         VoidType.VOID, new ASTBlock(Position.INTERNAL, 
                         mainStatements), implicitType)
-                addSymbol(main, implicitClassSymbols, errors)
+                addSymbol(main, implicitClassSymbols.mySymbols, errors)
                 needImplicit := true
             }
             if needImplicit {
@@ -316,7 +316,7 @@ class StubGenerator {
                         implicitType, false, 
                         new Annotations(Position.INTERNAL), 
                         null, new Array<ClassType>(), 
-                        new OrderedMap<String, Symbol>(implicitClassSymbols), 
+                        implicitClassSymbols.mySymbols, 
                         new LookupContext(packageUses, classAliases), 
                         new Array<ASTInvariant>(), null, false, null)
                 astClasses[implicitClass.name] := (new ASTClass(
@@ -393,7 +393,7 @@ class StubGenerator {
         return new Annotations(position, result)
     }
 
-    method resolveType(type:ASTType, symbols:MapView<String, Symbol>):Type? {
+    method resolveType(type:ASTType, symbols:SymbolTable):Type? {
         def result := resolveTypeWithExtras(type, symbols)
         if result = null
             return null
@@ -405,7 +405,7 @@ class StubGenerator {
     }
 
     method resolveTypeWithExtras(type:ASTType, 
-            symbols:MapView<String, Symbol>):(Type, ListView<String>)? {
+            symbols:SymbolTable):(Type, ListView<String>)? {
         var result:Type?
         if type-?>ASTClassType {
             def name := type->ASTClassType.name
@@ -425,6 +425,7 @@ class StubGenerator {
                             }
                         }
                     }
+                    Console.writeLine("type '\{name}' not found in \{symbols}")
                     errors.error("type '\{type}' not found", type.position)
                     return null
                 }
@@ -737,7 +738,7 @@ class StubGenerator {
     }
 
     method convertMethod(isExternal:Bit, m:ASTMethod, owner:ClassType,
-            symbolTable:MapView<String, Symbol>):MethodStub? {
+            symbolTable:SymbolTable):MethodStub? {
         def parameters := new Array<FormalParameter>()
         var annotations := convertAnnotations(m.position, m.annotations)
         if m.body = null & !isExternal & !annotations.isExternal
@@ -796,7 +797,7 @@ class StubGenerator {
                 name := v.identifier
             def field := new FieldNode(f.position, owner, name, 
                     annotations, f.decl.varType, type, f.decl.initializer, i)
-            addSymbol(field, field.position, dest, errors)
+            addSymbol(field, field.position, dest.mySymbols, errors)
             if annotations.isThread {
                 def indexAnnotations := new Array<AnnotationType>()
                 indexAnnotations.add(AnnotationType.CLASS)
@@ -808,16 +809,16 @@ class StubGenerator {
                         v.identifier + INDEX_SUFFIX, new Annotations(f.position,
                             indexAnnotations),
                         VariableType.DEF, IntType.INT32, initializer, 0)
-                addSymbol(fieldIndex, fieldIndex.position, dest, errors)
+                addSymbol(fieldIndex, fieldIndex.position, dest.mySymbols, errors)
             }
         }
     }
 
     method createClassInit(position:Position, owner:ClassType,
-            symbols:MapView<String, Symbol>):(FieldNode, MethodStub)? {
+            symbols:SymbolTable):(FieldNode, MethodStub)? {
         var createInit := false
         def body := new Array<ASTStatement>()
-        for s in symbols.values {
+        for s in symbols.mySymbols.values {
             if s-?>FieldNode {
                 def f := s->FieldNode
                 if f.annotations.isClass | 
@@ -911,7 +912,7 @@ class StubGenerator {
                     bound := NullableType.ANY
                 def type := new GenericParameterType("\{className}.\{p.identifier}", 
                         bound)
-                symbolTable[type.name] := new TypeSymbol(type)
+                symbolTable.add(new TypeSymbol(type))
                 aliasType(p.identifier, type, symbolTable, classAliases)
             }
         }
@@ -949,7 +950,7 @@ class StubGenerator {
                     symbolTable)
             if converted != null {
                 checkMethodSignature(converted)
-                addSymbol(converted, symbols, errors)
+                addSymbol(converted, symbols.mySymbols, errors)
                 foundConstructor |= converted.methodType = 
                         MethodNodeType.CONSTRUCTOR
             }
@@ -968,7 +969,7 @@ class StubGenerator {
                     MethodNodeType.CONSTRUCTOR, 
                     new Array<FormalParameter>(), VoidType.VOID, block, 
                     classType)
-            addSymbol(c, symbols, errors)
+            addSymbol(c, symbols.mySymbols, errors)
         }
         for decl in cl.fields
             convertFields(decl, classType, symbolTable, symbols)
@@ -980,17 +981,17 @@ class StubGenerator {
         else {
             def init := createClassInit(cl.position, classType, symbols)
             if init != null {
-                symbols.remove(MethodNode.CLASS_INIT_NAME)
-                symbols.remove(FieldNode.CLASS_INITED_NAME)
-                addSymbol(init[0], init[0].position, symbols, errors)
-                addSymbol(init[1], symbols, errors)
+                symbols.mySymbols.remove(MethodNode.CLASS_INIT_NAME)
+                symbols.mySymbols.remove(FieldNode.CLASS_INITED_NAME)
+                addSymbol(init[0], init[0].position, symbols.mySymbols, errors)
+                addSymbol(init[1], symbols.mySymbols, errors)
             }
         }
         return new ClassStub(cl.position, classType, 
                 cl.isInterface, annotations, superclass->ClassType?, 
-                interfaces, new OrderedMap<String, Symbol>(symbols), 
-                new LookupContext(packageUses, classAliases), cl.invariants, 
-                cl.genericParameters, cl.isExternal, null)
+                interfaces, symbols.mySymbols, new LookupContext(packageUses, 
+                        classAliases), 
+                cl.invariants, cl.genericParameters, cl.isExternal, null)
     }
 
     method convertEnum(e:ASTEnum, currentPackage:String?,
@@ -1009,15 +1010,15 @@ class StubGenerator {
             def initialValue := new ASTNew(v.position, 
                     new ASTClassType(e.position, className, null, false),
                     new Array<ASTExpression>())
-            symbols[v.name] := new FieldNode(v.position, classType, v.name, 
+            symbols.add(new FieldNode(v.position, classType, v.name, 
                     new Annotations(v.position, fieldAnnotations), 
-                    VariableType.DEF, classType, initialValue, null)
+                    VariableType.DEF, classType, initialValue, null))
         }
         if !e.isExternal {
             def init := createClassInit(e.position, classType, symbols)
             if init != null {
-                addSymbol(init[0], init[0].position, symbols, errors)
-                addSymbol(init[1], symbols, errors)
+                addSymbol(init[0], init[0].position, symbols.mySymbols, errors)
+                addSymbol(init[1], symbols.mySymbols, errors)
             }
         }
         
@@ -1034,7 +1035,7 @@ class StubGenerator {
                 new Annotations(e.position, constructorAnnotations), 
                 MethodNodeType.CONSTRUCTOR, new Array<FormalParameter>(), 
                 VoidType.VOID, block, classType)
-        addSymbol(c, symbols, errors)
+        addSymbol(c, symbols.mySymbols, errors)
 
         -- create convert to integer
         statements := new Array<ASTStatement>()
@@ -1053,7 +1054,7 @@ class StubGenerator {
                 new Annotations(e.position, new Array<AnnotationType>()), 
                 MethodNodeType.FUNCTION, new Array<FormalParameter>(), 
                 IntType.INT32, block, classType)
-        addSymbol(convertToInt, symbols, errors)
+        addSymbol(convertToInt, symbols.mySymbols, errors)
 
         -- create convert to string
         statements := new Array<ASTStatement>()
@@ -1072,7 +1073,7 @@ class StubGenerator {
                 new Annotations(e.position, new Array<AnnotationType>()), 
                 MethodNodeType.FUNCTION, new Array<FormalParameter>(), 
                 ClassType.STRING, block, classType)
-        addSymbol(convertToString, symbols, errors)
+        addSymbol(convertToString, symbols.mySymbols, errors)
 
         -- create convert from integer
         statements := new Array<ASTStatement>()
@@ -1083,7 +1084,8 @@ class StubGenerator {
             cases.add(new ASTSwitchCase(e.position, caseValues, new ASTReturn(e.position,
                     new ASTIdentifier(e.position, v.name))))
         }
-        statements.add(new ASTSwitch(e.position, new ASTIdentifier(e.position, "value"), cases,
+        statements.add(new ASTSwitch(e.position, 
+                new ASTIdentifier(e.position, "value"), cases,
                 new ASTUnreachable(e.position)))
         block := new ASTBlock(e.position, statements)
         def cvtAnnotations := new Array<AnnotationType>()
@@ -1096,13 +1098,13 @@ class StubGenerator {
                 new Annotations(e.position, cvtAnnotations), 
                 MethodNodeType.FUNCTION, convertParameters, 
                 classType, block, classType)
-        addSymbol(convertFromInt, symbols, errors)
+        addSymbol(convertFromInt, symbols.mySymbols, errors)
 
         def annotations := convertAnnotations(e.position, e.annotations)
         return new ClassStub(e.position, classType, 
                 false, annotations, ClassType.ENUMERATION, 
-                new Array<ClassType>(), new OrderedMap<String, Symbol>(symbols),
-                new LookupContext(), new Array<ASTInvariant>(), null, 
+                new Array<ClassType>(), symbols.mySymbols, new LookupContext(), 
+                new Array<ASTInvariant>(), null, 
                 e.isExternal, null)
     }
 
@@ -1159,7 +1161,7 @@ class StubGenerator {
                     def dot := cl.lastIndexOf(".")
                     if dot != null
                         cl := cl[dot + 1..]
-                    symbolTable[cl] := s
+                    symbolTable.add(cl, s)
                 }
             }
         }
@@ -1174,7 +1176,7 @@ class StubGenerator {
     }
 
     method aliasType(alias:String, type:Type, symbolTable:SymbolTable) {
-        symbolTable[alias] := new TypeSymbol(type)
+        symbolTable.add(alias, new TypeSymbol(type))
     }
 
     method aliasType(alias:String, type:Type?, symbolTable:SymbolTable,

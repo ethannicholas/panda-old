@@ -2,147 +2,90 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.Symbol
+uses org.pandalanguage.pandac.tree.MethodNode
 
-class SymbolIterator (Iterator<(String, Symbol)>) {
-    def symbols:SymbolTable
-
-    def parentIterator:Iterator<(String, Symbol)>
-
-    def selfIterator:Iterator<(String, Symbol)>
-
-    def seen := new HashSet<String>()
-
-    def nextSelf:(String, Symbol)?
-
-    constructor(symbols:SymbolTable) {
-        assert symbols.parent != null
-        self.symbols := symbols
-        parentIterator := symbols.parent.iterator
-        selfIterator := symbols.symbols.iterator
-    }
-
-    @override
-    function done():Bit {
-        return parentIterator.done() & nextSelf = null
-    }
-
+class SymbolTable {
     @private
-    @pre(parentIterator.done())
-    method getNextSelf() {
-        nextSelf := null
-        while !selfIterator.done() {
-            nextSelf := selfIterator.next()
-            if !seen.contains(nextSelf[0])
-                break
-        }
-    }
+    def parents:ListView<SymbolTable>
 
-    @override
-    method next():(String, Symbol) {
-        if !parentIterator.done() {
-            def name := parentIterator.next()[0]
-            seen.add(name)
-            if parentIterator.done()
-                getNextSelf()
-            return (name, symbols[name])
-        }
-        loop {
-            def result := nextSelf
-            getNextSelf()
-            return result
-        }
-    }
-}
+    def mySymbols := new OrderedMap<String, Symbol>()
 
-class SymbolTable (Map<String, Symbol>) {
-    @private
-    def parent:SymbolTable?
-
-    @private
-    def symbols := new OrderedMap<String, Symbol>()
+    def createdAt := new Error()
 
     constructor() {
+        parents := []
     }
 
     constructor(symbols:MapView<String, Symbol>) {
-        self.symbols.addAll(symbols)
+        parents := []
+        self.mySymbols.addAll(symbols)
     }
 
     constructor(parent:SymbolTable) {
-        self.parent := parent
+        self.parents := [parent]
     }    
 
-    @override
+    constructor(parents:ListView<SymbolTable>) {
+        self.parents := parents[..]
+    }    
+
+    constructor(parents:ListView<SymbolTable>, 
+            symbols:OrderedMap<String, Symbol>) {
+        self.parents := parents[..]
+        self.mySymbols.addAll(symbols)
+    }    
+
     function [](name:String):Symbol? {
-        var result := symbols[name]
-        if parent != null {
-            if result = null
-                return parent[name]
+        var result := mySymbols[name]
+        if result != null & result-!>Methods
+            return result
+        if name = MethodNode.CONSTRUCTOR_NAME
+            return result
+        for p in parents {
             if result-?>Methods {
-                def prev := parent[name]
+                def prev := p[name]
                 if prev-?>Methods {
-                    return prev->Methods + result->Methods
+                    result := prev->Methods + result->Methods
                 }
+            }
+            else {
+                assert result = null
+                result := p[name]
+                if result != null & result-!>Methods
+                    return result
             }
         }
         return result
     }
 
-    @override
     @self
-    method []:=(name:String, s:Symbol) {
-        --assert symbols[name] = null : "symbol '\{s}' was already defined"
-        symbols[name] := s
-    }
-
-    @override
-    @safeReturn
-    function iterator():Iterator<(String, Symbol)> {
-        if parent != null
-            return new SymbolIterator(self)
-        return symbols.iterator
-    }
-
-    @override
-    function contains(name:String):Bit {
-        return self[name] != null
-    }
-
-    @override
-    function length():Int {
-        return symbols.length
-    }
-
-    @override
-    method remove(name:String) {
-        symbols.remove(name)
-    }
-
-    @override
-    method clear() {
-        symbols.clear()
-    }
-
-    @override
-    method addAll(map:MapView<String, Symbol>) {
-        for (k, v) in map {
-            if v-?>Methods {
-                var methods := v->Methods
-                def existing := self[k]
-                if existing-?>Methods {
-                    var oldMethods := existing->Methods
-                    oldMethods += methods
-                    methods := oldMethods
-                }
-                self[k] := methods
+    method add(name:String, s:Symbol) {
+        if s-?>Methods {
+            var methods := s->Methods
+            def existing := self[name]
+            if existing-?>Methods {
+                var oldMethods := existing->Methods
+                oldMethods += methods
+                methods := oldMethods
             }
-            else
-                self[k] := v
+            mySymbols[name] := methods
         }
+        else
+            mySymbols[name] := s
+    }
+
+    @self
+    method add(s:Symbol) {
+        add(s.name, s)
+    }
+
+    method addAll(map:MapView<String, Symbol>) {
+        for (name, s) in map
+            add(name, s)
     }
 
     @override
     function format(fmt:String):String {
-        return symbols.format(fmt)
+        return "SymbolTable<parents=\{parents}, symbols=\{mySymbols}, created at=\{createdAt}>"
     }
 }

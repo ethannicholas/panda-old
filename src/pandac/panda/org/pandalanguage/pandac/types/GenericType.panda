@@ -5,6 +5,7 @@ uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.LookupContext
 uses org.pandalanguage.pandac.compiler.OrderedMap
 uses org.pandalanguage.pandac.compiler.PandaCompiler
+uses org.pandalanguage.pandac.compiler.SymbolTable
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.parser.ParseNode
 uses org.pandalanguage.pandac.stubs.ClassStub
@@ -75,7 +76,7 @@ class GenericType : ClassType {
 
     @private
     method getType(type:Type, context:Context, 
-            symbols:MapView<String, Symbol>):Type {
+            symbols:SymbolTable):Type {
         if type-?>UnresolvedType
             return type
         if type = VoidType.VOID
@@ -91,7 +92,7 @@ class GenericType : ClassType {
 
     @private
     method instantiateField(f:FieldNode, context:Context, 
-            symbols:MapView<String, Symbol>):FieldNode {
+            symbols:SymbolTable):FieldNode {
         return new FieldNode(f.position, self, f.name, f.annotations, f.varType,
                 getType(f.type, context, symbols), f.initialValue, 
                 f.tuplePosition)
@@ -99,7 +100,7 @@ class GenericType : ClassType {
 
     @private
     method instantiateMethod(m:MethodStub, context:Context, 
-            symbols:MapView<String, Symbol>):MethodStub {
+            symbols:SymbolTable):MethodStub {
         def parameters := new Array<FormalParameter>()
         for p in m.parameters {
             def type := getType(p.type, context, symbols)
@@ -109,29 +110,22 @@ class GenericType : ClassType {
         var annotations := m.annotations
         if m.body = null
             annotations += AnnotationType.ABSTRACT
-        return new MethodStub(m.position, m.name, annotations,
+        def result := new MethodStub(m.position, m.name, annotations,
                 m.methodType, parameters, getType(m.returnType, context,
                     symbols), 
                 m.body, self)
+        return result
     }
 
     @protected
-    method addSymbol(m:MethodStub, symbols:Map<String, Symbol>) {
-        def methods := symbols[m.name]
-        if methods = null {
-            def list := new Array<MethodStub>()
-            list.add(m)
-            symbols[m.name] := new Methods(list)
-        }
+    method addMethod(m:MethodStub, symbols:SymbolTable) {
+        def methods := symbols.mySymbols[m.name]
+        if methods = null
+            symbols.add(new Methods([m]))
         else if methods-?>Methods
-            symbols[m.name] := methods->Methods + m
+            symbols.mySymbols[m.name] := methods->Methods + m
         else
             unreachable
-    }
-
-    @protected
-    method addSymbol(s:Symbol, symbols:Map<String, Symbol>) {
-        symbols[s.name] := s
     }
 
     method createStub(baseStub:ClassStub, parameterStubs:ListView<ClassStub?>, 
@@ -142,12 +136,12 @@ class GenericType : ClassType {
         assert baseParameters.length = parameters.length : 
                 "parameter mismatch (\{baseParameters} vs. \{parameters})"
         def position := new Position(new File(name), -1)
-        def symbols := new OrderedMap<String, Symbol>()
+        def symbols := new SymbolTable()
         for i, p in parameters {
             def symbol := new TypeSymbol(p)
-            symbols[baseParameters[i].identifier] := symbol
+            symbols.add(baseParameters[i].identifier, symbol)
             def fullName := baseStub.name + "." + baseParameters[i].identifier
-            symbols[fullName] := symbol
+            symbols.add(fullName, symbol)
         }        
         var superclass := baseStub.superclass
         if superclass != null {
@@ -168,15 +162,14 @@ class GenericType : ClassType {
         }
         for f in baseStub.fields {
             if f.annotations.isClass | f.annotations.isThread
-                symbols[f.name] := f
+                symbols.add(f)
             else {
                 def newField := instantiateField(f, context, symbols)
-                symbols[newField.name] := newField
-                addSymbol(newField, symbols)
+                symbols.add(newField)
             }
         }
         for m in baseStub.methods.filter(m => !m.annotations.isClass)
-            addSymbol(instantiateMethod(m, context, symbols), symbols)
+            addMethod(instantiateMethod(m, context, symbols), symbols)
         var annotations := baseStub.annotations - AnnotationType.UNSPECIFIED
         for i, p in parameters {
             var unspecified := p-?>GenericParameterType
@@ -190,7 +183,7 @@ class GenericType : ClassType {
         if external
             annotations += AnnotationType.EXTERNAL
         return new ClassStub(position, self, baseStub.isInterface, annotations, 
-                superclass, interfaces, symbols, baseStub.lookupContext, 
+                superclass, interfaces, symbols.mySymbols, baseStub.lookupContext, 
                 baseStub.invariants, null, false, null)
     }
 }

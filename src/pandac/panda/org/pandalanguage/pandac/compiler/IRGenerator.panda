@@ -1094,7 +1094,7 @@ class IRGenerator {
             def local := new LocalVariable(decl.position, decl.identifier, type,
                     v.varType, context.currentMethod)
             context.localVariables.add(local)
-            context.symbolTable[local.name] := local
+            context.symbolTable.add(local)
             locals.add(local)
         }
         if initializer != null {
@@ -1195,7 +1195,7 @@ class IRGenerator {
                     VariableType.DEF, context.currentMethod)
             valueVars.add(valueVar)
             context.localVariables.add(valueVar)
-            context.symbolTable[valueVar.name] := valueVar
+            context.symbolTable.add(valueVar)
         }
         def statements := new Array<Statement>()
         if indexVar != null {
@@ -1604,7 +1604,7 @@ class IRGenerator {
         def loopVar := new LocalVariable(v.position, v.identifier, type,
                 VariableType.DEF, context.currentMethod)
         context.localVariables.add(loopVar)
-        context.symbolTable[loopVar.name] := loopVar
+        context.symbolTable.add(loopVar)
         def step := range.step
         if step = null {
             return convertRangeFor(f, loopVar, range.left->Value, 
@@ -1647,7 +1647,7 @@ class IRGenerator {
                     VariableType.DEF, context.currentMethod)
             valueVars.add(valueVar)
             context.localVariables.add(valueVar)
-            context.symbolTable[valueVar.name] := valueVar
+            context.symbolTable.add(valueVar)
         }
         def statements := new Array<Statement>()
         statements.add(new ValueStatement(array))
@@ -1712,7 +1712,7 @@ class IRGenerator {
             indexVar := new LocalVariable(astVar.position, astVar.identifier, 
                     type, VariableType.DEF, context.currentMethod)
             context.localVariables.add(indexVar)
-            context.symbolTable[indexVar.name] := indexVar
+            context.symbolTable.add(indexVar)
         }
         else
             indexVar := null
@@ -2425,7 +2425,7 @@ class IRGenerator {
                 VariableType.DEF, context.currentMethod)
         context.localVariables.add(error)
         context.pushSymbolTable()
-        context.symbolTable[c.name] := error
+        context.symbolTable.add(error)
         def statement := convertStatement(c.statement)
         context.popSymbolTable()
         if statement = null
@@ -2503,15 +2503,16 @@ class IRGenerator {
                 def type := resolve(p.type->ASTType)
                 if type = null
                     return null
-                context.symbolTable[p.identifier] := new LocalVariable(
+                context.symbolTable.add(new LocalVariable(
                         p.position, p.identifier, type, VariableType.DEF,
-                        context.currentMethod)
+                        context.currentMethod))
             }
             def ir := new IRGenerator(context.root, context.classes,
                     context.stubGenerator, context.compilerSettings,
                     context.errors)
+            ir.context.pushSymbolTable(context.symbolTable)
             ir.context.pushSymbolTable()
-            ir.context.symbolTable.addAll(context.symbolTable)
+            ir.context.symbolTable.addAll(context.symbolTable.mySymbols)
             def expr := ir.resolve(l.value)
             if expr = null
                 return null
@@ -2618,13 +2619,13 @@ class IRGenerator {
                     formal.isVar, formal.isConvert, formal.isVarArg, 
                     rawStub)
             parameters.add(p)
-            context.symbolTable[p.name] := p
+            context.symbolTable.add(p)
         }
         if !lastMethod.annotations.isClass {
             def selfType := lastMethod.owner
             def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
                     selfType, false, false, false, rawStub)
-            context.symbolTable[selfParam.name] := selfParam
+            context.symbolTable.add(selfParam)
         }
         context.captures.push((rawStub, new HashSet<Variable>()))
         -- need to convertBlock in order to grab captures
@@ -2729,7 +2730,7 @@ class IRGenerator {
                     formal.isVar, formal.isConvert, formal.isVarArg,
                     context.currentMethod)
             parameters.add(p)
-            context.symbolTable[p.name] := p
+            context.symbolTable.add(p)
         }
         if !m.annotations.isClass {
             def selfType:Type
@@ -2739,7 +2740,7 @@ class IRGenerator {
                 selfType := m.owner
             def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
                     selfType, false, false, false, context.currentMethod)
-            context.symbolTable[selfParam.name] := selfParam
+            context.symbolTable.add(selfParam)
         }
         var body := convertBlock(m.body->ASTBlock)
         if m.methodType = MethodNodeType.CONSTRUCTOR {
@@ -2781,8 +2782,7 @@ class IRGenerator {
 
     method pushSymbols(cl:ClassStub) {
         context.currentClass := cl
-        context.pushSymbolTable()
-        context.symbolTable.addAll(context.getSymbolTable(cl))
+        context.pushSymbolTable(context.getSymbolTable(cl))
     }
 
     method convertClass(cl:ClassStub):ClassNode {
@@ -2823,7 +2823,7 @@ class IRGenerator {
         if !f.annotations.isClass & !f.annotations.isThread {
             def selfParam := new Parameter(f.position, Parameter.SELF_NAME,
                     f.owner, false, false, false, context.currentMethod)
-            context.symbolTable[selfParam.name] := selfParam
+            context.symbolTable.add(selfParam)
         }        
         def expr := resolve(f.initialValue->ASTExpression)
         context.popSymbolTable()
@@ -3034,7 +3034,7 @@ class IRGenerator {
     method generateProgram():Program {
         for symbol in context.root {
             def simpleName := symbol.name[0 .. symbol.name.indexOf(".")]
-            context.symbolTable[simpleName] := symbol
+            context.symbolTable.add(simpleName, symbol)
         }
         def classes := new HashMap<String, ClassNode>()
         var madeProgress:Bit

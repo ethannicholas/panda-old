@@ -98,7 +98,7 @@ class Context {
                 new ClassType("ContextDummy"), false, new Annotations(
                     Position.INTERNAL, new Array<AnnotationType>()), 
                 null, new Array<ClassType>(), 
-                new OrderedMap<String, Symbol>(stubGenerator.masterSymbolTable),
+                new OrderedMap<String, Symbol>(),
                 new LookupContext(), new Array<ASTInvariant>(), null, true,
                 null)
         def classAnnotation := new Array<AnnotationType>()
@@ -118,7 +118,11 @@ class Context {
     }
 
     method pushSymbolTable() {
-        symbolTableStack.push(new SymbolTable(symbolTable))
+        symbolTableStack.push(new SymbolTable([symbolTable]))
+    }
+
+    method pushSymbolTable(symbolTable:SymbolTable) {
+        symbolTableStack.push(symbolTable)
     }
 
     method popSymbolTable() {
@@ -244,7 +248,7 @@ class Context {
     }
 
     function isInstance():Bit {
-        return symbolTable.contains(Parameter.SELF_NAME)
+        return symbolTable[Parameter.SELF_NAME] != null
     }
 
     @pre(isInstance)
@@ -328,49 +332,30 @@ class Context {
     method getSymbolTable(cl:ClassStub):SymbolTable {
         var result := symbolTables[cl]
         if result = null {
-            result := new SymbolTable(stubGenerator.masterSymbolTable)
+            def parents := new Array<SymbolTable>()
+            def containingClass := cl.containingClass
+            if containingClass != null
+                parents.add(getSymbolTable(getStub(containingClass)))
+            def superclass := cl.superclass
+            if superclass != null
+                parents.add(getSymbolTable(getStub(superclass)))
+            else
+                parents.add(stubGenerator.masterSymbolTable)
+            for intf in cl.interfaces
+                parents.add(getSymbolTable(getStub(intf)))
+            result := new SymbolTable(parents)
+            stubGenerator.usePackage("panda.collections", result, 
+                    Position.INTERNAL)
+            stubGenerator.usePackage("panda.core", result, 
+                    Position.INTERNAL)
+            stubGenerator.usePackage("panda.io", result, 
+                    Position.INTERNAL)
+            stubGenerator.usePackage("panda.math", result, 
+                    Position.INTERNAL)
+            stubGenerator.usePackage("panda.threads", result, 
+                    Position.INTERNAL)
             for p in cl.lookupContext.packageUses
                 stubGenerator.usePackage(p, result, cl.position)
-            for i in cl.interfaces.length - 1 ... 0 by -1 {
-                def filtered := new HashMap<String, Symbol>()
-                for (k, v) in getSymbolTable(getStub(cl.interfaces[i])) {
-                    if v-!>TypeSymbol
-                        filtered[k] := v
-                }
-                result.addAll(filtered)
-            }
-            def containingClass := cl.containingClass
-            if containingClass != null {
-                def filtered := new HashMap<String, Symbol>()
-                for (k, v) in getSymbolTable(getStub(containingClass)) {
-                    if v-?>Methods {
-                        def methods := v->Methods
-                        def filteredM := new Array<MethodStub>()
-                        for m in methods.methods {
-                            if m.annotations.isClass
-                                filteredM.add(m)
-                        }
-                        if filteredM.length > 0
-                            filtered[filteredM[0].name] := methods
-                    }
-                    else if v-?>FieldNode {
-                        def f := v->FieldNode
-                        if f.annotations.isClass | f.annotations.isThread
-                            filtered[f.name] := f
-                    }
-                }
-                result.addAll(filtered)
-            }
-            def superclass := cl.superclass
-            if superclass != null {
-                def filtered := new HashMap<String, Symbol>()
-                for (k, v) in getSymbolTable(getStub(superclass)) {
-                    if v-!>TypeSymbol
-                        filtered[k] := v
-                }
-                result.addAll(filtered)
-            }
-            result.remove(MethodNode.CONSTRUCTOR_NAME)
             for (alias, target) in cl.lookupContext.classAliases {
                 def resolved := resolveType(new ASTClassType(
                         cl.position, target, null, false))

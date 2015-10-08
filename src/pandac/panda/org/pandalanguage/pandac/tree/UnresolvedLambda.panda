@@ -11,6 +11,7 @@ uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.compiler.ErrorReporter
 uses org.pandalanguage.pandac.compiler.IRGenerator
+uses org.pandalanguage.pandac.compiler.SymbolTable
 uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.types.ClassType
@@ -54,8 +55,7 @@ class UnresolvedLambda : UnresolvedValue {
         def ir := new IRGenerator(context.root, context.classes,
                 context.stubGenerator, context.compilerSettings,
                 new DummyErrorReporter())
-        ir.context.pushSymbolTable()
-        ir.context.symbolTable.addAll(context.symbolTable)
+        ir.context.pushSymbolTable(new SymbolTable([context.symbolTable]))
         def dummyMethod := new MethodStub(position, "<lambda dummy method>", 
                 new Annotations(position), MethodNodeType.METHOD, 
                 [], VoidType.VOID, new ASTBlock(position, []), 
@@ -64,9 +64,9 @@ class UnresolvedLambda : UnresolvedValue {
         def old := ir.context.currentMethod
         ir.context.currentMethod := dummyMethod
         for i, t in types {
-            ir.context.symbolTable[parameterNames[i]] := new LocalVariable(
+            ir.context.symbolTable.add(new LocalVariable(
                     position, parameterNames[i], t, VariableType.DEF,
-                    dummyMethod)
+                    dummyMethod))
         }
         def result := ir.convertExpression(expression)
         ir.context.captures.pop()
@@ -118,8 +118,7 @@ class UnresolvedLambda : UnresolvedValue {
             def methodValue := new ASTMethodValue(position, 
                     MethodNodeType.FUNCTION, parameters, 
                     IRGenerator.toASTType(position, m.returnType), body)
-            ir.context.pushSymbolTable()
-            ir.context.symbolTable.addAll(context.symbolTable)
+            ir.context.pushSymbolTable(new SymbolTable([context.symbolTable]))
             ir.context.currentClass := context.currentClass
             def result := ir.convertMethodValue(methodValue)
             context.classes.addAll(ir.context.classes)
