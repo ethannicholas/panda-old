@@ -116,14 +116,33 @@ class JavaCodeGenerator (CodeGenerator) {
     function shorten(fullName:String):String {
         if fullName.endsWith("?")
             return shorten(fullName[..fullName.length - 1])
-        def result := fullName.replace("(", "$.$l").replace(")", "$r").
-                replace("<", "$.$L").replace(">", "$R").replace(",", "$.$C").
-                replace("?", "$Z").replace(/\.+/, ".")
-        while result.startsWith(".")
-            result := result[1..]
-        while result.endsWith(".")
-            result := result[..result.length - 1]
-        return escape(result)
+        def result := new MutableString()
+        var i := 0
+        while i < fullName.length {
+            def c := fullName[i]
+            i += 1
+            switch c {
+                case "(": result.append("$.$l")
+                case ")": result.append("$.$r")
+                case "<": result.append("$.$L")
+                case ">": result.append("$R")
+                case ",": result.append("$.$C")
+                case "?": result.append("$Z")
+                case ".": {
+                    while i < result.length & result[i] = "."
+                        i += 1
+                    result.append(".")
+                }
+                default: result.append(c)
+            }
+        }
+        var start := 0
+        while result[start] = "."
+            start += 1
+        var end := result.length - 1
+        while result[end] = "."
+            end -= 1
+        return escape(result[start ... end])
     }
 
     method getDisplayName(cl:ClassStub):String {
@@ -194,10 +213,7 @@ class JavaCodeGenerator (CodeGenerator) {
         return getJavaType(t)
     }
 
-    @class
-    function isJavaKeyword(token:String):Bit {
-        switch token {
-            case "abstract", "continue", "for", "new", "switch", "assert",
+    constant KEYWORDS := new HashSet<String>(["abstract", "continue", "for", "new", "switch", "assert",
                     "default", "goto", "package", "synchronized", "boolean",
                     "do", "if", "private", "this", "break", "double", 
                     "implements", "protected", "throw", "byte", "else", 
@@ -205,9 +221,11 @@ class JavaCodeGenerator (CodeGenerator) {
                     "return", "transient", "catch", "extends", "int", "short",
                     "try", "char", "final", "interface", "static", "void",
                     "class", "finally", "long", "strictfp", "volatile", "const",
-                    "float", "native", "super", "while": return true
-            default: return false
-        }
+                    "float", "native", "super", "while"])
+
+    @class
+    function isJavaKeyword(token:String):Bit {
+        return KEYWORDS.contains(token)
     }
 
     @class
@@ -219,15 +237,34 @@ class JavaCodeGenerator (CodeGenerator) {
 
     @private
     method escape(s:String):String {
-        if s.endsWith("?")
-            return escape(s[0 .. s.length - 1])
-        return s.replace("<", "$LT").replace(">", "$GT")
-                .replace(",", "$C").replace("(", "$LP").replace(")", "$RP")
-                .replace("=", "$EQ").replace("?", "$Z").replace(" ", "")
-                .replace("*", "$MUL").replace("&", "$AND")
+        def result := new MutableString()
+        var i := 0
+        while i < s.length {
+            def c := s[i]
+            switch c {
+                case "<": result.append("$LT")
+                case ">": result.append("$GT")
+                case ",": result.append("$C")
+                case "(": result.append("$LP")
+                case ")": result.append("$RP")
+                case "=": result.append("$EQ")
+                case "?": {
+                    if i < s.length - 1
+                        result.append("$Z")
+                }
+                case "*": result.append("$MUL")
+                case "&": result.append("$AND")
+                case " ": { }
+                default: result.append(c)
+            }
+            i += 1
+        }
+        return result->>String
     }
 
-    method getJavaType(t:Type):String {
+    constant WORD := /\w+/
+
+    method determineJavaType(t:Type):String {
         switch t {
             case IntType.INT8, IntType.UINT8:   return "byte"
             case IntType.INT16, IntType.UINT16: return "short"
@@ -262,7 +299,7 @@ class JavaCodeGenerator (CodeGenerator) {
         else if t.unwrapNullable-?>MethodType
             return getJavaMethodType(t->>MethodType)
         else
-            result := t.name.replace(/\w+/, token => filterNameToken(token))
+            result := t.name.replace(WORD, token => filterNameToken(token))
         def lt := result.indexOf("<")
         if lt != null
             result := result[..lt] + result[lt..].replace(".", "$")
@@ -273,6 +310,16 @@ class JavaCodeGenerator (CodeGenerator) {
         if result.length > MAX_LENGTH
             return shorten(result)
         return escape(result)
+    }
+
+    def javaTypes := new HashMap<Type, String>()
+    method getJavaType(t:Type):String {
+        var result := javaTypes[t]
+        if result = null {
+            result := determineJavaType(t)
+            javaTypes[t] := result
+        }
+        return result
     }
 
     method getJavaMethodType(m:MethodType):String {
