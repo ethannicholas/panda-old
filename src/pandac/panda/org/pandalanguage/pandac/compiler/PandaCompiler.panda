@@ -26,7 +26,6 @@ class CompilerErrorReporter : ErrorReporter {
         Console.writeLine("error: \{position.format(compiler.parser)}: " + 
                 message)
         compiler.errorQueue.post(ERROR_MESSAGE)
-        Panda.dumpStack()
     }
 
     @override
@@ -141,25 +140,26 @@ class PandaCompiler {
     }
 
     method checkpoint(label:String) {
-        var now := Panda.currentTime()
+-*        var now := Panda.currentTime()
         var lastCheckpointLabel := lastCheckpointLabel
         if lastCheckpointLabel != null {
             Console.writeLine(lastCheckpointLabel + " - " + 
                     (now - lastCheckpointTime) + "ms")
         }
         self.lastCheckpointLabel := label
-        lastCheckpointTime := now
+        lastCheckpointTime := now*-
     }
 
     @protected
     method getASTFiles(settings:CompilerSettings):CollectionView<ASTFile> {
         def result := new Array<ASTFile>()
--*        def workQueue := new MessageQueue()
+        def workQueue := new MessageQueue()
         def responseQueue := new MessageQueue()
-        constant THREADS := 1
+        constant THREADS := 8
         for f in settings.sources
             workQueue.post(f)
         def errorReporter := self.errors
+        def parser := self.parser
         for i in 0 .. THREADS {
             workQueue.post(null)
             Thread.start(method() {
@@ -168,11 +168,9 @@ class PandaCompiler {
                     def f := workQueue.getMessage()->File?
                     if f = null
                         break
-                    def input := new BufferedInputStream(f.openInputStream())
-                    def parsed := parser.parseFile(f.path, input)
+                    def parsed := parser.parseFile(f)
                     if parsed != null
                         result.add(parsed)
-                    input.close()
                 }
                 responseQueue.post(new ImmutableArray<ASTFile>(result))
             })
@@ -181,14 +179,14 @@ class PandaCompiler {
             def subresult := responseQueue.getMessage()->
                     (ImmutableArray<ASTFile>)
             result.addAll(subresult)
-        }*-
-        for f in settings.sources {
+        }
+-*        for f in settings.sources {
             def input := new BufferedInputStream(f.openInputStream())
             def parsed := parser.parseFile(f)
             if parsed != null
                 result.add(parsed)
             input.close()
-        }
+        }*-
         return result
     }
 
@@ -276,6 +274,7 @@ class PandaCompiler {
         var loadCoreLibraries := true
         var outputFormat := OutputFormat.EXECUTABLE
         var preserveTempArtifacts := true
+        var optimize := true
         var i := 0
         while i < args.length {
             def arg := args[i]
@@ -292,6 +291,8 @@ class PandaCompiler {
                     }
                     target := new File(args[i])
                 }
+                case "-O0":
+                    optimize := false
                 case "-f": {
                     i += 1
                     if i >= args.length {
@@ -329,8 +330,6 @@ class PandaCompiler {
                     if arg.endsWith(".panda")
                         sources.add(new File(arg))
                     else {
-                        Console.writeLine("test output \{3 * 7}")
-                        Console.writeLine("args is: " + args)
                         Console.writeLine("unsupported argument '\{arg}'")
                         System.exit(1)
                     }
@@ -354,7 +353,7 @@ class PandaCompiler {
                     "shared/core/lib/PandaCoreClasses.plink"))
         }
         return new CompilerSettings(sources, librarySearchPaths, outputFormat,
-                target->File, preserveTempArtifacts)
+                target->File, optimize, preserveTempArtifacts)
     }
 
     method runWithArgs(args:PrimitiveArray<String>) {

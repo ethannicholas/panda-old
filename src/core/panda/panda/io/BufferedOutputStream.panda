@@ -15,7 +15,10 @@ class BufferedOutputStream : FilterOutputStream {
     constant DEFAULT_BUFFER_SIZE := 8192    
 
     @private
-    def buffer := new Array<Int8>()
+    var bufferOffset := 0
+
+    @private
+    def buffer:Array<Int8>
 
     @private
     def bufferSize:Int
@@ -38,58 +41,66 @@ class BufferedOutputStream : FilterOutputStream {
     constructor(out:OutputStream, bufferSize:Int) {
         super.constructor(out)
         self.bufferSize := bufferSize
+        self.buffer := new Array<Int8>(bufferSize, 0)
     }
 
     @override
     method write(i:Int8) {
-        if buffer.length = bufferSize
+        if bufferOffset = bufferSize
             flush()
-        buffer.add(i)
+        buffer[bufferOffset] := i
+        bufferOffset += 1
     }
     
     @override
     method write(b:ListView<Int8>, var offset:Int, var length:Int) {
-        while buffer.length + length > bufferSize {
-            def bytes := bufferSize - buffer.length
+        while bufferOffset + length > bufferSize {
+            def bytes := bufferSize - bufferOffset
             write(b, offset, bytes)
             offset += bytes
             length -= bytes
             flush()
         }
-        for i in offset .. offset + length
-            buffer.add(b[i])
+        for i in offset .. offset + length {
+            buffer[bufferOffset] := b[i]
+            bufferOffset += 1
+        }
     }
 
     @override
     method write(b:ListView<UInt8>, var offset:Int, var length:Int) {
-        while buffer.length + length > bufferSize {
-            def bytes := bufferSize - buffer.length
+        while bufferOffset + length > bufferSize {
+            def bytes := bufferSize - bufferOffset
             write(b, offset, bytes)
             offset += bytes
             length -= bytes
             flush()
         }
-        for i in offset .. offset + length
-            buffer.add(b[i]->>Int8)
+        for i in offset .. offset + length {
+            buffer[bufferOffset] := b[i]->>Int8
+            bufferOffset += 1
+        }
     }
 
     @override
     method write(c:ListView<Char>, var offset:Int, var length:Int) {
-        while buffer.length + length > bufferSize {
-            def bytes := bufferSize - buffer.length
+        while bufferOffset + length > bufferSize {
+            def bytes := bufferSize - bufferOffset
             write(c, offset, bytes)
             offset += bytes
             length -= bytes
             flush()
         }
-        for i in offset .. offset + length
-            buffer.add(c[i]->>Int8)
+        for i in offset .. offset + length {
+            buffer[bufferOffset] := c[i]->>Int8
+            bufferOffset += 1
+        }
     }
 
     @override
     method flush() {
-        super.write(buffer, 0, buffer.length)
-        buffer.clear()
+        super.write(buffer, 0, bufferOffset)
+        bufferOffset := 0
     }
 
     @override

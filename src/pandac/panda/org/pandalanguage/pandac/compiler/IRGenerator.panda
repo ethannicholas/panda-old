@@ -1,5 +1,6 @@
 package org.pandalanguage.pandac.compiler
 
+uses org.pandalanguage.pandac.ast.Alignment
 uses org.pandalanguage.pandac.ast.ArrowOperationType
 uses org.pandalanguage.pandac.ast.ASTArrayLiteral
 uses org.pandalanguage.pandac.ast.ASTArrowExpression
@@ -463,7 +464,11 @@ class IRGenerator {
                 result.append(",")
                 if expr.fill != null
                     result.append(expr.fill)
-                result.append(expr.alignment)
+                switch expr.alignment {
+                    case Alignment.LEFT: result.append("<")
+                    case Alignment.CENTER: result.append("^")
+                    case Alignment.RIGHT: result.append(">")
+                }
                 assert expr.width != null
                 result.append(expr.width)
             }
@@ -854,9 +859,10 @@ class IRGenerator {
             return getMember(i.position, target, TupleType.FIELD_PREFIX + 
                     index->IntegerLiteral.value)
         }
-        if target.type.unwrapNullable-?>PrimitiveArrayType
+        if target.type.unwrapNullable-?>PrimitiveArrayType {
             return new PrimitiveArrayIndexValue(target, 
                     index.implicitCast(context, IntType.INT32))
+        }
         return new UnresolvedIndex(context, i.position, target, index)
     }
 
@@ -1059,6 +1065,7 @@ class IRGenerator {
         else
             initializer := null
         def locals := new Array<LocalVariable>()
+        var allTyped := true
         for i, decl in v.vars {
             def type:Type?
             if decl.type != null {
@@ -1070,6 +1077,7 @@ class IRGenerator {
                 }
             }
             else {
+                allTyped := false
                 if initializer = null {
                     context.errors.error("variable has neither an " +
                             "initializer nor a type", decl.position)
@@ -1093,17 +1101,34 @@ class IRGenerator {
             }
             def local := new LocalVariable(decl.position, decl.identifier, type,
                     v.varType, context.currentMethod)
-            context.localVariables.add(local)
-            context.symbolTable.add(local)
+            if decl.identifier != "_" {
+                context.localVariables.add(local)
+                context.symbolTable.add(local)
+            }
             locals.add(local)
         }
         if initializer != null {
             if v.vars.length = 1 {
+                if locals[0].name = "_" {
+                    context.errors.error("'_' is not a legal identifier " +
+                            "outside of tuple destructuring", v.position)
+                    return null
+                }            
                 return new ValueStatement(new VariableAssignment(v.position, 
                         locals[0], initializer.implicitCast(context, 
                             locals[0].type), 
                         true))
             }
+            if allTyped {
+                def types := new Array<ASTType>()
+                for local in locals
+                    types.add(toASTType(v.position, local.type))
+                initializer := initializer.implicitCast(context, 
+                        context.resolveType(new ASTTupleType(v.position, types, 
+                            false)))
+            }
+            else
+                initializer := resolve(initializer)
             def tuple := new LocalVariable(v.position, "$tuple\{nameCount}",
                     initializer.type.unwrapNullable, VariableType.DEF,
                     context.currentMethod)
@@ -1115,6 +1140,8 @@ class IRGenerator {
                         tuple.type), 
                     true)))
             for i, local in locals {
+                if local.name = "_"
+                    continue
                 def member := getMember(local.position, 
                         new VariableReference(local.position, tuple), 
                         TupleType.FIELD_PREFIX + i)
@@ -1194,8 +1221,10 @@ class IRGenerator {
             def valueVar := new LocalVariable(v.position, v.identifier, type,
                     VariableType.DEF, context.currentMethod)
             valueVars.add(valueVar)
-            context.localVariables.add(valueVar)
-            context.symbolTable.add(valueVar)
+            if v.identifier != "_" {
+                context.localVariables.add(valueVar)
+                context.symbolTable.add(valueVar)
+            }
         }
         def statements := new Array<Statement>()
         if indexVar != null {
@@ -1236,6 +1265,8 @@ class IRGenerator {
                 f.position, tupleVar, next, true)))
         if valueVars.length > 1 {
             for i, v in valueVars {
+                if v.name = "_"
+                    continue
                 def value := getMember(f.position,
                         new VariableReference(tupleVar.position, tupleVar), 
                         "$field" + i)
@@ -2724,6 +2755,7 @@ class IRGenerator {
         context.localVariables.clear()
         context.currentMethod := m
         context.pushSymbolTable()
+        def reusedTuples := new HashMap<Value, ReusedValueDefinition>()
         def parameters := new Array<Parameter>()
         for formal in m.parameters {
             def p := new Parameter(formal.position, formal.name, formal.type, 
@@ -2744,19 +2776,37 @@ class IRGenerator {
         }
         var body := convertBlock(m.body->ASTBlock)
         if m.methodType = MethodNodeType.CONSTRUCTOR {
-            def callsOther := callsOtherSelfConstructor(m.owner, body.statements)
+            def callsOther := callsOtherSelfConstructor(m.owner, 
+                    body.statements)
             def callsSuper := callsSuperConstructor(m.owner, body.statements)
             if !callsOther {
                 def statements := new Array<Statement>()
                 for f in context.currentClass.fields {
                     if !f.annotations.isClass & !f.annotations.isThread {
                         if f.initialValue != null {
-                            def initialValue := resolve(
+                            var initialValue := resolve(
                                     f.initialValue->ASTExpression)
                             if initialValue != null {
+                                if f.tuplePosition != null {
+                                    var reused := reusedTuples[initialValue]
+                                    def reference:Value
+                                    if reused = null {
+                                        reused := new ReusedValueDefinition(
+                                                initialValue)
+                                        reusedTuples[initialValue] := reused
+                                        reference := reused
+                                    }
+                                    else
+                                        reference := reused.createReference()
+                                    initialValue := getMember(f.position, 
+                                            reference, 
+                                            TupleType.FIELD_PREFIX + 
+                                                f.tuplePosition)
+                                }
                                 statements.add(new FieldAssignment(f.position,
                                         context.getSelf(f.position), f,
-                                        initialValue.implicitCast(context, f.type)))
+                                        initialValue.implicitCast(context, 
+                                            f.type)))
                             }
                         }
                     }
@@ -2766,8 +2816,10 @@ class IRGenerator {
             }
             if !callsOther & !callsSuper & m.owner != ClassType.OBJECT {
                 def statements := new Array<Statement>()
-                def superCall := context.call(m.position, new Super(m.position, m.owner),
-                        MethodNode.CONSTRUCTOR_NAME, new Array<Value>())
+                def superCall := context.call(m.position, 
+                        new Super(m.position, m.owner),
+                        MethodNode.CONSTRUCTOR_NAME, 
+                        new Array<Value>())
                 if superCall != null
                     statements.add(new ValueStatement(superCall))
                 statements.addAll(body.statements)
@@ -2824,13 +2876,32 @@ class IRGenerator {
             def selfParam := new Parameter(f.position, Parameter.SELF_NAME,
                     f.owner, false, false, false, context.currentMethod)
             context.symbolTable.add(selfParam)
-        }        
+        }
         def expr := resolve(f.initialValue->ASTExpression)
         context.popSymbolTable()
         context.currentClass := old
         if expr != null {
-            if expr.checkValid(context)
-                f.type := expr.preferredVariableType(context)
+            if expr.checkValid(context) {
+                def type := expr.preferredVariableType(context)
+                if f.tuplePosition = null
+                    f.type := type
+                else {
+                    if type.isTuple {
+                        def tupleType := type->>TupleType
+                        if f.tuplePosition < tupleType.types.length
+                            f.type := tupleType.types[f.tuplePosition]
+                        else {
+                            context.errors.error("tuple length mismatch in " +
+                                    "destructuring assignment", expr.position)
+                        }
+                    }
+                    else {
+                        context.errors.error("expected tuple for " +
+                                "destructuring assignment, but found " +
+                                "'\{type.unwrapNullable}'", expr.position)
+                    }
+                }
+            }
         }
         else
             f.type := VoidType.VOID

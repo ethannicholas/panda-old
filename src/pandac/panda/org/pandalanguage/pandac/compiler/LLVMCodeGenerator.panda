@@ -377,7 +377,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    method size(t:Type):Int {
+    method determineSize(t:Type):Int {
         if t.isPrimitive
             return t->>PrimitiveType.size
         def stub := getStub(t->>ClassType)
@@ -399,6 +399,18 @@ class LLVMCodeGenerator (CodeGenerator) {
             total += fieldSize
         }
         return total
+    }
+
+    @private
+    def sizes := new HashMap<Type, Int>()
+    @private
+    method size(t:Type):Int {
+        var result := sizes[t]
+        if result = null {
+            result := determineSize(t)
+            sizes[t] := result
+        }
+        return result
     }
 
     @protected
@@ -682,7 +694,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             return null
         }
         else
-            return createCallReference(text->>String, mc->>String)
+            return createCallReference(text->>String, "method call")
     }
 
     @protected
@@ -693,7 +705,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         assert result != null : 
                 "expected non-null result in createVariableAssignmentReference"
         writeBody("store " + getLLVMType(variable.type) + " " + result + ", " + 
-                lref, va->>String)
+                lref, "variable assignment")
         return result
     }
     
@@ -911,7 +923,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         assert left != null & right != null : 
                 "expected left and right to be non-null in createBinaryOperationReference"
         return createCommandReference(op + " " + getLLVMType(b.left.type) + 
-                " " + left + ", " + right, b->>String)
+                " " + left + ", " + right, "binary operation")
     }
     
     @private
@@ -953,15 +965,15 @@ class LLVMCodeGenerator (CodeGenerator) {
         def rightLabel := createLabel()
         def endLabel := createLabel()
         writeBody("br i1 \{left}, label %\{rightLabel}, label %\{endLabel}",
-                "and test: \{and}")
+                "and test")
         body.writeLine()
-        createBlock(rightLabel, "right: \{and}")
+        createBlock(rightLabel, "and right")
         def right := getReference(and.right)
         assert right != null : "expected non-null right in createAndReference"
         def rightFromLabel := currentBlockLabel
         body.writeLine("br label %\{endLabel}")
         body.writeLine()
-        createBlock(endLabel, "end: \{and}")
+        createBlock(endLabel, "and end")
         def result := getTempVariable()
         body.writeLine("\{result} = phi i1 [false, %\{leftFromLabel}], " +
                 "[\{right}, %\{rightFromLabel}]")
@@ -976,15 +988,15 @@ class LLVMCodeGenerator (CodeGenerator) {
         def rightLabel := createLabel()
         def endLabel := createLabel()
         writeBody("br i1 \{left}, label %\{endLabel}, label %\{rightLabel}", 
-                "or test: \{or}")
+                "or test")
         body.writeLine()
-        createBlock(rightLabel, "right: \{or}")
+        createBlock(rightLabel, "or right")
         def right := getReference(or.right)
         assert right != null : "expected non-null right in createOrReference"
         def rightFromLabel := currentBlockLabel
         body.writeLine("br label %\{endLabel}")
         body.writeLine()
-        createBlock(endLabel, "end: \{or}")
+        createBlock(endLabel, "or end")
         def result := getTempVariable()
         body.writeLine("\{result} = phi i1 [true, %\{leftFromLabel}], " +
                 "[\{right}, %\{rightFromLabel}]")
@@ -1009,15 +1021,15 @@ class LLVMCodeGenerator (CodeGenerator) {
                 var valueRef := getReference(u.operand)
                 assert valueRef != null : "expected non-null valueRef"
                 return createCommandReference(op + " " + getLLVMType(u.type) + 
-                        " " + zeroRef + ", " + valueRef, u->>String)
+                        " " + zeroRef + ", " + valueRef, "unary minus")
             }
             case UnaryOperationType.NOT: {
                 return createCommandReference("xor " + 
-                        getTypedReference(u.operand) + ", 1", u->>String)
+                        getTypedReference(u.operand) + ", 1", "not")
             }
             case UnaryOperationType.BITWISE_NOT: {
                 return createCommandReference("xor " + 
-                        getTypedReference(u.operand) + ", -1", u->>String)
+                        getTypedReference(u.operand) + ", -1", "bitwise not")
             }
             default: unreachable
         }
@@ -1231,10 +1243,10 @@ class LLVMCodeGenerator (CodeGenerator) {
                 if f = field {
                     return createCommandReference("getelementptr inbounds " + 
                         getTypedReference(object) + 
-                        ", i32 0, i32 " + i, "field pointer: " + object + "." +
-                        field.name)
+                        ", i32 0, i32 " + i, "field pointer")
                 }
             }
+            assert false : "could not find field \{field} in \{cl}"
             unreachable
         } 
     }
@@ -1273,7 +1285,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             else
                 callString.append("i8* null)") -- no initializer function
-            var ref := createCallReference(callString->>String, fr->>String)
+            var ref := createCallReference(callString->>String, "get field")
             if !fr.type.isPrimitive & fr.type != ClassType.OBJECT {
                 def cast := getTempVariable()
                 writeBody(cast + " = bitcast " + 
@@ -1285,7 +1297,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         def ep := getFieldPointer(fr.object, fr.field)
         return createCommandReference(
-                "load \{getLLVMType(fr.field.type)}* \{ep}", fr->>String)
+                "load \{getLLVMType(fr.field.type)}* \{ep}", "get field")
     }
 
     @protected
@@ -1361,8 +1373,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             def result := getTempVariable()
             body.writeLine(result + " = " + command + " " + 
                     getLLVMType(actualType) + " " + tempResult + 
-                    " to " + getLLVMType(destType), c.value + " -> " + 
-                    destType.name)
+                    " to " + getLLVMType(destType), "cast")
             return result
         }
         else {
@@ -1411,7 +1422,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 return tempResult
             def result := getTempVariable()
             writeBody("\{result} = bitcast \{actualLLVMType} \{tempResult} " +
-                    " to \{destLLVMType}", "\{c.value} -> \{destType.name}")
+                    " to \{destLLVMType}", "cast")
             return result
         }
     }
@@ -1453,8 +1464,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         -- it's a double with the 29 low-order bits zeroed
         if r.type = RealType.REAL32
             bits := bits && ((-1)->UInt64 << 29->UInt64)
---        return "0x\{bits,0>16:h}"
-        return "0x0000000000000000"
+        return "0x\{bits,0>16:h}"
     }
     
     @protected
@@ -1510,7 +1520,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             result := null
         else
             result := getTempVariable()
-        call(c->>String, result, d->>String)
+        call(c->>String, result, "dynamic call")
         return result
     }
 
@@ -1602,7 +1612,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "get pointer to array contents")
         return createCommandReference("getelementptr inbounds " + 
                 "\{getLLVMType(elementType)}* \{arrayContents}, \{indexRef}", 
-                "get pointer to " + array + "[" + index + "]")
+                "primitive array element pointer")
     }
 
     @protected
@@ -1613,7 +1623,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def ref := getReference(ia.value) 
         assert ref != null : "expected non-null ref in generateIndexAssignmentCode"
         writeBody("store \{getLLVMType(elementType)} \{ref}, \{lref}", 
-                ia->>String)
+                "primitive array []:=")
     }
     
     @protected
@@ -1624,7 +1634,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             def vref := getReference(fa.value)
             assert vref != null : "expected non-null vref in generateFieldAssignmentCode"
             writeBody("store \{getLLVMType(fa.fieldNode.type)} \{vref}, " + 
-                    lref, fa->>String)
+                    lref, "field assignment")
         }
         else {
             def owner := context.getStub(fa.fieldNode.owner)
@@ -1691,7 +1701,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if value = null
             body.writeLine("ret void ; " + ret)
         else
-            writeBody("ret " + getTypedReference(value), ret->>String)
+            body.writeLine("ret " + getTypedReference(value))
     }
     
     @protected
@@ -1707,7 +1717,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         createBlock(nextLabel, "while next")
         writeBody("br " + getTypedReference(w.test) + 
                 ", label %" + bodyLabel + ", label %" + endLabel,
-                "while test: " + w.test)
+                "while test")
         body.writeLine()
         createBlock(bodyLabel, "while body")
         generateStatementCode(w.statement)
@@ -1819,9 +1829,9 @@ class LLVMCodeGenerator (CodeGenerator) {
         def succeedLabel := createLabel()
         def failLabel := createLabel()
         writeBody("br \{getTypedReference(a.test)}, label %\{succeedLabel}, " +
-                "label %\{failLabel}", "assert test: \{a}")
+                "label %\{failLabel}", "assert test")
         body.writeLine()
-        createBlock(failLabel, "fail: \{a}")
+        createBlock(failLabel, "assert fail")
         var error := a.error
         if error != null {
             if error.type = ClassType.STRING
@@ -1838,7 +1848,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         body.writeLine("unreachable")
         body.writeLine()
-        createBlock(succeedLabel, "succeed: \{a}")
+        createBlock(succeedLabel, "assert success")
     }
     
     @protected
@@ -1987,6 +1997,17 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @protected
+    method writeClassInitializers() {
+        for (_, cl) in context.classes {
+            def classInit := cl.methods.filter(
+                    m => m.name = MethodNode.CLASS_INIT_NAME)
+            if classInit.length = 0
+                continue
+            call("fastcc void @\{getName(classInit.iterator.next())}()")
+        }
+    }
+
+    @protected
     method generateMethodCode(m:MethodNode) {
         assert currentMethod = null
         if m.stub.annotations.isAbstract
@@ -2033,13 +2054,14 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.write(")")
         if m.stub.methodType = MethodNodeType.FUNCTION & immutableReturn
             body.write(" readonly")
-        if external {
+        if external
             body.writeLine()
-        }
         else {
             body.writeLine(" {")
             body.level += 1
             currentBlockLabel := "0"
+            if m.stub.name = MethodNode.MAIN_NAME
+                writeClassInitializers()
             for v in m.localVariables
                 body.writeLine("%\{getName(v)} = alloca \{getLLVMType(v.type)}")
             for p in m.parameters.filter(p => p.varType = VariableType.VAR) {
@@ -2086,13 +2108,16 @@ class LLVMCodeGenerator (CodeGenerator) {
                 '"')
         header.writeLine('%$itable = type { %panda$core$Class*, %$itable*, ' +
                 "[0 x i8*] }")
-        for (_, cl) in context.classes {
+        getClassConstant(context.getStub(ClassType.STRING))
+        getClassConstant(context.getStub(ClassType.PANDA))
+        def stubs := context.classes.values
+        for cl in stubs {
             if !cl.annotations.isUnspecified
                 writeTypeDescriptor(cl)
         }
         getStub(ClassType.METHOD)
         getStub(ClassType.MUTABLE_METHOD)
-        for (_, cl) in context.classes {
+        for cl in stubs {
             if !cl.annotations.isUnspecified
                 getClassConstant(cl)
             getStub(cl.type)
@@ -2164,16 +2189,24 @@ class LLVMCodeGenerator (CodeGenerator) {
             throw new CompilerException("could not determine parent " +
                     "directory of " + target.path)
         }
-        def unoptTarget := parent.resolve(target.name + ".unopt")
-        def out := new BufferedOutputStream(unoptTarget.openOutputStream())
-        headerBuffer.sendTo(out)
-        bodyBuffer.sendTo(out)
-        out.close()
+        if context.compilerSettings.optimize {
+            def unoptTarget := parent.resolve(target.name + ".unopt")
+            def out := new BufferedOutputStream(unoptTarget.openOutputStream())
+            headerBuffer.sendTo(out)
+            bodyBuffer.sendTo(out)
+            out.close()
 
-        def opt := PandaCompiler.getLLVMHome().resolve("opt")
-        System.exec(opt, unoptTarget.path, "-o", target.path, "-O3",
-                "-q", "-f", "-S")
-        if !context.compilerSettings.preserveTempArtifacts
-            unoptTarget.delete()
+            def opt := PandaCompiler.getLLVMHome().resolve("opt")
+            System.exec(opt, unoptTarget.path, "-o", target.path, "-O3",
+                    "-q", "-f", "-S")
+            if !context.compilerSettings.preserveTempArtifacts
+                unoptTarget.delete()
+        }
+        else {
+            def out := new BufferedOutputStream(target.openOutputStream())
+            headerBuffer.sendTo(out)
+            bodyBuffer.sendTo(out)
+            out.close()
+        }
     }
 }

@@ -1,14 +1,35 @@
 package org.pandalanguage.pandac.types
 
+uses org.pandalanguage.pandac.ast.ArrowOperationType
+uses org.pandalanguage.pandac.ast.ASTArrowExpression
 uses org.pandalanguage.pandac.ast.ASTAssignment
+uses org.pandalanguage.pandac.ast.ASTBinaryExpression
+uses org.pandalanguage.pandac.ast.ASTBitLiteral
 uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.ast.ASTCallExpression
+uses org.pandalanguage.pandac.ast.ASTClassLiteral
 uses org.pandalanguage.pandac.ast.ASTDotExpression
 uses org.pandalanguage.pandac.ast.ASTExpression
+uses org.pandalanguage.pandac.ast.ASTExpressionStatement
 uses org.pandalanguage.pandac.ast.ASTIdentifier
+uses org.pandalanguage.pandac.ast.ASTIf
+uses org.pandalanguage.pandac.ast.ASTIndex
+uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
+uses org.pandalanguage.pandac.ast.ASTNew
+uses org.pandalanguage.pandac.ast.ASTNullLiteral
+uses org.pandalanguage.pandac.ast.ASTReturn
 uses org.pandalanguage.pandac.ast.ASTSelf
 uses org.pandalanguage.pandac.ast.ASTStatement
+uses org.pandalanguage.pandac.ast.ASTStringLiteral
+uses org.pandalanguage.pandac.ast.ASTSwitch
+uses org.pandalanguage.pandac.ast.ASTSwitchCase
+uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
+uses org.pandalanguage.pandac.ast.ASTUnreachable
+uses org.pandalanguage.pandac.ast.ASTStringLiteral
+uses org.pandalanguage.pandac.ast.ASTVarDeclaration
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.compiler.LookupContext
 uses org.pandalanguage.pandac.compiler.OrderedMap
 uses org.pandalanguage.pandac.compiler.SymbolTable
@@ -19,6 +40,7 @@ uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.Symbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
+uses org.pandalanguage.pandac.tree.BinaryOperationType
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
@@ -88,6 +110,152 @@ class TupleType : ClassType {
         return super.implicitCastCost(context, target)
     }
 
+    @private
+    method createConstructor():MethodStub {
+        def position := Position.INTERNAL
+        def parameters := new Array<FormalParameter>()
+        def statements := new Array<ASTStatement>()
+        for i, type in types {
+            def name := FIELD_PREFIX + i
+            parameters.add(new FormalParameter(position, name, type, 
+                    false, false, false))
+
+            def targets := new Array<ASTExpression>()
+            targets.add(new ASTDotExpression(new ASTSelf(position), name))
+            statements.add(new ASTAssignment(targets, null, new ASTIdentifier(
+                    position, name)))
+        }
+        def body := new ASTBlock(position, statements)
+        return new MethodStub(position, MethodNode.CONSTRUCTOR_NAME, 
+                new Annotations(position, []), MethodNodeType.CONSTRUCTOR, 
+                parameters, VoidType.VOID, body, self)
+    }
+
+    @private
+    method createEquals(context:Context):MethodStub {
+        def position := Position.INTERNAL
+        def parameters := [new FormalParameter(position, "o", ClassType.OBJECT, 
+                false, false, false)]
+        def statements := new Array<ASTStatement>()
+        def cl := new ASTDotExpression(new ASTIdentifier(position, "o"), 
+                "$class")
+        statements.add(new ASTIf(position, new ASTBinaryExpression(
+                    BinaryOperationType.NOT_EQUAL, cl, 
+                    new ASTIdentifier(position, "$class")), 
+                new ASTReturn(position, new ASTBitLiteral(position, false)),
+                null))
+        statements.add(new ASTVarDeclaration(position, VariableType.DEF, 
+                [new ASTTypedIdentifier(position, "cast", null)], 
+                new ASTArrowExpression(ArrowOperationType.CAST,
+                    new ASTIdentifier(position, "o"), 
+                    IRGenerator.toASTType(position, self))))
+        for i, type in types {
+            def selfField := new ASTIndex(new ASTSelf(position), 
+                    new ASTIntegerLiteral(position, i->UInt64))
+            def otherField := new ASTIndex(new ASTIdentifier(position, "cast"), 
+                    new ASTIntegerLiteral(position, i->UInt64))
+            statements.add(new ASTIf(position, new ASTBinaryExpression(
+                        BinaryOperationType.NOT_EQUAL, selfField, otherField), 
+                    new ASTReturn(position, new ASTBitLiteral(position, false)),
+                    null))
+        }
+        statements.add(new ASTReturn(position, new ASTBitLiteral(position, 
+                true)))
+        def body := new ASTBlock(position, statements)
+        return new MethodStub(position, "=", 
+                new Annotations(position, [AnnotationType.OVERRIDE]), 
+                MethodNodeType.FUNCTION, parameters, BitType.BIT, body, self)
+    }
+
+    @private
+    method createIndex(context:Context):MethodStub {
+        def position := Position.INTERNAL
+        def parameters := [new FormalParameter(position, "i", IntType.INT32, 
+                false, false, false)]
+        def statements := new Array<ASTStatement>()
+        def cases := new Array<ASTSwitchCase>()
+        var returnType := types[0]
+        for i, type in types {
+            cases.add(new ASTSwitchCase(position, 
+                    [new ASTIntegerLiteral(position, i->UInt64)],
+                    new ASTReturn(position, new ASTIndex(new ASTSelf(position), 
+                        new ASTIntegerLiteral(position, i->UInt64)))))
+            if i > 0
+                returnType := Type.union(context, returnType, type)
+        }
+        statements.add(new ASTSwitch(position, new ASTIdentifier(position, "i"),
+                cases, new ASTUnreachable(position)))
+        def body := new ASTBlock(position, statements)
+        return new MethodStub(position, "[]", 
+                new Annotations(position, []), 
+                MethodNodeType.FUNCTION, parameters, returnType, body, self)
+    }
+
+    @private
+    method createFormat():MethodStub {
+        def position := Position.INTERNAL
+        def parameters := [new FormalParameter(position, "fmt", 
+                ClassType.STRING, false, false, false)]
+        def statements := new Array<ASTStatement>()
+        statements.add(new ASTVarDeclaration(position, VariableType.DEF, 
+                [new ASTTypedIdentifier(position, "result", null)], 
+                new ASTNew(position,
+                    IRGenerator.toASTType(position, ClassType.MUTABLE_STRING),
+                    [new ASTStringLiteral(position, "(")])))
+        for i, type in types {
+            if i > 0 {
+                statements.add(new ASTExpressionStatement(
+                        new ASTCallExpression(new ASTDotExpression(
+                            new ASTIdentifier(position, "result"), "append"),
+                            [new ASTStringLiteral(position, ", ")])))
+            }
+            def formatted := new ASTCallExpression(new ASTDotExpression(
+                    new ASTIndex(new ASTSelf(position), 
+                    new ASTIntegerLiteral(position, i->UInt64)), "format"),
+                    [new ASTIdentifier(position, "fmt")])
+            if type.isNullable {
+                statements.add(new ASTIf(position, new ASTBinaryExpression(
+                        BinaryOperationType.EQUAL, 
+                        new ASTIndex(new ASTSelf(position), 
+                            new ASTIntegerLiteral(position, i->UInt64)),
+                        new ASTNullLiteral(position)),
+                        new ASTExpressionStatement(
+                            new ASTCallExpression(new ASTDotExpression(
+                            new ASTIdentifier(position, "result"), "append"),
+                            [new ASTStringLiteral(position, "null")])),
+                        new ASTExpressionStatement(
+                            new ASTCallExpression(new ASTDotExpression(
+                            new ASTIdentifier(position, "result"), "append"),
+                            [formatted]))))
+            }
+            else {
+                statements.add(new ASTExpressionStatement(
+                        new ASTCallExpression(new ASTDotExpression(
+                            new ASTIdentifier(position, "result"), "append"),
+                            [formatted])))
+            }
+        }
+        statements.add(new ASTExpressionStatement(
+                new ASTCallExpression(new ASTDotExpression(
+                    new ASTIdentifier(position, "result"), "append"),
+                    [new ASTStringLiteral(position, ")")])))
+        statements.add(new ASTReturn(position, 
+                new ASTArrowExpression(ArrowOperationType.CONVERT,
+                    new ASTIdentifier(position, "result"), 
+                    IRGenerator.toASTType(position, ClassType.STRING))))
+        def body := new ASTBlock(position, statements)
+        return new MethodStub(position, "format", 
+                new Annotations(position, [AnnotationType.OVERRIDE]), 
+                MethodNodeType.FUNCTION, parameters, ClassType.STRING, body, 
+                self)
+    }
+
+    @private
+    method addMethod(m:MethodStub, symbols:OrderedMap<String, Symbol>) {
+        assert symbols[m.name] = null
+        symbols[m.name] := new Methods(m)
+    }
+
     method createStub(unspecified:Bit, external:Bit, 
             context:Context):ClassStub {
         var isImmutable := true
@@ -105,38 +273,23 @@ class TupleType : ClassType {
         def classAnnotations := [AnnotationType.FINAL]
         if unspecified
             classAnnotations.add(AnnotationType.UNSPECIFIED)
-        if external
-            classAnnotations.add(AnnotationType.EXTERNAL)
         def position := Position.INTERNAL
-        def symbols := new OrderedMap<String, Symbol>()
-        def finalAnnotations := new Annotations(position, 
+        def fieldAnnotations := new Annotations(position, 
                 [AnnotationType.FINAL])
-        def parameters := new Array<FormalParameter>()
-        def statements := new Array<ASTStatement>()
+        def symbols := new OrderedMap<String, Symbol>()
         for i, type in types {
             def field := new FieldNode(position, self, FIELD_PREFIX + i, 
-                    finalAnnotations, VariableType.DEF, type, null, null)
+                    fieldAnnotations, VariableType.DEF, type, null, null)
             symbols[field.name] := field
-
-            parameters.add(new FormalParameter(position, field.name, field.type, 
-                    false, false, false))
-
-            def targets := new Array<ASTExpression>()
-            targets.add(new ASTDotExpression(new ASTSelf(position), field.name))
-            statements.add(new ASTAssignment(targets, null, new ASTIdentifier(
-                    position, field.name)))
         }
-        def methods := new Array<MethodStub>()
-        def body := new ASTBlock(position, statements)
-        methods.add(new MethodStub(position, MethodNode.CONSTRUCTOR_NAME, 
-                new Annotations(position, new Array<AnnotationType>()),
-                MethodNodeType.CONSTRUCTOR, parameters, VoidType.VOID, body,
-                self))
-        symbols[MethodNode.CONSTRUCTOR_NAME] := new Methods(methods)
+        addMethod(createConstructor(), symbols)
+        addMethod(createFormat(), symbols)
+        addMethod(createEquals(context), symbols)
+        addMethod(createIndex(context), symbols)
         return new ClassStub(position, self, false, new Annotations(position, 
                     classAnnotations), 
                 superclass, new Array<ClassType>(), symbols,
-                new LookupContext(), new Array<ASTInvariant>(), null, false,
+                new LookupContext(), new Array<ASTInvariant>(), null, external,
                 null)
     }    
 }
