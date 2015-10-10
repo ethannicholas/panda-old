@@ -33,9 +33,9 @@ uses org.pandalanguage.pandac.ast.ASTMethodValue
 uses org.pandalanguage.pandac.ast.ASTNew
 uses org.pandalanguage.pandac.ast.ASTNullLiteral
 uses org.pandalanguage.pandac.ast.ASTParameter
-uses org.pandalanguage.pandac.ast.ASTPlugin
 uses org.pandalanguage.pandac.ast.ASTRangeExpression
 uses org.pandalanguage.pandac.ast.ASTRealLiteral
+uses org.pandalanguage.pandac.ast.ASTRegex
 uses org.pandalanguage.pandac.ast.ASTReturn
 uses org.pandalanguage.pandac.ast.ASTSelf
 uses org.pandalanguage.pandac.ast.ASTStatement
@@ -895,20 +895,13 @@ class IRGenerator {
                 r.endInclusive)
     }
 
-    method convertPlugin(p:ASTPlugin):Value? {
-        var s := p.value
-        if s.startsWith("/") & s.endsWith("/") {
-            s := s[1 .. s.length - 1]
-            def parameters := new Array<Value>()
-            parameters.add(new StringLiteral(p.position, s))
-            def result := context.call(p.position, new ClassLiteral(p.position,
-                    ClassType.REGULAR_EXPRESSION), MethodNode.CONSTRUCTOR_NAME,
-                    parameters)
-            if result = null
-                return null
-            return new Construct(result->MethodCall)
-        }
-        throw new CompilerException("unsupported plugin: \{s}", p.position)    
+    method convertRegex(r:ASTRegex):Value? {
+        def result := context.call(r.position, new ClassLiteral(r.position,
+                ClassType.REGULAR_EXPRESSION), MethodNode.CONSTRUCTOR_NAME,
+                [new StringLiteral(r.position, r.value)])
+        if result = null
+            return null
+        return new Construct(result->MethodCall)
     }
 
     method convertArray(a:ASTArrayLiteral):Value? {
@@ -1037,8 +1030,8 @@ class IRGenerator {
                 return convertIndex(e->ASTIndex)
             case ASTRangeExpression:
                 return convertRangeExpression(e->ASTRangeExpression)
-            case ASTPlugin:
-                return convertPlugin(e->ASTPlugin)
+            case ASTRegex:
+                return convertRegex(e->ASTRegex)
             case ASTArrayLiteral:
                 return convertArray(e->ASTArrayLiteral)
             case ASTTupleExpression: 

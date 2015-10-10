@@ -66,11 +66,11 @@ single statement is split across multiple lines, the second and subsequent lines
 are to be indented by eight spaces.
 
 Numeric and logical operators should have one space on either side, so you would
-write `(x + y) * 3` rather than `(x+y)*3`. The index, dot, cast, and convert 
-operators should not use spaces (e.g. `Console.writeln(array[5] + 
-"12345"->>(Int)`)). The dot-dot (`..`) in the slice operator should be 
-surrounded by spaces if both indices are specified (`[1 .. 5]`) and not 
-otherwise (`[1..]`).
+write `(x + y) * 3` rather than `(x+y)*3`. The index, dot, cast, instance of, 
+and not instance of operators should not use spaces (e.g. 
+`Console.writeln(array[5] + 12345->UInt)). The dot-dot (`..`) in the slice 
+operator should be surrounded by spaces if both indices are specified 
+(`[1 .. 5]`) and not otherwise (`[1..]`).
 
 Never put more than one statement on a single line.
 
@@ -195,11 +195,6 @@ as the parentheses, but extra parentheses should never be placed around an
 entire expression (such as in the aforementioned `assert` example, or in 
 `clamp(x, min, (min + 3)))`.
 
-Do not use parentheses for functions which take no arguments. Write 
-`"hello".length` rather than `"hello".length()`.  This is especially important 
-so your code will continue to compile in the future if length ever becomes a var
-instead of a function.
-
 Loops
 -----
 
@@ -240,7 +235,7 @@ you create should extend `Immutable`, only using mutable classes where it
 significantly simplifies the code (and keep in mind that even code which looks
 simpler *at first* can be a maintenance nightmare over time). Feel free to make
 use of mutable objects as temporary values within methods, but most of your 
-public interface should revolve around immutable values.
+public interfaces should revolve around immutable values.
 
 Functions are strongly preferred to methods, and should be used where possible.
 Appropriate use of `@self`, `@limited`, and `@safeReturn` annotations will make
@@ -269,7 +264,7 @@ the comment is useless, because it does not tell us anything that is not
 immediately apparent from looking at the code. We might instead want to know 
 *why* x is being set to zero at this point, and what this represents or
 accomplishes. Keep in mind that "obvious" to the author of the code is not 
-obvious to others.
+necessarily obvious to others.
 
 Comments used to break code up into sections should have another pair of minus 
 signs (--) at the end of the comment, with a single blank line between sections, 

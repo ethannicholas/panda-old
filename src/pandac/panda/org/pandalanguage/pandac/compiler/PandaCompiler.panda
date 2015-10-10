@@ -17,20 +17,47 @@ class CompilerErrorReporter : ErrorReporter {
     constant WARNING_MESSAGE := "warning"
     def compiler:PandaCompiler
 
+    def textCache := new HashMap<File, String>()
+
     constructor(compiler:PandaCompiler) {
         self.compiler := compiler
     }
 
+    method getText(file:File):String? {
+        var result := textCache[file]
+        if result = null {
+            try {
+                result := file.readAsString()
+                textCache[file] := result
+            }
+            catch e:IOException {
+            }
+        }
+        return result
+    }
+
+    method format(position:Position):String {
+        def text := getText(position.file)
+        if text != null {
+            def stream := new LineNumberInputStream(new MemoryInputStream(text))
+            for i in 0 .. position.offset
+                stream.readInt8()
+            return position.file.name + ":" + stream.line + ":" + stream.column
+        }
+        else
+            return position.file.name + ":(internal error)"
+    }
+
     @override
     method error(message:String, position:Position) {
-        Console.writeLine("error: \{position.format(compiler.parser)}: " + 
+        Console.writeLine("error: \{format(position)}: " + 
                 message)
         compiler.errorQueue.post(ERROR_MESSAGE)
     }
 
     @override
     method warning(message:String, position:Position) {
-        Console.writeLine("warning: \{position.format(compiler.parser)}: " +
+        Console.writeLine("warning: \{format(position)}: " +
                 message)
         compiler.errorQueue.post(WARNING_MESSAGE)
     }
