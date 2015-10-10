@@ -106,15 +106,15 @@ Class Literals
 
 Each Panda class is represented at runtime by an instance of the 
 [Class](api/panda/core/Class.html) class. You may obtain a reference to this
-`Class` instance at runtime using the syntax `class(<name>)`, e.g.:
+`Class` instance using the class' name in an expression, e.g.:
 
 @SOURCE(
-    Console.writeLine(class(String).name)
+    Console.writeLine(String)
 )
 
 Result: 
     
-    panda.core.String
+    class panda.core.String
 
 Implementing Interfaces
 -----------------------
