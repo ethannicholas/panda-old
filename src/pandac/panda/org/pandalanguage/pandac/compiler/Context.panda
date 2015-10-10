@@ -606,7 +606,7 @@ class Context {
     }
 
     method call(position:Position, var target:Value, m:MethodStub,
-            params:ListView<Value>):Value? {
+            var params:ListView<Value>):Value? {
         if target.type.isPrimitive & m.name = "hash" & params.length = 0 {
             -- simple optimization, avoid calling non-wrapper function in this
             -- common case (can't be a wrapper function because it is an
@@ -630,6 +630,20 @@ class Context {
         def methodParams := m.parameters
         var isVarArg := methodParams.length > 0 &
                 methodParams[methodParams.length - 1].isVarArg
+        if params.length > 0 {
+            def last := params[params.length - 1]
+            if last-?>UnresolvedRange {
+                def range := last->UnresolvedRange
+                def left := range.left
+                if isListView(left) & range.right = null {
+                    assert left != null
+                    def newParams := new Array<Value>()
+                    newParams.addAll(params[0 .. params.length - 1])
+                    newParams.add(new Unwrap(left))
+                    params := newParams
+                }
+            }
+        }
         for i, p in params {
             if p-?>Unwrap {
                 if !isVarArg {
@@ -774,21 +788,6 @@ class Context {
                     def newParams := new Array<Value>()
                     newParams.addAll(params[0 .. params.length - 1])
                     newParams.add(new Unwrap(left))
-                    params := newParams
-                }
-                else if left != null & left.type.unwrapNullable-?>PrimitiveArrayType & 
-                        range.right = null {
-                    -- FIXME support for PrimitiveArrays is TEMPORARY, remove it
-                    assert left != null
-                    def newParams := new Array<Value>()
-                    newParams.addAll(params[0 .. params.length - 1])
-                    def convertParams := new Array<Value>()
-                    convertParams.add(left)
-                    def remapped := call(position, new ClassLiteral(position,
-                            ClassType.PANDA), "FIXME_TEMP_convertArray", 
-                            convertParams)
-                    assert remapped != null
-                    newParams.add(new Unwrap(remapped))
                     params := newParams
                 }
             }

@@ -1103,8 +1103,8 @@ class IRGenerator {
         if initializer != null {
             if v.vars.length = 1 {
                 if locals[0].name = "_" {
-                    context.errors.error("'_' is not a legal identifier " +
-                            "outside of tuple destructuring", v.position)
+                    context.errors.error("'_' is is only permitted in " +
+                            "multiple assignments from a tuple", v.position)
                     return null
                 }            
                 return new ValueStatement(new VariableAssignment(v.position, 
@@ -2748,7 +2748,6 @@ class IRGenerator {
         context.localVariables.clear()
         context.currentMethod := m
         context.pushSymbolTable()
-        def reusedTuples := new HashMap<Value, ReusedValueDefinition>()
         def parameters := new Array<Parameter>()
         for formal in m.parameters {
             def p := new Parameter(formal.position, formal.name, formal.type, 
@@ -2773,12 +2772,17 @@ class IRGenerator {
                     body.statements)
             def callsSuper := callsSuperConstructor(m.owner, body.statements)
             if !callsOther {
+                def reusedTuples := new HashMap<Value, ReusedValueDefinition>()
+                def initializers := new HashMap<ASTExpression, Value>()
                 def statements := new Array<Statement>()
                 for f in context.currentClass.fields {
                     if !f.annotations.isClass & !f.annotations.isThread {
                         if f.initialValue != null {
-                            var initialValue := resolve(
-                                    f.initialValue->ASTExpression)
+                            var initialValue := initializers[f.initialValue]
+                            if initialValue = null {
+                                initialValue := resolve(f.initialValue)
+                                initializers[f.initialValue] := initialValue
+                            }
                             if initialValue != null {
                                 if f.tuplePosition != null {
                                     var reused := reusedTuples[initialValue]
