@@ -241,6 +241,7 @@ class IRGenerator {
         }
         context.errors.error("'\{contextValue.type.displayName}' does not " +
                 "have a member named '\{name}'", position)
+        Panda.dumpStack()
         return null
     }
 
@@ -1180,8 +1181,7 @@ class IRGenerator {
         return null
     }
 
-    method convertIteratorFor(f:ASTFor, iterator:Value, 
-            indexVar:Variable?):Statement? {
+    method convertIteratorFor(f:ASTFor, iterator:Value):Statement? {
         def elementType := iterator.type->GenericType.parameters[0]
         def valueVars := new Array<LocalVariable>()
         if f.valueVars.length > 1 {
@@ -1219,11 +1219,6 @@ class IRGenerator {
         def statements := new Array<Statement>()
         def reused := new ReusedValueDefinition(iterator)
         statements.add(new ValueStatement(reused))
-        if indexVar != null {
-            statements.add(new ValueStatement(new VariableAssignment(f.position, 
-                    indexVar, new IntegerLiteral(f.position, 0, indexVar.type, 
-                    true), true)))
-        }
         def typeParams := new Array<Type>()
         typeParams.add(elementType)
         def bodyStatements := new Array<Statement>()
@@ -1263,14 +1258,6 @@ class IRGenerator {
             return null
         bodyStatements.add(bodyStatement)
         def continueStatements := new Array<Statement>()
-        if indexVar != null {
-            def plusOne := new BinaryOperation(f.position, 
-                    BinaryOperationType.ADD, new VariableReference(f.position,
-                        indexVar), new IntegerLiteral(f.position, 1, 
-                        indexVar.type, true))
-            continueStatements.add(new ValueStatement(new VariableAssignment(
-                    f.position, indexVar, plusOne, false)))
-        }
         def w := new LoopWithContinueBlock(f.position, f.label, 
                 new Block(f.position, bodyStatements), new Block(f.position,
                 continueStatements))
@@ -1278,15 +1265,14 @@ class IRGenerator {
         return new Block(f.position, statements)
     }
 
-    method convertIterableFor(f:ASTFor, rawList:Value, 
-            indexVar:Variable?):Statement? {
+    method convertIterableFor(f:ASTFor, rawList:Value):Statement? {
         def list := castToIterable(rawList)
         if list = null
             return null
         def getIterator := context.call(f.position, list, "iterator", 
                 new Array<Value>())
         assert getIterator != null
-        return convertIteratorFor(f, getIterator, indexVar)
+        return convertIteratorFor(f, getIterator)
     }
 
     @private
@@ -1654,8 +1640,7 @@ class IRGenerator {
                 range.right->Value, step, range.endInclusive)
     }
 
-    method convertPrimitiveArrayFor(f:ASTFor, rawArray:Value,
-            var indexVar:LocalVariable?):Statement? {
+    method convertPrimitiveArrayFor(f:ASTFor, rawArray:Value):Statement? {
         def array := new ReusedValueDefinition(rawArray)
         def elementType := array.type->>PrimitiveArrayType.elementType
         def valueVars := new Array<Variable>()
@@ -1676,11 +1661,9 @@ class IRGenerator {
         }
         def statements := new Array<Statement>()
         statements.add(new ValueStatement(array))
-        if indexVar = null {
-            indexVar := new LocalVariable(f.position, "$index", IntType.INT32,
+        def indexVar := new LocalVariable(f.position, "$index", IntType.INT32,
                     VariableType.VAR, context.currentMethod)
-            context.localVariables.add(indexVar)
-        }
+        context.localVariables.add(indexVar)
         statements.add(new ValueStatement(new VariableAssignment(f.position, 
                 indexVar, new IntegerLiteral(f.position, 0, indexVar.type, 
                 true), true)))
@@ -1723,38 +1706,20 @@ class IRGenerator {
     }
 
     method convertFor(f:ASTFor):Statement? {
-        def indexVar:LocalVariable?
-        if f.indexVar != null {
-            def astVar := f.indexVar->ASTTypedIdentifier
-            def type:Type?
-            if astVar.type != null {
-                type := resolve(astVar.type->ASTType)
-                if type = null
-                    return null
-            }
-            else
-                type := IntType.INT32
-            indexVar := new LocalVariable(astVar.position, astVar.identifier, 
-                    type, VariableType.DEF, context.currentMethod)
-            context.localVariables.add(indexVar)
-            context.symbolTable.add(indexVar)
-        }
-        else
-            indexVar := null
         var list := convertExpression(f.list)
         if list = null
             return null
-        if indexVar = null & list-?>UnresolvedRange
+        if list-?>UnresolvedRange
             return convertRangeFor(f, list->UnresolvedRange)
         list := resolve(list)
         if list = null
             return null
         if list.type.name.startsWith("panda.collections.PrimitiveArray<") |
                 list.type.name.startsWith("panda.collections.ImmutablePrimitiveArray<")
-            return convertPrimitiveArrayFor(f, list, indexVar)
+            return convertPrimitiveArrayFor(f, list)
         if list.type.name.startsWith("panda.collections.Iterator<")
-            return convertIteratorFor(f, list, indexVar)
-        return convertIterableFor(f, list, indexVar)
+            return convertIteratorFor(f, list)
+        return convertIterableFor(f, list)
     }
 
     method convertLoop(l:ASTLoop):Statement? {
