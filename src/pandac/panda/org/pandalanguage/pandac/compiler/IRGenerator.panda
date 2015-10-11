@@ -1180,19 +1180,16 @@ class IRGenerator {
         return null
     }
 
-    method convertIterableFor(f:ASTFor, rawList:Value, 
+    method convertIteratorFor(f:ASTFor, iterator:Value, 
             indexVar:Variable?):Statement? {
-        def list := castToIterable(rawList)
-        if list = null
-            return null
-        def elementType := list.type->GenericType.parameters[0]
+        def elementType := iterator.type->GenericType.parameters[0]
         def valueVars := new Array<LocalVariable>()
         if f.valueVars.length > 1 {
-            if elementType-!>TupleType | 
-                    elementType->TupleType.types.length != f.valueVars.length {
+            if !elementType.isTuple | 
+                    elementType->>TupleType.types.length != f.valueVars.length {
                 context.errors.error("'for' loop expected a list of " +
-                        "tuples of length \{f.valueVars.length}, but found " + 
-                        "'\{rawList.type.displayName}'", f.position)
+                        "tuples of length \{f.valueVars.length}, but found a " + 
+                        "list of '\{elementType.displayName}'", f.position)
                 return null
             }
         }
@@ -1220,6 +1217,8 @@ class IRGenerator {
             }
         }
         def statements := new Array<Statement>()
+        def reused := new ReusedValueDefinition(iterator)
+        statements.add(new ValueStatement(reused))
         if indexVar != null {
             statements.add(new ValueStatement(new VariableAssignment(f.position, 
                     indexVar, new IntegerLiteral(f.position, 0, indexVar.type, 
@@ -1227,23 +1226,14 @@ class IRGenerator {
         }
         def typeParams := new Array<Type>()
         typeParams.add(elementType)
-        def iteratorVar := new LocalVariable(f.position, "$iterator", 
-                new GenericType(new ClassType("panda.collections.Iterator"), 
-                typeParams), VariableType.DEF, context.currentMethod)
-        def getIterator := context.call(f.position, list, "iterator", 
-                new Array<Value>())
-        assert getIterator != null
-        statements.add(new ValueStatement(new VariableAssignment(f.position, 
-                iteratorVar, getIterator, true)))
-        context.localVariables.add(iteratorVar)
         def bodyStatements := new Array<Statement>()
-        def done := context.call(f.position, new VariableReference(f.position, 
-                iteratorVar), "done", new Array<Value>())
+        def done := context.call(f.position, reused.createReference(), "done", 
+                new Array<Value>())
         assert done != null
         def test := new If(f.position, done, new Break(f.position), null)
         bodyStatements.add(test)
-        def next := context.call(f.position, new VariableReference(f.position, 
-                iteratorVar), "next", new Array<Value>())
+        def next := context.call(f.position, reused.createReference(), "next", 
+                new Array<Value>())
         assert next != null
         def tupleVar:LocalVariable
         if valueVars.length = 1 {
@@ -1286,6 +1276,17 @@ class IRGenerator {
                 continueStatements))
         statements.add(w)
         return new Block(f.position, statements)
+    }
+
+    method convertIterableFor(f:ASTFor, rawList:Value, 
+            indexVar:Variable?):Statement? {
+        def list := castToIterable(rawList)
+        if list = null
+            return null
+        def getIterator := context.call(f.position, list, "iterator", 
+                new Array<Value>())
+        assert getIterator != null
+        return convertIteratorFor(f, getIterator, indexVar)
     }
 
     @private
@@ -1751,6 +1752,8 @@ class IRGenerator {
         if list.type.name.startsWith("panda.collections.PrimitiveArray<") |
                 list.type.name.startsWith("panda.collections.ImmutablePrimitiveArray<")
             return convertPrimitiveArrayFor(f, list, indexVar)
+        if list.type.name.startsWith("panda.collections.Iterator<")
+            return convertIteratorFor(f, list, indexVar)
         return convertIterableFor(f, list, indexVar)
     }
 
