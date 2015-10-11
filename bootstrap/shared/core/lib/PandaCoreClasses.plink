@@ -104,7 +104,7 @@ method execStream(path:panda.core.String, dir:panda.core.String, inHandle:panda.
 method $classInit()
 }
 package panda.core
--- Int32Wrapper.panda:(offset 25242)
+-- Int32Wrapper.panda:(offset 25278)
 @final
 class Int32Wrapper:panda.core.SignedInteger {
 @class
@@ -724,7 +724,7 @@ method sendMessage(message:panda.threads.Message)
 method threadExit()
 }
 package panda.collections
--- Array.panda:(offset 3532)
+-- Array.panda:(offset 3570)
 
 class Array<T>:panda.core.Object (panda.collections.List<panda.collections.Array.T>) {
 @private @class
@@ -771,7 +771,7 @@ self._length := contents.length
 constructor(contents:panda.collections.CollectionView<panda.collections.Array.T>)
     {
 self.contents := new PrimitiveArray<T>(contents.length)
-for i, v in contents
+for (i, v) in contents.enumeration()
 self.contents[i] := v
 _length := contents.length
     }
@@ -858,7 +858,7 @@ return false
 def list := (o)->(ListView<T>)
 if (length != list.length)
 return false
-for i, v in self         {
+for (i, v) in enumeration()         {
 if (v != list[i])
 return false
         }
@@ -882,7 +882,7 @@ return result
 function format(fmt:panda.core.String):panda.core.String
     {
 def result := new MutableString("[")
-for i, v in self         {
+for (i, v) in enumeration()         {
 if (i > 0)
 result.append(", ")
 if (v != null)
@@ -968,31 +968,31 @@ method $initinputStream():panda.io.FileInputStream
 method $initoutputStream():panda.io.FileOutputStream
 }
 package panda.collections
--- ListView.panda:(offset 1140)
+-- CollectionView.panda:(offset 616)
 
-class ListEnumerator<T>:panda.core.Object (panda.collections.Iterator<(panda.core.Int32,panda.collections.ListEnumerator.T)>) {
+class Enumerator<T>:panda.core.Object (panda.collections.Iterator<(panda.core.Int32,panda.collections.Enumerator.T)>) {
 
-var list:panda.collections.ListView<panda.collections.ListEnumerator.T>
+var base:panda.collections.Iterator<panda.collections.Enumerator.T>
 
 
 var index:panda.core.Int32 := 0
 
 
-constructor(list:panda.collections.ListView<panda.collections.ListEnumerator.T>)
+constructor(collection:panda.collections.CollectionView<panda.collections.Enumerator.T>)
     {
-self.list := list
+self.base := collection.iterator()
     }
 
 @override
 function done():panda.core.Bit
     {
-return (index >= list.length)
+return base.done()
     }
 
 @override @self
-method next():(panda.core.Int32,panda.collections.ListEnumerator.T)
+method next():(panda.core.Int32,panda.collections.Enumerator.T)
     {
-def result:(Int, T) := (index, list[index])
+def result:(Int, T) := (index, base.next())
 index += 1
 return result
     }
@@ -1024,6 +1024,19 @@ return e.value
     }
 }
 package panda.collections
+-- ListWriter.panda:(offset 217)
+
+interface ListWriter<T> : panda.collections.CollectionWriter<panda.collections.ListWriter.T> {
+@abstract @self
+method []:=(index:panda.core.Int32, value:panda.collections.ListWriter.T)
+
+@abstract @self
+method insert(index:panda.core.Int32, value:panda.collections.ListWriter.T)
+
+@abstract @self
+method removeIndex(index:panda.core.Int32)
+}
+package panda.collections
 -- HashMap.panda:(offset 823)
 @private
 class MutableMapEntry<K, V>:panda.core.Object {
@@ -1043,23 +1056,20 @@ self.key := key
 self.value := value
     }
 }
-package panda.collections
--- ListWriter.panda:(offset 217)
-
-interface ListWriter<T> : panda.collections.CollectionWriter<panda.collections.ListWriter.T> {
-@abstract @self
-method []:=(index:panda.core.Int32, value:panda.collections.ListWriter.T)
-
-@abstract @self
-method insert(index:panda.core.Int32, value:panda.collections.ListWriter.T)
-
-@abstract @self
-method removeIndex(index:panda.core.Int32)
-}
 package panda.core
 -- PostconditionError.panda:(offset 1064)
 
 class PostconditionError:panda.core.AssertionError {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
+package panda.core
+-- AssertionError.panda:(offset 1148)
+
+class AssertionError:panda.core.SafetyError {
 
 constructor()
 
@@ -1198,16 +1208,6 @@ self[start .. (end + 1) by step] := list
 else
 self[start .. (end - 1) by step] := list
     }
-}
-package panda.core
--- AssertionError.panda:(offset 1148)
-
-class AssertionError:panda.core.SafetyError {
-
-constructor()
-
-
-constructor(message:panda.core.String)
 }
 package panda.core
 -- Class.panda:(offset 1850)
@@ -1585,7 +1585,7 @@ class Immutable:panda.core.Object {
 constructor()
 }
 package panda.collections
--- HashSet.panda:(offset 1063)
+-- HashSet.panda:(offset 1074)
 
 class HashSet<T>:panda.core.Object (panda.collections.Set<panda.collections.HashSet.T>) {
 @private
@@ -1643,7 +1643,7 @@ contents.clear()
 function format(fmt:panda.core.String):panda.core.String
     {
 def result := new MutableString("[")
-for i, v in self         {
+for (i, v) in enumeration()         {
 if (i > 0)
 result.append(", ")
 result.append(v)
@@ -1824,6 +1824,43 @@ function ->>():panda.core.String
 method $classInit()
 }
 package panda.io
+-- FilterOutputStream.panda:(offset 2194)
+
+class FilterOutputStream:panda.io.OutputStream {
+@private
+var out:panda.io.OutputStream
+
+
+var closeUnderlyingStream:panda.core.Bit
+
+
+constructor(out:panda.io.OutputStream)
+
+@override
+method write(b:panda.core.Int8)
+
+@override
+method write(b:panda.core.UInt8)
+
+@override
+method write(c:panda.core.Char)
+
+@override
+method write(b:panda.collections.ListView<panda.core.Int8>, offset:panda.core.Int32, length:panda.core.Int32)
+
+@override
+method write(b:panda.collections.ListView<panda.core.UInt8>, offset:panda.core.Int32, length:panda.core.Int32)
+
+@override
+method write(c:panda.collections.ListView<panda.core.Char>, offset:panda.core.Int32, length:panda.core.Int32)
+
+@override
+method write(c:panda.collections.ListView<panda.core.Char>)
+
+@override
+method close()
+}
+package panda.io
 -- BufferedInputStream.panda:(offset 3348)
 
 class BufferedInputStream:panda.io.FilterInputStream {
@@ -1872,43 +1909,6 @@ method read(bytes:panda.collections.ListWriter<panda.core.Char>, max:panda.core.
 @class
 method $classInit()
 }
-package panda.io
--- FilterOutputStream.panda:(offset 2194)
-
-class FilterOutputStream:panda.io.OutputStream {
-@private
-var out:panda.io.OutputStream
-
-
-var closeUnderlyingStream:panda.core.Bit
-
-
-constructor(out:panda.io.OutputStream)
-
-@override
-method write(b:panda.core.Int8)
-
-@override
-method write(b:panda.core.UInt8)
-
-@override
-method write(c:panda.core.Char)
-
-@override
-method write(b:panda.collections.ListView<panda.core.Int8>, offset:panda.core.Int32, length:panda.core.Int32)
-
-@override
-method write(b:panda.collections.ListView<panda.core.UInt8>, offset:panda.core.Int32, length:panda.core.Int32)
-
-@override
-method write(c:panda.collections.ListView<panda.core.Char>, offset:panda.core.Int32, length:panda.core.Int32)
-
-@override
-method write(c:panda.collections.ListView<panda.core.Char>)
-
-@override
-method close()
-}
 package panda.core
 -- Integer.panda:(offset 317)
 @abstract
@@ -1930,23 +1930,6 @@ package panda.collections
 -- Map.panda:(offset 373)
 
 interface Map<K, V> : panda.collections.MapView<panda.collections.Map.K,panda.collections.Map.V>, panda.collections.MapWriter<panda.collections.Map.K,panda.collections.Map.V> {
-}
-package panda.core
--- InternalError.panda:(offset 837)
-
-class InternalError:panda.core.AssertionError {
-
-constructor()
-
-
-constructor(message:panda.core.String)
-}
-package panda.core
--- CastError.panda:(offset 563)
-
-class CastError:panda.core.Error {
-
-constructor(message:panda.core.String)
 }
 package panda.threads
 -- Pipe.panda:(offset 1717)
@@ -1994,6 +1977,23 @@ function ->>():panda.core.String
 
 @class
 function ->>(value:panda.core.Int32):panda.collections.Order
+}
+package panda.core
+-- InternalError.panda:(offset 837)
+
+class InternalError:panda.core.AssertionError {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
+package panda.core
+-- CastError.panda:(offset 563)
+
+class CastError:panda.core.Error {
+
+constructor(message:panda.core.String)
 }
 package panda.core
 -- Int16Wrapper.panda:(offset 25193)
@@ -2233,7 +2233,7 @@ method setLength(a:panda.core.Object, elementSize:panda.core.Int32, reserved:pan
 constructor()
 }
 package panda.collections
--- ListView.panda:(offset 7583)
+-- ListView.panda:(offset 7535)
 
 interface ListView<T> : panda.collections.CollectionView<panda.collections.ListView.T> {
 @abstract
@@ -2302,7 +2302,7 @@ return (indexOf(value) != null)
 
 function indexOf(value:panda.collections.ListView.T):panda.core.Int32Wrapper?
     {
-for i, test in self         {
+for (i, test) in enumeration()         {
 if (test = value)
 return i
         }
@@ -2346,16 +2346,16 @@ return new ListIterator<T>(self)
     }
 
 
-function enumeration():panda.collections.Iterator<(panda.core.Int32,panda.collections.ListView.T)>
+function join():panda.core.String
     {
-return new ListEnumerator<T>(self)
+return join(", ")
     }
 
 
 function join(delimiter:panda.core.String):panda.core.String
     {
 def result := new MutableString()
-for i, v in self         {
+for (i, v) in enumeration()         {
 if (i > 0)
 result.append(delimiter)
 if (v != null)
@@ -2450,7 +2450,7 @@ interface Iterable<T> {
 function iterator():panda.collections.Iterator<panda.collections.Iterable.T>
 }
 package panda.collections
--- ImmutableHashMap.panda:(offset 7480)
+-- ImmutableHashMap.panda:(offset 7501)
 
 class ImmutableHashMap<K:Immutable, V:Immutable>:panda.core.Immutable (panda.collections.MapView<panda.collections.ImmutableHashMap.K,panda.collections.ImmutableHashMap.V>) {
 @private
@@ -2474,8 +2474,8 @@ h := (m)->(HashMap<K, V>)
 else
 h := new HashMap<K, V>(m)
 def contentsTemp := new PrimitiveArray<ImmutableMapEntry<K, V>?>(h.contents.length)
-for i, e in h.contents
-contentsTemp[i] := copy(e)
+for i in 0 .. h.contents.length
+contentsTemp[i] := copy(h.contents[i])
 contents := new ImmutablePrimitiveArray<ImmutableMapEntry<K, V>?>(contentsTemp)
 _length := h.length
     }
@@ -2920,23 +2920,6 @@ function result(e:panda.collections.ImmutableMapEntry<panda.collections.Immutabl
 return (e.key, e.value)
     }
 }
-package panda.core
--- InvariantError.panda:(offset 1026)
-
-class InvariantError:panda.core.AssertionError {
-
-constructor()
-
-
-constructor(message:panda.core.String)
-}
-package panda.collections
--- Tuple.panda:(offset 479)
-
-class Tuple:panda.core.Object {
-
-constructor()
-}
 package panda.io
 -- FileOutputStream.panda:(offset 1186)
 @private
@@ -2975,11 +2958,34 @@ method writeInt8(nativeFile:panda.core.$NativePointer, b:panda.core.Int8)
 method writeInt8Array(nativeFile:panda.core.$NativePointer, b:panda.collections.ListView<panda.core.Int8>, offset:panda.core.Int32, length:panda.core.Int32)
 }
 package panda.collections
--- CollectionView.panda:(offset 1073)
+-- Tuple.panda:(offset 479)
+
+class Tuple:panda.core.Object {
+
+constructor()
+}
+package panda.core
+-- InvariantError.panda:(offset 1026)
+
+class InvariantError:panda.core.AssertionError {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
+package panda.collections
+-- CollectionView.panda:(offset 2160)
 
 interface CollectionView<T> : panda.collections.Iterable<panda.collections.CollectionView.T> {
 @abstract
 function length():panda.core.Int32
+
+
+function enumeration():panda.collections.Iterator<(panda.core.Int32,panda.collections.CollectionView.T)>
+    {
+return new Enumerator<T>(self)
+    }
 
 
 function contains(object:panda.collections.CollectionView.T):panda.core.Bit
@@ -3110,11 +3116,6 @@ method close()
 
 constructor()
 }
-package panda.collections
--- Set.panda:(offset 63)
-
-interface Set<T> : panda.collections.Collection<panda.collections.Set.T> {
-}
 package panda.core
 -- Error.panda:(offset 3295)
 
@@ -3136,6 +3137,11 @@ function format(fmt:panda.core.String):panda.core.String
 
 @private @external
 function getStackTrace():panda.collections.ImmutablePrimitiveArray<panda.core.StackTraceEntry>
+}
+package panda.collections
+-- Set.panda:(offset 63)
+
+interface Set<T> : panda.collections.Collection<panda.collections.Set.T> {
 }
 package panda.collections
 -- ListView.panda:(offset 568)
@@ -3582,7 +3588,7 @@ var type:panda.core.OperatingSystemType
 constructor(type:panda.core.OperatingSystemType)
 }
 package panda.collections
--- HashMap.panda:(offset 11323)
+-- HashMap.panda:(offset 11363)
 
 class HashMap<K, V>:panda.core.Object (panda.collections.Map<panda.collections.HashMap.K,panda.collections.HashMap.V>) {
 @private @class
@@ -3612,19 +3618,19 @@ constructor()
 clear()
     }
 
-
+@private
 constructor(keys:panda.collections.PrimitiveArray<panda.collections.HashMap.K>, values:panda.collections.PrimitiveArray<panda.collections.HashMap.V>)
     {
 constructor()
-for i, key in keys
-self[key] := values[i]
+for i in 0 .. keys.length
+self[keys[i]] := values[i]
     }
 
 
 constructor(keys:panda.collections.ListView<panda.collections.HashMap.K>, values:panda.collections.ListView<panda.collections.HashMap.V>)
     {
 constructor()
-for i, key in keys
+for (i, key) in keys.enumeration()
 self[key] := values[i]
     }
 
@@ -3985,6 +3991,109 @@ function ->>():panda.core.String
 method $classInit()
 }
 package panda.core
+-- MutableString.panda:(offset 16647)
+@final
+class MutableString:panda.collections.Array<panda.core.Char> {
+
+constructor()
+
+
+constructor(s:panda.core.String)
+
+@self
+method [..]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method [..]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method [...]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method [...]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method insert(index:panda.core.Int32, s:panda.core.String)
+
+@self
+method remove(start:panda.core.Int32, end:panda.core.Int32)
+
+@self
+method replaceInPlace(search:panda.core.String, replacement:panda.core.String)
+
+@self
+method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String)
+
+@self
+method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String, allowGroupReferences:panda.core.Bit)
+
+@self
+method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.core.String)=>(panda.core.Object)?)
+
+@self
+method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.collections.ListView<panda.core.String>)=>(panda.core.Object)?)
+
+@self
+method delete(search:panda.core.String)
+
+@self
+method delete(regex:panda.core.RegularExpression)
+
+@self
+method append(c:panda.core.Char)
+
+@self
+method append(s->>panda.core.String)
+
+
+function startsWith(s:panda.core.String):panda.core.Bit
+
+
+function endsWith(s:panda.core.String):panda.core.Bit
+
+
+function contains(s:panda.core.String):panda.core.Bit
+
+
+function indexOf(s:panda.core.String):panda.core.Int32Wrapper?
+
+
+function indexOf(s:panda.core.String, start:panda.core.Int32):panda.core.Int32Wrapper?
+
+
+function [..](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
+
+@override
+function [..](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
+
+@override
+function [..](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
+
+
+function [...](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
+
+@override
+function [...](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
+
+@override
+function [...](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
+
+@override @math(overflow)
+function hash():panda.core.Int32
+
+@override
+function =(o:panda.core.Object):panda.core.Bit
+
+@override
+function ->>():panda.core.String
+
+@class @safeReturn
+function ->>(s->>panda.core.String):panda.core.MutableString
+
+@override
+function format(fmt:panda.core.String):panda.core.String
+}
+package panda.core
 -- UInt32Wrapper.panda:(offset 25692)
 @final
 class UInt32Wrapper:panda.core.UnsignedInteger {
@@ -4162,109 +4271,6 @@ function ->>():panda.core.String
 @class
 method $classInit()
 }
-package panda.core
--- MutableString.panda:(offset 16647)
-@final
-class MutableString:panda.collections.Array<panda.core.Char> {
-
-constructor()
-
-
-constructor(s:panda.core.String)
-
-@self
-method [..]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method [..]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method [...]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method [...]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method insert(index:panda.core.Int32, s:panda.core.String)
-
-@self
-method remove(start:panda.core.Int32, end:panda.core.Int32)
-
-@self
-method replaceInPlace(search:panda.core.String, replacement:panda.core.String)
-
-@self
-method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String)
-
-@self
-method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String, allowGroupReferences:panda.core.Bit)
-
-@self
-method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.core.String)=>(panda.core.Object)?)
-
-@self
-method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.collections.ListView<panda.core.String>)=>(panda.core.Object)?)
-
-@self
-method delete(search:panda.core.String)
-
-@self
-method delete(regex:panda.core.RegularExpression)
-
-@self
-method append(c:panda.core.Char)
-
-@self
-method append(s->>panda.core.String)
-
-
-function startsWith(s:panda.core.String):panda.core.Bit
-
-
-function endsWith(s:panda.core.String):panda.core.Bit
-
-
-function contains(s:panda.core.String):panda.core.Bit
-
-
-function indexOf(s:panda.core.String):panda.core.Int32Wrapper?
-
-
-function indexOf(s:panda.core.String, start:panda.core.Int32):panda.core.Int32Wrapper?
-
-
-function [..](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
-
-@override
-function [..](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
-
-@override
-function [..](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
-
-
-function [...](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
-
-@override
-function [...](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
-
-@override
-function [...](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
-
-@override @math(overflow)
-function hash():panda.core.Int32
-
-@override
-function =(o:panda.core.Object):panda.core.Bit
-
-@override
-function ->>():panda.core.String
-
-@class @safeReturn
-function ->>(s->>panda.core.String):panda.core.MutableString
-
-@override
-function format(fmt:panda.core.String):panda.core.String
-}
 package panda.io
 -- InputStream.panda:(offset 10046)
 @abstract
@@ -4341,7 +4347,7 @@ class Enumeration:panda.core.Value {
 constructor()
 }
 package panda.core
--- String.panda:(offset 60677)
+-- String.panda:(offset 60693)
 @final
 class String:panda.core.Value (panda.collections.ListView<panda.core.Char>) {
 @private
@@ -4632,6 +4638,16 @@ function pandaStringToReal32(s:panda.core.String):panda.core.Real32
 @private @class @external
 function pandaStringToReal64(s:panda.core.String):panda.core.Real64
 }
+package panda.core
+-- SafetyError.panda:(offset 1519)
+
+class SafetyError:panda.core.Error {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
 package panda.collections
 -- HashMap.panda:(offset 2744)
 @private
@@ -4647,16 +4663,6 @@ function result(e:panda.collections.MutableMapEntry<panda.collections.HashMapVal
     {
 return e.value
     }
-}
-package panda.core
--- SafetyError.panda:(offset 1519)
-
-class SafetyError:panda.core.Error {
-
-constructor()
-
-
-constructor(message:panda.core.String)
 }
 package panda.core
 -- UnsignedInteger.panda:(offset 320)
@@ -4822,7 +4828,7 @@ method close()
 method $classInit()
 }
 package panda.collections
--- ImmutableArray.panda:(offset 1867)
+-- ImmutableArray.panda:(offset 1924)
 
 class ImmutableArray<T:Immutable>:panda.core.Immutable (panda.collections.ListView<panda.collections.ImmutableArray.T>) {
 @private
@@ -4844,15 +4850,15 @@ self.contents := contents[..]
 constructor(contents:panda.collections.ImmutablePrimitiveArray<panda.collections.ImmutableArray.T>)
     {
 self.contents := new PrimitiveArray<T>(contents.length)
-for i, v in contents
-self.contents[i] := v
+for i in 0 .. contents.length
+self.contents[i] := contents[i]
     }
 
 
 constructor(contents:panda.collections.CollectionView<panda.collections.ImmutableArray.T>)
     {
 self.contents := new PrimitiveArray<T>(contents.length)
-for i, v in contents
+for (i, v) in contents.enumeration()
 self.contents[i] := v
     }
 
@@ -4876,7 +4882,7 @@ return false
 def list := (o)->(ListView<T>)
 if (length != list.length)
 return false
-for i, v in self         {
+for (i, v) in enumeration()         {
 if (v != list[i])
 return false
         }
@@ -4897,7 +4903,7 @@ return result
 function format(fmt:panda.core.String):panda.core.String
     {
 def result := new MutableString("[")
-for i, v in self         {
+for (i, v) in enumeration()         {
 if (i > 0)
 result.append(", ")
 result.append(v.format(fmt))
@@ -5099,39 +5105,15 @@ function format(fmt:panda.core.String):panda.core.String
 @class
 method $classInit()
 }
-package panda.io
--- FilterInputStream.panda:(offset 2134)
+package panda.core
+-- OverflowError.panda:(offset 830)
 
-class FilterInputStream:panda.io.InputStream {
-@protected
-var raw:panda.io.InputStream
+class OverflowError:panda.core.SafetyError {
 
-
-var closeUnderlyingStream:panda.core.Bit
+constructor()
 
 
-constructor(raw:panda.io.InputStream)
-
-@override
-method readInt8():panda.core.Int8Wrapper?
-
-@override
-method readUInt8():panda.core.UInt8Wrapper?
-
-@override
-method readChar():panda.core.CharWrapper?
-
-@override
-method read(bytes:panda.collections.ListWriter<panda.core.Int8>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method read(bytes:panda.collections.ListWriter<panda.core.UInt8>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method read(chars:panda.collections.ListWriter<panda.core.Char>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method close()
+constructor(message:panda.core.String)
 }
 package panda.core
 -- Real32Wrapper.panda:(offset 15952)
@@ -5257,6 +5239,40 @@ function ->>():panda.core.Real32
 @override
 function ->>():panda.core.Real64
 }
+package panda.io
+-- FilterInputStream.panda:(offset 2134)
+
+class FilterInputStream:panda.io.InputStream {
+@protected
+var raw:panda.io.InputStream
+
+
+var closeUnderlyingStream:panda.core.Bit
+
+
+constructor(raw:panda.io.InputStream)
+
+@override
+method readInt8():panda.core.Int8Wrapper?
+
+@override
+method readUInt8():panda.core.UInt8Wrapper?
+
+@override
+method readChar():panda.core.CharWrapper?
+
+@override
+method read(bytes:panda.collections.ListWriter<panda.core.Int8>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method read(bytes:panda.collections.ListWriter<panda.core.UInt8>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method read(chars:panda.collections.ListWriter<panda.core.Char>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method close()
+}
 package panda.math
 -- Random.panda:(offset 7262)
 
@@ -5299,16 +5315,6 @@ method real64():panda.core.Real64
 
 @class
 method real64():panda.core.Real64
-}
-package panda.core
--- OverflowError.panda:(offset 830)
-
-class OverflowError:panda.core.SafetyError {
-
-constructor()
-
-
-constructor(message:panda.core.String)
 }
 package panda.core
 -- Int8Wrapper.panda:(offset 25145)
@@ -5594,6 +5600,29 @@ return result
 @abstract
 function length():panda.core.Int32
 }
+package panda.collections
+-- CollectionWriter.panda:(offset 287)
+
+interface CollectionWriter<T> {
+@abstract
+function length():panda.core.Int32
+
+@abstract @self
+method add(object:panda.collections.CollectionWriter.T)
+
+@self
+method addAll(c:panda.collections.CollectionView<panda.collections.CollectionWriter.T>)
+    {
+for v in c
+add(v)
+    }
+
+@abstract @self
+method remove(object:panda.collections.CollectionWriter.T)
+
+@abstract @self
+method clear()
+}
 package panda.core
 -- Object.panda:(offset 6136)
 @abstract
@@ -5625,29 +5654,6 @@ method finalize()
 @class
 function parse(inStream:panda.io.InputStream):panda.core.Object?
 }
-package panda.collections
--- CollectionWriter.panda:(offset 287)
-
-interface CollectionWriter<T> {
-@abstract
-function length():panda.core.Int32
-
-@abstract @self
-method add(object:panda.collections.CollectionWriter.T)
-
-@self
-method addAll(c:panda.collections.CollectionView<panda.collections.CollectionWriter.T>)
-    {
-for v in c
-add(v)
-    }
-
-@abstract @self
-method remove(object:panda.collections.CollectionWriter.T)
-
-@abstract @self
-method clear()
-}
 package panda.threads
 -- Lock.panda:(offset 1919)
 
@@ -5669,13 +5675,6 @@ method finalize()
 
 @private @external
 method init()
-}
-package panda.collections
--- ImmutablePrimitiveArray.panda:(offset 426)
-
-class ImmutablePrimitiveArray:panda.core.Immutable {
-
-constructor()
 }
 package panda.io
 -- PushbackInputStream.panda:(offset 5956)
@@ -5725,50 +5724,6 @@ method pushback(c:panda.collections.ListView<panda.core.Char>)
 
 
 method pushback(s:panda.core.String)
-}
-package panda.core
--- Primitive.panda:(offset 415)
-@abstract
-class Primitive:panda.core.Value {
-
-constructor()
-}
-package panda.collections
--- IndexOutOfBoundsError.panda:(offset 841)
-
-class IndexOutOfBoundsError:panda.core.SafetyError {
-
-constructor(message:panda.core.String)
-}
-package panda.core
--- MathError.panda:(offset 834)
-
-class MathError:panda.core.SafetyError {
-
-constructor()
-
-
-constructor(message:panda.core.String)
-}
-package panda.core
--- Method.panda:(offset 471)
-
-class Method:panda.core.Immutable {
-
-constructor()
-}
-package panda.core
--- MutableMethod.panda:(offset 1061)
-
-class MutableMethod:panda.core.Object {
-
-var pointer:panda.core.$NativePointer
-
-
-constructor()
-
-
-method dummy()
 }
 package panda.collections
 -- Stack.panda:(offset 3901)
@@ -5832,6 +5787,58 @@ function ->>():panda.collections.ListView<panda.collections.Stack.T>
 return contents[..]
     }
 }
+package panda.core
+-- MathError.panda:(offset 834)
+
+class MathError:panda.core.SafetyError {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
+package panda.core
+-- Method.panda:(offset 471)
+
+class Method:panda.core.Immutable {
+
+constructor()
+}
+package panda.core
+-- MutableMethod.panda:(offset 1061)
+
+class MutableMethod:panda.core.Object {
+
+var pointer:panda.core.$NativePointer
+
+
+constructor()
+
+
+method dummy()
+}
+package panda.core
+-- Primitive.panda:(offset 415)
+@abstract
+class Primitive:panda.core.Value {
+
+constructor()
+}
+package panda.collections
+-- ImmutablePrimitiveArray.panda:(offset 426)
+
+class ImmutablePrimitiveArray:panda.core.Immutable {
+
+constructor()
+}
+package panda.collections
+-- IndexOutOfBoundsError.panda:(offset 841)
+
+class IndexOutOfBoundsError:panda.core.SafetyError {
+
+constructor(message:panda.core.String)
+}
+@$instance panda.collections.Enumerator<panda.core.Real64>
 @$instance panda.collections.CollectionWriter<panda.core.Int8>
 @$instance panda.collections.MapView<panda.core.Immutable,panda.core.Object>
 @$instance panda.collections.Array<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
@@ -5843,23 +5850,22 @@ return contents[..]
 @$instance (panda.core.Int32,panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?)
 @$instance panda.collections.Iterator<panda.core.Object?>
 @$instance (panda.core.Int32,panda.core.Immutable?)
-@$instance panda.collections.ListEnumerator<panda.core.Object?>
-@$instance panda.collections.ImmutablePrimitiveArray<panda.core.Int64>
-@$instance panda.collections.ListEnumerator<panda.core.StackTraceEntry>
 @$instance panda.collections.Map<panda.core.Int32,panda.core.Object?>
+@$instance panda.collections.ImmutablePrimitiveArray<panda.core.Int64>
 @$instance (panda.core.Int32,panda.core.Int16)
 @$instance panda.collections.List<panda.core.UInt64>
-@$instance panda.collections.ListWriter<panda.core.String>
+@$instance panda.collections.Enumerator<panda.core.UInt64>
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Int16)>
+@$instance panda.collections.ListWriter<panda.core.String>
 @$instance panda.collections.List<panda.core.UInt8>
 @$instance panda.collections.PrimitiveArray<panda.core.UInt8>
 @$instance panda.collections.CollectionView<panda.core.UInt32>
+@$instance panda.collections.Enumerator<panda.core.StackTraceEntry>
 @$instance panda.collections.CollectionView<panda.io.File>
 @$instance (panda.core.Int32,panda.core.Object?)
 @$instance panda.collections.Iterable<(panda.core.Immutable,panda.core.Immutable)>
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Immutable)>
 @$instance panda.collections.ListView<panda.core.Char>
-@$instance panda.collections.ListEnumerator<panda.core.Object>
 @$instance panda.collections.CollectionWriter<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
 @$instance panda.collections.ListWriter<panda.core.Int64>
 @$instance panda.collections.CollectionWriter<panda.io.File>
@@ -5870,15 +5876,15 @@ return contents[..]
 @$instance panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>
 @$instance panda.collections.Iterator<(panda.core.Immutable,panda.core.Immutable)>
 @$instance panda.collections.Iterable<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
-@$instance panda.collections.ListEnumerator<panda.core.UInt16>
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Object)>
 @$instance (panda.core.Immutable,panda.core.Immutable)
+@$instance panda.collections.Enumerator<panda.core.UInt32>
 @$instance panda.collections.CollectionWriter<panda.core.Object>
 @$instance panda.collections.CollectionView<panda.core.Char>
 @$instance panda.collections.Iterable<panda.core.UInt16>
 @$instance panda.collections.MapWriter<panda.core.Immutable,panda.core.Object>
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Char)>
-@$instance panda.collections.ListEnumerator<panda.core.Real32>
+@$instance panda.collections.Enumerator<panda.core.UInt8>
 @$instance panda.collections.MapView<panda.core.Int32,panda.core.Object?>
 @$instance panda.collections.ListView<panda.core.Int64>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.String>
@@ -5893,12 +5899,14 @@ return contents[..]
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.UInt64)>
 @$instance panda.collections.ListIterator<panda.core.Int32>
 @$instance panda.collections.Iterable<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
-@$instance panda.collections.PrimitiveArray<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance (panda.core.Int32,panda.core.Int8)
+@$instance panda.collections.PrimitiveArray<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance panda.collections.CollectionWriter<panda.core.Int64>
 @$instance panda.collections.ListWriter<panda.core.UInt32>
 @$instance panda.collections.List<panda.core.Immutable>
+@$instance panda.collections.Enumerator<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
 @$instance panda.collections.ListIterator<panda.core.UInt64>
+@$instance panda.collections.Enumerator<panda.core.Int16>
 @$instance panda.collections.ListWriter<panda.core.Real32>
 @$instance panda.collections.Iterable<panda.core.Real32>
 @$instance panda.collections.CollectionWriter<panda.core.UInt8>
@@ -5906,7 +5914,6 @@ return contents[..]
 @$instance panda.collections.ListIterator<panda.core.StackTraceEntry>
 @$instance (panda.core.Int32,panda.core.Immutable)
 @$instance panda.collections.CollectionView<panda.core.Int64>
-@$instance panda.collections.ListEnumerator<panda.core.Int16>
 @$instance panda.collections.Iterator<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.Int32>
 @$instance panda.collections.ListIterator<panda.io.File>
@@ -5918,12 +5925,10 @@ return contents[..]
 @$instance panda.collections.CollectionView<panda.core.StackTraceEntry>
 @$instance panda.collections.List<panda.core.StackTraceEntry>
 @$instance panda.collections.ListIterator<panda.core.UInt8>
-@$instance panda.collections.ListEnumerator<panda.core.Int32>
 @$instance panda.collections.Array<panda.core.UInt32>
 @$instance panda.collections.Iterator<panda.core.Object>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.StackTraceEntry>
 @$instance panda.collections.Iterator<panda.core.Char>
-@$instance panda.collections.ListEnumerator<panda.io.File>
 @$instance panda.collections.Iterator<panda.io.File>
 @$instance panda.collections.Array<panda.core.Int8>
 @$instance panda.collections.CollectionView<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
@@ -5938,7 +5943,6 @@ return contents[..]
 @$instance panda.collections.Array<panda.core.Real64>
 @$instance panda.collections.Iterable<panda.core.UInt32>
 @$instance panda.collections.PrimitiveArray<panda.core.Object>
-@$instance panda.collections.ListEnumerator<panda.core.Int8>
 @$instance panda.collections.ListView<panda.core.UInt32>
 @$instance panda.collections.Iterable<panda.core.String>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
@@ -5946,16 +5950,18 @@ return contents[..]
 @$instance panda.collections.List<panda.core.Int32>
 @$instance panda.collections.Iterator<panda.core.StackTraceEntry>
 @$instance panda.collections.PrimitiveArray<panda.core.UInt32>
-@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.String)>
+@$instance panda.collections.Enumerator<panda.core.String>
 @$instance panda.collections.ListView<panda.core.UInt64>
+@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.String)>
 @$instance panda.collections.PrimitiveArray<panda.core.Real64>
+@$instance panda.collections.Enumerator<panda.core.UInt16>
 @$instance panda.collections.ListView<panda.core.Object>
 @$instance panda.collections.CollectionView<panda.core.Immutable?>
 @$instance panda.collections.Map<panda.core.Immutable,panda.core.Object>
-@$instance panda.collections.Iterator<(panda.core.Int32,panda.io.File)>
 @$instance panda.collections.List<panda.core.Int8>
 @$instance panda.collections.ListWriter<panda.core.Char>
 @$instance panda.collections.Iterable<panda.core.Object>
+@$instance panda.collections.Iterator<(panda.core.Int32,panda.io.File)>
 @$instance panda.collections.ListWriter<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
 @$instance panda.collections.CollectionWriter<panda.core.StackTraceEntry>
 @$instance panda.collections.ListWriter<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
@@ -5970,16 +5976,15 @@ return contents[..]
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.Char>
 @$instance (panda.core.Int32,panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?)
 @$instance (panda.core.Int32,panda.core.Int32)
+@$instance panda.collections.Enumerator<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance panda.collections.CollectionWriter<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance panda.collections.ListWriter<panda.core.Immutable>
-@$instance panda.collections.ListEnumerator<panda.core.UInt32>
 @$instance (panda.core.Int32,panda.core.Real64)
 @$instance panda.collections.Iterable<panda.core.Int16>
 @$instance panda.collections.HashMapEntryIterator<panda.core.Immutable,panda.core.Object>
 @$instance panda.collections.MapView<panda.core.Immutable,panda.core.Immutable>
 @$instance panda.collections.List<panda.core.Int64>
-@$instance panda.collections.ListEnumerator<panda.core.UInt8>
-@$instance panda.collections.ListEnumerator<panda.core.Immutable>
+@$instance panda.collections.Enumerator<panda.core.Immutable>
 @$instance panda.collections.Iterable<panda.core.Int32>
 @$instance (panda.core.Int32,panda.io.File)
 @$instance panda.collections.List<panda.core.Real32>
@@ -5987,6 +5992,7 @@ return contents[..]
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Object?)>
 @$instance panda.collections.Iterator<panda.core.Real64>
 @$instance panda.collections.ListView<panda.core.StackTraceEntry>
+@$instance panda.collections.Enumerator<panda.core.Int8>
 @$instance panda.collections.ListIterator<panda.core.UInt32>
 @$instance panda.collections.ListIterator<panda.core.Int8>
 @$instance panda.collections.ListWriter<panda.core.UInt8>
@@ -6007,11 +6013,11 @@ return contents[..]
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.Immutable>
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.UInt16)>
 @$instance panda.collections.PrimitiveArray<panda.core.StackTraceEntry>
+@$instance panda.collections.Enumerator<panda.core.Immutable?>
 @$instance panda.collections.Iterable<(panda.core.Immutable,panda.core.Object)>
 @$instance panda.collections.ListIterator<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
 @$instance (panda.core.Int32,panda.core.UInt32)
 @$instance panda.collections.ListView<panda.io.File>
-@$instance panda.collections.ListEnumerator<panda.core.String>
 @$instance panda.collections.Array<panda.core.Immutable>
 @$instance panda.collections.List<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
 @$instance panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>
@@ -6023,6 +6029,7 @@ return contents[..]
 @$instance panda.collections.CollectionWriter<panda.core.Real64>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.Object?>
 @$instance panda.collections.ListWriter<panda.core.Object>
+@$instance panda.collections.Enumerator<panda.core.Int32>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.io.File>
 @$instance panda.collections.HashMap<panda.core.Immutable,panda.core.Object>
 @$instance panda.collections.Iterator<panda.core.UInt64>
@@ -6032,8 +6039,8 @@ return contents[..]
 @$instance panda.collections.List<panda.core.UInt16>
 @$instance panda.collections.Iterator<panda.core.Immutable?>
 @$instance panda.collections.Array<panda.core.StackTraceEntry>
-@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Int32)>
 @$instance (panda.core.Int32,panda.core.Object)
+@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Int32)>
 @$instance (panda.core.Int32,panda.core.String)
 @$instance panda.collections.Iterator<panda.core.Int8>
 @$instance panda.collections.List<panda.core.String>
@@ -6050,8 +6057,10 @@ return contents[..]
 @$instance (panda.core.Immutable,panda.core.Object)
 @$instance panda.collections.Array<panda.core.UInt64>
 @$instance panda.collections.PrimitiveArray<panda.core.Char>
+@$instance panda.collections.Enumerator<panda.core.Object?>
 @$instance panda.collections.Iterator<panda.core.Int16>
 @$instance panda.collections.Array<panda.core.Int64>
+@$instance panda.collections.Enumerator<panda.io.File>
 @$instance panda.collections.PrimitiveArray<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
 @$instance panda.collections.HashMap<panda.core.Int32,panda.core.Object?>
 @$instance panda.collections.Array<panda.core.UInt8>
@@ -6068,14 +6077,13 @@ return contents[..]
 @$instance (panda.core.Int32,panda.core.UInt16)
 @$instance panda.collections.ListWriter<panda.core.UInt16>
 @$instance panda.collections.List<panda.core.Object?>
-@$instance panda.collections.ListEnumerator<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
-@$instance panda.collections.Iterator<panda.core.UInt32>
-@$instance panda.collections.Iterable<panda.core.Char>
+@$instance panda.collections.CollectionWriter<panda.core.UInt64>
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Real64)>
 @$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Immutable?)>
-@$instance panda.collections.CollectionWriter<panda.core.UInt64>
+@$instance panda.collections.Iterable<panda.core.Char>
+@$instance panda.collections.Enumerator<panda.core.Real32>
+@$instance panda.collections.Iterator<panda.core.UInt32>
 @$instance panda.collections.List<panda.core.Char>
-@$instance panda.collections.ListEnumerator<panda.collections.MutableMapEntry<panda.core.Immutable,panda.core.Object>?>
 @$instance panda.collections.HashMapIterator<panda.core.Int32,panda.core.Object?,(panda.core.Int32,panda.core.Object?)>
 @$instance panda.collections.ListIterator<panda.core.Real64>
 @$instance panda.collections.Array<panda.core.Int32>
@@ -6084,40 +6092,40 @@ return contents[..]
 @$instance panda.collections.ListView<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance panda.collections.Iterable<panda.core.Immutable>
 @$instance panda.collections.ListIterator<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
+@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Int8)>
 @$instance panda.collections.Iterator<panda.core.UInt8>
 @$instance panda.collections.CollectionWriter<panda.core.Char>
-@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.Int8)>
 @$instance panda.collections.CollectionWriter<panda.core.UInt16>
 @$instance (panda.core.Int32,panda.core.Real32)
 @$instance panda.collections.PrimitiveArray<panda.core.Int32>
-@$instance panda.collections.ListEnumerator<panda.core.UInt64>
-@$instance panda.collections.Iterator<panda.core.Int32>
 @$instance panda.collections.PrimitiveArray<panda.core.String>
+@$instance panda.collections.Iterator<panda.core.Int32>
 @$instance panda.collections.ListIterator<panda.core.UInt16>
 @$instance panda.collections.PrimitiveArray<panda.core.Object?>
 @$instance panda.collections.List<panda.io.File>
 @$instance panda.collections.PrimitiveArray<panda.core.Int8>
 @$instance panda.collections.List<panda.core.Immutable?>
 @$instance panda.collections.CollectionView<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
+@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.UInt8)>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.UInt8>
-@$instance panda.collections.Iterator<(panda.core.Int32,panda.core.UInt8)>
-@$instance panda.collections.ImmutablePrimitiveArray<panda.core.Int8>
 @$instance panda.collections.ListWriter<panda.core.Int8>
 @$instance panda.collections.Iterator<panda.core.String>
+@$instance panda.collections.ImmutablePrimitiveArray<panda.core.Int8>
+@$instance panda.collections.Enumerator<panda.core.Int64>
+@$instance panda.collections.Enumerator<panda.core.Object>
 @$instance panda.collections.List<panda.core.Real64>
 @$instance panda.collections.PrimitiveArray<panda.io.File>
-@$instance panda.collections.Iterable<panda.core.Immutable?>
 @$instance (panda.core.Int32,panda.core.UInt64)
+@$instance panda.collections.Iterable<panda.core.Immutable?>
 @$instance panda.collections.CollectionView<panda.core.UInt8>
 @$instance panda.collections.CollectionView<panda.core.Immutable>
-@$instance panda.collections.ListEnumerator<panda.core.Int64>
 @$instance panda.collections.ListIterator<panda.core.Immutable>
 @$instance panda.collections.ListWriter<panda.core.Immutable?>
 @$instance panda.collections.Iterable<panda.core.UInt64>
 @$instance panda.collections.CollectionWriter<panda.core.String>
 @$instance panda.collections.Iterable<(panda.core.Int32,panda.core.Object?)>
-@$instance panda.collections.ListEnumerator<panda.core.Char>
+@$instance panda.collections.Enumerator<panda.core.Char>
 @$instance panda.collections.ListIterator<panda.core.Object?>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.UInt32>
 @$instance panda.collections.CollectionWriter<panda.core.Int32>
@@ -6130,11 +6138,9 @@ return contents[..]
 @$instance panda.collections.CollectionView<panda.core.UInt64>
 @$instance panda.collections.ListView<panda.core.Object?>
 @$instance panda.collections.CollectionView<panda.core.Int32>
-@$instance panda.collections.Iterator<(panda.core.Immutable,panda.core.Object)>
 @$instance panda.collections.ListView<panda.core.Real64>
 @$instance panda.collections.ListView<panda.core.UInt8>
 @$instance panda.threads.MessageQueue<panda.collections.ImmutableArray<panda.core.Int8>?>
 @$instance panda.collections.CollectionView<panda.core.Int8>
 @$instance panda.collections.ListView<panda.core.Immutable?>
-@$instance panda.collections.ListEnumerator<panda.core.Immutable?>
-@$instance panda.collections.ListEnumerator<panda.core.Real64>
+@$instance panda.collections.Iterator<(panda.core.Immutable,panda.core.Object)>
