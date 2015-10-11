@@ -26,7 +26,7 @@ typedef panda$collections$PrimitiveArray$LTpanda$io$File$GT File$Array;
 typedef panda$core$Error Error;
 typedef panda$core$RegularExpression RegularExpression;
 typedef panda$threads$Message Message;
-typedef panda$threads$MessageQueue MessageQueue;
+typedef panda$threads$InternalMessageQueue InternalMessageQueue;
 typedef panda$threads$Thread Thread;
 typedef panda$threads$Lock Lock;
 

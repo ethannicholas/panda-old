@@ -639,14 +639,14 @@ function level():panda.core.Int32
 function indentSize():panda.core.Int32
 }
 package panda.threads
--- Pipe.panda:(offset 2883)
+-- Pipe.panda:(offset 2919)
 @private
 class PipeOutputStream:panda.io.OutputStream {
 
-var queue:panda.threads.MessageQueue
+var queue:panda.threads.MessageQueue<panda.collections.ImmutableArray<panda.core.Int8>?>
 
 
-constructor(queue:panda.threads.MessageQueue)
+constructor(queue:panda.threads.MessageQueue<panda.collections.ImmutableArray<panda.core.Int8>?>)
 
 @override
 method write(i:panda.core.Int8)
@@ -688,6 +688,40 @@ package panda.collections
 class ImmutableTuple:panda.core.Value {
 
 constructor()
+}
+package panda.threads
+-- InternalMessageQueue.panda:(offset 654)
+@private
+class InternalMessageQueue:panda.core.Immutable {
+@private
+var nativeQueue:panda.core.$NativePointer
+
+
+constructor()
+
+
+method post(data:panda.core.Object?)
+
+@external
+method pendingMessages():panda.core.Int32
+
+@external
+method getMessage():panda.core.Object?
+
+@external
+method getMessage(timeout:panda.core.Int32):panda.core.Object?
+
+@external @override
+method finalize()
+
+@private @external
+method initMessageQueue()
+
+@private @external
+method sendMessage(message:panda.threads.Message)
+
+@class @external
+method threadExit()
 }
 package panda.collections
 -- Array.panda:(offset 3532)
@@ -960,19 +994,6 @@ return e.value
     }
 }
 package panda.collections
--- ListWriter.panda:(offset 217)
-
-interface ListWriter<T> : panda.collections.CollectionWriter<panda.collections.ListWriter.T> {
-@abstract @self
-method []:=(index:panda.core.Int32, value:panda.collections.ListWriter.T)
-
-@abstract @self
-method insert(index:panda.core.Int32, value:panda.collections.ListWriter.T)
-
-@abstract @self
-method removeIndex(index:panda.core.Int32)
-}
-package panda.collections
 -- HashMap.panda:(offset 823)
 @private
 class MutableMapEntry<K, V>:panda.core.Object {
@@ -992,6 +1013,19 @@ self.key := key
 self.value := value
     }
 }
+package panda.collections
+-- ListWriter.panda:(offset 217)
+
+interface ListWriter<T> : panda.collections.CollectionWriter<panda.collections.ListWriter.T> {
+@abstract @self
+method []:=(index:panda.core.Int32, value:panda.collections.ListWriter.T)
+
+@abstract @self
+method insert(index:panda.core.Int32, value:panda.collections.ListWriter.T)
+
+@abstract @self
+method removeIndex(index:panda.core.Int32)
+}
 package panda.core
 -- PostconditionError.panda:(offset 1064)
 
@@ -1001,6 +1035,27 @@ constructor()
 
 
 constructor(message:panda.core.String)
+}
+package panda.collections
+-- ImmutableHashMap.panda:(offset 916)
+@private
+class ImmutableMapEntry<K:Immutable, V:Immutable>:panda.core.Immutable {
+
+var key:panda.collections.ImmutableMapEntry.K
+
+
+var value:panda.collections.ImmutableMapEntry.V
+
+
+var next:panda.collections.ImmutableMapEntry<panda.collections.ImmutableMapEntry.K,panda.collections.ImmutableMapEntry.V>?
+
+@private
+constructor(key:panda.collections.ImmutableMapEntry.K, value:panda.collections.ImmutableMapEntry.V, next:panda.collections.ImmutableMapEntry<panda.collections.ImmutableMapEntry.K,panda.collections.ImmutableMapEntry.V>?)
+    {
+self.key := key
+self.value := value
+self.next := next
+    }
 }
 package panda.collections
 -- List.panda:(offset 3778)
@@ -1114,27 +1169,6 @@ else
 self[start .. (end - 1) by step] := list
     }
 }
-package panda.collections
--- ImmutableHashMap.panda:(offset 916)
-@private
-class ImmutableMapEntry<K:Immutable, V:Immutable>:panda.core.Immutable {
-
-var key:panda.collections.ImmutableMapEntry.K
-
-
-var value:panda.collections.ImmutableMapEntry.V
-
-
-var next:panda.collections.ImmutableMapEntry<panda.collections.ImmutableMapEntry.K,panda.collections.ImmutableMapEntry.V>?
-
-@private
-constructor(key:panda.collections.ImmutableMapEntry.K, value:panda.collections.ImmutableMapEntry.V, next:panda.collections.ImmutableMapEntry<panda.collections.ImmutableMapEntry.K,panda.collections.ImmutableMapEntry.V>?)
-    {
-self.key := key
-self.value := value
-self.next := next
-    }
-}
 package panda.core
 -- AssertionError.panda:(offset 1148)
 
@@ -1200,6 +1234,56 @@ super.constructor(map)
 function result(e:panda.collections.MutableMapEntry<panda.collections.HashMapEntryIterator.K,panda.collections.HashMapEntryIterator.V>):(panda.collections.HashMapEntryIterator.K,panda.collections.HashMapEntryIterator.V)
     {
 return (e.key, e.value)
+    }
+}
+package panda.threads
+-- MutableMessageQueue.panda:(offset 4333)
+
+class MutableMessageQueue<T>:panda.core.Immutable {
+@private
+var internalQueue:panda.threads.InternalMessageQueue := new InternalMessageQueue()
+
+
+constructor()
+    {
+initMessageQueue()
+    }
+
+
+method postAndExit(data:panda.threads.MutableMessageQueue.T)
+    {
+post(data)
+InternalMessageQueue.threadExit()
+    }
+
+
+method postUnsafe(data:panda.threads.MutableMessageQueue.T)
+    {
+internalQueue.post(data)
+    }
+
+
+method pendingMessages():panda.core.Int32
+    {
+return internalQueue.pendingMessages()
+    }
+
+
+method hasMessage():panda.core.Bit
+    {
+return (pendingMessages() > 0)
+    }
+
+
+method getMessage():panda.threads.MutableMessageQueue.T
+    {
+return (internalQueue.getMessage())->(T)
+    }
+
+
+method getMessage(timeout:panda.core.Int32):panda.threads.MutableMessageQueue.T
+    {
+return (internalQueue.getMessage(timeout))->(T)
     }
 }
 package panda.io
@@ -1802,15 +1886,25 @@ class Integer:panda.core.Number {
 
 constructor()
 }
+package panda.core
+-- PreconditionError.panda:(offset 1040)
+
+class PreconditionError:panda.core.AssertionError {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
 package panda.collections
 -- Map.panda:(offset 373)
 
 interface Map<K, V> : panda.collections.MapView<panda.collections.Map.K,panda.collections.Map.V>, panda.collections.MapWriter<panda.collections.Map.K,panda.collections.Map.V> {
 }
 package panda.core
--- PreconditionError.panda:(offset 1040)
+-- InternalError.panda:(offset 837)
 
-class PreconditionError:panda.core.AssertionError {
+class InternalError:panda.core.AssertionError {
 
 constructor()
 
@@ -1825,11 +1919,11 @@ class CastError:panda.core.Error {
 constructor(message:panda.core.String)
 }
 package panda.threads
--- Pipe.panda:(offset 1694)
+-- Pipe.panda:(offset 1717)
 
 class Pipe:panda.core.Immutable {
 @private
-var queue:panda.threads.MessageQueue
+var queue:panda.threads.MessageQueue<panda.collections.ImmutableArray<panda.core.Int8>?>
 
 
 method openInputStream():panda.io.InputStream
@@ -1839,16 +1933,6 @@ method openOutputStream():panda.io.OutputStream
 
 
 constructor()
-}
-package panda.core
--- InternalError.panda:(offset 837)
-
-class InternalError:panda.core.AssertionError {
-
-constructor()
-
-
-constructor(message:panda.core.String)
 }
 package panda.collections
 -- Order.panda:(offset 75)
@@ -2273,47 +2357,54 @@ method seed:=(seed:panda.core.Int64)
 method int64():panda.core.Int64
 }
 package panda.threads
--- MessageQueue.panda:(offset 4659)
+-- MessageQueue.panda:(offset 3236)
 
-class MessageQueue:panda.core.Immutable {
+class MessageQueue<T:Immutable>:panda.core.Immutable {
 @private
-var nativeQueue:panda.core.$NativePointer
+var internalQueue:panda.threads.InternalMessageQueue := new InternalMessageQueue()
 
 
-constructor()
+method post(data:panda.threads.MessageQueue.T)
+    {
+internalQueue.post(data)
+    }
 
 
-method post(data:panda.core.Immutable?)
+method postAndExit(data:panda.threads.MessageQueue.T)
+    {
+post(data)
+InternalMessageQueue.threadExit()
+    }
 
 
-method postAndExit(data:panda.core.Object?)
-
-
-method postUnsafe(data:panda.core.Object?)
-
-@external
 method pendingMessages():panda.core.Int32
+    {
+return internalQueue.pendingMessages()
+    }
 
 
 method hasMessage():panda.core.Bit
+    {
+return (pendingMessages() > 0)
+    }
 
-@external
-method getMessage():panda.core.Object?
 
-@external
-method getMessage(timeout:panda.core.Int32):panda.core.Object?
+method getMessage():panda.threads.MessageQueue.T
+    {
+return (internalQueue.getMessage())->(T)
+    }
 
-@external @override
-method finalize()
 
-@private @external
-method initMessageQueue()
+method getMessage(timeout:panda.core.Int32):panda.threads.MessageQueue.T
+    {
+return (internalQueue.getMessage(timeout))->(T)
+    }
 
-@private @external
-method sendMessage(message:panda.threads.Message)
 
-@private @class @external
-method threadExit()
+constructor()
+    {
+super.constructor()
+    }
 }
 package panda.collections
 -- Iterable.panda:(offset 104)
@@ -2793,23 +2884,6 @@ function result(e:panda.collections.ImmutableMapEntry<panda.collections.Immutabl
 return (e.key, e.value)
     }
 }
-package panda.core
--- InvariantError.panda:(offset 1026)
-
-class InvariantError:panda.core.AssertionError {
-
-constructor()
-
-
-constructor(message:panda.core.String)
-}
-package panda.collections
--- Tuple.panda:(offset 479)
-
-class Tuple:panda.core.Object {
-
-constructor()
-}
 package panda.io
 -- FileOutputStream.panda:(offset 1186)
 @private
@@ -2846,6 +2920,23 @@ method writeInt8(nativeFile:panda.core.$NativePointer, b:panda.core.Int8)
 
 @private @class @external
 method writeInt8Array(nativeFile:panda.core.$NativePointer, b:panda.collections.ListView<panda.core.Int8>, offset:panda.core.Int32, length:panda.core.Int32)
+}
+package panda.collections
+-- Tuple.panda:(offset 479)
+
+class Tuple:panda.core.Object {
+
+constructor()
+}
+package panda.core
+-- InvariantError.panda:(offset 1026)
+
+class InvariantError:panda.core.AssertionError {
+
+constructor()
+
+
+constructor(message:panda.core.String)
 }
 package panda.collections
 -- CollectionView.panda:(offset 1073)
@@ -3432,6 +3523,16 @@ method callObjectFunction(f:panda.core.$NativePointer):panda.core.Object?
 constructor()
 }
 package panda.core
+-- System.panda:(offset 1970)
+
+class OperatingSystemInfo:panda.core.Value {
+
+var type:panda.core.OperatingSystemType
+
+@private
+constructor(type:panda.core.OperatingSystemType)
+}
+package panda.core
 -- System.panda:(offset 228)
 @private
 class Environment:panda.core.Immutable {
@@ -3443,16 +3544,6 @@ function pandaGetEnv(key:panda.core.String):panda.core.String?
 
 
 constructor()
-}
-package panda.core
--- System.panda:(offset 1970)
-
-class OperatingSystemInfo:panda.core.Value {
-
-var type:panda.core.OperatingSystemType
-
-@private
-constructor(type:panda.core.OperatingSystemType)
 }
 package panda.collections
 -- HashMap.panda:(offset 11323)
@@ -3858,109 +3949,6 @@ function ->>():panda.core.String
 method $classInit()
 }
 package panda.core
--- MutableString.panda:(offset 16647)
-@final
-class MutableString:panda.collections.Array<panda.core.Char> {
-
-constructor()
-
-
-constructor(s:panda.core.String)
-
-@self
-method [..]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method [..]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method [...]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method [...]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
-
-@self
-method insert(index:panda.core.Int32, s:panda.core.String)
-
-@self
-method remove(start:panda.core.Int32, end:panda.core.Int32)
-
-@self
-method replaceInPlace(search:panda.core.String, replacement:panda.core.String)
-
-@self
-method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String)
-
-@self
-method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String, allowGroupReferences:panda.core.Bit)
-
-@self
-method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.core.String)=>(panda.core.Object)?)
-
-@self
-method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.collections.ListView<panda.core.String>)=>(panda.core.Object)?)
-
-@self
-method delete(search:panda.core.String)
-
-@self
-method delete(regex:panda.core.RegularExpression)
-
-@self
-method append(c:panda.core.Char)
-
-@self
-method append(s->>panda.core.String)
-
-
-function startsWith(s:panda.core.String):panda.core.Bit
-
-
-function endsWith(s:panda.core.String):panda.core.Bit
-
-
-function contains(s:panda.core.String):panda.core.Bit
-
-
-function indexOf(s:panda.core.String):panda.core.Int32Wrapper?
-
-
-function indexOf(s:panda.core.String, start:panda.core.Int32):panda.core.Int32Wrapper?
-
-
-function [..](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
-
-@override
-function [..](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
-
-@override
-function [..](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
-
-
-function [...](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
-
-@override
-function [...](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
-
-@override
-function [...](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
-
-@override @math(overflow)
-function hash():panda.core.Int32
-
-@override
-function =(o:panda.core.Object):panda.core.Bit
-
-@override
-function ->>():panda.core.String
-
-@class @safeReturn
-function ->>(s->>panda.core.String):panda.core.MutableString
-
-@override
-function format(fmt:panda.core.String):panda.core.String
-}
-package panda.core
 -- UInt32Wrapper.panda:(offset 25692)
 @final
 class UInt32Wrapper:panda.core.UnsignedInteger {
@@ -4137,6 +4125,109 @@ function ->>():panda.core.String
 
 @class
 method $classInit()
+}
+package panda.core
+-- MutableString.panda:(offset 16647)
+@final
+class MutableString:panda.collections.Array<panda.core.Char> {
+
+constructor()
+
+
+constructor(s:panda.core.String)
+
+@self
+method [..]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method [..]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method [...]:=(start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method [...]:=(start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32, s:panda.core.String)
+
+@self
+method insert(index:panda.core.Int32, s:panda.core.String)
+
+@self
+method remove(start:panda.core.Int32, end:panda.core.Int32)
+
+@self
+method replaceInPlace(search:panda.core.String, replacement:panda.core.String)
+
+@self
+method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String)
+
+@self
+method replaceInPlace(regex:panda.core.RegularExpression, replacement:panda.core.String, allowGroupReferences:panda.core.Bit)
+
+@self
+method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.core.String)=>(panda.core.Object)?)
+
+@self
+method replaceInPlace(search:panda.core.RegularExpression, replacement:(panda.collections.ListView<panda.core.String>)=>(panda.core.Object)?)
+
+@self
+method delete(search:panda.core.String)
+
+@self
+method delete(regex:panda.core.RegularExpression)
+
+@self
+method append(c:panda.core.Char)
+
+@self
+method append(s->>panda.core.String)
+
+
+function startsWith(s:panda.core.String):panda.core.Bit
+
+
+function endsWith(s:panda.core.String):panda.core.Bit
+
+
+function contains(s:panda.core.String):panda.core.Bit
+
+
+function indexOf(s:panda.core.String):panda.core.Int32Wrapper?
+
+
+function indexOf(s:panda.core.String, start:panda.core.Int32):panda.core.Int32Wrapper?
+
+
+function [..](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
+
+@override
+function [..](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
+
+@override
+function [..](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
+
+
+function [...](start:panda.core.Int32, end:panda.core.Int32):panda.core.String
+
+@override
+function [...](start:panda.core.Int32, end:panda.core.Int32, step:panda.core.Int32):panda.core.String
+
+@override
+function [...](start:panda.core.Int32Wrapper?, end:panda.core.Int32Wrapper?, step:panda.core.Int32):panda.core.String
+
+@override @math(overflow)
+function hash():panda.core.Int32
+
+@override
+function =(o:panda.core.Object):panda.core.Bit
+
+@override
+function ->>():panda.core.String
+
+@class @safeReturn
+function ->>(s->>panda.core.String):panda.core.MutableString
+
+@override
+function format(fmt:panda.core.String):panda.core.String
 }
 package panda.io
 -- InputStream.panda:(offset 10046)
@@ -4505,6 +4596,16 @@ function pandaStringToReal32(s:panda.core.String):panda.core.Real32
 @private @class @external
 function pandaStringToReal64(s:panda.core.String):panda.core.Real64
 }
+package panda.core
+-- SafetyError.panda:(offset 1519)
+
+class SafetyError:panda.core.Error {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
 package panda.collections
 -- HashMap.panda:(offset 2744)
 @private
@@ -4520,16 +4621,6 @@ function result(e:panda.collections.MutableMapEntry<panda.collections.HashMapVal
     {
 return e.value
     }
-}
-package panda.core
--- SafetyError.panda:(offset 1519)
-
-class SafetyError:panda.core.Error {
-
-constructor()
-
-
-constructor(message:panda.core.String)
 }
 package panda.core
 -- UnsignedInteger.panda:(offset 320)
@@ -4779,25 +4870,15 @@ result.append("]")
 return (result)->>(String)
     }
 }
-package panda.core
--- ParseException.panda:(offset 878)
-
-class ParseException:panda.core.Exception {
-
-constructor()
-
-
-constructor(message:panda.core.String)
-}
 package panda.threads
--- Thread.panda:(offset 7867)
+-- Thread.panda:(offset 7887)
 @final
 class Thread:panda.core.Immutable {
 @private
 var nativeThread:panda.core.$NativePointer
 
 
-var queue:panda.threads.MessageQueue
+var queue:panda.threads.MessageQueue<panda.core.Immutable?>
 
 
 var preventsExit:panda.core.Bit
@@ -4816,7 +4897,7 @@ var threadEntry:()=&>*()
 var $classInited:panda.core.Bit
 
 
-function createQueue():panda.threads.MessageQueue
+function createQueue():panda.threads.MessageQueue<panda.core.Immutable?>
 
 @private
 constructor()
@@ -4867,6 +4948,16 @@ method $classInit()
 method $initcontext():panda.collections.Map<panda.core.Immutable,panda.core.Object>
 }
 package panda.core
+-- ParseException.panda:(offset 878)
+
+class ParseException:panda.core.Exception {
+
+constructor()
+
+
+constructor(message:panda.core.String)
+}
+package panda.core
 -- RealNumber.panda:(offset 311)
 @abstract
 class RealNumber:panda.core.Number {
@@ -4874,11 +4965,11 @@ class RealNumber:panda.core.Number {
 constructor()
 }
 package panda.threads
--- Pipe.panda:(offset 2382)
+-- Pipe.panda:(offset 2370)
 @private
 class PipeInputStream:panda.io.InputStream {
 
-var queue:panda.threads.MessageQueue
+var queue:panda.threads.MessageQueue<panda.collections.ImmutableArray<panda.core.Int8>?>
 
 
 var bufferIndex:panda.core.Int32
@@ -4887,7 +4978,7 @@ var bufferIndex:panda.core.Int32
 var buffer:panda.collections.ImmutableArray<panda.core.Int8>
 
 
-constructor(queue:panda.threads.MessageQueue)
+constructor(queue:panda.threads.MessageQueue<panda.collections.ImmutableArray<panda.core.Int8>?>)
 
 @override
 method readInt8():panda.core.Int8Wrapper?
@@ -4971,6 +5062,83 @@ function format(fmt:panda.core.String):panda.core.String
 
 @class
 method $classInit()
+}
+package panda.math
+-- Random.panda:(offset 7262)
+
+interface Random {
+@class
+method createRandom():panda.math.Random
+
+
+method bit():panda.core.Bit
+
+@class
+method bit():panda.core.Bit
+
+@math(overflow)
+method int(n:panda.core.Int32):panda.core.Int32
+
+@class
+method int(n:panda.core.Int32):panda.core.Int32
+
+
+method int32():panda.core.Int32
+
+@class
+method int32():panda.core.Int32
+
+@abstract
+method int64():panda.core.Int64
+
+@class
+method int64():panda.core.Int64
+
+
+method real32():panda.core.Real32
+
+@class
+method real32():panda.core.Real32
+
+
+method real64():panda.core.Real64
+
+@class
+method real64():panda.core.Real64
+}
+package panda.io
+-- FilterInputStream.panda:(offset 2134)
+
+class FilterInputStream:panda.io.InputStream {
+@protected
+var raw:panda.io.InputStream
+
+
+var closeUnderlyingStream:panda.core.Bit
+
+
+constructor(raw:panda.io.InputStream)
+
+@override
+method readInt8():panda.core.Int8Wrapper?
+
+@override
+method readUInt8():panda.core.UInt8Wrapper?
+
+@override
+method readChar():panda.core.CharWrapper?
+
+@override
+method read(bytes:panda.collections.ListWriter<panda.core.Int8>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method read(bytes:panda.collections.ListWriter<panda.core.UInt8>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method read(chars:panda.collections.ListWriter<panda.core.Char>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method close()
 }
 package panda.core
 -- Real32Wrapper.panda:(offset 15952)
@@ -5096,49 +5264,6 @@ function ->>():panda.core.Real32
 @override
 function ->>():panda.core.Real64
 }
-package panda.math
--- Random.panda:(offset 7262)
-
-interface Random {
-@class
-method createRandom():panda.math.Random
-
-
-method bit():panda.core.Bit
-
-@class
-method bit():panda.core.Bit
-
-@math(overflow)
-method int(n:panda.core.Int32):panda.core.Int32
-
-@class
-method int(n:panda.core.Int32):panda.core.Int32
-
-
-method int32():panda.core.Int32
-
-@class
-method int32():panda.core.Int32
-
-@abstract
-method int64():panda.core.Int64
-
-@class
-method int64():panda.core.Int64
-
-
-method real32():panda.core.Real32
-
-@class
-method real32():panda.core.Real32
-
-
-method real64():panda.core.Real64
-
-@class
-method real64():panda.core.Real64
-}
 package panda.core
 -- OverflowError.panda:(offset 830)
 
@@ -5148,40 +5273,6 @@ constructor()
 
 
 constructor(message:panda.core.String)
-}
-package panda.io
--- FilterInputStream.panda:(offset 2134)
-
-class FilterInputStream:panda.io.InputStream {
-@protected
-var raw:panda.io.InputStream
-
-
-var closeUnderlyingStream:panda.core.Bit
-
-
-constructor(raw:panda.io.InputStream)
-
-@override
-method readInt8():panda.core.Int8Wrapper?
-
-@override
-method readUInt8():panda.core.UInt8Wrapper?
-
-@override
-method readChar():panda.core.CharWrapper?
-
-@override
-method read(bytes:panda.collections.ListWriter<panda.core.Int8>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method read(bytes:panda.collections.ListWriter<panda.core.UInt8>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method read(chars:panda.collections.ListWriter<panda.core.Char>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method close()
 }
 package panda.core
 -- Int8Wrapper.panda:(offset 25145)
@@ -5467,6 +5558,29 @@ return result
 @abstract
 function length():panda.core.Int32
 }
+package panda.collections
+-- CollectionWriter.panda:(offset 287)
+
+interface CollectionWriter<T> {
+@abstract
+function length():panda.core.Int32
+
+@abstract @self
+method add(object:panda.collections.CollectionWriter.T)
+
+@self
+method addAll(c:panda.collections.CollectionView<panda.collections.CollectionWriter.T>)
+    {
+for v in c
+add(v)
+    }
+
+@abstract @self
+method remove(object:panda.collections.CollectionWriter.T)
+
+@abstract @self
+method clear()
+}
 package panda.core
 -- Object.panda:(offset 6136)
 @abstract
@@ -5498,29 +5612,6 @@ method finalize()
 @class
 function parse(inStream:panda.io.InputStream):panda.core.Object?
 }
-package panda.collections
--- CollectionWriter.panda:(offset 287)
-
-interface CollectionWriter<T> {
-@abstract
-function length():panda.core.Int32
-
-@abstract @self
-method add(object:panda.collections.CollectionWriter.T)
-
-@self
-method addAll(c:panda.collections.CollectionView<panda.collections.CollectionWriter.T>)
-    {
-for v in c
-add(v)
-    }
-
-@abstract @self
-method remove(object:panda.collections.CollectionWriter.T)
-
-@abstract @self
-method clear()
-}
 package panda.threads
 -- Lock.panda:(offset 1919)
 
@@ -5542,62 +5633,6 @@ method finalize()
 
 @private @external
 method init()
-}
-package panda.core
--- Primitive.panda:(offset 415)
-@abstract
-class Primitive:panda.core.Value {
-
-constructor()
-}
-package panda.io
--- PushbackInputStream.panda:(offset 5956)
-
-class PushbackInputStream:panda.io.FilterInputStream {
-@private
-var pushbackBuffer:panda.collections.Array<panda.core.Int8>
-
-
-constructor(raw:panda.io.InputStream)
-
-@override
-method readInt8():panda.core.Int8Wrapper?
-
-@override
-method readUInt8():panda.core.UInt8Wrapper?
-
-@override
-method readChar():panda.core.CharWrapper?
-
-@override
-method read(bytes:panda.collections.ListWriter<panda.core.Int8>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method read(bytes:panda.collections.ListWriter<panda.core.UInt8>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-@override
-method read(bytes:panda.collections.ListWriter<panda.core.Char>, max:panda.core.Int32):panda.core.Int32Wrapper?
-
-
-method pushback(v:panda.core.Int8)
-
-
-method pushback(v:panda.core.UInt8)
-
-
-method pushback(v:panda.collections.ListView<panda.core.Int8>)
-
-
-method pushback(v:panda.collections.ListView<panda.core.UInt8>)
-
-
-method pushback(c:panda.core.Char)
-
-
-method pushback(c:panda.collections.ListView<panda.core.Char>)
-
-
-method pushback(s:panda.core.String)
 }
 package panda.core
 -- MutableMethod.panda:(offset 1061)
@@ -5626,20 +5661,6 @@ class MathError:panda.core.SafetyError {
 
 constructor()
 
-
-constructor(message:panda.core.String)
-}
-package panda.collections
--- ImmutablePrimitiveArray.panda:(offset 426)
-
-class ImmutablePrimitiveArray:panda.core.Immutable {
-
-constructor()
-}
-package panda.collections
--- IndexOutOfBoundsError.panda:(offset 841)
-
-class IndexOutOfBoundsError:panda.core.SafetyError {
 
 constructor(message:panda.core.String)
 }
@@ -5704,6 +5725,76 @@ function ->>():panda.collections.ListView<panda.collections.Stack.T>
     {
 return contents[..]
     }
+}
+package panda.io
+-- PushbackInputStream.panda:(offset 5956)
+
+class PushbackInputStream:panda.io.FilterInputStream {
+@private
+var pushbackBuffer:panda.collections.Array<panda.core.Int8>
+
+
+constructor(raw:panda.io.InputStream)
+
+@override
+method readInt8():panda.core.Int8Wrapper?
+
+@override
+method readUInt8():panda.core.UInt8Wrapper?
+
+@override
+method readChar():panda.core.CharWrapper?
+
+@override
+method read(bytes:panda.collections.ListWriter<panda.core.Int8>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method read(bytes:panda.collections.ListWriter<panda.core.UInt8>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+@override
+method read(bytes:panda.collections.ListWriter<panda.core.Char>, max:panda.core.Int32):panda.core.Int32Wrapper?
+
+
+method pushback(v:panda.core.Int8)
+
+
+method pushback(v:panda.core.UInt8)
+
+
+method pushback(v:panda.collections.ListView<panda.core.Int8>)
+
+
+method pushback(v:panda.collections.ListView<panda.core.UInt8>)
+
+
+method pushback(c:panda.core.Char)
+
+
+method pushback(c:panda.collections.ListView<panda.core.Char>)
+
+
+method pushback(s:panda.core.String)
+}
+package panda.core
+-- Primitive.panda:(offset 415)
+@abstract
+class Primitive:panda.core.Value {
+
+constructor()
+}
+package panda.collections
+-- IndexOutOfBoundsError.panda:(offset 841)
+
+class IndexOutOfBoundsError:panda.core.SafetyError {
+
+constructor(message:panda.core.String)
+}
+package panda.collections
+-- ImmutablePrimitiveArray.panda:(offset 426)
+
+class ImmutablePrimitiveArray:panda.core.Immutable {
+
+constructor()
 }
 @$instance panda.collections.CollectionWriter<panda.core.Int8>
 @$instance panda.collections.MapView<panda.core.Immutable,panda.core.Object>
@@ -5853,6 +5944,7 @@ return contents[..]
 @$instance panda.collections.CollectionWriter<panda.core.Object?>
 @$instance panda.collections.HashMapIterator<panda.core.Immutable,panda.core.Object,(panda.core.Immutable,panda.core.Object)>
 @$instance panda.collections.Iterable<panda.core.Object?>
+@$instance panda.threads.MessageQueue<panda.core.Immutable?>
 @$instance panda.collections.CollectionWriter<panda.core.Real64>
 @$instance panda.collections.ImmutablePrimitiveArray<panda.core.Object?>
 @$instance panda.collections.ListWriter<panda.core.Object>
@@ -5871,8 +5963,8 @@ return contents[..]
 @$instance panda.collections.List<panda.core.Int16>
 @$instance panda.collections.ListIterator<panda.core.Int16>
 @$instance panda.collections.HashMapEntryIterator<panda.core.Int32,panda.core.Object?>
-@$instance panda.collections.Iterator<panda.core.UInt16>
 @$instance panda.collections.ListView<panda.core.Immutable>
+@$instance panda.collections.Iterator<panda.core.UInt16>
 @$instance panda.collections.Iterable<panda.core.Real64>
 @$instance panda.collections.ListView<panda.core.UInt16>
 @$instance panda.collections.ListWriter<panda.core.StackTraceEntry>
@@ -5925,11 +6017,11 @@ return contents[..]
 @$instance panda.collections.CollectionView<panda.collections.MutableMapEntry<panda.core.Int32,panda.core.Object?>?>
 @$instance panda.collections.List<panda.core.Immutable?>
 @$instance panda.collections.List<panda.core.Real64>
+@$instance panda.collections.PrimitiveArray<panda.io.File>
+@$instance panda.collections.Iterable<panda.core.Immutable?>
+@$instance panda.collections.CollectionView<panda.core.UInt8>
 @$instance panda.collections.ListIterator<panda.core.Immutable>
 @$instance panda.collections.CollectionView<panda.core.Immutable>
-@$instance panda.collections.CollectionView<panda.core.UInt8>
-@$instance panda.collections.Iterable<panda.core.Immutable?>
-@$instance panda.collections.PrimitiveArray<panda.io.File>
 @$instance panda.collections.ListWriter<panda.core.Immutable?>
 @$instance panda.collections.Iterable<panda.core.UInt64>
 @$instance panda.collections.CollectionWriter<panda.core.String>
@@ -5947,6 +6039,7 @@ return contents[..]
 @$instance panda.collections.ListView<panda.core.Object?>
 @$instance panda.collections.ListView<panda.core.Real64>
 @$instance panda.collections.ListView<panda.core.UInt8>
+@$instance panda.threads.MessageQueue<panda.collections.ImmutableArray<panda.core.Int8>?>
 @$instance panda.collections.CollectionView<panda.core.Int8>
 @$instance panda.collections.ListView<panda.core.Immutable?>
 @$instance panda.collections.Iterator<(panda.core.Immutable,panda.core.Object)>

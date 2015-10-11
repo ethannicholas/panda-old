@@ -71,7 +71,7 @@ class PandaCompiler {
 
     var lastCheckpointLabel:String?
     var lastCheckpointTime:Int64
-    def errorQueue := new MessageQueue()
+    def errorQueue := new MessageQueue<Immutable?>()
     def errors := new CompilerErrorReporter(self)
     def parser := new PandaParser(errors)
     var errorCount := 0
@@ -180,8 +180,8 @@ class PandaCompiler {
     @protected
     method getASTFiles(settings:CompilerSettings):CollectionView<ASTFile> {
         def result := new Array<ASTFile>()
-        def workQueue := new MessageQueue()
-        def responseQueue := new MessageQueue()
+        def workQueue := new MessageQueue<File?>()
+        def responseQueue := new MessageQueue<ImmutableArray<ASTFile>>()
         constant THREADS := 8
         for f in settings.sources
             workQueue.post(f)
@@ -192,7 +192,7 @@ class PandaCompiler {
             Thread.start(method() {
                 def result := new Array<ASTFile>()
                 loop {
-                    def f := workQueue.getMessage()->File?
+                    def f := workQueue.getMessage()
                     if f = null
                         break
                     def parsed := parser.parseFile(f)
@@ -203,8 +203,7 @@ class PandaCompiler {
             })
         }
         for i in 0 .. THREADS {
-            def subresult := responseQueue.getMessage()->
-                    (ImmutableArray<ASTFile>)
+            def subresult := responseQueue.getMessage()
             result.addAll(subresult)
         }
 -*        for f in settings.sources {

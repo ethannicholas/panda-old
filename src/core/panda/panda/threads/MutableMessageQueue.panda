@@ -1,0 +1,99 @@
+package panda.threads
+
+================================================================================
+As [MessageQueue], but permits mutable objects to be posted to the queue. As 
+sharing mutable objects between multiple threads is inherently unsafe, you must
+either use the (safe) [postAndExit] method, use [postUnsafe] and then synchonize
+access to the objects using [Lock], or use [postUnsafe] and manually ensure that
+only one thread can ever access the mutable object at a time.
+================================================================================
+class MutableMessageQueue<T> : Immutable {
+    @private
+    def internalQueue := new InternalMessageQueue()
+    
+    ============================================================================
+    Creates a new, empty `MutableMessageQueue`.
+    ============================================================================
+    constructor() {
+        initMessageQueue()
+    }
+    
+    ============================================================================
+    Posts an object to the queue, then immediately terminates the current 
+    [thread](Thread). This method allows mutable objects to be safely posted to 
+    the queue.
+    
+    @param data the object to post
+    @see postUnsafe
+    ============================================================================
+    method postAndExit(data:T) {
+        post(data)
+        InternalMessageQueue.threadExit()
+    }
+
+    ============================================================================
+    Posts an object to the queue, potentially allowing mutable objects to be 
+    shared between multiple [threads](Thread). If the sending thread never again
+    accesses the object that it sent (including any mutable objects directly or 
+    indirectly pointed to by the object in question), no danger exists and no 
+    special actions need to be taken. If the object remains accessible from the 
+    sending thread, then a [Lock] must be used to synchronize any access to 
+    the object by both the sending and receiving thread.
+    
+    @param data the object to post
+    @see postAndExit
+    ============================================================================
+    method postUnsafe(data:T) {
+        internalQueue.post(data)
+    }
+
+    ============================================================================
+    Returns the number of messages currently in the queue.
+    
+    @returns the number of messages in this `MessageQueue`
+    @see hasMessage()
+    @see getMessage()
+    @see getMessage(Int)
+    ============================================================================
+    method pendingMessages():Int {
+        return internalQueue.pendingMessages()
+    }
+    
+    ============================================================================
+    Returns `true` if there are one or more messages in the queue.
+    
+    @returns whether this queue has pending messages
+    @see pendingMessages()
+    @see getMessage()
+    @see getMessage(Int)
+    ============================================================================
+    method hasMessage():Bit {
+        return pendingMessages() > 0
+    }
+    
+    ============================================================================
+    Returns the next message from the queue, blocking until one is available.
+    
+    @see getMessage(Int)
+    @returns the next message from the queue
+    ============================================================================
+    method getMessage():T {
+        return internalQueue.getMessage()->T
+    }
+    
+    ============================================================================
+    Returns the next message from the current thread's message queue, blocking 
+    for the specified timeout period. If a message is available before the 
+    timeout expires, returns the message, otherwise returns `null`.
+
+    **IMPLEMENTATION NOTE:** the timeout is not currently implemented; this 
+    method just calls [getMessage()].
+    
+    @param timeout the number of milliseconds to wait for a message to arrive
+    @returns the next message received by the thread, or `null` if none
+    @see getMessage()
+    ============================================================================
+    method getMessage(timeout:Int):T {
+        return internalQueue.getMessage(timeout)->T
+    }
+}

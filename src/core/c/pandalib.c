@@ -898,8 +898,8 @@ Object* panda$core$Panda$callObjectFunction(void* f) {
     return ((Object* (*)()) f)();
 }
 
-Int32 panda$threads$MessageQueue$pendingMessages(
-        MessageQueue* msgQueue) {
+Int32 panda$threads$InternalMessageQueue$pendingMessages(
+        InternalMessageQueue* msgQueue) {
     NativeQueue* queue = msgQueue->nativeQueue;
     pthread_mutex_lock(&queue->lock);
     int result = queue->pendingCount;
@@ -912,23 +912,23 @@ void assert(Bit cond, const char* message) {
         pandaFatalError(message);
 }
 
-void panda$threads$MessageQueue$initMessageQueue(
-        MessageQueue* msgQueue) {
+void panda$threads$InternalMessageQueue$initMessageQueue(
+        InternalMessageQueue* msgQueue) {
     msgQueue->nativeQueue = MALLOC(sizeof(NativeQueue));
     NativeQueue* nq = (NativeQueue*) msgQueue->nativeQueue;
     pthread_cond_init(&nq->cond, NULL);
     pthread_mutex_init(&nq->lock, NULL);
 }
 
-void panda$threads$MessageQueue$finalize(
-        MessageQueue* msgQueue) {
+void panda$threads$InternalMessageQueue$finalize(
+        InternalMessageQueue* msgQueue) {
     NativeQueue* nq = (NativeQueue*) msgQueue->nativeQueue;
     pthread_cond_destroy(&nq->cond);
     pthread_mutex_destroy(&nq->lock);
 }
 
-void panda$threads$MessageQueue$sendMessage(
-        MessageQueue* msgQueue, Message* message) {
+void panda$threads$InternalMessageQueue$sendMessage(
+        InternalMessageQueue* msgQueue, Message* message) {
     NativeQueue* queue = (NativeQueue*) msgQueue->nativeQueue;
     pthread_mutex_lock(&queue->lock);
     if (queue->tail != NULL) {
@@ -943,7 +943,7 @@ void panda$threads$MessageQueue$sendMessage(
     pthread_mutex_unlock(&queue->lock);
 }
           
-panda$core$Object* panda$threads$MessageQueue$getMessage(MessageQueue* msgQueue) {
+panda$core$Object* panda$threads$InternalMessageQueue$getMessage(InternalMessageQueue* msgQueue) {
     NativeQueue* queue = msgQueue->nativeQueue;
     pthread_mutex_lock(&queue->lock);
     while (queue->head == NULL)
@@ -958,13 +958,13 @@ panda$core$Object* panda$threads$MessageQueue$getMessage(MessageQueue* msgQueue)
     return result->data;
 }
 
-panda$core$Object* panda$threads$MessageQueue$getMessage_Int32(MessageQueue* queue, int timeout) {
+panda$core$Object* panda$threads$InternalMessageQueue$getMessage_Int32(InternalMessageQueue* queue, int timeout) {
     // FIXME NOT IMPLEMENTED
     UNUSED(timeout);
-    return panda$threads$MessageQueue$getMessage(queue);
+    return panda$threads$InternalMessageQueue$getMessage(queue);
 }
 
-void panda$threads$MessageQueue$threadExit() {
+void panda$threads$InternalMessageQueue$threadExit() {
     Thread* currentThread = panda$threads$Thread$currentThread();
     if (currentThread->preventsExit) {
         pthread_mutex_lock(&preventsExitThreadsMutex);
