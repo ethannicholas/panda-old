@@ -87,29 +87,6 @@ then be freely modified:
 Variable method parameters are treated as ordinary local variables, and 
 reassigning the variable does not affect anything outside of the method itself.
 
-<a name="convertParameters"></a>
-Convert Parameters
-------------------
-
-Method parameters are normally a name, a colon (`:`), and a type, such as 
-`s:String`. If you use the [convert operator (`->>`)](operators.html#convert)
-instead of the colon, as in:
-
-@SOURCE(
-    method append(s->>String) {
-        -*REPLACE:...*---dummy comment
-    }
-)
-
-`s` becomes a "convert parameter", which will perform an automatic conversion of
-the method parameter to `String`. For instance, `append(123)` is equivalent to
-`append(123->>String)`. Convert parameters are particularly useful where 
-`String`s are required, because every [non-nullable](nonNullability.html) type 
-can be converted to `String`: `Console.writeLine()` and `MutableString.append()` 
-are good examples of methods in the core library using convert parameters. This 
-allows you to call these methods with *any* non-nullable type and have the 
-parameter automatically be converted as required.
-
 <a name="varargs"></a>
 Variadic Methods
 ----------------
@@ -169,10 +146,8 @@ method will be selected at runtime based on the class of the object:
     object.performFoo() -- displays "subclass method!"
 )
 
-All parameter types of an override method must match exactly (including 
-[nullability](nonNullability.html)), but the return type of an override method
-may be different so long as it is [implicitly castable](implicitCasting.html) to
-the superclass method's return type.
+All parameter types as well as the return type of an override method must match
+exactly (including [nullability](nonNullability.html)).
 
 Calling superclass methods
 --------------------------

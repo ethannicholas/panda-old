@@ -167,52 +167,56 @@ class PandaCompiler {
     }
 
     method checkpoint(label:String) {
--*        var now := Panda.currentTime()
+        var now := Panda.currentTime()
         var lastCheckpointLabel := lastCheckpointLabel
         if lastCheckpointLabel != null {
             Console.writeLine(lastCheckpointLabel + " - " + 
                     (now - lastCheckpointTime) + "ms")
         }
         self.lastCheckpointLabel := label
-        lastCheckpointTime := now*-
+        lastCheckpointTime := now
     }
 
     @protected
     method getASTFiles(settings:CompilerSettings):CollectionView<ASTFile> {
         def result := new Array<ASTFile>()
-        def workQueue := new MessageQueue<File?>()
-        def responseQueue := new MessageQueue<ImmutableArray<ASTFile>>()
-        constant THREADS := 8
-        for f in settings.sources
-            workQueue.post(f)
-        def errorReporter := self.errors
-        def parser := self.parser
-        for i in 0 .. THREADS {
-            workQueue.post(null)
-            Thread.start(method() {
-                def result := new Array<ASTFile>()
-                loop {
-                    def f := workQueue.getMessage()
-                    if f = null
-                        break
-                    def parsed := parser.parseFile(f)
-                    if parsed != null
-                        result.add(parsed)
-                }
-                responseQueue.post(new ImmutableArray<ASTFile>(result))
-            })
+        constant THREADS := 1
+        if THREADS > 1 {
+            def workQueue := new MessageQueue<File?>()
+            def responseQueue := new MessageQueue<ImmutableArray<ASTFile>>()
+            for f in settings.sources
+                workQueue.post(f)
+            def errorReporter := self.errors
+            def parser := self.parser
+            for i in 0 .. THREADS {
+                workQueue.post(null)
+                Thread.start(method() {
+                    def result := new Array<ASTFile>()
+                    loop {
+                        def f := workQueue.getMessage()
+                        if f = null
+                            break
+                        def parsed := parser.parseFile(f)
+                        if parsed != null
+                            result.add(parsed)
+                    }
+                    responseQueue.post(new ImmutableArray<ASTFile>(result))
+                })
+            }
+            for i in 0 .. THREADS {
+                def subresult := responseQueue.getMessage()
+                result.addAll(subresult)
+            }
         }
-        for i in 0 .. THREADS {
-            def subresult := responseQueue.getMessage()
-            result.addAll(subresult)
+        else {
+            for f in settings.sources {
+                def input := new BufferedInputStream(f.openInputStream())
+                def parsed := parser.parseFile(f)
+                if parsed != null
+                    result.add(parsed)
+                input.close()
+            }
         }
--*        for f in settings.sources {
-            def input := new BufferedInputStream(f.openInputStream())
-            def parsed := parser.parseFile(f)
-            if parsed != null
-                result.add(parsed)
-            input.close()
-        }*-
         return result
     }
 

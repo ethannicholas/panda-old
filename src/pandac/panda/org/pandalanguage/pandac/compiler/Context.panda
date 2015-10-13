@@ -260,8 +260,6 @@ class Context {
     @private
     constant VARARG_COST := 1
 
-    constant CONVERT_COST := 10
-
     function matchCost(target:Value, m:MethodStub, 
             var params:ListView<Value>):Int? {
         var result := 0
@@ -298,13 +296,8 @@ class Context {
         for (i, param) in methodParams.enumeration() {
             def targetType := param.type
             def cost := params[i].implicitCastCost(self, targetType)
-            if cost = null {
-                if methodParams[i].isConvert & 
-                        params[i].canConvertTo(self, targetType)
-                    result += CONVERT_COST
-                else
-                    return null
-            }
+            if cost = null
+                return null
             else
                 result += cost
         }
@@ -315,13 +308,8 @@ class Context {
             def varArgType := varArg.type->GenericType.parameters[0]
             for i in methodParams.length .. params.length {
                 def cost := params[i].implicitCastCost(self, varArgType)
-                if cost = null {
-                    if varArg.isConvert & 
-                            params[i].canConvertTo(self, varArgType)
-                        result += CONVERT_COST
-                    else
-                        return null
-                }
+                if cost = null
+                    return null
                 else
                     result += cost
             }
@@ -537,7 +525,7 @@ class Context {
     @private
     method getMethodNotFoundMessage(target:Value, methodName:String, 
             params:ListView<Value>):String {
-        def msg := "no match found for method "->>MutableString
+        def msg := new MutableString("no match found for method ")
         msg.append(methodName)
         msg.append("(")
         var first := true
@@ -709,6 +697,8 @@ class Context {
             }
             def varParams := createArrayLiteral(position, arrayType, values)
             finalParams.add(varParams)
+            if m.name.startsWith("write") & values.length = 0
+                Console.writeLine("ZERO LENGTH VARARGS at \{position}")
         }
         if target-!>ClassLiteral {
             def selfType:Type

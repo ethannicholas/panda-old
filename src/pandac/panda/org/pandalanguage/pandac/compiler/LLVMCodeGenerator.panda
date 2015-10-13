@@ -755,10 +755,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             def className := getName(cl)
             cc := new ClassConstant(
                     className + "_class",
-                    "{ " + getLLVMType(ClassType.CLASS) + ", " + 
-                    getLLVMType(ClassType.STRING) +  ", " + 
-                    getLLVMType(ClassType.CLASS) + ", i1, i1, %$itable*, [" + 
-                    methods.length + " x i8*] }", methods)
+                    "{ \{getLLVMType(ClassType.CLASS)}, \{getLLVMType(ClassType.STRING)}, \{getLLVMType(ClassType.CLASS)}, i1, i1, %$itable*, [\{methods.length} x i8*] }", 
+                    methods)
             classConstants[name] := cc
             if name.startsWith("panda.core.") & name.endsWith("Wrapper")
                 name := name[0 .. name.length - "Wrapper".length]
@@ -778,18 +776,16 @@ class LLVMCodeGenerator (CodeGenerator) {
             else
                 superclassConstant := null
             if cl.isExternal {
-                header.write("@" + cc.name + " = ")
+                header.write("@\{cc.name} = ")
                 header.writeLine("external global " + cc.type)
                 return cc
             }
             def intf := getITable(cl)
-            header.write("@" + cc.name + " = ")
+            header.write("@\{cc.name} = ")
             header.write(SHARED_LINKAGE + " ")
             def superclassRef:String
             if superclassConstant != null
-                superclassRef := "bitcast(" + superclassConstant.type + "* @" + 
-                        superclassConstant.name + " to " + 
-                        getLLVMType(ClassType.CLASS) + ")"
+                superclassRef := "bitcast(\{superclassConstant.type}* @\{superclassConstant.name} to \{getLLVMType(ClassType.CLASS)})"
             else
                 superclassRef := "null"
             -- class constant includes vtable. Doesn't include statics, as 
@@ -803,22 +799,14 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             def classClass := getStub(ClassType.CLASS)
             def classClassConstant := getClassConstant(classClass)
-            header.write("constant " + cc.type + 
-                    " { " + getLLVMType(ClassType.CLASS) + " bitcast(" + 
-                    classClassConstant.type + "* @" + classClassConstant.name + 
-                    " to " + getLLVMType(ClassType.CLASS) + "), " + 
-                    getLLVMType(ClassType.STRING) + " " + nameRef + ", " + 
-                    getLLVMType(ClassType.CLASS) + " " + superclassRef + 
-                    ", i1 1, i1 " + overridesFinalize + ", " + intf + ", [" + 
-                    methods.length + " x i8*] [ ")
+            header.write("constant \{cc.type} { \{getLLVMType(ClassType.CLASS)} bitcast(\{classClassConstant.type}* @\{classClassConstant.name} to \{getLLVMType(ClassType.CLASS)}), \{getLLVMType(ClassType.STRING)} \{nameRef}, \{getLLVMType(ClassType.CLASS)} \{superclassRef}, i1 1, i1 \{overridesFinalize}, \{intf}, [\{methods.length} x i8*] [ ")
             for (i, m) in methods.enumeration() {
                 if i > 0
                     header.write(", ")
                 if m.annotations.isAbstract
                     header.write("i8* null")
                 else {
-                    header.write("i8* bitcast(" + getLLVMMethodType(m) + 
-                            " @" + getName(m) + " to i8*)")
+                    header.write("i8* bitcast(\{getLLVMMethodType(m)} @\{getName(m)} to i8*)")
                 }
             }
             header.writeLine(" ] }")
@@ -1127,9 +1115,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             else
                 references.add(raw)
         }
-        def code := ("i8* (\{classType}, i32, i32, ...)* " +
+        def code := new MutableString("i8* (\{classType}, i32, i32, ...)* " +
                 "@pandaNewPrimitiveArrayWithValues(\{classType} \{cast}, i32 " + 
-                "\{na.values.length}, i32 \{type}")->>MutableString
+                "\{na.values.length}, i32 \{type}")
         for r in references {
             code.append(", ")
             code.append(r)
@@ -1504,7 +1492,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 baseType.isMethod, baseType.immutableMethod)
         def methodPtr := getVirtualMethodReference(d.methodValue, offset,
                 getLLVMMethodType(realType))
-        def c := "fastcc "->>MutableString
+        def c := new MutableString("fastcc ")
         c.append(getLLVMMethodType(realType))
         c.append(" ")
         c.append(methodPtr)
