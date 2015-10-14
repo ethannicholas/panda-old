@@ -309,6 +309,11 @@ class IRGenerator {
         target := resolve(target)
         if target = null
             return null
+        if target-?>ClassLiteral {
+            def n := new ASTNew(c.position, toASTType(c.position,
+                    target->ClassLiteral.value), c.parameters)
+            return convertNew(n)
+        }
         def type := target.type.unwrapNullable
         if type-!>MethodType {
             context.errors.error("expected a method, but found " +
@@ -732,8 +737,7 @@ class IRGenerator {
             unreachable
         for p in ref.methodStub.parameters {
             parameters.add(new ASTParameter(p.position, p.name, 
-                    toASTType(p.position, p.type), p.isVar, p.isConvert, 
-                    p.isVarArg))
+                    toASTType(p.position, p.type), p.isVar, p.isVarArg))
         }
         def nameComps := ref.target->ClassLiteral.value.name.split(".")
         var classRef:ASTExpression := new ASTIdentifier(ref.position, nameComps[0])
@@ -2491,7 +2495,7 @@ class IRGenerator {
             def parameters := new Array<ASTParameter>()
             for p in l.parameters {
                 parameters.add(new ASTParameter(p.position, p.identifier, 
-                        p.type->ASTType, false, false, false))
+                        p.type->ASTType, false, false))
                 def type := resolve(p.type->ASTType)
                 if type = null
                     return null
@@ -2549,8 +2553,8 @@ class IRGenerator {
         def parameters := new Array<FormalParameter>()
         def fields := new Array<FieldNode>()
         for v in captures {
-            parameters.add(new FormalParameter(position, v.name, v.type, 
-                    false, false, false))
+            parameters.add(new FormalParameter(position, v.name, v.type, false, 
+                    false))
             fields.add(new FieldNode(position, owner, v.name, 
                     new Annotations(position), VariableType.DEF, v.type, null,
                     null))
@@ -2583,7 +2587,7 @@ class IRGenerator {
             if type = null
                 return null
             formalParameters.add(new FormalParameter(p.position, p.name, type, 
-                    p.isVar, p.isConvert, p.isVarArg))
+                    p.isVar, p.isVarArg))
         }
         def returnType:Type?
         if m.returnType != null {
@@ -2608,15 +2612,14 @@ class IRGenerator {
                 return null
             }
             def p := new Parameter(formal.position, formal.name, type, 
-                    formal.isVar, formal.isConvert, formal.isVarArg, 
-                    rawStub)
+                    formal.isVar, formal.isVarArg, rawStub)
             parameters.add(p)
             context.symbolTable.add(p)
         }
         if !lastMethod.annotations.isClass {
             def selfType := lastMethod.owner
             def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
-                    selfType, false, false, false, rawStub)
+                    selfType, false, false, rawStub)
             context.symbolTable.add(selfParam)
         }
         context.captures.push((rawStub, new HashSet<Variable>()))
@@ -2719,8 +2722,7 @@ class IRGenerator {
         def parameters := new Array<Parameter>()
         for formal in m.parameters {
             def p := new Parameter(formal.position, formal.name, formal.type, 
-                    formal.isVar, formal.isConvert, formal.isVarArg,
-                    context.currentMethod)
+                    formal.isVar, formal.isVarArg, context.currentMethod)
             parameters.add(p)
             context.symbolTable.add(p)
         }
@@ -2731,7 +2733,7 @@ class IRGenerator {
             else
                 selfType := m.owner
             def selfParam := new Parameter(m.position, Parameter.SELF_NAME,
-                    selfType, false, false, false, context.currentMethod)
+                    selfType, false, false, context.currentMethod)
             context.symbolTable.add(selfParam)
         }
         var body := convertBlock(m.body->ASTBlock)
@@ -2839,7 +2841,7 @@ class IRGenerator {
         pushSymbols(context.getStub(f.owner))
         if !f.annotations.isClass & !f.annotations.isThread {
             def selfParam := new Parameter(f.position, Parameter.SELF_NAME,
-                    f.owner, false, false, false, context.currentMethod)
+                    f.owner, false, false, context.currentMethod)
             context.symbolTable.add(selfParam)
         }
         def expr := resolve(f.initialValue->ASTExpression)
@@ -3011,8 +3013,8 @@ class IRGenerator {
                 if needsSetter(f, cl) {
                     def setterStatements := new Array<ASTStatement>()
                     def parameters := new Array<FormalParameter>()
-                    def parameter := new FormalParameter(f.position, 
-                            "value", f.type, false, false, false)
+                    def parameter := new FormalParameter(f.position, "value", 
+                            f.type, false, false)
                     parameters.add(parameter)
                     def lvalues := new Array<ASTExpression>()
                     lvalues.add(new ASTIdentifier(f.position, field.name))
