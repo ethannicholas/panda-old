@@ -11,7 +11,7 @@ class Renderer_ExternalImpl implements panda.gl.Renderer_External {
 /*    @Override
     public panda.gl.Texture loadTexture(panda.gl.Renderer self, panda.io.File path) {
         try {
-            panda.gl.Texture result = panda.gl.Texture.createnew$constructor();
+            panda.gl.Texture result = panda.gl.Texture.createnew$init();
             java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(
                     new java.io.File(panda.core.PandaCore.toJavaString(
                         path.$path)));

@@ -9,7 +9,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
         }
         catch (java.io.IOException e) {
             throw new panda.core.PandaException(
-                panda.io.FileNotFoundException.createnew$constructor(path));
+                panda.io.FileNotFoundException.createnew$init(path));
         }
     }
 
@@ -21,7 +21,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
         }
         catch (java.io.IOException e) {
             throw new panda.core.PandaException(
-                    panda.io.IOException.createnew$constructor(
+                    panda.io.IOException.createnew$init(
                         panda.core.PandaCore.newString(e.getMessage())));
         }
     }
@@ -33,7 +33,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
         }
         catch (java.io.IOException e) {
             throw new panda.core.PandaException(
-                    panda.io.IOException.createnew$constructor(
+                    panda.io.IOException.createnew$init(
                         panda.core.PandaCore.newString(e.getMessage())));
         }
     }
@@ -47,7 +47,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
                 return null;
             for (int i = 0; i < result; i++)
                 dest.add(buffer[i]);
-            return panda.core.Int32Wrapper.createnew$constructor(result);
+            return panda.core.Int32Wrapper.createnew$init(result);
         }
         catch (java.io.IOException e) {
             throw new java.lang.RuntimeException(e);
@@ -63,7 +63,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
                 return null;
             for (int i = 0; i < result; i++)
                 dest.add_UInt8(buffer[i]);
-            return panda.core.Int32Wrapper.createnew$constructor(result);
+            return panda.core.Int32Wrapper.createnew$init(result);
         }
         catch (java.io.IOException e) {
             throw new java.lang.RuntimeException(e);
@@ -79,7 +79,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
                 return null;
             for (int i = 0; i < result; i++)
                 dest.add((char) buffer[i]);
-            return panda.core.Int32Wrapper.createnew$constructor(result);
+            return panda.core.Int32Wrapper.createnew$init(result);
         }
         catch (java.io.IOException e) {
             throw new java.lang.RuntimeException(e);

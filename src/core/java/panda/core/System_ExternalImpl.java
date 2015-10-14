@@ -9,7 +9,7 @@ class System_ExternalImpl implements panda.core.System_External {
             type = panda.core.OperatingSystemType.$MACOSX;
         else
             type = panda.core.OperatingSystemType.$LINUX;
-        return panda.core.OperatingSystemInfo.createnew$constructor(type);
+        return panda.core.OperatingSystemInfo.createnew$init(type);
     }
 
     @Override

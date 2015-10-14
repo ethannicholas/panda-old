@@ -27,11 +27,11 @@ class File_ExternalImpl implements panda.io.File_External {
     @Override
     public panda.collections.ListView$.$Lpanda$io$File$R list(panda.io.File self) {
         panda.collections.Array$.$Lpanda$io$File$R result = 
-                panda.collections.Array$.$Lpanda$io$File$R.createnew$constructor();
+                panda.collections.Array$.$Lpanda$io$File$R.createnew$init();
         java.io.File dir = new java.io.File(PandaCore.toJavaString(self.$path));
         java.io.File[] files = dir.listFiles();
         for (int i = 0; i < files.length; i++) {
-            result.add(panda.io.File.createnew$constructor(
+            result.add(panda.io.File.createnew$init(
                     PandaCore.newString(files[i].getPath())));
         }
         return result;
@@ -45,7 +45,7 @@ class File_ExternalImpl implements panda.io.File_External {
         java.io.File[] files = dir.listFiles();
         panda.io.File[] contents = new panda.io.File[files.length];
         for (int i = 0; i < files.length; i++) {
-            contents[i] = panda.io.File.createnew$constructor(
+            contents[i] = panda.io.File.createnew$init(
                     PandaCore.newString(files[i].getPath()));
         }
         result.$$length = files.length;

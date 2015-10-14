@@ -17,7 +17,7 @@ class Lock_ExternalImpl implements panda.threads.Lock_External {
     }
 
     @Override
-    public void init(panda.threads.Lock self) {
+    public void initialize(panda.threads.Lock self) {
         throw new UnsupportedOperationException();
     }
 }

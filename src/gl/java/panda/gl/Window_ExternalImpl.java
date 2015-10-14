@@ -72,7 +72,7 @@ class Window_ExternalImpl implements panda.gl.Window_External {
         frame.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyPressed(java.awt.event.KeyEvent e) {
                 panda.gl.events.KeyEvent event = 
-                        panda.gl.events.KeyEvent.createnew$constructor(
+                        panda.gl.events.KeyEvent.createnew$init(
                             panda.gl.events.EventType.$KEYDOWN,
                             getKey(e.getKeyCode()),
                             (short) 0);
@@ -81,7 +81,7 @@ class Window_ExternalImpl implements panda.gl.Window_External {
 
             public void keyReleased(java.awt.event.KeyEvent e) {
                 panda.gl.events.KeyEvent event = 
-                        panda.gl.events.KeyEvent.createnew$constructor(
+                        panda.gl.events.KeyEvent.createnew$init(
                             panda.gl.events.EventType.$KEYUP,
                             getKey(e.getKeyCode()),
                             (short) 0);
@@ -92,18 +92,18 @@ class Window_ExternalImpl implements panda.gl.Window_External {
         frame.addMouseMotionListener(new java.awt.event.MouseMotionListener() {
             public void mouseMoved(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseMotionEvent event = 
-                        panda.gl.events.MouseMotionEvent.createnew$constructor(
+                        panda.gl.events.MouseMotionEvent.createnew$init(
                             panda.gl.events.EventType.$MOUSEMOTION,
-                            panda.gl.Point.createnew$constructor(e.getX(),
+                            panda.gl.Point.createnew$init(e.getX(),
                                     e.getY()));
                 self.$eventQueue.post(event);
             }
 
             public void mouseDragged(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseMotionEvent event = 
-                        panda.gl.events.MouseMotionEvent.createnew$constructor(
+                        panda.gl.events.MouseMotionEvent.createnew$init(
                             panda.gl.events.EventType.$MOUSEMOTION,
-                            panda.gl.Point.createnew$constructor(e.getX(),
+                            panda.gl.Point.createnew$init(e.getX(),
                                     e.getY()));
                 self.$eventQueue.post(event);
             }
@@ -112,20 +112,20 @@ class Window_ExternalImpl implements panda.gl.Window_External {
         frame.addMouseListener(new java.awt.event.MouseAdapter() {
             public void mousePressed(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseEvent event = 
-                        panda.gl.events.MouseEvent.createnew$constructor(
+                        panda.gl.events.MouseEvent.createnew$init(
                             panda.gl.events.EventType.$MOUSEDOWN,
                             (byte) e.getButton(),
-                            panda.gl.Point.createnew$constructor(e.getX(),
+                            panda.gl.Point.createnew$init(e.getX(),
                                     e.getY()));
                 self.$eventQueue.post(event);
             }
 
             public void mouseReleased(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseEvent event = 
-                        panda.gl.events.MouseEvent.createnew$constructor(
+                        panda.gl.events.MouseEvent.createnew$init(
                             panda.gl.events.EventType.$MOUSEUP,
                             (byte) e.getButton(),
-                            panda.gl.Point.createnew$constructor(e.getX(),
+                            panda.gl.Point.createnew$init(e.getX(),
                                     e.getY()));
                 self.$eventQueue.post(event);
             }
@@ -136,7 +136,7 @@ class Window_ExternalImpl implements panda.gl.Window_External {
 
     @Override
     public panda.gl.Renderer createRenderer(panda.gl.Window self) {
-        panda.gl.Renderer result = panda.gl.Renderer.createnew$constructor();
+        panda.gl.Renderer result = panda.gl.Renderer.createnew$init();
         result.$native = new RendererImpl((WindowImpl) self.$native);
         return result;
     }

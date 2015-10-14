@@ -50,7 +50,7 @@ public class PandaCore {
         chars.$cl = getClass("panda.collections.Array<Char>");
         chars.$$length = string.length();
         chars.contents = string.toCharArray();
-        return panda.core.String.createnew$constructor(chars);
+        return panda.core.String.createnew$init(chars);
     }
     
     public static java.lang.String toJavaString(panda.core.String string) {
@@ -71,14 +71,14 @@ public class PandaCore {
     public static <T> T checkCast(T value, java.lang.Class dest) {
         if (dest.isInstance(value))
             return value;
-        throw new panda.core.PandaException(panda.core.CastError.createnew$constructor(
+        throw new panda.core.PandaException(panda.core.CastError.createnew$init(
                 newString(value + " is not an instance of " + dest)));
     }
 
     public static <T> T checkCastNullable(T value, java.lang.Class dest) {
         if (value == null || dest.isInstance(value))
             return value;
-        throw new panda.core.PandaException(panda.core.CastError.createnew$constructor(
+        throw new panda.core.PandaException(panda.core.CastError.createnew$init(
                 newString(value + " is not an instance of " + dest)));
     }
 

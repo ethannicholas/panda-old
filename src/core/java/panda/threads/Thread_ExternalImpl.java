@@ -14,7 +14,7 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
         java.lang.Thread current = java.lang.Thread.currentThread();
         panda.threads.Thread result = nativeToPanda.get(current);
         if (result == null) {
-            result = panda.threads.Thread.createnew$constructor();
+            result = panda.threads.Thread.createnew$init();
             nativeToPanda.put(current, result);
             pandaToNative.put(result, current);
         }

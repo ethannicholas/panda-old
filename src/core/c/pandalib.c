@@ -100,9 +100,9 @@ void pandaMain(String$Array* arg);
 
 void pandaStart() {
     panda$threads$Thread* main = pandaNew(panda$threads$Thread);
-    panda$threads$Thread$new(main);
+    panda$threads$Thread$init(main);
     panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
-    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$new(threadLocals);
+    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$init(threadLocals);
     main->threadLocals = threadLocals;
     pthread_setspecific(currentThreadKey, main);
     // run the actual program
@@ -772,7 +772,7 @@ panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list(File* file) {
     struct dirent *ent;
     if ((dir = opendir(path)) != NULL) {
         result = pandaNew(panda$collections$Array$LTpanda$io$File$GT);
-        panda$collections$Array$LTpanda$io$File$GT$new(result);
+        panda$collections$Array$LTpanda$io$File$GT$init(result);
         panda$collections$Array$LTpanda$io$File$GT$add_TYPE* add =
                 (panda$collections$Array$LTpanda$io$File$GT$add_TYPE*) 
                     *(&result->cl->vtable + 
@@ -985,7 +985,7 @@ void panda$threads$Thread$startThread(
         pthread_mutex_unlock(&preventsExitThreadsMutex);
     }
     panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
-    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$new(threadLocals);
+    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$init(threadLocals);
     thread->threadLocals = threadLocals;
     panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE* hashPut =
             (panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE*) 
@@ -1001,7 +1001,7 @@ void panda$threads$Thread$startThread(
             (threadRun) _pandaThreadEntry, thread);
 }
 
-void panda$threads$Lock$init(Lock* lock) {
+void panda$threads$Lock$initialize(Lock* lock) {
     pthread_mutexattr_t a;
     pthread_mutexattr_init(&a);
     pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);

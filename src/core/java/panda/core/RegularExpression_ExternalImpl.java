@@ -3,7 +3,7 @@ package panda.core;
 class RegularExpression_ExternalImpl implements panda.core.RegularExpression_External {
     @Override
     public panda.core.RegularExpression $clone(panda.core.RegularExpression self) {
-        return panda.core.RegularExpression.createnew$constructor(self.$pattern);
+        return panda.core.RegularExpression.createnew$init(self.$pattern);
     }
 
     @Override
