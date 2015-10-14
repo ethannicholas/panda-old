@@ -92,7 +92,7 @@ class Value : Node {
     method implicitCast(position:Position, context:Context, t:Type):Value {
         assert t != VoidType.VOID : "casting \{self} to void in \{context.currentMethod.owner}:\{context.currentMethod} at \{position}"
         if !checkValid(context) {
-            return new Dummy(position, t)
+            return Dummy(position, t)
         }
         if t = type
             return self
@@ -104,15 +104,15 @@ class Value : Node {
                 def nonNull := implicitCast(position, context, base)
                 return nonNull.implicitCast(position, context, t)
             }
-            return new Cast(position, self, t, CastType.IMPLICIT)
+            return Cast(position, self, t, CastType.IMPLICIT)
         }
         if !type.isNullable & t.isNullable {
             def first := implicitCast(position, context, t->NullableType.base)
-            return new Cast(position, first, t, CastType.IMPLICIT)
+            return Cast(position, first, t, CastType.IMPLICIT)
         }
         if type.isWrapper & (t.isPrimitive | t.isWrapper)
             return unwrap(context).implicitCast(position, context, t)
-        def result := new Cast(position, self, t, CastType.IMPLICIT)
+        def result := Cast(position, self, t, CastType.IMPLICIT)
         if implicitCastCost(context, t) != null
             return result
         else {
@@ -143,7 +143,7 @@ class Value : Node {
             return unwrap(context).explicitCast(position, context, t)
         if !type.isPrimitive & t.isPrimitive
             t := t->>WrapperType
-        def result := new Cast(position, self, t, CastType.EXPLICIT)
+        def result := Cast(position, self, t, CastType.EXPLICIT)
         if !canExplicitCastTo(context, t) {
             context.errors.error("'\{type.displayName}' cannot possibly be " +
                     "instance of '\{t.displayName}'", position)
@@ -168,7 +168,7 @@ class Value : Node {
             }
         }
         def targetStub := context.getStub(t->>ClassType)
-        def params := new Array<Value>()
+        def params := Array<Value>()
         params.add(self)
         for m in targetStub.methods {
             if m.name = MethodNode.CONVERT_NAME & m.annotations.isClass & 
@@ -195,40 +195,40 @@ class Value : Node {
     method convert(context:Context, t:Type):Value {
         if type = VoidType.VOID {
             context.errors.error("expression does not have a value", position)
-            return new Dummy(position, t)
+            return Dummy(position, t)
         }
         if type = NullType.NULL {
             context.errors.error("'->>' operator cannot operate on null", 
                     position)
-            return new Dummy(position, t)
+            return Dummy(position, t)
         }
         if type.isNumeric & t.isNumeric {
             def initial := implicitCast(context, type->>PrimitiveType)
             def target := t->>PrimitiveType
             if initial.type = target
                 return initial
-            return new Cast(position, initial, target, 
+            return Cast(position, initial, target, 
                     CastType.CONVERT).implicitCast(context, t)
         }
         def converter := findConverter(context, t)
         if converter != null {
             if converter.annotations.isClass {
-                def params := new Array<Value>()
+                def params := Array<Value>()
                 def cast := implicitCast(context, 
                         converter.parameters[0].type)
                 params.add(cast)
-                return new MethodCall(position, new ClassLiteral(position,
+                return MethodCall(position, ClassLiteral(position,
                         converter.owner), converter, params)
             }
             else {
                 def cast := implicitCast(context, converter.owner)
-                return new MethodCall(position, cast, converter, 
-                        new Array<Value>())
+                return MethodCall(position, cast, converter, 
+                        Array<Value>())
             }
         }
         context.errors.error("cannot convert '\{type.displayName}' to " +
                 "'\{t.displayName}'", position)
-        return new Dummy(position, t)
+        return Dummy(position, t)
     }
 
     @private
@@ -239,19 +239,19 @@ class Value : Node {
             wrapper := t->>WrapperType
         else
             wrapper := type->>WrapperType
-        def params := new Array<Value>()
+        def params := Array<Value>()
         def cast:Value
         if explicit
             cast := explicitCast(context, wrapper->>PrimitiveType)
         else
             cast := implicitCast(context, wrapper->>PrimitiveType)
         params.add(cast)
-        def constructorStub := context.getMethod(new ClassLiteral(position, 
+        def constructorStub := context.getMethod(ClassLiteral(position, 
                 wrapper), MethodNode.CONSTRUCTOR_NAME, params)
         assert constructorStub != null : "could not find \{wrapper} " +
                 "constructor for \{type}"
-        def wrapperObject := new Construct(new MethodCall(position, 
-                new ClassLiteral(position, wrapper), constructorStub, params))
+        def wrapperObject := Construct(MethodCall(position, 
+                ClassLiteral(position, wrapper), constructorStub, params))
         if explicit
             return wrapperObject.explicitCast(position, context, t)
         else
@@ -266,7 +266,7 @@ class Value : Node {
         def fields := wrapperStub.fields.filter(f => f.name = 'value')
         assert fields.length = 1 : 
                 "expected exactly one field named 'value' in \{wrapperStub}"
-        return new FieldReference(position, wrapper, fields.iterator.next())
+        return FieldReference(position, wrapper, fields.iterator.next())
     }
 
     ============================================================================

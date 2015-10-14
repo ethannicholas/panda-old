@@ -18,9 +18,14 @@ A `<bodyEntry>` is a [method](methods.html), [field](fields.html),
 For instance, a simple class containing two fields:
 
 @SOURCE(
-    class Point {
-        var x:Int
-        var y:Int
+    class Point : Immutable {
+        def x:Int
+        def y:Int
+
+        init(x:Int, y:Int) {
+            self.x := x
+            self.y := y
+        }
     }
 )
 
@@ -28,45 +33,27 @@ Because `Point` does not specify a supertype, it descends from
 `panda.core.Object`. Its two fields, `x` and `y`, are public by default (that
 is, any other class is free to read and modify them).
 
-You would create a new `Point` using [new](new.html) keyword, as in the 
-expression `new Point()`. To create and configure a `Point`:
+You would create a new `Point` by referencing the name of the class followed by
+the parameters to its `init` method, as follows:
 
 @SOURCE(
     class Point {
-        var x:Int
-        var y:Int
+        def x:Int
+        def y:Int
+
+        init(x:Int, y:Int) {
+            self.x := x
+            self.y := y
+        }
     }
     --BEGIN
-    def p := new Point()
-    p.x := 5
-    p.y := 7
+    def p := new Point(5, 7)
     Console.writeLine("The point is: \{p.x}, \{p.y}")
 )
 
 Result: 
     
     The point is: 5, 7
-
-It would be more convenient to be able to create and initialize a `Point` in a
-single step. We can define a special kind of method, a 
-[`constructor`](constructors.html), to simplify the initialization:
-
-@SOURCE(
-    class Point {
-        var x:Int
-        var y:Int
-
-        constructor(x:Int, y:Int) {
-            self.x := x
-            self.y := y
-        }
-    }
-
-    def p := new Point(5, 7)
-)
-
-As shown above, the current object instance may be referred to by using the 
-`self` [keyword](keywords.html).
 
 Inheritance
 -----------

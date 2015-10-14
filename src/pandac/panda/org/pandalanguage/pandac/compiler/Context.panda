@@ -71,19 +71,19 @@ class Context {
     ============================================================================
     Methods to be added to the current class.
     ============================================================================
-    def methods := new Array<MethodNode>()
+    def methods := Array<MethodNode>()
 
     ============================================================================
     Captures we have run into while compiling closures. The topmost entry of the
     stack is for the current (innermost) closure.
     ============================================================================
-    def captures := new Stack<(MethodStub, Set<Variable>)>()
+    def captures := Stack<(MethodStub, Set<Variable>)>()
 
-    var symbolTableStack := new Stack<SymbolTable>()
+    var symbolTableStack := Stack<SymbolTable>()
 
-    def localVariables := new Array<LocalVariable>()
+    def localVariables := Array<LocalVariable>()
 
-    def symbolTables := new HashMap<ClassStub, SymbolTable>()
+    def symbolTables := HashMap<ClassStub, SymbolTable>()
 
     constructor(irGenerator:IRGenerator, stubGenerator:StubGenerator, 
             root:Package, classes:MapView<String, ClassStub>, 
@@ -91,21 +91,21 @@ class Context {
         self.irGenerator := irGenerator
         self.stubGenerator := stubGenerator
         self.root := root
-        self.classes := new HashMap<String, ClassStub>(classes)
+        self.classes := HashMap<String, ClassStub>(classes)
         self.errors := errors
         self.compilerSettings := compilerSettings
-        self.currentClass := new ClassStub(Position.INTERNAL, 
-                new ClassType("ContextDummy"), false, new Annotations(
-                    Position.INTERNAL, new Array<AnnotationType>()), 
-                null, new Array<ClassType>(), 
-                new OrderedMap<String, Symbol>(),
-                new LookupContext(), new Array<ASTInvariant>(), null, true,
+        self.currentClass := ClassStub(Position.INTERNAL, 
+                ClassType("ContextDummy"), false, Annotations(
+                    Position.INTERNAL, Array<AnnotationType>()), 
+                null, Array<ClassType>(), 
+                OrderedMap<String, Symbol>(),
+                LookupContext(), Array<ASTInvariant>(), null, true,
                 null)
-        def classAnnotation := new Array<AnnotationType>()
+        def classAnnotation := Array<AnnotationType>()
         classAnnotation.add(AnnotationType.CLASS)
-        self.currentMethod := new MethodStub(Position.INTERNAL, "<dummy>",
-                new Annotations(Position.INTERNAL, classAnnotation),
-                MethodNodeType.METHOD, new Array<FormalParameter>(), 
+        self.currentMethod := MethodStub(Position.INTERNAL, "<dummy>",
+                Annotations(Position.INTERNAL, classAnnotation),
+                MethodNodeType.METHOD, Array<FormalParameter>(), 
                 VoidType.VOID, null, ClassType.OBJECT)
         symbolTableStack.push(stubGenerator.masterSymbolTable)
         -- force IMMUTABLE_CHAR_ARRAY to have a stub so that String constants
@@ -118,7 +118,7 @@ class Context {
     }
 
     method pushSymbolTable() {
-        symbolTableStack.push(new SymbolTable([symbolTable]))
+        symbolTableStack.push(SymbolTable([symbolTable]))
     }
 
     method pushSymbolTable(symbolTable:SymbolTable) {
@@ -151,7 +151,7 @@ class Context {
 
     method resolveType(name:String):Type? {
         return stubGenerator.resolveType(
-                new PandaParser(errors).parseType(name, Position.INTERNAL), 
+                PandaParser(errors).parseType(name, Position.INTERNAL), 
                 symbolTable)
     }
 
@@ -163,7 +163,7 @@ class Context {
     @private
     method createStub(name:String):ClassStub? {
         var type := stubGenerator.resolveType(
-                new PandaParser(errors).parseType(name, Position.INTERNAL), 
+                PandaParser(errors).parseType(name, Position.INTERNAL), 
                 symbolTable)
         if type = null
             return null
@@ -185,7 +185,7 @@ class Context {
         else if type-?>GenericType {
             def generic := type->GenericType
             def baseStub := getStub(generic.base.name)
-            def parameterStubs := new Array<ClassStub?>()
+            def parameterStubs := Array<ClassStub?>()
             for p in generic.parameters {
                 if p-!>PrimitiveType & p-!>GenericParameterType
                     parameterStubs.add(getStub(p->>ClassType))
@@ -200,7 +200,7 @@ class Context {
         }
         else if type-?>TupleType {
             def tuple := type->TupleType
-            def stubs := new Array<ClassStub?>()
+            def stubs := Array<ClassStub?>()
             var unspecified := false
             for t in tuple.types {
                 if t-?>GenericParameterType {
@@ -254,7 +254,7 @@ class Context {
     @pre(isInstance)
     function getSelf(position:Position):Value {
         def v := symbolTable[Parameter.SELF_NAME]
-        return new VariableReference(position, v->Variable)
+        return VariableReference(position, v->Variable)
     }
 
     @private
@@ -277,9 +277,9 @@ class Context {
             -- right now
             def lastType := m.parameters[m.parameters.length - 1].type
             if lastType-?>PrimitiveArrayType {
-                def newParams := new Array<Value>()
+                def newParams := Array<Value>()
                 newParams.addAll(params[0 .. params.length - 1])
-                newParams.add(new Dummy(params[params.length - 1].position,
+                newParams.add(Dummy(params[params.length - 1].position,
                         lastType))
                 params := newParams
             }
@@ -320,7 +320,7 @@ class Context {
     method getSymbolTable(cl:ClassStub):SymbolTable {
         var result := symbolTables[cl]
         if result = null {
-            def parents := new Array<SymbolTable>()
+            def parents := Array<SymbolTable>()
             def containingClass := cl.containingClass
             if containingClass != null
                 parents.add(getSymbolTable(getStub(containingClass)))
@@ -331,7 +331,7 @@ class Context {
                 parents.add(stubGenerator.masterSymbolTable)
             for intf in cl.interfaces
                 parents.add(getSymbolTable(getStub(intf)))
-            result := new SymbolTable(parents)
+            result := SymbolTable(parents)
             stubGenerator.usePackage("panda.collections", result, 
                     Position.INTERNAL)
             stubGenerator.usePackage("panda.core", result, 
@@ -345,7 +345,7 @@ class Context {
             for p in cl.lookupContext.packageUses
                 stubGenerator.usePackage(p, result, cl.position)
             for (alias, target) in cl.lookupContext.classAliases {
-                def resolved := resolveType(new ASTClassType(
+                def resolved := resolveType(ASTClassType(
                         cl.position, target, null, false))
                 assert resolved != null
                 stubGenerator.aliasType(alias, resolved, result)
@@ -361,7 +361,7 @@ class Context {
         def symbol := getSymbolTable(searchClass)[name]
         if symbol-?>Methods
             return symbol->Methods.methods
-        return new Array<MethodStub>()
+        return Array<MethodStub>()
     }
 
     ============================================================================
@@ -498,7 +498,7 @@ class Context {
         if name = "=" & (left.type.isNullable | right.type.isNullable) {
             -- for equality, if one or both parameters are null, we need to
             -- funnel this through Panda.nullableEquals
-            result := testCall(position, new ClassLiteral(
+            result := testCall(position, ClassLiteral(
                     position, ClassType.PANDA), "nullableEquals", [left, right])
             assert result != null : "failed to call nullableEquals"
         }
@@ -506,17 +506,17 @@ class Context {
             -- check for overload on left (both instance & class)
             result := testCall(position, left, name, [right])
             if result = null {
-                result := testCall(position, new ClassLiteral(
+                result := testCall(position, ClassLiteral(
                         position, left.type->>ClassType), name, [left, right])
             }
         }
         if result = null {
             -- check for overload on right (class only)
-            result := testCall(position, new ClassLiteral(position, 
+            result := testCall(position, ClassLiteral(position, 
                     right.type->>ClassType), name, [left, right])
         }
         if rawName.startsWith("!") & result != null {
-            result := new UnaryOperation(position, UnaryOperationType.NOT,
+            result := UnaryOperation(position, UnaryOperationType.NOT,
                     result)
         }
         return result
@@ -525,7 +525,7 @@ class Context {
     @private
     method getMethodNotFoundMessage(target:Value, methodName:String, 
             params:ListView<Value>):String {
-        def msg := new MutableString("no match found for method ")
+        def msg := MutableString("no match found for method ")
         msg.append(methodName)
         msg.append("(")
         var first := true
@@ -551,7 +551,7 @@ class Context {
                 if lambda.errors.length > 0 {
                     msg.append("\n    possible error in lambda at " +
                             "\{lambda.position}:")
-                    def entries := new PrimitiveArray<Object>()
+                    def entries := PrimitiveArray<Object>()
                     for e in lambda.errors
                         entries.append(e)
                     Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
@@ -571,7 +571,7 @@ class Context {
                     for raw in entries {
                         def e := raw->(Object?, Object?)
                         def types := e[0]->PrimitiveArray<Type>
-                        def typeString := new MutableString()
+                        def typeString := MutableString()
                         typeString.append("(")
                         for (i, type) in types.enumeration {
                             if i > 0
@@ -625,9 +625,9 @@ class Context {
                 def left := range.left
                 if isListView(left) & range.right = null {
                     assert left != null
-                    def newParams := new Array<Value>()
+                    def newParams := Array<Value>()
                     newParams.addAll(params[0 .. params.length - 1])
-                    newParams.add(new Unwrap(left))
+                    newParams.add(Unwrap(left))
                     params := newParams
                 }
             }
@@ -653,7 +653,7 @@ class Context {
             count := methodParams.length - 1
         else
             count := methodParams.length
-        def finalParams := new Array<Value>()
+        def finalParams := Array<Value>()
         if params.length < count | (params.length > count & !isVarArg) {
             errors.error("\{m} requires \{count} parameters, but found " +
                     params.length, position)
@@ -676,7 +676,7 @@ class Context {
             }
         }
         if isVarArg {
-            def values := new Array<Value>()
+            def values := Array<Value>()
             def arrayType := methodParams[methodParams.length - 1].type->GenericType
             def elementType := arrayType.parameters[0]
             for i in count .. params.length {
@@ -696,7 +696,7 @@ class Context {
                 selfType := m.owner
             target := target.implicitCast(self, selfType)
         }
-        return new MethodCall(position, target, m, finalParams)
+        return MethodCall(position, target, m, finalParams)
     }
 
     @private
@@ -715,7 +715,7 @@ class Context {
     function getEffectiveTarget(m:MethodStub, target:Value):Value? {
         if target-?>InstanceContext {
             if m.annotations.isClass
-                return new ClassLiteral(target.position, m.owner)
+                return ClassLiteral(target.position, m.owner)
             else
                 return target->InstanceContext.selfParam
         }
@@ -763,9 +763,9 @@ class Context {
                 def left := range.left
                 if isListView(left) & range.right = null {
                     assert left != null
-                    def newParams := new Array<Value>()
+                    def newParams := Array<Value>()
                     newParams.addAll(params[0 .. params.length - 1])
-                    newParams.add(new Unwrap(left))
+                    newParams.add(Unwrap(left))
                     params := newParams
                 }
             }
@@ -788,7 +788,7 @@ class Context {
             return call(position, finalTarget, max, params)
         }
         else {
-            def types := new Array<String>()
+            def types := Array<String>()
             for p in params
                 types.add(p.type.displayName)
             errors.error("no match for \{methods[0].name}(\{types.join(', ')})", 
@@ -799,8 +799,8 @@ class Context {
 
     method createArrayLiteral(position:Position, type:GenericType, 
             values:ListView<Value>):Value {
-        def params := new Array<Value>()
-        def typeParameters := new Array<ASTType>()
+        def params := Array<Value>()
+        def typeParameters := Array<ASTType>()
         typeParameters.add(IRGenerator.toASTType(position,
                 type.parameters[0]))
         def primName:String
@@ -813,17 +813,17 @@ class Context {
             primName := ClassType.PRIMITIVE_ARRAY.name
             arrayName := ClassType.ARRAY.name
         }
-        def primType := resolveType(new ASTClassType(position, 
+        def primType := resolveType(ASTClassType(position, 
                 primName, typeParameters, false))
         assert primType != null
-        def arrayType := resolveType(new ASTClassType(position, 
+        def arrayType := resolveType(ASTClassType(position, 
                 arrayName, typeParameters, false))
         assert arrayType != null
-        params.add(new NewPrimitiveArrayWithValues(position, 
+        params.add(NewPrimitiveArrayWithValues(position, 
                 primType->PrimitiveArrayType, values))
-        def c := call(position, new ClassLiteral(position, arrayType),
+        def c := call(position, ClassLiteral(position, arrayType),
                 MethodNode.CONSTRUCTOR_NAME, params)
         assert c != null
-        return new Construct(c->MethodCall).implicitCast(self, type)
+        return Construct(c->MethodCall).implicitCast(self, type)
     }
 }

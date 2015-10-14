@@ -89,7 +89,7 @@ class ClassConstant : Immutable {
     constructor(name:String, type:String, methods:ListView<MethodStub>) {
         self.name := name
         self.type := type
-        self.methods := new ImmutableArray<MethodStub>(methods)
+        self.methods := ImmutableArray<MethodStub>(methods)
     }
 }
 
@@ -128,37 +128,37 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     var tempVariable := 0
 
-    def variableNames := new HashMap<Variable, String>()
+    def variableNames := HashMap<Variable, String>()
 
     var currentBlockLabel:String := "0"
 
     def classes:MapView<String, ClassNode>
 
-    def classConstants := new HashMap<String, ClassConstant>()
+    def classConstants := HashMap<String, ClassConstant>()
 
     var nameCount:Int
     
     var charArrayCount := 0
 
-    def stringConstants := new HashMap<String, String>()
+    def stringConstants := HashMap<String, String>()
 
-    def references := new HashMap<Value, String>()
+    def references := HashMap<Value, String>()
 
-    def methodReferences := new HashMap<MethodStub, String>()
+    def methodReferences := HashMap<MethodStub, String>()
 
-    def loops := new Stack<AbstractLoop>()
+    def loops := Stack<AbstractLoop>()
 
-    def nextLabels := new HashMap<AbstractLoop, String>()
+    def nextLabels := HashMap<AbstractLoop, String>()
 
-    def endLabels := new HashMap<AbstractLoop, String>()
+    def endLabels := HashMap<AbstractLoop, String>()
 
-    def headerBuffer := new MemoryOutputStream()
+    def headerBuffer := MemoryOutputStream()
 
-    def header := new IndentedOutputStream(headerBuffer)
+    def header := IndentedOutputStream(headerBuffer)
 
-    def bodyBuffer := new MemoryOutputStream()
+    def bodyBuffer := MemoryOutputStream()
 
-    def body := new IndentedOutputStream(bodyBuffer)
+    def body := IndentedOutputStream(bodyBuffer)
 
     def methodNamer:MethodNamer
 
@@ -166,18 +166,18 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     var context:Context
 
-    def writtenStubs := new HashSet<String>()
+    def writtenStubs := HashSet<String>()
 
-    def writtenTypes := new HashSet<String>()
+    def writtenTypes := HashSet<String>()
 
     constructor(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
-        def errors := new FatalErrorReporter()
-        self.context := new IRGenerator(p.root, p.stubs, p.stubGenerator, 
+        def errors := FatalErrorReporter()
+        self.context := IRGenerator(p.root, p.stubs, p.stubGenerator, 
                 compilerSettings, errors).context
         self.classes := p.classes
-        self.methodNamer := new MethodNamer(context, 
-                new CMethodNamingStrategy())
+        self.methodNamer := MethodNamer(context, 
+                CMethodNamingStrategy())
     }
 
     @protected
@@ -220,7 +220,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    def typeCache := new HashMap<Type, String>()
+    def typeCache := HashMap<Type, String>()
     ============================================================================
     Returns the LLVM name for a type. Note that method types are a bit 
     complicated: sometimes we want a method type identified as an instance of 
@@ -274,7 +274,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method getLLVMMethodType(m:MethodStub):String {
-        def result := new MutableString()
+        def result := MutableString()
         def returnType := m.returnType
         result.append(getLLVMType(returnType))
         result.append(" (")
@@ -296,7 +296,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method getLLVMMethodType(t:MethodType):String {
-        def result := new MutableString()
+        def result := MutableString()
         def returnType := t.returnType
         result.append(getLLVMType(returnType))
         result.append(" (")
@@ -324,7 +324,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    def nameCache := new HashMap<ClassStub, String>()
+    def nameCache := HashMap<ClassStub, String>()
     @private
     function getName(cl:ClassStub):String {
         var result := nameCache[cl]
@@ -402,7 +402,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @private
-    def sizes := new HashMap<Type, Int>()
+    def sizes := HashMap<Type, Int>()
     @private
     method size(t:Type):Int {
         var result := sizes[t]
@@ -528,7 +528,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def parameters := construct.constructorCall.parameters
         def m := construct.constructorCall.methodStub
         def methodRef := "@" + getName(m)
-        def text := new MutableString("fastcc void \{methodRef}(")
+        def text := MutableString("fastcc void \{methodRef}(")
         text.append(getLLVMType(targetType) + " " + result)
         for (i, p) in parameters.enumeration() {
             text.append(", ")
@@ -676,7 +676,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         else
             methodRef := "@" + getName(m)
 
-        def text := new MutableString("fastcc \{getLLVMMethodType(m)} \{methodRef}(")
+        def text := MutableString("fastcc \{getLLVMMethodType(m)} \{methodRef}(")
         def parameters := mc.parameters
         if !m.annotations.isClass {
             text.append(getTypedReference(mc.target->Value))
@@ -711,7 +711,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @private
     method getITable(cl:ClassStub):String {
-        def visited := new HashSet<ClassStub>()
+        def visited := HashSet<ClassStub>()
         def interfaces := cl.allInterfaces(context)
         var previous := "%$itable* null"
         for intf in interfaces {
@@ -753,7 +753,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if cc = null {
             def methods := cl.virtualMethods(context)
             def className := getName(cl)
-            cc := new ClassConstant(
+            cc := ClassConstant(
                     className + "_class",
                     "{ \{getLLVMType(ClassType.CLASS)}, \{getLLVMType(ClassType.STRING)}, \{getLLVMType(ClassType.CLASS)}, i1, i1, %$itable*, [\{methods.length} x i8*] }", 
                     methods)
@@ -851,7 +851,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         var result := stringConstants[s]
         if result = null {
             def string := getStub(ClassType.STRING)
-            def primitiveChars := new Array<Char>()
+            def primitiveChars := Array<Char>()
             for c in s
                 primitiveChars.add(c)
             def chars := getCharPrimitiveArrayConstantReference(primitiveChars)
@@ -927,7 +927,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         else
             op := sop
         if op = null {
-            throw new CompilerException("cannot compile '" + b + 
+            throw CompilerException("cannot compile '" + b + 
                     "' at \{b.position}", b.position)
         }
         return createBinaryOperationReference(b, op)
@@ -998,11 +998,11 @@ class LLVMCodeGenerator (CodeGenerator) {
                 var zero:Value
                 if u.type.isReal {
                     op := "fsub"
-                    zero := new RealLiteral(Position.INTERNAL, 0)
+                    zero := RealLiteral(Position.INTERNAL, 0)
                 }
                 else {
                     op := "sub"
-                    zero := new IntegerLiteral(Position.INTERNAL, 0)
+                    zero := IntegerLiteral(Position.INTERNAL, 0)
                 }
                 var zeroRef := getReference(zero)
                 assert zeroRef != null : "expected non-null zeroRef"
@@ -1103,7 +1103,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             default:
                 type := ARRAY_PTR
         }
-        def references := new Array<String>()
+        def references := Array<String>()
         for v in na.values {
             var raw := getTypedReference(v)
             if type = ARRAY_REAL32 {
@@ -1115,7 +1115,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             else
                 references.add(raw)
         }
-        def code := new MutableString("i8* (\{classType}, i32, i32, ...)* " +
+        def code := MutableString("i8* (\{classType}, i32, i32, ...)* " +
                 "@pandaNewPrimitiveArrayWithValues(\{classType} \{cast}, i32 " + 
                 "\{na.values.length}, i32 \{type}")
         for r in references {
@@ -1258,7 +1258,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             def indexField := symbolTable[fr.field.name + 
                     StubGenerator.INDEX_SUFFIX]->FieldNode
             body.writeLine("load i32* @" + getName(indexField))
-            def callString := new MutableString("fastcc " + getLLVMType(type) + 
+            def callString := MutableString("fastcc " + getLLVMType(type) + 
                     " @panda$core$Panda$getThreadLocal" + suffix + 
                     "(i32 " + threadLocalId + ", ")
             def initializer := symbolTable[
@@ -1375,9 +1375,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             if checkCast {
 -*                -- verify the cast. Use a dummy for the first 
                 -- parameter just to get the type right.
-                def params := new PrimitiveArray<Value>(new Dummy(actualType), 
-                        new ClassLiteral(destType.unwrapNullable()), 
-                        new BitLiteral(destType.isNullable))
+                def params := PrimitiveArray<Value>(Dummy(actualType), 
+                        ClassLiteral(destType.unwrapNullable()), 
+                        BitLiteral(destType.isNullable))
                 def panda := ClassType.PANDA().classNode
                 def check := panda.symbolTable.getMethod(c.position,
                         "checkCast", params, true)
@@ -1485,14 +1485,14 @@ class LLVMCodeGenerator (CodeGenerator) {
         -- the "real" type of the method includes a reference to the method 
         -- object before the formal parameters
         def baseType := d.methodValue.type->>MethodType
-        def realParameters := new Array<Type>()
+        def realParameters := Array<Type>()
         realParameters.add(baseType)
         realParameters.addAll(baseType.methodParameters)
-        def realType := new MethodType(realParameters, baseType.returnType, 
+        def realType := MethodType(realParameters, baseType.returnType, 
                 baseType.isMethod, baseType.immutableMethod)
         def methodPtr := getVirtualMethodReference(d.methodValue, offset,
                 getLLVMMethodType(realType))
-        def c := new MutableString("fastcc ")
+        def c := MutableString("fastcc ")
         c.append(getLLVMMethodType(realType))
         c.append(" ")
         c.append(methodPtr)
@@ -1550,7 +1550,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case ReusedValue: return createReusedValueReference(v->ReusedValue) 
             case Super: return createSuperReference(v->Super)
             default: {
-                throw new CompilerException("unsupported value class: " + 
+                throw CompilerException("unsupported value class: " + 
                         "\{v.class.name}: \{v}", v.position)
             }
         }
@@ -1881,7 +1881,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case Try: generateTryCode(s->Try)
             case Unreachable: generateUnreachableCode(s->Unreachable)
             default: 
-                throw new InternalCompilerException("unsupported statement: " + 
+                throw InternalCompilerException("unsupported statement: " + 
                         s, s.position)
         }
     }
@@ -1898,7 +1898,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if type.isInteger | type = CharType.CHAR
             return "0"
         else if type.isReal 
-            return createRealLiteralReference(new RealLiteral(Position.INTERNAL,
+            return createRealLiteralReference(RealLiteral(Position.INTERNAL,
                     0, type))
         else if type = BitType.BIT
             return "false"
@@ -2174,12 +2174,12 @@ class LLVMCodeGenerator (CodeGenerator) {
 
         def parent := target.parent()
         if parent = null {
-            throw new CompilerException("could not determine parent " +
+            throw CompilerException("could not determine parent " +
                     "directory of " + target.path)
         }
         if context.compilerSettings.optimize {
             def unoptTarget := parent.resolve(target.name + ".unopt")
-            def out := new BufferedOutputStream(unoptTarget.openOutputStream())
+            def out := BufferedOutputStream(unoptTarget.openOutputStream())
             headerBuffer.sendTo(out)
             bodyBuffer.sendTo(out)
             out.close()
@@ -2191,7 +2191,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 unoptTarget.delete()
         }
         else {
-            def out := new BufferedOutputStream(target.openOutputStream())
+            def out := BufferedOutputStream(target.openOutputStream())
             headerBuffer.sendTo(out)
             bodyBuffer.sendTo(out)
             out.close()

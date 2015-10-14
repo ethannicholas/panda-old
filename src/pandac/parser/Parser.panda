@@ -14,7 +14,7 @@ class ParseError : Immutable {
 
 class Parser : Immutable {
 	constant EOF := 3->>Char
-	constant DIE := new ParseError(new File("/die"), -1, "die")
+	constant DIE := ParseError(File("/die"), -1, "die")
 
 	def productionIds:ImmutableArray<Int>
 
@@ -36,7 +36,7 @@ class Parser : Immutable {
 
 	@class
 	function getPosition(pos:Int, text:String):(Int, Int) {
-	    def stream := new LineNumberInputStream(new MemoryInputStream(text))
+	    def stream := LineNumberInputStream(MemoryInputStream(text))
 	    for i in 0 .. pos
 	        stream.readInt8()
 	    return (stream.line, stream.column)
@@ -45,14 +45,14 @@ class Parser : Immutable {
 	function parse(file:File, rawText:String, startState:Int):(Object?, 
 			ListView<ParseError>) {
 		def text := rawText + EOF
-		def parsers := new Stack<ParserState>()
-		var farthest:ParserState := new ParserState(0, 
-				new StateNode(startState, "<START>", null))
+		def parsers := Stack<ParserState>()
+		var farthest:ParserState := ParserState(0, 
+				StateNode(startState, "<START>", null))
 		parsers.push(farthest)
 
 		loop {
 			if parsers.length = 0 {
-				return (null, [new ParseError(file, farthest.position, 
+				return (null, [ParseError(file, farthest.position, 
 							"found \{text[farthest.position]} (\{text[farthest.position]->>Int}) in states \{farthest.state}")])
 			}
 			def top := parsers.peek()
@@ -70,7 +70,7 @@ class Parser : Immutable {
 			else
 				a := null
 			if a = null {
-				def expected := new Array<Char>()
+				def expected := Array<Char>()
 				for (i, v) in row.enumeration()
 					if v != null
 						expected.add(i->>Char)
@@ -87,7 +87,7 @@ class Parser : Immutable {
 			parsers:Stack<ParserState>) {
 		switch a.type {
 			case ActionType.SHIFT: {
-				parserState.state := new StateNode(a.target,
+				parserState.state := StateNode(a.target,
 						text[parserState.position]->>String,
 						parserState.state)
 				parserState.position += 1
@@ -95,7 +95,7 @@ class Parser : Immutable {
 			case ActionType.REDUCE: {
 				def output := reducer.reduce(a.target, file, parserState)
 				if output = DIE {
-					parserState.state := new StateNode(-1, output, 
+					parserState.state := StateNode(-1, output, 
 							parserState.state)
 					return
 				}
@@ -103,7 +103,7 @@ class Parser : Immutable {
 						[productionIds[a.target]]
 				assert next != null : "no goto for \{parserState.state.state}" +
 						"->\{productionIds[a.target]}"
-				parserState.state := new StateNode(next, output, 
+				parserState.state := StateNode(next, output, 
 						parserState.state)
 			}
 			case ActionType.MULTIPLE: {
@@ -113,13 +113,13 @@ class Parser : Immutable {
 				def oldPosition := parserState.position
 				action(i.next(), file, text, parserState, parsers)
 				while !i.done() {
-					def sub := new ParserState(oldPosition, oldState)
+					def sub := ParserState(oldPosition, oldState)
 					action(i.next(), file, text, sub, parsers)
 					parsers.push(sub)
 				}
 			}
 			case ActionType.CUT: {
-				parserState.state := new StateNode(a.target, "<CUT>",
+				parserState.state := StateNode(a.target, "<CUT>",
 						parserState.state)
 				parsers.clear()
 				parsers.push(parserState)

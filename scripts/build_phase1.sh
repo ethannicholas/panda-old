@@ -53,26 +53,26 @@ if [ `uname` = "Darwin" ]; then
 else
     echo "'x86_64-pc-linux-gnu'" >> "$STATIC_SETTINGS"
 fi
-echo "constant GCC_EXE_ARGS := new ImmutablePrimitiveArray<String>(" >> "$STATIC_SETTINGS"
+echo "constant GCC_EXE_ARGS := ImmutablePrimitiveArray<String>(" >> "$STATIC_SETTINGS"
 if [ `uname` != "Darwin" ]; then
     echo "'-lunwind'" >> "$STATIC_SETTINGS"
 fi
 echo ")" >> "$STATIC_SETTINGS"
-echo "constant GCC_LIBRARY_ARGS := new ImmutablePrimitiveArray<String>(" >> "$STATIC_SETTINGS"
+echo "constant GCC_LIBRARY_ARGS := ImmutablePrimitiveArray<String>(" >> "$STATIC_SETTINGS"
 echo ")" >> "$STATIC_SETTINGS"
-echo "constant LLC_EXE_ARGS := new ImmutablePrimitiveArray<String>('-O3'" >> "$STATIC_SETTINGS"
+echo "constant LLC_EXE_ARGS := ImmutablePrimitiveArray<String>('-O3'" >> "$STATIC_SETTINGS"
 if [ `uname` = "Darwin" ]; then
     echo ", '-mattr=-avx'" >> "$STATIC_SETTINGS"
 fi
 echo ")" >> "$STATIC_SETTINGS"
-echo "constant LLC_LIBRARY_ARGS := new ImmutablePrimitiveArray<String>('-O3'" >> "$STATIC_SETTINGS"
+echo "constant LLC_LIBRARY_ARGS := ImmutablePrimitiveArray<String>('-O3'" >> "$STATIC_SETTINGS"
 if [ `uname` = "Darwin" ]; then
     echo ", '-mattr=-avx'" >> "$STATIC_SETTINGS"
 else
     echo ", '-relocation-model=pic'" >> "$STATIC_SETTINGS"
 fi
 echo ")" >> "$STATIC_SETTINGS"
-echo "constant PANDAGL_GCC_ARGS := new ImmutablePrimitiveArray<String>(" >> "$STATIC_SETTINGS"
+echo "constant PANDAGL_GCC_ARGS := ImmutablePrimitiveArray<String>(" >> "$STATIC_SETTINGS"
 if [ `uname` = "Darwin" ]; then
     echo "'-l', 'pandagl', '-framework', 'SDL2', '-framework', 'SDL2_image', " >> "$STATIC_SETTINGS"
     echo "'-L/opt/local/lib', '-lcairo', " >> "$STATIC_SETTINGS"

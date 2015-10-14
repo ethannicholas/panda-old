@@ -17,7 +17,7 @@ class CompilerErrorReporter : ErrorReporter {
     constant WARNING_MESSAGE := "warning"
     def compiler:PandaCompiler
 
-    def textCache := new HashMap<File, String>()
+    def textCache := HashMap<File, String>()
 
     constructor(compiler:PandaCompiler) {
         self.compiler := compiler
@@ -39,7 +39,7 @@ class CompilerErrorReporter : ErrorReporter {
     method format(position:Position):String {
         def text := getText(position.file)
         if text != null {
-            def stream := new LineNumberInputStream(new MemoryInputStream(text))
+            def stream := LineNumberInputStream(MemoryInputStream(text))
             for i in 0 .. position.offset
                 stream.readInt8()
             return position.file.name + ":" + stream.line + ":" + stream.column
@@ -71,9 +71,9 @@ class PandaCompiler {
 
     var lastCheckpointLabel:String?
     var lastCheckpointTime:Int64
-    def errorQueue := new MessageQueue<Immutable?>()
-    def errors := new CompilerErrorReporter(self)
-    def parser := new PandaParser(errors)
+    def errorQueue := MessageQueue<Immutable?>()
+    def errors := CompilerErrorReporter(self)
+    def parser := PandaParser(errors)
     var errorCount := 0
     var warningCount := 0
 
@@ -81,18 +81,18 @@ class PandaCompiler {
     function determinePandaHome():File {
         var home := System.environment["PANDA_HOME"]
         if home != null
-            return new File(home)
+            return File(home)
         else
-            throw new CompilerException("PANDA_HOME is not set")
+            throw CompilerException("PANDA_HOME is not set")
     }
 
     @class
     method getLLVMHome():File {
         switch System.operatingSystem.type {
             case OperatingSystemType.MACOSX: {
-                def libexec := new File("/opt/local/libexec")
+                def libexec := File("/opt/local/libexec")
                 if !libexec.exists() {
-                    throw new CompilerException("path '" + libexec + 
+                    throw CompilerException("path '" + libexec + 
                             "' does not exist. Use MacPorts to install " +
                             "Panda dependencies.")
                 }
@@ -115,17 +115,17 @@ class PandaCompiler {
                     }
                 }
                 if maxMajor = 0 {
-                    throw new CompilerException("no LLVM installation found " +
+                    throw CompilerException("no LLVM installation found " +
                             "under \{libexec}. Use MacPorts to install Panda " +
                             "dependencies.")
                 }
-                return verifyExists(new File("/opt/local/libexec/llvm-" +
+                return verifyExists(File("/opt/local/libexec/llvm-" +
                         "\{maxMajor}.\{maxMinor}/bin"))
             }
             case OperatingSystemType.LINUX, OperatingSystemType.OTHER_UNIX:
-                return verifyExists(new File("/usr/bin"))
+                return verifyExists(File("/usr/bin"))
             default:
-                throw new CompilerException("Unsupported operating " +
+                throw CompilerException("Unsupported operating " +
                         "system type: " + System.operatingSystem.type)
         }
     }
@@ -133,7 +133,7 @@ class PandaCompiler {
     @class
     method verifyExists(file:File):File {
         if !file.exists() {
-            throw new CompilerException("required file '\{file}' was not " +
+            throw CompilerException("required file '\{file}' was not " +
                     "found. Please ensure that Panda's dependencies are " +
                     "installed.")
         }
@@ -146,9 +146,9 @@ class PandaCompiler {
             case OperatingSystemType.MACOSX:
                 return verifyExists(getLLVMHome().resolve("clang"))
             case OperatingSystemType.LINUX, OperatingSystemType.OTHER_UNIX:
-                return verifyExists(new File("/usr/bin/gcc"))
+                return verifyExists(File("/usr/bin/gcc"))
             default:
-                throw new CompilerException("Unsupported operating " +
+                throw CompilerException("Unsupported operating " +
                         "system type: " + System.operatingSystem.type)
         }
     }
@@ -159,9 +159,9 @@ class PandaCompiler {
             case OperatingSystemType.MACOSX:
                 return verifyExists(getLLVMHome().resolve("clang++"))
             case OperatingSystemType.LINUX, OperatingSystemType.OTHER_UNIX:
-                return verifyExists(new File("/usr/bin/g++"))
+                return verifyExists(File("/usr/bin/g++"))
             default:
-                throw new InternalCompilerException("Unsupported operating " +
+                throw InternalCompilerException("Unsupported operating " +
                         "system type: " + System.operatingSystem.type)
         }
     }
@@ -179,11 +179,11 @@ class PandaCompiler {
 
     @protected
     method getASTFiles(settings:CompilerSettings):CollectionView<ASTFile> {
-        def result := new Array<ASTFile>()
+        def result := Array<ASTFile>()
         constant THREADS := 1
         if THREADS > 1 {
-            def workQueue := new MessageQueue<File?>()
-            def responseQueue := new MessageQueue<ImmutableArray<ASTFile>>()
+            def workQueue := MessageQueue<File?>()
+            def responseQueue := MessageQueue<ImmutableArray<ASTFile>>()
             for f in settings.sources
                 workQueue.post(f)
             def errorReporter := self.errors
@@ -191,7 +191,7 @@ class PandaCompiler {
             for i in 0 .. THREADS {
                 workQueue.post(null)
                 Thread.start(method() {
-                    def result := new Array<ASTFile>()
+                    def result := Array<ASTFile>()
                     loop {
                         def f := workQueue.getMessage()
                         if f = null
@@ -200,7 +200,7 @@ class PandaCompiler {
                         if parsed != null
                             result.add(parsed)
                     }
-                    responseQueue.post(new ImmutableArray<ASTFile>(result))
+                    responseQueue.post(ImmutableArray<ASTFile>(result))
                 })
             }
             for i in 0 .. THREADS {
@@ -210,7 +210,7 @@ class PandaCompiler {
         }
         else {
             for f in settings.sources {
-                def input := new BufferedInputStream(f.openInputStream())
+                def input := BufferedInputStream(f.openInputStream())
                 def parsed := parser.parseFile(f)
                 if parsed != null
                     result.add(parsed)
@@ -241,13 +241,13 @@ class PandaCompiler {
             processMessages()
             if errorCount = 0 {
                 checkpoint("extract types")
-                def stubGenerator := new StubGenerator(files, errors)
+                def stubGenerator := StubGenerator(files, errors)
                 def root := stubGenerator.getRootPackage()
                 processMessages()
                 if errorCount = 0 {
                     checkpoint("semantic analysis")
-                    def program := new IRGenerator(root,  
-                            new HashMap<String, ClassStub>(), stubGenerator,
+                    def program := IRGenerator(root,  
+                            HashMap<String, ClassStub>(), stubGenerator,
                             settings, errors).generateProgram()
                     processMessages()
                     if errorCount = 0 {
@@ -255,24 +255,24 @@ class PandaCompiler {
                         checkpoint("codegen")
                         switch settings.outputFormat {
                             case OutputFormat.EXECUTABLE:
-                                cg := new ExecutableCodeGenerator(program, 
+                                cg := ExecutableCodeGenerator(program, 
                                         settings)
                             case OutputFormat.JAVA:
-                                cg := new JavaCodeGenerator(program, settings)
+                                cg := JavaCodeGenerator(program, settings)
                             case OutputFormat.JAR:
-                                cg := new JARCodeGenerator(program, settings)
+                                cg := JARCodeGenerator(program, settings)
                             case OutputFormat.HEADERS:
-                                cg := new HeaderCodeGenerator(program, settings)
+                                cg := HeaderCodeGenerator(program, settings)
                             case OutputFormat.JAVA_HEADERS: {
-                                cg := new JavaHeaderCodeGenerator(program, 
+                                cg := JavaHeaderCodeGenerator(program, 
                                         settings)
                             }
                             case OutputFormat.LIB: {
-                                cg := new LibraryCodeGenerator(program, 
+                                cg := LibraryCodeGenerator(program, 
                                     settings)
                             }
                             case OutputFormat.PLINK:
-                                cg := new PLinkCodeGenerator(program, settings)
+                                cg := PLinkCodeGenerator(program, settings)
                             default: unreachable
                         } 
                         cg.generateCode(settings.target)
@@ -295,9 +295,9 @@ class PandaCompiler {
     }
 
     method processArguments(args:PrimitiveArray<String>):CompilerSettings {
-        def sources := new Array<File>()
-        def librarySearchPaths := new Array<File>() 
-        librarySearchPaths.add(new File("/opt/local/lib"))
+        def sources := Array<File>()
+        def librarySearchPaths := Array<File>() 
+        librarySearchPaths.add(File("/opt/local/lib"))
         librarySearchPaths.add(PandaCompiler.PANDA_HOME.resolve(
                 "native/core/lib"))
         var target:File? := null
@@ -319,7 +319,7 @@ class PandaCompiler {
                         Console.writeLine("'-o' specified multiple times")
                         System.exit(1)
                     }
-                    target := new File(args[i])
+                    target := File(args[i])
                 }
                 case "-O0":
                     optimize := false
@@ -350,7 +350,7 @@ class PandaCompiler {
                         Console.writeLine("expected file path after '-L'")
                         System.exit(1)
                     }
-                    librarySearchPaths.add(new File(args[i]))
+                    librarySearchPaths.add(File(args[i]))
                 }
                 case "-XnoCoreLib":
                     loadCoreLibraries := false
@@ -358,7 +358,7 @@ class PandaCompiler {
                     preserveTempArtifacts := true
                 default: {
                     if arg.endsWith(".panda")
-                        sources.add(new File(arg))
+                        sources.add(File(arg))
                     else {
                         Console.writeLine("unsupported argument '\{arg}'")
                         System.exit(1)
@@ -370,7 +370,7 @@ class PandaCompiler {
         if target = null {
             if sources.length = 1 & sources[0].path.endsWith(".panda") {
                 def path := sources[0].path
-                target := new File(path[0 .. path.length - ".panda".length])
+                target := File(path[0 .. path.length - ".panda".length])
             }
             else {
                 Console.writeLine("multiple input files specified, use " +
@@ -382,7 +382,7 @@ class PandaCompiler {
             sources.add(PANDA_HOME.resolve(
                     "shared/core/lib/PandaCoreClasses.plink"))
         }
-        return new CompilerSettings(sources, librarySearchPaths, outputFormat,
+        return CompilerSettings(sources, librarySearchPaths, outputFormat,
                 target->File, optimize, preserveTempArtifacts)
     }
 
@@ -400,7 +400,7 @@ class PandaCompiler {
                 Console.writeLine("usage: pandac <input.panda>")
                 System.exit(1)
             }
-            def pandac := new PandaCompiler()
+            def pandac := PandaCompiler()
             pandac.runWithArgs(args)
             if pandac.errorCount > 0
                 System.exit(2)
