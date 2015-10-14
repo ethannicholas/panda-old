@@ -834,10 +834,10 @@ class IRGenerator {
             return null
         }
         def symbolTable := context.getSymbolTable(stub)
-        def constructors := symbolTable[MethodNode.CONSTRUCTOR_NAME]
-        assert constructors != null
+        def inits := symbolTable[MethodNode.INIT_NAME]
+        assert inits != null
         def call := context.call(n.position, ClassLiteral(n.position, type), 
-                constructors->Methods.methods, parameters)
+                inits->Methods.methods, parameters)
         if call != null
             return Construct(call->MethodCall)
         else
@@ -901,7 +901,7 @@ class IRGenerator {
 
     method convertRegex(r:ASTRegex):Value? {
         def result := context.call(r.position, ClassLiteral(r.position,
-                ClassType.REGULAR_EXPRESSION), MethodNode.CONSTRUCTOR_NAME,
+                ClassType.REGULAR_EXPRESSION), MethodNode.INIT_NAME,
                 [StringLiteral(r.position, r.value)])
         if result = null
             return null
@@ -2547,7 +2547,7 @@ class IRGenerator {
         return result
     }
 
-    function createClosureConstructorAndFields(position:Position,
+    function createClosureInitAndFields(position:Position,
             captures:Set<Variable>, owner:ClassType):(MethodStub, ListView<FieldNode>) {
         def parameters := Array<FormalParameter>()
         def fields := Array<FieldNode>()
@@ -2566,8 +2566,8 @@ class IRGenerator {
             body.add(ASTAssignment(lvalues, null,
                     ASTIdentifier(position, field.name)))
         }
-        def stub := MethodStub(position, MethodNode.CONSTRUCTOR_NAME, 
-                Annotations(position), MethodNodeType.CONSTRUCTOR, 
+        def stub := MethodStub(position, MethodNode.INIT_NAME, 
+                Annotations(position), MethodNodeType.INIT, 
                 parameters, VoidType.VOID, ASTBlock(position, body), 
                 owner)
         return (stub, fields)
@@ -2628,7 +2628,7 @@ class IRGenerator {
         convertBlock(m.body->ASTBlock)
         addMethods := oldAdd
         def closureSymbols := OrderedMap<String, Symbol>()
-        def closureConstructor, closureFields := createClosureConstructorAndFields(
+        def closureInit, closureFields := createClosureInitAndFields(
                 m.position, context.captures.peek()[1], closureType)
         def closureAnnotations := Array<AnnotationType>()
         closureAnnotations.add(AnnotationType.SYNTHETIC)
@@ -2656,8 +2656,8 @@ class IRGenerator {
 
         closureSymbols[rawStub.name] := Methods(rawStub)
         closureSymbols[shimmedStub.name] := Methods(shimmedStub)
-        closureSymbols[closureConstructor.name] := 
-                Methods(closureConstructor)
+        closureSymbols[closureInit.name] := 
+                Methods(closureInit)
         for f in closureFields
             closureSymbols[f.name] := f
         def lookupContext := context.currentClass.lookupContext
@@ -2673,25 +2673,25 @@ class IRGenerator {
         context.localVariables.clear()
         context.localVariables.addAll(oldLocals)
         context.currentMethod := lastMethod
-        def constructorParameters := Array<Value>()
+        def initParameters := Array<Value>()
         for v in context.captures.peek[1]
-            constructorParameters.add(VariableReference(m.position, v))
+            initParameters.add(VariableReference(m.position, v))
         def closureInstance := Construct(MethodCall(m.position, 
                 ClassLiteral(m.position, closureType), 
-                closureConstructor, constructorParameters))
+                closureInit, initParameters))
         context.captures.pop()
         return Cast(m.position, closureInstance, rawStub.type(context),
                 CastType.IMPLICIT)
     }
 
-    function callsOtherSelfConstructor(owner:ClassType,
+    function callsOtherSelfInit(owner:ClassType,
             statements:ListView<Statement>):Bit {
         if statements.length > 0 {
             if statements[0]-?>ValueStatement {
                 var value := statements[0]->ValueStatement.value
                 if value-?>MethodCall {
                     var call := value->MethodCall
-                    if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
+                    if call.methodStub.methodType = MethodNodeType.INIT
                         return call.methodStub.owner = owner
                 }
             }
@@ -2699,14 +2699,14 @@ class IRGenerator {
         return false
     }
     
-    function callsSuperConstructor(owner:ClassType,
+    function callsSuperInit(owner:ClassType,
             statements:ListView<Statement>):Bit {
         if statements.length > 0 {
             if statements[0]-?>ValueStatement {
                 var value := statements[0]->ValueStatement.value
                 if value-?>MethodCall {
                     var call := value->MethodCall
-                    if call.methodStub.methodType = MethodNodeType.CONSTRUCTOR
+                    if call.methodStub.methodType = MethodNodeType.INIT
                         return call.target.type != owner
                 }
             }
@@ -2736,10 +2736,10 @@ class IRGenerator {
             context.symbolTable.add(selfParam)
         }
         var body := convertBlock(m.body->ASTBlock)
-        if m.methodType = MethodNodeType.CONSTRUCTOR {
-            def callsOther := callsOtherSelfConstructor(m.owner, 
+        if m.methodType = MethodNodeType.INIT {
+            def callsOther := callsOtherSelfInit(m.owner, 
                     body.statements)
-            def callsSuper := callsSuperConstructor(m.owner, body.statements)
+            def callsSuper := callsSuperInit(m.owner, body.statements)
             if !callsOther {
                 def reusedTuples := HashMap<Value, ReusedValueDefinition>()
                 def initializers := HashMap<ASTExpression, Value>()
@@ -2784,7 +2784,7 @@ class IRGenerator {
                 def statements := Array<Statement>()
                 def superCall := context.call(m.position, 
                         Super(m.position, m.owner),
-                        MethodNode.CONSTRUCTOR_NAME, 
+                        MethodNode.INIT_NAME, 
                         Array<Value>())
                 if superCall != null
                     statements.add(ValueStatement(superCall))
