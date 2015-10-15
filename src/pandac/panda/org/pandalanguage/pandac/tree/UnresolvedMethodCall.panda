@@ -1,0 +1,65 @@
+package org.pandalanguage.pandac.tree
+
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.types.UnresolvedType
+uses org.pandalanguage.pandac.types.Type
+
+================================================================================
+Represents a method call which has not yet been resolved to a specific method
+implementation. For instance, `"1234".convert()` might be a call to any of
+`String`'s `convert` methods and we require more context to decide which.
+================================================================================
+class UnresolvedMethodCall : UnresolvedValue {
+    def target:Value?
+
+    def methods:ListView<MethodStub>
+
+    def parameters:ListView<Value>
+
+    @pre(methods.length > 1)
+    init(context:Context, position:Position, target:Value, 
+            methods:ListView<MethodStub>, parameters:ListView<Value>) {
+        super.init(position, methods[0].name, getValue(context, position, 
+                target, methods, parameters))
+        self.target := target
+        self.methods := methods
+        self.parameters := parameters
+    }
+
+    @private
+    function getValue(context:Context, position:Position, target:Value, 
+            methods:ListView<MethodStub>, parameters:ListView<Value>):Value? {
+        return context.call(position, target, methods, parameters, null, false)
+    }
+
+    @override
+    method implicitCast(position:Position, context:Context, t:Type):Value {
+        def result := context.call(position, target, methods, parameters, t,
+                true)
+        if result != null {
+            if t = VoidType.VOID {
+                assert result.type = VoidType.VOID
+                return result
+            }
+            return result.implicitCast(position, context, t)
+        }
+        return Dummy(position, t)
+    }
+
+    @override
+    method reportError(context:Context) {
+        def text := MutableString("ambiguous reference to method " +
+                "'\{methods[0].name}', the following methods are all equally " +
+                "good matches:\n")
+        for m in methods
+            text.append("    \{m} (\{m.position})\n")
+        context.errors.error(text->>String, position)
+    }
+
+    @override
+    function ->>():String {
+        return "\{methods[0].name}"
+    }
+}

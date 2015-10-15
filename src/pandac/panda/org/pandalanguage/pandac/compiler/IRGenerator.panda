@@ -118,6 +118,7 @@ uses org.pandalanguage.pandac.tree.UnresolvedIdentifier
 uses org.pandalanguage.pandac.tree.UnresolvedIndex
 uses org.pandalanguage.pandac.tree.UnresolvedLambda
 uses org.pandalanguage.pandac.tree.UnresolvedMethod
+uses org.pandalanguage.pandac.tree.UnresolvedMethodCall
 uses org.pandalanguage.pandac.tree.UnresolvedRange
 uses org.pandalanguage.pandac.tree.UnresolvedSlice
 uses org.pandalanguage.pandac.tree.UnresolvedTuple
@@ -263,35 +264,6 @@ class IRGenerator {
                 return null
             parameters.add(converted)
         }
-        if target-?>UnresolvedIdentifier {
-            if context.isInstance {
-                def test := context.testCall(c.position, context.getSelf(
-                            c.position),
-                        target->UnresolvedIdentifier.name, parameters)
-                if test != null
-                    return test
-            }
-            def test := context.testCall(c.position, ClassLiteral(
-                    c.position, context.currentClass.type),
-                    target->UnresolvedIdentifier.name, parameters)
-            if test != null
-                return test
-        }
-        if target-?>UnresolvedDotExpression {
-            def u := target->UnresolvedDotExpression
-            if u.left-?>Super {
-                if !context.isInstance {
-                    context.errors.error(SuperType.ERROR_MESSAGE, 
-                            target.position)
-                    return null
-                }
-                return context.call(c.position, u.left, u.right, parameters)
-            }
-            def left := resolve(u.left)
-            if left = null
-                return null
-            return context.call(c.position, left, u.right, parameters)
-        }
         if target-?>UnresolvedMethod {
             def u := target->UnresolvedMethod
             def finalTarget:Value
@@ -305,7 +277,8 @@ class IRGenerator {
                 finalTarget := ClassLiteral(c.position, 
                         context.currentClass.type)
             }
-            return context.call(c.position, finalTarget, u.methods, parameters)
+            return UnresolvedMethodCall(context, c.position, finalTarget, 
+                    u.methods, parameters)
         }
         if target-?>MethodReference {
             def m := target->MethodReference
@@ -586,10 +559,10 @@ class IRGenerator {
         def panda := ClassLiteral(position, ClassType.PANDA)
         var instanceOf:MethodStub? := null
         if !object.type.isNullable
-            instanceOf := context.getMethod(panda, methodName, parameters)
+            instanceOf := context.getMethod(panda, methodName, parameters, null)
         if instanceOf = null {
             parameters.add(BitLiteral(position, type.isNullable))
-            instanceOf := context.getMethod(panda, methodName, parameters)
+            instanceOf := context.getMethod(panda, methodName, parameters, null)
         }
         assert instanceOf != null
         return context.call(position, panda, instanceOf, parameters)

@@ -24,7 +24,7 @@ class UnresolvedSlice : UnresolvedValue {
     init(context:Context, position:Position, contextValue:Value, 
             left:Value?, right:Value?, step:Value?, endInclusive:Bit) {
         super.init(position, "<unresolved slice>", getCall(context,
-                position, contextValue, left, right, step, endInclusive))
+                position, contextValue, left, right, step, endInclusive, null))
         self.contextValue := contextValue
         self.left := left
         self.right := right
@@ -35,22 +35,24 @@ class UnresolvedSlice : UnresolvedValue {
     @private
     @class
     method getCall(context:Context, position:Position, contextValue:Value,
-            params:Array<Value>, endInclusive:Bit):Value? {
+            params:Array<Value>, endInclusive:Bit, returnType:Type?):Value? {
         def name:String
         if endInclusive
             name := "[...]"
         else
             name := "[..]"
-        return context.testCall(position, contextValue, name, params)
+        return context.call(position, contextValue, name, params, returnType,
+                false)
     }
 
     @private
     @class
     method getCall(context:Context, position:Position, contextValue:Value, 
-            left:Value?, right:Value?, step:Value?, endInclusive:Bit):Value? {
+            left:Value?, right:Value?, step:Value?, endInclusive:Bit,
+            returnType:Type?):Value? {
         if left = null & right = null & step = null {
             def test := getCall(context, position, contextValue, 
-                    Array<Value>(), endInclusive)
+                    Array<Value>(), endInclusive, returnType)
             if test != null
                 return test
         }
@@ -61,7 +63,7 @@ class UnresolvedSlice : UnresolvedValue {
             else
                 params.add(NullLiteral(position))
             def test := getCall(context, position, contextValue, params, 
-                    endInclusive)
+                    endInclusive, returnType)
             if test != null
                 return test
         }
@@ -76,7 +78,7 @@ class UnresolvedSlice : UnresolvedValue {
             else
                 params.add(NullLiteral(position))
             def test := getCall(context, position, contextValue, params, 
-                    endInclusive)
+                    endInclusive, returnType)
             if test != null
                 return test
         }
@@ -93,7 +95,17 @@ class UnresolvedSlice : UnresolvedValue {
             params.add(step)
         else
             params.add(IntegerLiteral(position, 1))
-        return getCall(context, position, contextValue, params, endInclusive)
+        return getCall(context, position, contextValue, params, endInclusive,
+                returnType)
+    }
+
+    @override
+    method implicitCast(position:Position, context:Context, t:Type):Value {
+        def result := getCall(context, position, contextValue, left, right, 
+                step, endInclusive, t)
+        if result != null
+            return result.implicitCast(position, context, t)
+        return Dummy(position, t)
     }
 
     @override

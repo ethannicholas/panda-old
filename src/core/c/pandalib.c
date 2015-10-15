@@ -646,11 +646,11 @@ void* panda$io$FileOutputStream$open(
             s, read, write);
 }
 
-Int32 panda$io$FileInputStream$close_$NativePointer(void* handle) {
+Int32 panda$io$FileInputStream$close_$NativePointer_$RInt32(void* handle) {
     return fclose((FILE*) handle);
 }
 
-Int32 panda$io$FileOutputStream$close_$NativePointer(void* handle) {
+Int32 panda$io$FileOutputStream$close_$NativePointer_$RInt32(void* handle) {
     return fclose((FILE*) handle);
 }
 
@@ -670,7 +670,7 @@ short panda$io$FileInputStream$readInt8_$NativePointer(void* handle) {
         return -1;
 }
 
-panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32(
+panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32_$RInt32$Z(
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$Int8$GT* bytes, 
         Int32 max) {
@@ -692,7 +692,7 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int3
     return result;
 }
 
-panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int32(
+panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int32_$RInt32$Z(
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$UInt8$GT* bytes,
         Int32 max) {
@@ -714,7 +714,7 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int
     return result;
 }
 
-panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int32(
+panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int32_$RInt32$Z(
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$Char$GT* chars, 
         Int32 max) {
@@ -763,7 +763,7 @@ void panda$io$FileOutputStream$writeInt8Array(void* handle,
     }
 }
 
-panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list(File* file) {
+panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list_$RListView$LTFile$GT(File* file) {
     const size_t MAX_LENGTH = PATH_MAX;
     char buffer[MAX_LENGTH];
     char* path = pandaGetString(file->path);
@@ -943,7 +943,7 @@ void panda$threads$InternalMessageQueue$sendMessage(
     pthread_mutex_unlock(&queue->lock);
 }
           
-panda$core$Object* panda$threads$InternalMessageQueue$getMessage(InternalMessageQueue* msgQueue) {
+panda$core$Object* panda$threads$InternalMessageQueue$getMessage_$RObject$Z(InternalMessageQueue* msgQueue) {
     NativeQueue* queue = msgQueue->nativeQueue;
     pthread_mutex_lock(&queue->lock);
     while (queue->head == NULL)
@@ -958,10 +958,10 @@ panda$core$Object* panda$threads$InternalMessageQueue$getMessage(InternalMessage
     return result->data;
 }
 
-panda$core$Object* panda$threads$InternalMessageQueue$getMessage_Int32(InternalMessageQueue* queue, int timeout) {
+panda$core$Object* panda$threads$InternalMessageQueue$getMessage_Int32_$RObject$Z(InternalMessageQueue* queue, int timeout) {
     // FIXME NOT IMPLEMENTED
     UNUSED(timeout);
-    return panda$threads$InternalMessageQueue$getMessage(queue);
+    return panda$threads$InternalMessageQueue$getMessage_$RObject$Z(queue);
 }
 
 void panda$threads$InternalMessageQueue$threadExit() {
@@ -1195,7 +1195,7 @@ void panda$core$Matcher$setText(void* nr, String* text) {
         pandaFatalError(u_errorName(status));
 }
 
-Bit panda$core$Matcher$matches_$NativePointer(void* nr) {
+Bit panda$core$Matcher$matches_$NativePointer_$RBit(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
     Bit result = uregex_matches(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
@@ -1203,7 +1203,7 @@ Bit panda$core$Matcher$matches_$NativePointer(void* nr) {
     return result;
 }
 
-Bit panda$core$Matcher$find_$NativePointer_Int32(void* nr, Int32 startIndex) {
+Bit panda$core$Matcher$find_$NativePointer_Int32_$RBit(void* nr, Int32 startIndex) {
     UErrorCode status = U_ZERO_ERROR;
     Bit result = uregex_find(((NativeRegex*) nr)->regex, startIndex, &status);
     if (U_FAILURE(status))
@@ -1225,7 +1225,7 @@ String* pandaUTextToString(UText* ut, int length) {
     return result;
 }
 
-Int32 panda$core$Matcher$groupCount_$NativePointer(void* nr) {
+Int32 panda$core$Matcher$groupCount_$NativePointer_$RInt32(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
     Int32 result = uregex_groupCount(((NativeRegex*) nr)->regex, &status);
     if (U_FAILURE(status))
@@ -1233,7 +1233,7 @@ Int32 panda$core$Matcher$groupCount_$NativePointer(void* nr) {
     return result + 1;
 }
 
-String* panda$core$Matcher$group_$NativePointer_Int32(void* nr, Int32 group) {
+String* panda$core$Matcher$group_$NativePointer_Int32_$RString(void* nr, Int32 group) {
     UErrorCode status = U_ZERO_ERROR;
     int64_t length;
     UText* ut = uregex_groupUText(((NativeRegex*) nr)->regex, group, NULL,
@@ -1243,7 +1243,7 @@ String* panda$core$Matcher$group_$NativePointer_Int32(void* nr, Int32 group) {
     return pandaUTextToString(ut, length);
 }
 
-Int32 panda$core$Matcher$start_$NativePointer(void* nr) {
+Int32 panda$core$Matcher$start_$NativePointer_$RInt32(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
     Int32 result = uregex_start(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
@@ -1251,7 +1251,7 @@ Int32 panda$core$Matcher$start_$NativePointer(void* nr) {
     return result;
 }
 
-Int32 panda$core$Matcher$end_$NativePointer(void* nr) {
+Int32 panda$core$Matcher$end_$NativePointer_$RInt32(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
     Int32 result = uregex_end(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))

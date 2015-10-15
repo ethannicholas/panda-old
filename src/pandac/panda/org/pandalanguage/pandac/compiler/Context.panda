@@ -261,7 +261,7 @@ class Context {
     constant VARARG_COST := 1
 
     function matchCost(target:Value, m:MethodStub, 
-            var params:ListView<Value>):Int? {
+            var params:ListView<Value>, returnType:Type?):Int? {
         var result := 0
         var methodParams:ListView<FormalParameter> := m.parameters
         var isVarArg := methodParams.length > 0 & 
@@ -313,6 +313,14 @@ class Context {
                 else
                     result += cost
             }
+        }
+
+        if returnType != null {
+            def cost := m.returnType.implicitCastCost(self, returnType)
+            if cost = null
+                return null
+            else
+                result += cost
         }
         return result
     }
@@ -373,7 +381,7 @@ class Context {
     @param params the method parameters
     ============================================================================
     method getMethod(target:Value, name:String, 
-            params:ListView<Value>):MethodStub? {
+            params:ListView<Value>, returnType:Type?):MethodStub? {
         def searchClass:ClassStub
         def classMethod:Bit
         if target-?>ClassLiteral {
@@ -404,7 +412,7 @@ class Context {
         var maxCost := Int.MAX
         var max:MethodStub? := null
         for m in methods {
-            def cost := matchCost(target, m, params)
+            def cost := matchCost(target, m, params, returnType)
             if cost != null & cost < maxCost {
                 maxCost := cost
                 max := m
@@ -415,7 +423,7 @@ class Context {
 
     method testCall(position:Position, var target:Value, 
             methodName:String, var params:ListView<Value>):Value? {
-        def methodStub := getMethod(target, methodName, params)
+        def methodStub := getMethod(target, methodName, params, null)
         if methodStub != null
             return call(position, target, methodStub, params)
         else
@@ -730,6 +738,12 @@ class Context {
 
     method call(position:Position, target:Value, 
             methodName:String, var params:ListView<Value>):Value? {
+        return call(position, target, methodName, params, null, true)
+    }
+
+    method call(position:Position, target:Value, 
+            methodName:String, var params:ListView<Value>, returnType:Type?,
+            reportErrors:Bit):Value? {
         def stub:ClassStub
         if target-?>ClassLiteral
             stub := getStub(target->ClassLiteral.value)
@@ -741,8 +755,10 @@ class Context {
             stub := getStub(target.type->>ClassType)
         def symbolTable := getSymbolTable(stub)
         def methods := symbolTable[methodName]
-        if methods-?>Methods
-            return call(position, target, methods->Methods.methods, params)
+        if methods-?>Methods {
+            return call(position, target, methods->Methods.methods, params,
+                    returnType, reportErrors)
+        }
         if methods != null {
             errors.error("'\{target.type.displayName}.\{methodName}' is not " +
                     "a method", position)
@@ -755,7 +771,13 @@ class Context {
     }
 
     method call(position:Position, target:Value, 
-            methods:ListView<MethodStub>, var params:ListView<Value>):Value? {
+            methods:ListView<MethodStub>, params:ListView<Value>):Value? {
+        return call(position, target, methods, params, null, false)
+    }
+
+    method call(position:Position, target:Value, 
+            methods:ListView<MethodStub>, var params:ListView<Value>,
+            returnType:Type?, reportErrors:Bit):Value? {
         if params.length > 0 {
             def last := params[params.length - 1]
             if last-?>UnresolvedRange {
@@ -776,7 +798,7 @@ class Context {
             def finalTarget := getEffectiveTarget(m, target)
             if finalTarget = null
                 continue
-            def cost := matchCost(finalTarget, m, params)
+            def cost := matchCost(finalTarget, m, params, returnType)
             if cost != null & cost < maxCost {
                 maxCost := cost
                 max := m
@@ -788,11 +810,13 @@ class Context {
             return call(position, finalTarget, max, params)
         }
         else {
-            def types := Array<String>()
-            for p in params
-                types.add(p.type.displayName)
-            errors.error("no match for \{methods[0].name}(\{types.join(', ')})", 
-                    position)
+            if reportErrors {
+                def types := Array<String>()
+                for p in params
+                    types.add(p.type.displayName)
+                errors.error("no match for \{methods[0].name}(\{types.join(', ')})", 
+                        position)
+            }
             return null
         }
     }
