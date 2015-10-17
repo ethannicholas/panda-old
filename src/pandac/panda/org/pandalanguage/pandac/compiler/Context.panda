@@ -693,8 +693,6 @@ class Context {
             }
             def varParams := createArrayLiteral(position, arrayType, values)
             finalParams.add(varParams)
-            if m.name.startsWith("write") & values.length = 0
-                Console.writeLine("ZERO LENGTH VARARGS at \{position}")
         }
         if target-!>ClassLiteral {
             def selfType:Type
@@ -793,7 +791,7 @@ class Context {
             }
         }
         var maxCost := Int.MAX
-        var max:MethodStub? := null
+        var max:Array<MethodStub> := []
         for m in methods {
             def finalTarget := getEffectiveTarget(m, target)
             if finalTarget = null
@@ -801,21 +799,45 @@ class Context {
             def cost := matchCost(finalTarget, m, params, returnType)
             if cost != null & cost < maxCost {
                 maxCost := cost
-                max := m
+                max := [m]
             }
+            else if cost = maxCost
+                max.add(m)
         }
-        if max != null {
-            def finalTarget := getEffectiveTarget(max, target)
+        if max.length = 1 {
+            def finalTarget := getEffectiveTarget(max[0], target)
             assert finalTarget != null
-            return call(position, finalTarget, max, params)
+            return call(position, finalTarget, max[0], params)
         }
-        else {
+        else if max.length = 0 {
             if reportErrors {
                 def types := Array<String>()
                 for p in params
                     types.add(p.type.displayName)
                 errors.error("no match for \{methods[0].name}(\{types.join(', ')})", 
                         position)
+            }
+            return null
+        }
+        else {
+            if reportErrors {
+                def result := MutableString()
+                result.append("call to '\{methods[0].name}' with parameters (")
+                for (i, p) in params.enumeration() {
+                    if i > 0
+                        result.append(", ")
+                    result.append(p.type.displayName)
+                }
+                result.append(")")
+                if returnType != null {
+                    result.append(" and expected return type " +
+                            "'\{returnType.displayName}'")
+                }
+                result.append(" is ambiguous. The following methods are " +
+                        "equally good matches:")
+                for m in max
+                    result.append("\n    \{m}")
+                errors.error(result.convert(), position)
             }
             return null
         }

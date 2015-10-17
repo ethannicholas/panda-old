@@ -50,14 +50,14 @@ public class PandaCore {
         chars.$cl = getClass("panda.collections.Array<Char>");
         chars.$$length = string.length();
         chars.contents = string.toCharArray();
-        return panda.core.String.createnew$init(chars);
+        return panda.core.String.createnew$init_panda$collections$PrimitiveArray$LTpanda$core$Char$GT(chars);
     }
     
     public static java.lang.String toJavaString(panda.core.String string) {
-        int length = string.length();
+        int length = string.length_$Rpanda$core$Int32();
         char[] chars = new char[length];
         for (int i = 0; i < length; i++)
-            chars[i] = string.$ARR(i);
+            chars[i] = string.$ARR_Int32_$Rpanda$core$Char(i);
         return new java.lang.String(chars);
     }
 
@@ -71,14 +71,14 @@ public class PandaCore {
     public static <T> T checkCast(T value, java.lang.Class dest) {
         if (dest.isInstance(value))
             return value;
-        throw new panda.core.PandaException(panda.core.CastError.createnew$init(
+        throw new panda.core.PandaException(panda.core.CastError.createnew$init_panda$core$String(
                 newString(value + " is not an instance of " + dest)));
     }
 
     public static <T> T checkCastNullable(T value, java.lang.Class dest) {
         if (value == null || dest.isInstance(value))
             return value;
-        throw new panda.core.PandaException(panda.core.CastError.createnew$init(
+        throw new panda.core.PandaException(panda.core.CastError.createnew$init_panda$core$String(
                 newString(value + " is not an instance of " + dest)));
     }
 

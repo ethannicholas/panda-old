@@ -167,28 +167,29 @@ class PandaCompiler {
     }
 
     method checkpoint(label:String) {
-        var now := Panda.currentTime()
+-*        var now := Panda.currentTime()
         var lastCheckpointLabel := lastCheckpointLabel
         if lastCheckpointLabel != null {
             Console.writeLine(lastCheckpointLabel + " - " + 
                     (now - lastCheckpointTime) + "ms")
         }
         self.lastCheckpointLabel := label
-        lastCheckpointTime := now
+        lastCheckpointTime := now*-
     }
 
     @protected
     method getASTFiles(settings:CompilerSettings):CollectionView<ASTFile> {
         def result := Array<ASTFile>()
-        constant THREADS := 1
-        if THREADS > 1 {
+        def threads := Thread.preferredThreadCount().min(
+                settings.sources.length)
+        if threads > 1 {
             def workQueue := MessageQueue<File?>()
             def responseQueue := MessageQueue<ImmutableArray<ASTFile>>()
             for f in settings.sources
                 workQueue.post(f)
             def errorReporter := self.errors
             def parser := self.parser
-            for i in 0 .. THREADS {
+            for i in 0 .. threads {
                 workQueue.post(null)
                 Thread.start(method() {
                     def result := Array<ASTFile>()
@@ -203,7 +204,7 @@ class PandaCompiler {
                     responseQueue.post(ImmutableArray<ASTFile>(result))
                 })
             }
-            for i in 0 .. THREADS {
+            for i in 0 .. threads {
                 def subresult := responseQueue.getMessage()
                 result.addAll(subresult)
             }

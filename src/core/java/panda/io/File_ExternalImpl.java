@@ -4,13 +4,13 @@ import panda.core.PandaCore;
 
 class File_ExternalImpl implements panda.io.File_External {
     @Override
-    public boolean exists(panda.io.File self) {
+    public boolean exists_$Rpanda$core$Bit(panda.io.File self) {
         java.io.File f = new java.io.File(PandaCore.toJavaString(self.$path));
         return f.exists();
     }
 
     @Override
-    public boolean isDirectory(panda.io.File self) {
+    public boolean isDirectory_$Rpanda$core$Bit(panda.io.File self) {
         java.io.File f = new java.io.File(PandaCore.toJavaString(self.$path));
         return f.isDirectory();
     }
@@ -25,33 +25,17 @@ class File_ExternalImpl implements panda.io.File_External {
     }
 
     @Override
-    public panda.collections.ListView$.$Lpanda$io$File$R list(panda.io.File self) {
+    public panda.collections.ListView$.$Lpanda$io$File$R list_$Rpanda$collections$ListView$LTpanda$io$File$GT(panda.io.File self) {
         panda.collections.Array$.$Lpanda$io$File$R result = 
                 panda.collections.Array$.$Lpanda$io$File$R.createnew$init();
         java.io.File dir = new java.io.File(PandaCore.toJavaString(self.$path));
         java.io.File[] files = dir.listFiles();
         for (int i = 0; i < files.length; i++) {
-            result.add(panda.io.File.createnew$init(
+            result.add_panda$io$File(panda.io.File.createnew$init_panda$core$String(
                     PandaCore.newString(files[i].getPath())));
         }
         return result;
     }
-
-    /*@Override
-    public panda.collections.PrimitiveArray$LTpanda$io$File$GT list(panda.io.File self) {
-        panda.collections.PrimitiveArray$LTpanda$io$File$GT result = 
-                new panda.collections.PrimitiveArray$LTpanda$io$File$GT();
-        java.io.File dir = new java.io.File(PandaCore.toJavaString(self.$path));
-        java.io.File[] files = dir.listFiles();
-        panda.io.File[] contents = new panda.io.File[files.length];
-        for (int i = 0; i < files.length; i++) {
-            contents[i] = panda.io.File.createnew$init(
-                    PandaCore.newString(files[i].getPath()));
-        }
-        result.$$length = files.length;
-        result.contents = contents;
-        return result;
-    }*/
 
     @Override
     public void delete(panda.io.File self) {
@@ -60,7 +44,7 @@ class File_ExternalImpl implements panda.io.File_External {
     }
 
     @Override
-    public panda.core.String absolutePath(panda.io.File self) {
+    public panda.core.String absolutePath_$Rpanda$core$String(panda.io.File self) {
         java.lang.String raw = panda.core.PandaCore.toJavaString(self.$path);
         raw = new java.io.File(raw).getAbsolutePath();
         return panda.core.PandaCore.newString(raw);

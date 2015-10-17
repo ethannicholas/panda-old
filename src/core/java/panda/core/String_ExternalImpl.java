@@ -2,7 +2,7 @@ package panda.core;
 
 class String_ExternalImpl implements panda.core.String_External {
     @Override
-    public panda.core.String pandaReal32ToString(float r) {
+    public panda.core.String pandaReal32ToString_class_Real32_$Rpanda$core$String(float r) {
         java.lang.String result = java.lang.String.valueOf(r);
         if (result.endsWith(".0"))
             result = result.substring(0, result.length() - 2);
@@ -10,7 +10,7 @@ class String_ExternalImpl implements panda.core.String_External {
     }
 
     @Override
-    public panda.core.String pandaReal64ToString(double r) {
+    public panda.core.String pandaReal64ToString_class_Real64_$Rpanda$core$String(double r) {
         java.lang.String result = java.lang.String.valueOf(r);
         if (result.endsWith(".0"))
             result = result.substring(0, result.length() - 2);
@@ -18,7 +18,7 @@ class String_ExternalImpl implements panda.core.String_External {
     }
 
     @Override
-    public float pandaStringToReal32(panda.core.String s) {
+    public float pandaStringToReal32_class_panda$core$String_$Rpanda$core$Real32(panda.core.String s) {
         try {
             return java.lang.Float.parseFloat(PandaCore.toJavaString(s));
         }
@@ -28,7 +28,7 @@ class String_ExternalImpl implements panda.core.String_External {
     }
 
     @Override
-    public double pandaStringToReal64(panda.core.String s) {
+    public double pandaStringToReal64_class_panda$core$String_$Rpanda$core$Real64(panda.core.String s) {
         try {
             return java.lang.Double.parseDouble(PandaCore.toJavaString(s));
         }

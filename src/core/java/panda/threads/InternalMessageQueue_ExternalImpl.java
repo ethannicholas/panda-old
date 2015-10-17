@@ -2,7 +2,7 @@ package panda.threads;
 
 class InternalMessageQueue_ExternalImpl implements panda.threads.InternalMessageQueue_External {
     @Override
-    public int pendingMessages(panda.threads.InternalMessageQueue self) {
+    public int pendingMessages_$Rpanda$core$Int32(panda.threads.InternalMessageQueue self) {
         java.util.Queue<panda.threads.Message> queue = ((java.util.ArrayDeque<panda.threads.Message>) self.$nativeQueue);
         synchronized (queue) {
             return queue.size();
@@ -10,7 +10,7 @@ class InternalMessageQueue_ExternalImpl implements panda.threads.InternalMessage
     }
 
     @Override
-    public panda.core.Object getMessage(panda.threads.InternalMessageQueue self) {
+    public panda.core.Object getMessage_$Rpanda$core$Object$Z(panda.threads.InternalMessageQueue self) {
         java.util.Queue<panda.threads.Message> queue = ((java.util.ArrayDeque<panda.threads.Message>) self.$nativeQueue);
         synchronized (queue) {
             while (queue.isEmpty()) {
@@ -26,8 +26,8 @@ class InternalMessageQueue_ExternalImpl implements panda.threads.InternalMessage
     }
 
     @Override
-    public panda.core.Object getMessage(panda.threads.InternalMessageQueue self, int timeout) {
-        return getMessage(self);
+    public panda.core.Object getMessage_Int32_$Rpanda$core$Object$Z(panda.threads.InternalMessageQueue self, int timeout) {
+        return getMessage_$Rpanda$core$Object$Z(self);
     }
 
     @Override
@@ -41,7 +41,7 @@ class InternalMessageQueue_ExternalImpl implements panda.threads.InternalMessage
     }
 
     @Override
-    public void sendMessage(panda.threads.InternalMessageQueue self, panda.threads.Message message) {
+    public void sendMessage_panda$threads$Message(panda.threads.InternalMessageQueue self, panda.threads.Message message) {
         java.util.Queue<panda.threads.Message> queue = ((java.util.ArrayDeque<panda.threads.Message>) self.$nativeQueue);
         synchronized (queue) {
             queue.add(message);
@@ -50,7 +50,7 @@ class InternalMessageQueue_ExternalImpl implements panda.threads.InternalMessage
     }
 
     @Override
-    public void threadExit() {
+    public void threadExit_class() {
         throw new UnsupportedOperationException();
     }
 }

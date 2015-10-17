@@ -163,6 +163,8 @@ class JavaCodeGenerator (CodeGenerator) {
     }
 
     method getName(m:MethodStub):String {
+        if isMethodClass(m.owner) | m.name.startsWith("$init")
+            return m.name
         return methodNamer.getName(m)
     }
     
@@ -924,13 +926,13 @@ class JavaCodeGenerator (CodeGenerator) {
         def error := a.error
         if error = null {
             out.writeLine("throw new panda.core.PandaException(" + 
-                    "panda.core.AssertionError.createnew$init(" +
+                    "panda.core.AssertionError.createnew$init_panda$core$String(" +
                     "panda.core.PandaCore.newString(\"" +
                     "assertion error\")));")
         }
         else if error.type = ClassType.STRING {
             out.write("throw new panda.core.PandaException(" +
-                    "panda.core.AssertionError.createnew$init(")
+                    "panda.core.AssertionError.createnew$init_panda$core$String(")
             generateValueCode(error)
             out.writeLine("));")
         }
@@ -1047,7 +1049,7 @@ class JavaCodeGenerator (CodeGenerator) {
             case Try: generateTryCode(s->Try)
             case Unreachable: out.writeLine(
                     "throw new panda.core.PandaException(" + 
-                    "panda.core.AssertionError.createnew$init(" +
+                    "panda.core.AssertionError.createnew$init_panda$core$String(" +
                     "panda.core.PandaCore.newString(\"" +
                     "unreachable\")));")
             default: out.writeLine("unsupported:" + s.class.name + "(" + s + 
@@ -1151,7 +1153,7 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         else
             returnType := getJavaType(m.returnType)
-        out.write("\{returnType} \{methodNamer.getName(m)}(")
+        out.write("\{returnType} \{getName(m)}(")
         if m.methodType = MethodNodeType.INIT {
             out.write("\{getJavaType(m.owner)} $this")
             if m.parameters.length > 0
@@ -1197,7 +1199,10 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         else
             returnType := getJavaType(m.stub.returnType)
-        out.write("\{returnType} \{methodNamer.getName(m.stub)}(")
+        if isMethodClass(m.stub.owner) & m.stub.name = "raw"
+            out.write("\{returnType} raw(")
+        else
+            out.write("\{returnType} \{getName(m.stub)}(")
         if m.stub.methodType = MethodNodeType.INIT {
             out.write("\{getJavaType(m.stub.owner)} $this")
             if m.stub.parameters.length > 0
@@ -1274,7 +1279,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.level -= 1
             out.writeLine("}")
         }
-        if methodNamer.getName(m.stub) = 
+        if getName(m.stub) = 
                 JavaMethodNamingStrategy.PANDAMAIN_NAME {
             out.writeLine(
                     "public static void main(java.lang.String[] arg) {")
@@ -1297,7 +1302,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write("static ")
         else if context.getStub(m.owner).isInterface & !isClass(m)
             out.write("default ")
-        out.write("\{getJavaType(m.returnType)} \{methodNamer.getName(m)}(")
+        out.write("\{getJavaType(m.returnType)} \{getName(m)}(")
         if m.annotations.isWrapperMethod {
             out.write("\{getJavaType(m.owner->>PrimitiveType)} $this")
             if m.parameters.length > 0
@@ -1551,7 +1556,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.level -= 1
             out.writeLine("}")
             out.writeLine("catch (java.lang.IndexOutOfBoundsException e) {")
-            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$init(panda.core.PandaCore.newString(\"PrimitiveArray index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
+            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$init_panda$core$String(panda.core.PandaCore.newString(\"PrimitiveArray index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
             out.writeLine("}")
             out.level -= 1
             out.writeLine("}")
@@ -1566,7 +1571,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.level -= 1
             out.writeLine("}")
             out.writeLine("catch (java.lang.IndexOutOfBoundsException e) {")
-            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$init(panda.core.PandaCore.newString(\"PrimitiveArray index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
+            out.writeLine("throw new panda.core.PandaException(panda.collections.IndexOutOfBoundsError.createnew$init_panda$core$String(panda.core.PandaCore.newString(\"PrimitiveArray index out of bounds: requested element \" + i + \", array length is \" + $$length)));")
             out.writeLine("}")
             out.level -= 1
             out.writeLine("}")
@@ -1574,9 +1579,6 @@ class JavaCodeGenerator (CodeGenerator) {
         var oldOut := out
         var buffer := MemoryOutputStream()
         out := IndentedOutputStream(buffer)
-
-        -- DEBUG:temp
-        out.indentSize := 0
 
         for m in cl.methods
             generateMethodCode(m)
@@ -1590,7 +1592,7 @@ class JavaCodeGenerator (CodeGenerator) {
         out := oldOut
         generateStringConstants()
         if hasClassInit
-            out.writeLine("static { " + MethodNode.CLASS_INIT_NAME + "(); }")
+            out.writeLine("static { " + MethodNode.CLASS_INIT_NAME + "_class(); }")
         out.write(buffer->>String)
 
         if cl.stub.name = Object.name {

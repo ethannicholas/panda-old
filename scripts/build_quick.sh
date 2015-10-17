@@ -10,7 +10,8 @@ export PANDA_HOME=build
 export DYLD_LIBRARY_PATH="$NATIVE_TARGET/core/lib"
 STATIC_SETTINGS=$SHARED_TARGET/StaticSettings.panda
 
-echo "Compiling pandac (native) using latest Java compiler..."
+echo "Compiling pandac (native, unoptimized) using latest Java compiler..."
+echo "THIS IS UNSAFE if the core classes have changed since the last full build!"
 
 mkdir -p $NATIVE_TARGET/pandac/bin
 $PANDAC -XpreserveTempArtifacts -O0 -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \

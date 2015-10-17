@@ -3,7 +3,7 @@ package panda.core;
 class Error_ExternalImpl implements panda.core.Error_External {
     @Override
     public panda.collections.ImmutablePrimitiveArray$.$Lpanda$core$StackTraceEntry$R 
-            getStackTrace(panda.core.Error self) {
+            getStackTrace_$Rpanda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT(panda.core.Error self) {
         panda.collections.ImmutablePrimitiveArray$.$Lpanda$core$StackTraceEntry$R result =
                 new panda.collections.ImmutablePrimitiveArray$.$Lpanda$core$StackTraceEntry$R();
         java.lang.StackTraceElement[] trace = 

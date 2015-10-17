@@ -10,7 +10,7 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
             new HashMap<panda.threads.Thread, java.lang.Thread>();
 
     @Override
-    public panda.threads.Thread currentThread() {
+    public panda.threads.Thread currentThread_class_$Rpanda$threads$Thread() {
         java.lang.Thread current = java.lang.Thread.currentThread();
         panda.threads.Thread result = nativeToPanda.get(current);
         if (result == null) {
@@ -22,7 +22,7 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
     }
 
     @Override
-    public void sleep(int millis) {
+    public void sleep_class_Int32(int millis) {
         try {
             java.lang.Thread.sleep(millis);
         }
@@ -31,7 +31,7 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
     }
 
     @Override
-    public void startThread(panda.threads.Thread self, panda.collections.HashMap$.$Lpanda$core$Immutable$.$Cpanda$core$Object$R context) {
+    public void startThread_panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT(panda.threads.Thread self, panda.collections.HashMap$.$Lpanda$core$Immutable$.$Cpanda$core$Object$R context) {
         java.lang.Thread t = new java.lang.Thread() {
             public void run() {
                 Thread.$context.set(context);
@@ -56,7 +56,7 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
     }
 
     @Override
-    public void threadExit() {
+    public void threadExit_class() {
         java.lang.Thread.currentThread().stop();
     }
 }
