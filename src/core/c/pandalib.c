@@ -395,10 +395,10 @@ void pandaCleanupException(_Unwind_Reason_Code reason, _nativeException* e) {
 // Throws 
 
 void pandaUncaughtException(Error* e) {
-    panda$core$Object$$CNVpanda$core$String_TYPE* cnvString = 
-            (panda$core$Object$$CNVpanda$core$String_TYPE*) 
+    panda$core$Object$convert_TYPE* cnvString = 
+            (panda$core$Object$convert_TYPE*) 
                 *(&e->cl->vtable + 
-                panda$core$Object$$CNVpanda$core$String_INDEX);
+                panda$core$Object$convert_INDEX);
     String* stackTrace = cnvString((panda$core$Object*) e);
     printf("%s", pandaGetString(stackTrace));
     __builtin_trap();

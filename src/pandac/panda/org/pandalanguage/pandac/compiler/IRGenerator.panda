@@ -276,8 +276,17 @@ class IRGenerator {
                 finalTarget := ClassLiteral(c.position, 
                         context.currentClass.type)
             }
+            def methods := Array<MethodStub>()
+            for m in u.methods {
+                if context.matchCost(finalTarget, m, parameters, null) != null
+                    methods.add(m)
+            }
+            if methods.length <= 1 {
+                return context.call(c.position, finalTarget, u.methods, 
+                        parameters)
+            }
             return UnresolvedMethodCall(context, c.position, finalTarget, 
-                    u.methods, parameters)
+                    methods, parameters)
         }
         if target-?>MethodReference {
             def m := target->MethodReference
@@ -568,7 +577,7 @@ class IRGenerator {
     }
 
     method convertArrowExpression(a:ASTArrowExpression):Value? {
-        def left := resolve(a.left)
+        def left := convertExpression(a.left)
         if left = null
             return null
         def rightMatch := context.resolveTypeWithExtras(a.right)
@@ -595,8 +604,12 @@ class IRGenerator {
                 result := UnaryOperation(a.position, UnaryOperationType.NOT,
                         instanceOf)
             }
-            case ArrowOperationType.CONVERT:
-                result := left.convert(context, right)
+            case ArrowOperationType.CONVERT: {
+                def resolved := resolve(left)
+                if resolved = null
+                    return null
+                result := resolved.convert(context, right)
+            }
             default:
                 unreachable
         }

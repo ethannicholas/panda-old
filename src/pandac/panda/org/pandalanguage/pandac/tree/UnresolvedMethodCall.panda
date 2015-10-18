@@ -21,8 +21,8 @@ class UnresolvedMethodCall : UnresolvedValue {
     @pre(methods.length > 1)
     init(context:Context, position:Position, target:Value, 
             methods:ListView<MethodStub>, parameters:ListView<Value>) {
-        super.init(position, methods[0].name, getValue(context, position, 
-                target, methods, parameters))
+        super.init(position, "ambiguous call to '\{methods[0].name}'", 
+                getValue(context, position, target, methods, parameters))
         self.target := target
         self.methods := methods
         self.parameters := parameters
@@ -32,6 +32,39 @@ class UnresolvedMethodCall : UnresolvedValue {
     function getValue(context:Context, position:Position, target:Value, 
             methods:ListView<MethodStub>, parameters:ListView<Value>):Value? {
         return context.call(position, target, methods, parameters, null, false)
+    }
+
+    @override
+    method implicitCastCost(context:Context, t:Type):Int? {
+        def best := Int.MAX
+        for m in methods {
+            def cost := context.matchCost(target, m, parameters, t)
+            if cost != null & cost < best
+                best := cost
+        }
+        if best != Int.MAX
+            return best
+        return null
+    }
+
+    @override
+    method canExplicitCastTo(context:Context, t:Type):Bit {
+        for m in methods {
+            if m.returnType.canExplicitCastTo(context, t)
+                return true
+        }
+        return false
+    }
+
+    @override
+    method explicitCast(position:Position, context:Context, t:Type):Value {
+        def choices := methods.filter(m => m.returnType.canExplicitCastTo(
+                context, t))
+        def best := context.call(position, target, methods, parameters, null,
+                true)
+        if best != null
+            return best.explicitCast(position, context, t)
+        return Dummy(position, t)
     }
 
     @override
@@ -50,7 +83,10 @@ class UnresolvedMethodCall : UnresolvedValue {
 
     @override
     method reportError(context:Context) {
-        context.call(position, target, methods, parameters, null, true)
+        def result := context.call(position, target, methods, parameters, null, 
+                true)
+        assert result = null : "somehow was able to actually call ambiguous " +
+                "methods \{methods}"
     }
 
     @override
