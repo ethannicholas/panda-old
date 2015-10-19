@@ -12,7 +12,7 @@ using namespace double_conversion;
 #define NAN_STRING "NaN"
 #define EXP 'e'
 
-String* panda$core$String$pandaReal32ToString(Real32 r) {
+String* panda$core$Real32Wrapper$pandaReal32ToString(Real32 r) {
     static DoubleToStringConverter* converter = new DoubleToStringConverter(0,
             INFINITY_STRING, NAN_STRING, EXP, -6, 21, 0, 0);
     char buffer[BUFFER_SIZE];
@@ -22,7 +22,7 @@ String* panda$core$String$pandaReal32ToString(Real32 r) {
     return pandaNewString(result, strlen(result));
 }
 
-String* panda$core$String$pandaReal64ToString(Real64 r) {
+String* panda$core$Real64Wrapper$pandaReal64ToString(Real64 r) {
     static DoubleToStringConverter* converter = new DoubleToStringConverter(0,
             INFINITY_STRING, NAN_STRING, EXP, -6, 21, 0, 0);
     char buffer[BUFFER_SIZE];

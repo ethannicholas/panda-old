@@ -58,12 +58,31 @@ class UnresolvedMethodCall : UnresolvedValue {
 
     @override
     method explicitCast(position:Position, context:Context, t:Type):Value {
-        def choices := methods.filter(m => m.returnType.canExplicitCastTo(
-                context, t))
-        def best := context.call(position, target, methods, parameters, null,
+        def bestCost := Int.MAX
+        def best := Array<MethodStub>()
+        for m in methods {
+            var cost := context.matchCost(target, m, parameters, null)
+            if cost != null {
+                def castCost := t.implicitCastCost(context, m.returnType)
+                if castCost = null
+                    continue
+                cost += castCost
+                if cost < bestCost {
+                    bestCost := cost
+                    best := [m]
+                }
+                else if cost = bestCost
+                    best.add(m)
+            }
+        }
+        if best.length = 1 {
+            def result := context.call(position, target, best[0], parameters)
+            assert result != null
+            return result.explicitCast(position, context, t)
+        }
+        def error := context.call(position, target, methods, parameters, t, 
                 true)
-        if best != null
-            return best.explicitCast(position, context, t)
+        assert error = null
         return Dummy(position, t)
     }
 

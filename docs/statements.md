@@ -251,6 +251,11 @@ continue from the statement immediately after the end of the loop. By default,
     }
 )
 
+Note that `break` is one of three constructs in Panda which is sensitive to 
+whitespace. An identifier following `break` *on the same line* is taken to be a 
+loop label, while if the identifier is on the next line it is taken to be the
+start of another statement.
+
 <a name="continue"></a>
 continue
 --------
@@ -287,6 +292,11 @@ with an optional label to continue loops other than the innermost one:
     }
 )
 
+Note that `continue` is one of three constructs in Panda which is sensitive to 
+whitespace. An identifier following `continue` *on the same line* is taken to be
+a loop label, while if the identifier is on the next line it is taken to be the
+start of another statement.
+
 <a name="return"></a>
 return
 ------
@@ -297,6 +307,11 @@ The `return` statement immediately exits the containing method and causes it to
 return the specified value. Return statements in methods which return values 
 must always provide a value, and return statements in methods which do not 
 return values may never provide a value.
+
+Note that `return` is one of three constructs in Panda which is sensitive to 
+whitespace. An expression following `return` *on the same line* is taken to be 
+the value to return, while if the expression is on the next line it is taken to 
+be the start of another statement.
 
 <a name="throw"></a>
 throw

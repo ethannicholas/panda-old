@@ -2,6 +2,14 @@ package panda.core;
 
 class Real64Wrapper_ExternalImpl implements panda.core.Real64Wrapper_External {
     @Override
+    public panda.core.String pandaReal64ToString_class_Real64_$Rpanda$core$String(double r) {
+        java.lang.String result = java.lang.String.valueOf(r);
+        if (result.endsWith(".0"))
+            result = result.substring(0, result.length() - 2);
+        return PandaCore.newString(result);
+    }
+
+    @Override
     public boolean isInfinite_$Rpanda$core$Bit(double self) {
         return Double.isInfinite(self);
     }

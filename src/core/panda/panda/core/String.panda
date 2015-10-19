@@ -30,7 +30,7 @@ class String : Value (ListView<Char>, Formattable) {
     @param chars the character array to copy from
     ============================================================================
     init(chars:PrimitiveArray<Char>) {
-        init(chars->>ImmutablePrimitiveArray<Char>)
+        init(chars.convert())
     }
 
     ============================================================================
@@ -44,7 +44,7 @@ class String : Value (ListView<Char>, Formattable) {
         def a := PrimitiveArray<Char>(chars.length)
         for i in 0 .. chars.length
             a[i] := chars[i]
-        self.chars := a->>ImmutablePrimitiveArray<Char>
+        self.chars := a.convert()
     }
 
     ============================================================================
@@ -268,7 +268,7 @@ class String : Value (ListView<Char>, Formattable) {
             result.append(replacement)
             index := nextIndex + search.length
         }
-        return result->>String
+        return result.convert()
     }
 
     ============================================================================
@@ -304,7 +304,7 @@ class String : Value (ListView<Char>, Formattable) {
         while matcher.find()
             matcher.appendReplacement(result, replacement, allowGroupReferences)
         matcher.appendTail(result)
-        return result->>String
+        return result.convert()
     }
 
     ============================================================================
@@ -316,7 +316,7 @@ class String : Value (ListView<Char>, Formattable) {
 
     The regular expression `/\w+/` matches sequences of one or more word
     characters; in other words, it matches all words occurring in the string.
-    The replacement function `word => word.length->>String` replaces each
+    The replacement function `word => word.length.convert()` replaces each
     matched sequence with the number of characters in the sequence, resulting in
     the text:
 
@@ -333,10 +333,10 @@ class String : Value (ListView<Char>, Formattable) {
         def matcher := search.matcher(self)
         while matcher.find() {
             matcher.appendReplacement(result, 
-                    replacement(matcher.group(0))->>String, false)
+                    replacement(matcher.group(0)).convert(), false)
         }
         matcher.appendTail(result)
-        return result->>String
+        return result.convert()
     }
 
     ============================================================================
@@ -359,11 +359,11 @@ class String : Value (ListView<Char>, Formattable) {
             def groups := Array<String>()
             for i in 0 .. matcher.groupCount
                 groups.add(matcher.group(i))
-            matcher.appendReplacement(result, replacement(groups)->>String, 
+            matcher.appendReplacement(result, replacement(groups).convert(), 
                     false)
         }
         matcher.appendTail(result)
-        return result->>String
+        return result.convert()
     }
 
     ============================================================================
@@ -374,7 +374,7 @@ class String : Value (ListView<Char>, Formattable) {
     ============================================================================
     function trim():String {
         if length = 0
-            return self->>String
+            return self
         var start := 0
         while start < length & self[start].isWhitespace
             start += 1
@@ -710,7 +710,7 @@ class String : Value (ListView<Char>, Formattable) {
             if f(c)
                 result.append(c)
         }
-        return result->>String
+        return result.convert()
     }
 
     ============================================================================
@@ -822,7 +822,7 @@ class String : Value (ListView<Char>, Formattable) {
     function hash():Int32 {
         var result := 0
         for i in 0 .. length
-            result := result * 101 + self[i]->>Int
+            result := result * 101 + self[i]->>Int8
         return result
     }
 
@@ -915,12 +915,12 @@ class String : Value (ListView<Char>, Formattable) {
 
     @class 
     function +(s1:Object, s2:String):String {
-        return s1->>String + s2
+        return s1.convert() + s2
     }
 
     @class 
     function +(s1:String, s2:Object):String {
-        return s1 + s2->>String
+        return s1 + s2.convert()
     }
 
     ============================================================================
@@ -988,7 +988,6 @@ class String : Value (ListView<Char>, Formattable) {
     @pre(fmt = "panda")
     function format(fmt:String):String {
         def result := MutableString('"')
-        -- FIXME iterate over string's characters when we can
         for i in 0 .. length {
             def c := self[i]
             switch c {
@@ -1005,7 +1004,7 @@ class String : Value (ListView<Char>, Formattable) {
             }
         }
         result.append('"')
-        return result->>String
+        return result.convert()
     }
 
     ============================================================================
@@ -1014,7 +1013,7 @@ class String : Value (ListView<Char>, Formattable) {
     @returns the characters of the string
     ============================================================================
     @override
-    function ->>():Array<Char> {
+    function convert():Array<Char> {
         def result := Array<Char>(length)
         for i in 0 .. length
             result.add(self[i])
@@ -1030,7 +1029,7 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns the UTF-8 encoded bytes
     ============================================================================
-    function ->>():Array<Int8> {
+    function convert():Array<Int8> {
         -- FIXME not actually doing UTF-8 encoding, just spitting out bytes
         def result := Array<Int8>(length)
         for c in self
@@ -1045,30 +1044,16 @@ class String : Value (ListView<Char>, Formattable) {
     @returns the character it contains
     ============================================================================
     @pre(length = 1)
-    function ->>():Char {
+    function convert():Char {
         return self[0]
     }
 
-    ============================================================================
-    Converts a `Bit` into the literal string `"true"` or `"false"`.
-    
-    @param value the `Bit` to convert
-    @returns a string representation of the bit
-    ============================================================================
-    @class 
-    function ->>(value:Bit):String {
-        if value
-            return "true"
-        else
-            return "false"
-    }
-    
     ============================================================================
     Returns `true` if the string is equal to `"true"`, `false` otherwise.
     
     @returns the `Bit` representation of this string
     ============================================================================
-    function ->>():Bit {
+    function convert():Bit {
         return self = "true"
     }
 
@@ -1077,72 +1062,6 @@ class String : Value (ListView<Char>, Formattable) {
     }
 
     ============================================================================
-    Converts an `Int64` into its decimal representation.
-    
-    @param value the number to convert
-    @returns the decimal representation of the number
-    ============================================================================
-    @class 
-    function ->>(var value:Int64):String {
-        constant max := 20
-        def result := PrimitiveArray<Char>(max)
-        var index := max - 1
-        if value >= 0 {
-            do {
-                result[index] := (value % 10 + 48)->>Char
-                value //= 10
-                index -= 1
-            } 
-            while value > 0
-            index += 1
-        }
-        else {
-            do {
-                result[index] := (48 - value % 10)->>Char
-                value //= 10
-                index -= 1
-            } 
-            while value < 0
-            result[index] := "-"
-        }
-        return String(result[index..])
-    }
-
-    ============================================================================
-    Converts a `UInt64` into its decimal representation.
-    
-    @param value the number to convert
-    @returns the decimal representation of the number
-    ============================================================================
-    @class 
-    function ->>(var value:UInt64):String {
-        constant max := 20
-        def result := PrimitiveArray<Char>(max)
-        var index := max - 1
-        do {
-            result[index] := (value % 10 + 48)->>Char
-            value //= 10
-            index -= 1
-        } 
-        while value > 0
-        return String(result[index + 1..])
-    }
-
-    ============================================================================
-    Converts a single `Char` to a string.
-    
-    @param c the `Char` to convert
-    @returns the string representation of the `Char`
-    ============================================================================
-    @class 
-    function ->>(c:Char):String {
-        def array := PrimitiveArray<Char>(1)
-        array[0] := c
-        return String(array)
-    }
-    @post(@return.length = 1)
-    
-    ============================================================================
     Converts this string to a number. The string must be a sequence of decimal
     digits, optionally preceded by a minus sign (`-`), whose numeric
     representation can fit into an `Int64`. Returns `null` if the conversion
@@ -1150,26 +1069,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Int64? {
-        if length = 0
-            return null
-        var result:Int64 := 0
-        var start:Int
-        if self[0] = "-"
-            start := 1
-        else
-            start := 0
-        for i:Int32 in start .. length {
-            def digit := self[i]->Int32 - 48
-            if digit < 0 | digit > 9
-                return null
-            result := result * 10 + digit
-        }
-        if self[0] = "-"
-            result := -result
-        return result
-    }
-
     function convert():Int64? {
         if length = 0
             return null
@@ -1199,13 +1098,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():Int64 {
-        def result := self->>Int64?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():Int64 {
         def result:Int64? := convert()
         if result = null
@@ -1221,14 +1113,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Int32? {
-        def result := self->>Int64?
-        if result != null
-            return result->Int32
-        else
-            return null
-    }
-
     function convert():Int32? {
         def result:Int64? := convert()
         if result != null
@@ -1246,13 +1130,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():Int32 {
-        def result := self->>Int32?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():Int32 {
         def result:Int32? := convert()
         if result = null
@@ -1268,14 +1145,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Int16? {
-        def result := self->>Int64?
-        if result-?>Int16
-            return result->Int16
-        else
-            return null
-    }
-
     function convert():Int16? {
         def result:Int64? := convert()
         if result-?>Int16
@@ -1293,13 +1162,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():Int16 {
-        def result := self->>Int16?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():Int16 {
         def result:Int16? := convert()
         if result = null
@@ -1315,14 +1177,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Int8? {
-        def result := self->>Int64?
-        if result-?>Int8
-            return result->Int8
-        else
-            return null
-    }
-
     function convert():Int8? {
         def result:Int64? := convert()
         if result-?>Int8
@@ -1340,13 +1194,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():Int8 {
-        def result := self->>Int8?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():Int8 {
         def result:Int8? := convert()
         if result = null
@@ -1361,19 +1208,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():UInt64? {
-        if length = 0
-            return null
-        var result:UInt64 := 0
-        for i:Int32 in 0 .. length {
-            def digit := self[i]->UInt16 - 48
-            if digit < 0 | digit > 9
-                return null
-            result := result * 10 + digit->UInt64
-        }
-        return result
-    }
-
     function convert():UInt64? {
         if length = 0
             return null
@@ -1395,13 +1229,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():UInt64 {
-        def result := self->>UInt64?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():UInt64 {
         def result:UInt64? := convert()
         if result = null
@@ -1416,14 +1243,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():UInt32? {
-        def result := self->>UInt64?
-        if result-?>UInt32
-            return result->UInt32
-        else
-            return null
-    }
-
     function convert():UInt32? {
         def result:UInt64 := convert()
         if result-?>UInt32
@@ -1440,13 +1259,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():UInt32 {
-        def result := self->>UInt32?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():UInt32 {
         def result:UInt32? := convert()
         if result = null
@@ -1462,14 +1274,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():UInt16? {
-        def result := self->>UInt64?
-        if result-?>UInt16
-            return result->UInt16
-        else
-            return null
-    }
-
     function convert():UInt16? {
         def result:UInt64? := convert()
         if result-?>UInt16
@@ -1486,13 +1290,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():UInt16 {
-        def result := self->>UInt16?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():UInt16 {
         def result:UInt16? := convert()
         if result = null
@@ -1507,14 +1304,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():UInt8? {
-        def result := self->>UInt64?
-        if result-?>UInt8
-            return result->UInt8
-        else
-            return null
-    }
-
     function convert():UInt8? {
         def result:UInt64? := convert()
         if result-?>UInt8
@@ -1531,13 +1320,6 @@ class String : Value (ListView<Char>, Formattable) {
     @returns this string converted to a number
     @throws ParseException if the conversion fails
     ============================================================================
-    function ->>():UInt8 {
-        def result := self->>UInt8?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():UInt8 {
         def result:UInt8? := convert()
         if result = null
@@ -1546,51 +1328,11 @@ class String : Value (ListView<Char>, Formattable) {
     }
 
     ============================================================================
-    Converts a `Real32` into its decimal representation. The resulting string
-    will have only as many digits as necessary to uniquely distinguish it from
-    adjacent `Real32` values. No decimal point is produced if it is unnecessary
-    (the number `123` converts to the string "123", not "123.0"). The values
-    `NaN`, negative infinity, and positive infinity result in the strings 
-    `"NaN"`, `"-infinity"`, and `"infinity"`, respectively.
-    
-    @param r the number to convert
-    @returns a string represention of the number
-    ============================================================================
-    @class
-    function ->>(r:Real32):String {
-        return pandaReal32ToString(r)
-    }
-    
-    ============================================================================
-    Converts a `Real64` into its decimal representation. The resulting string
-    will have only as many digits as necessary to uniquely distinguish it from
-    adjacent `Real64` values. No decimal point is produced if it is unnecessary
-    (the number `123` converts to the string "123", not "123.0"). The values
-    `NaN`, negative infinity, and positive infinity result in the strings 
-    `"NaN"`, `"-infinity"`, and `"infinity"`, respectively.
-    
-    @param r the number to convert
-    @returns a string represention of the number
-    ============================================================================
-    @class
-    function ->>(r:Real64):String {
-        return pandaReal64ToString(r)
-    }
-    
-    ============================================================================
     Converts this string to a number. The string must be in the format of a 
     Panda `Real32` literal. Returns `null` if the conversion fails.
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Real32? {
-        def result := pandaStringToReal32(self)
-        if result.isNaN
-            return null
-        else
-            return result
-    }
-
     function convert():Real32? {
         def result := pandaStringToReal32(self)
         if result.isNaN
@@ -1605,13 +1347,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Real32 {
-        def result := self->>Real32?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():Real32 {
         def result:Real32? := convert()
         if result = null
@@ -1625,14 +1360,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Real64? {
-        def result := pandaStringToReal64(self)
-        if result.isNaN
-            return null
-        else
-            return result
-    }
-    
     function convert():Real64? {
         def result := pandaStringToReal64(self)
         if result.isNaN
@@ -1647,13 +1374,6 @@ class String : Value (ListView<Char>, Formattable) {
     
     @returns this string converted to a number, or `null`
     ============================================================================
-    function ->>():Real64 {
-        def result := self->>Real64?
-        if result = null
-            throw ParseException(self)
-        return result
-    }
-
     function convert():Real64 {
         def result:Real64? := convert()
         if result = null
@@ -1673,21 +1393,11 @@ class String : Value (ListView<Char>, Formattable) {
     function format(s:String, params:Object...):String {
         def buffer := MemoryOutputStream()
         buffer.write(s, params...)
-        return buffer->>String
+        return buffer.convert()
     }
 
     -- FIXME remove these and move the external code directly to the convert
     -- methods
-    @private
-    @class
-    @external
-    function pandaReal32ToString(r:Real32):String
-
-    @private
-    @class
-    @external
-    function pandaReal64ToString(r:Real64):String
-
     @private
     @class
     @external
