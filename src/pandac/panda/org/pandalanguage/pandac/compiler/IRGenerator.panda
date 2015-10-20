@@ -213,7 +213,7 @@ class IRGenerator {
         if name = "class"
             name := "$class"
         if contextValue-?>ClassLiteral {
-            def type := contextValue->ClassLiteral.value->>ClassType
+            def type := contextValue->ClassLiteral.value.convert()->ClassType
             def member := context.getSymbolTable(context.getStub(type))[name]
             if member != null
                 return symbolReference(position, contextValue, member)
@@ -234,7 +234,7 @@ class IRGenerator {
                     position)
             return null
         }
-        def type := contextValue.type->>ClassType
+        def type := contextValue.type.convert()->ClassType
         def member := context.getSymbolTable(context.getStub(type))[name]
         if member != null {
             return symbolReference(position, contextValue.implicitCast(context,
@@ -421,7 +421,7 @@ class IRGenerator {
             }
             i := next + 2
         }
-        return result->>String
+        return result.convert()
     }
 
     method convertStringLiteral(string:ASTStringLiteral):Value? {
@@ -470,7 +470,7 @@ class IRGenerator {
             def chars := convertStringChars(string.position, s[lastEnd..], false)
             if chars != null
                 result.append(chars.replace(UNESCAPED_BRACE, "\\{"))
-            s := result->>String
+            s := result.convert()
             values.insert(0, StringLiteral(string.position, s))
             return context.call(string.position, ClassLiteral(
                     string.position, ClassType.STRING), "format", values)
@@ -540,7 +540,7 @@ class IRGenerator {
             return BitLiteral(position, true)
 
         if !primitiveSource & type.isPrimitive
-            type := type->>ClassType
+            type := type.convert()->ClassType
 
         if !object.canExplicitCastTo(context, type) {
             context.errors.error("'\{object.type.displayName}' " +
@@ -551,7 +551,7 @@ class IRGenerator {
         def parameters := Array<Value>()
         parameters.add(object)
         if !primitiveTarget
-            parameters.add(ClassLiteral(position, type->>ClassType))
+            parameters.add(ClassLiteral(position, type.convert()->ClassType))
 
         var methodName := "instanceOf"
         if primitiveTarget {
@@ -781,9 +781,9 @@ class IRGenerator {
             if parameters.length = 1 &
                     parameters[0].canImplicitCastTo(context, IntType.INT32) {
                 def cast := parameters[0].implicitCast(context, IntType.INT32)
-                context.getStub(type->>PrimitiveArrayType)
+                context.getStub(type.convert()->PrimitiveArrayType)
                 return NewPrimitiveArrayWithLength(n.position, 
-                        type->>PrimitiveArrayType, cast)
+                        type.convert()->PrimitiveArrayType, cast)
             }
             else if parameters.length = 1 &
                     parameters[0].type.isPrimitiveArray &
@@ -794,9 +794,9 @@ class IRGenerator {
                         type->PrimitiveArrayType, parameters[0])
             }
             else if parameters.length = 0 {
-                context.getStub(type->>PrimitiveArrayType)
+                context.getStub(type.convert()->PrimitiveArrayType)
                 return NewPrimitiveArrayWithLength(n.position, 
-                        type->>PrimitiveArrayType, IntegerLiteral(
+                        type.convert()->PrimitiveArrayType, IntegerLiteral(
                             n.position, 0, IntType.INT32, true))
             }
             else {
@@ -804,7 +804,7 @@ class IRGenerator {
                 for p in parameters
                     casted.add(p.implicitCast(context, elementType))
                 return NewPrimitiveArrayWithValues(n.position, 
-                        type->>PrimitiveArrayType, casted)
+                        type.convert()->PrimitiveArrayType, casted)
             }
         }
         if type-?>MethodType | type-?>TupleType {
@@ -812,7 +812,7 @@ class IRGenerator {
                     "instantiated", n.position)
             return null
         }
-        def stub := context.getStub(type->>ClassType)
+        def stub := context.getStub(type.convert()->ClassType)
         if stub.isInterface {
             context.errors.error("interfaces may not be instantiated",
                     n.position)
@@ -1159,7 +1159,7 @@ class IRGenerator {
 
     @private
     method castToIterable(value:Value):Value? {
-        def cl := context.getStub(value.type->>ClassType)
+        def cl := context.getStub(value.type.convert()->ClassType)
         for intf in cl.allInterfaces(context) {
             if intf.name.startsWith("panda.collections.Iterable<")
                 return value.implicitCast(context, intf.type)
@@ -1174,7 +1174,7 @@ class IRGenerator {
         def valueVars := Array<LocalVariable>()
         if f.valueVars.length > 1 {
             if !elementType.isTuple | 
-                    elementType->>TupleType.types.length != f.valueVars.length {
+                    elementType.convert()->TupleType.types.length != f.valueVars.length {
                 context.errors.error("'for' loop expected a list of " +
                         "tuples of length \{f.valueVars.length}, but found a " + 
                         "list of '\{elementType.displayName}'", f.position)
@@ -1279,7 +1279,7 @@ class IRGenerator {
 
     @private
     function unsignedVersion(var t:Type):Type {
-        t := t->>PrimitiveType
+        t := t.convert()->PrimitiveType
         switch t {
             case IntType.INT8: return IntType.UINT8
             case IntType.INT16: return IntType.UINT16
@@ -1612,7 +1612,7 @@ class IRGenerator {
         else if step-?>IntegerLiteral {
             return convertRangeForConstantStep(f, loopVar, range.left->Value, 
                     range.right->Value, 
-                    step->IntegerLiteral.value->>Int32, range.endInclusive)
+                    step->IntegerLiteral.value.convert()->Int32, range.endInclusive)
         }
         else if step-?>UnaryOperation {
             def u := step->UnaryOperation
@@ -1620,7 +1620,7 @@ class IRGenerator {
                     u.operand-?>IntegerLiteral {
                 return convertRangeForConstantStep(f, loopVar, 
                         range.left->Value, range.right->Value, 
-                        -u.operand->IntegerLiteral.value->>Int32,
+                        -u.operand->IntegerLiteral.value.convert()->Int32,
                         range.endInclusive)
             }
         }
@@ -1630,7 +1630,7 @@ class IRGenerator {
 
     method convertPrimitiveArrayFor(f:ASTFor, rawArray:Value):Statement? {
         def array := ReusedValueDefinition(rawArray)
-        def elementType := array.type->>PrimitiveArrayType.elementType
+        def elementType := array.type.convert()->PrimitiveArrayType.elementType
         def valueVars := Array<Variable>()
         for v in f.valueVars {
             var type:Type?
@@ -1760,10 +1760,10 @@ class IRGenerator {
     method signMattersCast(position:Position, v:Value, t:Type, 
             signMatters:Bit):Value? {
         if !signMatters {
-            def srcType := v.type->>PrimitiveType
+            def srcType := v.type.convert()->PrimitiveType
             if srcType.isInteger & t.isInteger & 
                     srcType->IntType.signed != t->IntType.signed & 
-                    srcType->>PrimitiveType.size <= t->>PrimitiveType.size
+                    srcType.convert()->PrimitiveType.size <= t.convert()->PrimitiveType.size
                 return v.explicitCast(context, t)
         }
         return v.implicitCast(context, t)
@@ -2116,7 +2116,7 @@ class IRGenerator {
                 def newRight := BinaryOperation(old.position, old.operation,
                         PrimitiveArrayIndexValue(array, index), old.right)
                 def cast := newRight.implicitCast(context,
-                        array.type->>PrimitiveArrayType.elementType)
+                        array.type.convert()->PrimitiveArrayType.elementType)
                 return PrimitiveArrayIndexAssignment(left.position,
                         array.createReference(), index.createReference(), cast)
             }
@@ -2124,7 +2124,7 @@ class IRGenerator {
                 def array := iv.array
                 def index := iv.index
                 def cast := right.implicitCast(context,
-                        array.type->>PrimitiveArrayType.elementType)
+                        array.type.convert()->PrimitiveArrayType.elementType)
                 return PrimitiveArrayIndexAssignment(left.position, 
                         array, index, cast)
             }
@@ -2713,7 +2713,7 @@ class IRGenerator {
         if !m.annotations.isClass {
             def selfType:Type
             if m.annotations.isWrapperMethod
-                selfType := m.owner->>PrimitiveType
+                selfType := m.owner.convert()->PrimitiveType
             else
                 selfType := m.owner
             def selfParam := Parameter(m.position, Parameter.SELF_NAME,
@@ -2816,7 +2816,7 @@ class IRGenerator {
                     "to a circular dependency involving:")
             for msgField in currentlyInferring
                 msg.append("\n    '\{msgField.name}': \{msgField.position}")
-            context.errors.error(msg->>String, f.position)
+            context.errors.error(msg.convert(), f.position)
             f.type := VoidType.VOID
             return
         }
@@ -2838,7 +2838,7 @@ class IRGenerator {
                     f.type := type
                 else {
                     if type.isTuple {
-                        def tupleType := type->>TupleType
+                        def tupleType := type.convert()->TupleType
                         if f.tuplePosition < tupleType.types.length
                             f.type := tupleType.types[f.tuplePosition]
                         else {
@@ -2862,7 +2862,7 @@ class IRGenerator {
     method createStub(t:Type) {
         if !t.isPrimitive & t != VoidType.VOID & 
                 t != NativePointerType.NATIVE_POINTER
-        context.getStub(t->>ClassType)
+        context.getStub(t.convert()->ClassType)
     }
 
     @private
@@ -2926,7 +2926,7 @@ class IRGenerator {
             if i < components.length - 1 {
                 var next := currentPackage[c]
                 if next = null {
-                    next := MutablePackage(currentName->>String)
+                    next := MutablePackage(currentName.convert())
                     currentPackage[c] := next
                 }
                 else if next-!>MutablePackage
@@ -3076,7 +3076,7 @@ class IRGenerator {
         def root := MutablePackage("")
         for cl in context.classes.values
             addClass(cl, root)
-        return Program(root->>Package, context.classes, classes, 
+        return Program(root.convert()->Package, context.classes, classes, 
                 context.stubGenerator)
     }
 }
