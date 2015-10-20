@@ -14,6 +14,8 @@ uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.ArrayLiteral
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -139,9 +141,9 @@ class Context {
     name before reaching the end, return the remaining tokens as a list of
     `String`s. For instance, given the expression:
 
-        def a := foo.convert()->Int.abs
+        def a := foo -> Int.abs
 
-    this will parse as `foo ->> (Int.abs)`, since `Int.abs` is a valid type 
+    this will parse as `foo -> (Int.abs)`, since `Int.abs` is a valid type 
     name. During evaluation, we note that `Int` is a valid type name, but 
     `Int.abs` is not, so we return `(Int, ["abs"])`.
     ============================================================================
@@ -701,6 +703,13 @@ class Context {
             else
                 selfType := m.owner
             target := target.implicitCast(self, selfType)
+        }
+        if m.name = "convert" & target.type.isWrapper & 
+                target.type.convert()->PrimitiveType.isNumeric & 
+                m.returnType.isNumeric {
+            -- handle conversions between primitive types directly
+            return Cast(position, target.unwrap(self), m.returnType, 
+                    CastType.CONVERT)
         }
         return MethodCall(position, target, m, finalParams)
     }
