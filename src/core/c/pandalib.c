@@ -1128,19 +1128,19 @@ Bit panda$core$Real64Wrapper$isNaN(Real64 r) {
     return isnan(r);
 }
 
-Real32 panda$core$Panda$pow_Real32_Real32(Real32 x, Real32 y) {
+Real32 panda$core$Panda$pow_Real32_Real32_$RReal32(Real32 x, Real32 y) {
     return pow(x, y);
 }
 
-Real64 panda$core$Panda$pow_Real64_Real64(Real64 x, Real64 y) {
+Real64 panda$core$Panda$pow_Real64_Real64_$RReal64(Real64 x, Real64 y) {
     return pow(x, y);
 }
 
-Real32 panda$core$Panda$pow_Real32_Int32(Real32 x, Int32 y) {
+Real32 panda$core$Panda$pow_Real32_Int32_$RReal32(Real32 x, Int32 y) {
     return pow(x, y);
 }
 
-Real64 panda$core$Panda$pow_Real64_Int32(Real64 x, Int32 y) {
+Real64 panda$core$Panda$pow_Real64_Int32_$RReal64(Real64 x, Int32 y) {
     return pow(x, y);
 }
 

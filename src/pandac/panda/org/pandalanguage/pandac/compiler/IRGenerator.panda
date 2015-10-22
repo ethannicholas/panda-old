@@ -219,7 +219,7 @@ class IRGenerator {
                 return symbolReference(position, contextValue, member)
         }
         if contextValue-?>Super {
-            def type := context.getStub(context.getSelf(position).type->ClassType).superclass->ClassType
+            def type := context.getStub(implicitSelf(position).type->ClassType).superclass->ClassType
             def member := context.getSymbolTable(context.getStub(type))[name]
             if member != null
                 return symbolReference(position, contextValue, member)
@@ -270,7 +270,7 @@ class IRGenerator {
                 finalTarget := u.target->Value
             else if context.isInstance {
                 finalTarget := InstanceContext(c.position, 
-                        context.getSelf(c.position))
+                        implicitSelf(c.position))
             }
             else {
                 finalTarget := ClassLiteral(c.position, 
@@ -627,6 +627,16 @@ class IRGenerator {
         return v.type-!>UnresolvedType
     }
 
+    @pre(context.isInstance)
+    method implicitSelf(position:Position):Value {
+        if context.inClosure {
+            context.errors.error("cannot implicitly reference 'self' within " +
+                    "a closure. Use an explicit 'self.' to make the capture " +
+                    "semantics explicit.", position)
+        }
+        return getIdentifier(position, "self")
+    }
+
     method symbolReference(position:Position, s:Symbol):Value? {
         return symbolReference(position, null, s)
     }
@@ -648,7 +658,8 @@ class IRGenerator {
                 if target = null {
                     if context.isInstance {
                         return FieldReference(position, 
-                                context.getSelf(position), f)
+                                implicitSelf(position).implicitCast(context, 
+                                    f.owner), f)
                     }
                     else {
                         context.errors.error("cannot reference instance " +
@@ -657,7 +668,8 @@ class IRGenerator {
                         return null
                     }
                 }
-                return FieldReference(position, target, f)
+                return FieldReference(position, target.implicitCast(context, 
+                        f.owner), f)
             }
         }
         if s-?>Methods {
@@ -665,7 +677,8 @@ class IRGenerator {
             if target = null {
                 if context.isInstance
                     target := InstanceContext(position, 
-                            context.getSelf(position))
+                            VariableReference(position,
+                                context.symbolTable[Parameter.SELF_NAME]->Variable))
                 else {
                     target := ClassLiteral(position,
                             context.currentClass.type)
@@ -693,8 +706,11 @@ class IRGenerator {
                     owner := v->LocalVariable.owner
                 for i in 0 .. context.captures.length {
                     def capture := context.captures.peek(i)
-                    if owner = capture[0]
+                    if owner = capture[0] {
+                        if v.name = "$self"
+                            capture[1].add(v)
                         break
+                    }
                     capture[1].add(v)
                 }
             }
@@ -712,7 +728,7 @@ class IRGenerator {
         if result != null
             return symbolReference(position, result)
         if context.isInstance
-            return getMember(position, context.getSelf(position), name)
+            return getMember(position, implicitSelf(position), name)
         return UnresolvedIdentifier(position, name, null)
     }
 
@@ -912,6 +928,22 @@ class IRGenerator {
         return UnresolvedTuple(context, t.position, values)
     }
 
+    method convertSelf(s:ASTSelf):Value? {
+        if isClosureMethod(context.currentMethod) {
+            def v := context.symbolTable["$" + Parameter.SELF_NAME]
+            return symbolReference(s.position, v->Variable)
+        }
+        if context.isInstance {
+            def v := context.symbolTable[Parameter.SELF_NAME]
+            return symbolReference(s.position, v->Variable)
+        }
+        else {
+            context.errors.error("cannot reference 'self' outside of an " +
+                    "instance context", s.position)
+            return null
+        }
+    }
+
     method convertSuper(s:ASTSuper):Value? {
         if context.isInstance {
             return Super(s.position, context.currentClass.type)
@@ -1009,7 +1041,7 @@ class IRGenerator {
             case ASTNew:
                 return convertNew(e->ASTNew)
             case ASTSelf:
-                return getIdentifier(e.position, "self")
+                return convertSelf(e->ASTSelf)
             case ASTSuper:
                 return convertSuper(e->ASTSuper)
             case ASTIndex:
@@ -2044,7 +2076,7 @@ class IRGenerator {
             def name := left->Unresolved.name
             if contextValue = null {
                 if context.isInstance
-                    contextValue := context.getSelf(left.position)
+                    contextValue := implicitSelf(left.position)
                 else {
                     -- we're in a class context, so there can't possibly be an
                     -- assignment method. Go ahead and report the error.
@@ -2530,7 +2562,8 @@ class IRGenerator {
     }
 
     function createClosureInitAndFields(position:Position,
-            captures:Set<Variable>, owner:ClassType):(MethodStub, ListView<FieldNode>) {
+            captures:CollectionView<Variable>, 
+            owner:ClassType):(MethodStub, ListView<FieldNode>) {
         def parameters := Array<FormalParameter>()
         def fields := Array<FieldNode>()
         for v in captures {
@@ -2599,7 +2632,7 @@ class IRGenerator {
         }
         if !lastMethod.annotations.isClass {
             def selfType := lastMethod.owner
-            def selfParam := Parameter(m.position, Parameter.SELF_NAME,
+            def selfParam := Parameter(m.position, "$" + Parameter.SELF_NAME,
                     selfType, false, false, rawStub)
             context.symbolTable.add(selfParam)
         }
@@ -2607,11 +2640,15 @@ class IRGenerator {
         -- need to convertBlock in order to grab captures
         def oldAdd := addMethods
         addMethods := false
+        def oldInClosure := context.inClosure
+        context.inClosure := true
         convertBlock(m.body->ASTBlock)
+        context.inClosure := oldInClosure
+        def captures := context.captures.peek()[1]
         addMethods := oldAdd
         def closureSymbols := OrderedMap<String, Symbol>()
         def closureInit, closureFields := createClosureInitAndFields(
-                m.position, context.captures.peek()[1], closureType)
+                m.position, captures, closureType)
         def closureAnnotations := Array<AnnotationType>()
         closureAnnotations.add(AnnotationType.SYNTHETIC)
 
@@ -2656,8 +2693,12 @@ class IRGenerator {
         context.localVariables.addAll(oldLocals)
         context.currentMethod := lastMethod
         def initParameters := Array<Value>()
-        for v in context.captures.peek[1]
-            initParameters.add(VariableReference(m.position, v))
+        for v in captures {
+            if v.name = "$" + Parameter.SELF_NAME
+                initParameters.add(implicitSelf(m.position))
+            else
+                initParameters.add(VariableReference(m.position, v))
+        }
         def closureInstance := Construct(MethodCall(m.position, 
                 ClassLiteral(m.position, closureType), 
                 closureInit, initParameters))
@@ -2696,6 +2737,11 @@ class IRGenerator {
         return false
     }   
 
+    function isClosureMethod(m:MethodStub):Bit {
+        return m.methodType != MethodNodeType.INIT & 
+                m.owner.name.contains("$closure")
+    }
+
     method convertMethod(m:MethodStub):MethodNode {
         context.localVariables.clear()
         context.currentMethod := m
@@ -2706,6 +2752,10 @@ class IRGenerator {
                     formal.isVar, formal.isVarArg, context.currentMethod)
             parameters.add(p)
             context.symbolTable.add(p)
+        }
+        if isClosureMethod(m) {
+            context.symbolTable.add(Parameter.SELF_NAME, 
+                    context.symbolTable["$self"])
         }
         if !m.annotations.isClass {
             def selfType:Type
@@ -2752,7 +2802,7 @@ class IRGenerator {
                                                 f.tuplePosition)
                                 }
                                 statements.add(FieldAssignment(f.position,
-                                        context.getSelf(f.position), f,
+                                        implicitSelf(f.position), f,
                                         initialValue.implicitCast(context, 
                                             f.type)))
                             }
@@ -2796,6 +2846,14 @@ class IRGenerator {
             context.methods.add(convertMethod(m))
         }
         context.popSymbolTable()
+        if !cl.isInterface & !cl.annotations.isAbstract {
+            for m in cl.virtualMethods(context) {
+                if m.annotations.isAbstract() {
+                     context.errors.error("non-abstract class '\{cl.name}' " +
+                            "does not implement abstract \{m}", cl.position)
+                }
+            }
+        }
         return ClassNode(cl, context.methods)
     }
 

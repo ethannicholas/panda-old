@@ -88,6 +88,16 @@
         }
     }
 
+    class Identifier {
+        def text:String
+        def position:Position
+
+        init(text:String, position:Position) {
+            self.text := text
+            self.position := position
+        }
+    }
+
     class ParserUtil {
         constant KEYWORDS := HashSet<String>(["package", "uses", "as", 
                     "class", "method", "function", "init", "var", "def", 
@@ -181,15 +191,15 @@ bodyEntry:ASTNode = statement
     { result := statement }
 
 packageDeclaration:ASTPackageDeclaration = PACKAGE ^ dottedName
-    { result := ASTPackageDeclaration(Position(file, parserState.position), dottedName) }
+    { result := ASTPackageDeclaration(PACKAGE, dottedName) }
 dottedName:String = dottedName DOT IDENTIFIER
-    { result := dottedName + "." + IDENTIFIER }
+    { result := dottedName + "." + IDENTIFIER.text }
 dottedName:String = IDENTIFIER
-    { result := IDENTIFIER }
+    { result := IDENTIFIER.text }
 usesStatement:ASTUsesDeclaration = USES usesName
-    { result := ASTUsesDeclaration(Position(file, parserState.position), usesName, null) }
+    { result := ASTUsesDeclaration(USES, usesName, null) }
 usesStatement:ASTUsesDeclaration = USES id:dottedName AS ^ alias:dottedName
-    { result := ASTUsesDeclaration(Position(file, parserState.position), id, alias) }
+    { result := ASTUsesDeclaration(USES, id, alias) }
 usesName:String = dottedName DOT STAR
     { result := dottedName + ".*" }
 usesName:String = dottedName
@@ -214,11 +224,10 @@ classDeclaration:ASTClass = optionalDoccomment optionalAnnotations CLASS
             else
                 unreachable
         }
-        result := ASTClass(Position(file, parserState.position), IDENTIFIER, false, 
-                optionalDoccomment, optionalAnnotations, 
-                optionalTypeDeclaration, optionalInterfaces, 
-                optionalGenericsDeclaration, methods, fields, invariants, 
-                ParserUtil.isExternal(file))
+        result := ASTClass(CLASS, IDENTIFIER.text, false, optionalDoccomment, 
+                optionalAnnotations, optionalTypeDeclaration, 
+                optionalInterfaces, optionalGenericsDeclaration, methods, 
+                fields, invariants, ParserUtil.isExternal(file))
     }
 interfaceDeclaration:ASTClass = optionalDoccomment optionalAnnotations 
         INTERFACE ^ IDENTIFIER optionalGenericsDeclaration 
@@ -237,15 +246,15 @@ interfaceDeclaration:ASTClass = optionalDoccomment optionalAnnotations
             else
                 unreachable
         }
-        result := ASTClass(Position(file, parserState.position), IDENTIFIER, true, 
-                optionalDoccomment, optionalAnnotations, 
-                null, optionalTypeDeclarations, optionalGenericsDeclaration, 
-                methods, fields, invariants, ParserUtil.isExternal(file))
+        result := ASTClass(INTERFACE, IDENTIFIER.text, true, optionalDoccomment, 
+                optionalAnnotations, null, optionalTypeDeclarations, 
+                optionalGenericsDeclaration, methods, fields, invariants, 
+                ParserUtil.isExternal(file))
     }
 enumDeclaration:ASTEnum = optionalDoccomment optionalAnnotations ENUM ^ 
         IDENTIFIER LBRACE enumValues RBRACE
     {
-        result := ASTEnum(Position(file, parserState.position), IDENTIFIER, optionalDoccomment, 
+        result := ASTEnum(ENUM, IDENTIFIER.text, optionalDoccomment, 
                 optionalAnnotations, enumValues, ParserUtil.isExternal(file))
     }
 enumValues:Array<ASTEnumValue> = enumValues COMMA enumValue
@@ -258,7 +267,7 @@ enumValues:Array<ASTEnumValue> = enumValue
     { result := [enumValue] }
 enumValue:ASTEnumValue = optionalDoccomment IDENTIFIER
     { 
-        result := ASTEnumValue(Position(file, parserState.position), IDENTIFIER, 
+        result := ASTEnumValue(IDENTIFIER.position, IDENTIFIER.text, 
                 optionalDoccomment) 
     }
 optionalDoccomment:String? = DOCCOMMENT
@@ -391,11 +400,11 @@ methodDeclaration:ASTMethod = optionalDoccomment optionalAnnotations
                 optionalBlock, optionalPostconditions)
     }
 methodName:String = IDENTIFIER 
-    { result := IDENTIFIER }
+    { result := IDENTIFIER.text }
 methodName:String = specialMethodName
     { result := specialMethodName }
 specialMethodName:String = IDENTIFIER ASSIGNMENT
-    { result := IDENTIFIER + ":=" }
+    { result := IDENTIFIER.text + ":=" }
 specialMethodName:String = SHIFTLEFT
     { result := "<<" }
 specialMethodName:String = SHIFTRIGHT
@@ -467,8 +476,8 @@ parameterList:Array<ASTParameter> = parameter
 parameter:ASTParameter = optionalVar IDENTIFIER COLON type 
         optionalEllipsis
     { 
-        result := ASTParameter(Position(file, parserState.position), 
-                IDENTIFIER, type, optionalVar, optionalEllipsis)
+        result := ASTParameter(IDENTIFIER.position, IDENTIFIER.text, type, 
+                optionalVar, optionalEllipsis)
     }
 optionalVar:Bit = VAR
     { result := true }
@@ -597,15 +606,9 @@ varDeclarations:Array<ASTTypedIdentifier> = varDeclarations COMMA
 varDeclarations:Array<ASTTypedIdentifier> = optionallyTypedIdentifier
     { result := [optionallyTypedIdentifier] }
 optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER
-    { 
-        result := ASTTypedIdentifier(
-                Position(file, parserState.position), IDENTIFIER, null) 
-    }
+    { result := ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text, null) }
 optionallyTypedIdentifier:ASTTypedIdentifier = IDENTIFIER COLON type
-    { 
-        result := ASTTypedIdentifier(
-                Position(file, parserState.position), IDENTIFIER, type) 
-    }
+    { result := ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text, type) }
 
 ifStatement:ASTIf = IF ^ expression statementOrBlock optionalElse
     { 
@@ -624,7 +627,7 @@ forLoop:ASTFor = optionalLabel FOR ^ forTarget IN ^ expression
                 optionalLabel, forTarget, expression, statementOrBlock) 
     }
 optionalLabel:String? = IDENTIFIER COLON
-    { result := IDENTIFIER }
+    { result := IDENTIFIER.text }
 optionalLabel:String? =
     { result := null }
 forTarget:ListView<ASTTypedIdentifier> = optionallyTypedIdentifier
@@ -650,12 +653,7 @@ loopLoop:ASTLoop = optionalLabel LOOP ^ statementOrBlock
 methodCall:ASTExpression = callExpression parameters
     { result := ASTCallExpression(callExpression, parameters) }
 methodCall:ASTExpression = INIT parameters
-    { 
-        result := ASTCallExpression(
-                ASTIdentifier(Position(file, parserState.position), 
-                    "init"), 
-                parameters) 
-    }
+    { result := ASTCallExpression(ASTIdentifier(INIT, "init"), parameters) }
 assignment:ASTStatement = expressionList assignmentOperator expression
     { 
         result := ASTAssignment(expressionList, assignmentOperator, 
@@ -735,7 +733,7 @@ catchBlocks:Array<ASTCatch> = catchBlock
     { result := [catchBlock] }
 catchBlock:ASTCatch = CATCH ^ IDENTIFIER typeDeclaration statementOrBlock
     { 
-        result := ASTCatch(Position(file, parserState.position), IDENTIFIER, typeDeclaration, 
+        result := ASTCatch(CATCH, IDENTIFIER.text, typeDeclaration, 
                 statementOrBlock) 
     }
 
@@ -781,12 +779,12 @@ returnStatement:ASTReturn = RETURN_TEXT WS_SAMELINE expression ^
 breakStatement:ASTBreak = BREAK_TEXT WS
     { result := ASTBreak(Position(file, parserState.position), null) }
 breakStatement:ASTBreak = BREAK_TEXT WS_SAMELINE IDENTIFIER ^
-    { result := ASTBreak(Position(file, parserState.position), IDENTIFIER) }
+    { result := ASTBreak(Position(file, parserState.position), IDENTIFIER.text) }
 
 continueStatement:ASTContinue = CONTINUE_TEXT WS
     { result := ASTContinue(Position(file, parserState.position), null) }
 continueStatement:ASTContinue = CONTINUE_TEXT WS_SAMELINE IDENTIFIER ^
-    { result := ASTContinue(Position(file, parserState.position), IDENTIFIER) }
+    { result := ASTContinue(Position(file, parserState.position), IDENTIFIER.text) }
 
 throwStatement:ASTThrow = THROW ^ expression
     { result := ASTThrow(Position(file, parserState.position), expression) }
@@ -1074,7 +1072,7 @@ callExpression:ASTExpression = callExpression LT typeList GT
             return Parser.DIE
     }
 callExpression:ASTExpression = callExpression DOT IDENTIFIER
-    { result := ASTDotExpression(callExpression, IDENTIFIER) }
+    { result := ASTDotExpression(callExpression, IDENTIFIER.text) }
 callExpression:ASTExpression = callExpression DOT specialMethodName
     { result := ASTDotExpression(callExpression, specialMethodName) }
 callExpression:ASTExpression = callExpression DOT CLASS
@@ -1115,7 +1113,7 @@ expressionList:Array<ASTExpression> = expression
     { result := [expression] }
 
 term:ASTExpression = IDENTIFIER
-    { result := ASTIdentifier(Position(file, parserState.position), IDENTIFIER) }
+    { result := ASTIdentifier(IDENTIFIER.position, IDENTIFIER.text) }
 term:ASTExpression = INTEGER
     { result := INTEGER }
 term:ASTExpression = STRING
@@ -1123,17 +1121,17 @@ term:ASTExpression = STRING
 term:ASTExpression = REAL
     { result := REAL }
 term:ASTExpression = TRUE
-    { result := ASTBitLiteral(Position(file, parserState.position), true) }
+    { result := ASTBitLiteral(TRUE, true) }
 term:ASTExpression = FALSE
-    { result := ASTBitLiteral(Position(file, parserState.position), false) }
+    { result := ASTBitLiteral(FALSE, false) }
 term:ASTExpression = NULL
-    { result := ASTNullLiteral(Position(file, parserState.position)) }
+    { result := ASTNullLiteral(NULL) }
 term:ASTExpression = SELF
-    { result := ASTSelf(Position(file, parserState.position)) }
+    { result := ASTSelf(SELF) }
 term:ASTExpression = SUPER
-    { result := ASTSuper(Position(file, parserState.position)) }
+    { result := ASTSuper(SUPER) }
 term:ASTExpression = CLASS
-    { result := ASTDotExpression(ASTSelf(Position(file, parserState.position)), "$class") }
+    { result := ASTDotExpression(ASTSelf(CLASS), "$class") }
 term:ASTExpression = LPAREN expressionList RPAREN
     {  
         if expressionList.length = 1
@@ -1222,12 +1220,12 @@ lambda:ASTExpression = lambdaParameters YIELDS expression
     }
 lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
     { 
-        result := [ASTTypedIdentifier(Position(file, parserState.position), IDENTIFIER,
+        result := [ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 null)]
     }
 lambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
     { 
-        result := [ASTTypedIdentifier(Position(file, parserState.position), IDENTIFIER,
+        result := [ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 type)]
     }
 lambdaParameters:Array<ASTTypedIdentifier> = LPAREN RPAREN
@@ -1242,12 +1240,12 @@ untypedLambdaParameters:Array<ASTTypedIdentifier> = untypedLambdaParameters
     { 
         result := []
         result.addAll(untypedLambdaParameters)
-        result.add(ASTTypedIdentifier(Position(file, parserState.position), IDENTIFIER,
+        result.add(ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 null))
     }
 untypedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
     {  
-        result := [ASTTypedIdentifier(Position(file, parserState.position), IDENTIFIER,
+        result := [ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 null)]
     }
 typedLambdaParameters:Array<ASTTypedIdentifier> = typedLambdaParameters 
@@ -1255,35 +1253,40 @@ typedLambdaParameters:Array<ASTTypedIdentifier> = typedLambdaParameters
     { 
         result := []
         result.addAll(typedLambdaParameters)
-        result.add(ASTTypedIdentifier(Position(file, parserState.position), IDENTIFIER,
+        result.add(ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 type))
     }
 typedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
     {  
-        result := [ASTTypedIdentifier(Position(file, parserState.position), IDENTIFIER,
+        result := [ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 type)]
     }
 
 @methodValue:ASTMethodValue = METHOD formalParameters ^ optionalTypeDeclaration 
         block
     {
-        result := ASTMethodValue(Position(file, parserState.position), MethodNodeType.METHOD, 
+        result := ASTMethodValue(METHOD, MethodNodeType.METHOD, 
                 formalParameters, optionalTypeDeclaration, block)
     }
 @methodValue:ASTMethodValue = FUNCTION formalParameters ^ 
         optionalTypeDeclaration block
     {
-        result := ASTMethodValue(Position(file, parserState.position), MethodNodeType.FUNCTION, 
+        result := ASTMethodValue(FUNCTION, MethodNodeType.FUNCTION, 
                 formalParameters, optionalTypeDeclaration, block)
     }
 
 
-IDENTIFIER:String = identifierText WS
+IDENTIFIER:Identifier = identifierContents WS
     {
-        if ParserUtil.KEYWORDS.contains(identifierText)
+        if ParserUtil.KEYWORDS.contains(identifierContents.text)
             return Parser.DIE
         else
-            result := identifierText 
+            result := identifierContents
+    }
+identifierContents:Identifier = identifierText
+    { 
+        result := Identifier(identifierText, Position(file, 
+                parserState.position - identifierText.length))
     }
 identifierText:String = identifierStart identifierChars ![A-Za-z_$0-9]
     { result := identifierStart + identifierChars }
@@ -1428,123 +1431,232 @@ optionalFormatString:String? = COLON formatString
 optionalFormatString:String? =
     { result := null }
 
-PACKAGE_TEXT = 'package' ![A-Za-z_$0-9]
-PACKAGE = PACKAGE_TEXT WS
-CLASS_TEXT = 'class' ![A-Za-z_$0-9]
-CLASS = CLASS_TEXT WS
-INTERFACE_TEXT = 'interface' ![A-Za-z_$0-9]
-INTERFACE = INTERFACE_TEXT WS
-ENUM_TEXT = 'enum' ![A-Za-z_$0-9]
-ENUM = ENUM_TEXT WS
-USES_TEXT = 'uses' ![A-Za-z_$0-9]
-USES = USES_TEXT WS
-AS_TEXT = 'as' ![A-Za-z_$0-9]
-AS = AS_TEXT WS
-METHOD_TEXT = 'method' ![A-Za-z_$0-9]
-METHOD = METHOD_TEXT WS
-FUNCTION_TEXT = 'function' ![A-Za-z_$0-9]
-FUNCTION = FUNCTION_TEXT WS
-INIT_TEXT = 'init' ![A-Za-z_$0-9]
-INIT = INIT_TEXT WS
-VAR_TEXT = 'var' ![A-Za-z_$0-9]
-VAR:VariableType = VAR_TEXT WS
-    { result := VariableType.VAR }
-DEF_TEXT = 'def' ![A-Za-z_$0-9]
-DEF:VariableType = DEF_TEXT WS
-    { result := VariableType.DEF }
-CONSTANT_TET = 'constant' ![A-Za-z_$0-9]
-CONSTANT:VariableType = 'constant' WS
-    { result := VariableType.CONSTANT }
-PROPERTY_TEXT = 'property' ![A-Za-z_$0-9]
-PROPERTY:VariableType = PROPERTY_TEXT WS 
-    { result := VariableType.PROPERTY }
-PROTECTED_TEXT = '@protected' ![A-Za-z_$0-9]
-PROTECTED = PROTECTED_TEXT WS
-PRIVATE_TEXT = '@private' ![A-Za-z_$0-9]
-PRIVATE = PRIVATE_TEXT WS
-ATCLASS_TEXT = '@class' ![A-Za-z_$0-9]
-ATCLASS = ATCLASS_TEXT WS
-THREAD_TEXT = '@thread' ![A-Za-z_$0-9]
-THREAD = THREAD_TEXT WS
-ABSTRACT_TEXT = '@abstract' ![A-Za-z_$0-9]
-ABSTRACT = ABSTRACT_TEXT WS
-EXTERNAL_TEXT = '@external' ![A-Za-z_$0-9]
-EXTERNAL = EXTERNAL_TEXT WS
-OVERRIDE_TEXT = '@override' ![A-Za-z_$0-9]
-OVERRIDE = OVERRIDE_TEXT WS
-READONLY_TEXT = '@readonly' ![A-Za-z_$0-9]
-READONLY = READONLY_TEXT WS
-LIMITED_TEXT = '@limited' ![A-Za-z_$0-9]
-LIMITED = LIMITED_TEXT WS
-ATSELF_TEXT = '@self' ![A-Za-z_$0-9]
-ATSELF = ATSELF_TEXT WS
-SAFERETURN_TEXT = '@safeReturn' ![A-Za-z_$0-9]
-SAFERETURN = SAFERETURN_TEXT WS
-UNSAFEFUNCTION_TEXT = '@unsafeFunction' ![A-Za-z_$0-9]
-UNSAFEFUNCTION = UNSAFEFUNCTION_TEXT WS
-FINAL_TEXT = '@final' ![A-Za-z_$0-9]
-FINAL = FINAL_TEXT WS
+PACKAGE_TEXT:Position = 'package' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 7) }
+PACKAGE:Position = PACKAGE_TEXT WS
+    { result := PACKAGE_TEXT }
+CLASS_TEXT:Position = 'class' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+CLASS:Position = CLASS_TEXT WS
+    { result := CLASS_TEXT }
+INTERFACE_TEXT:Position = 'interface' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 9) }
+INTERFACE:Position = INTERFACE_TEXT WS
+    { result := INTERFACE_TEXT }
+ENUM_TEXT:Position = 'enum' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+ENUM:Position = ENUM_TEXT WS
+    { result := ENUM_TEXT }
+USES_TEXT:Position = 'uses' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+USES:Position = USES_TEXT WS
+    { result := USES_TEXT }
+AS_TEXT:Position = 'as' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 2) }
+AS:Position = AS_TEXT WS
+    { result := AS_TEXT }
+METHOD_TEXT:Position = 'method' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 6) }
+METHOD:Position = METHOD_TEXT WS
+    { result := METHOD_TEXT }
+FUNCTION_TEXT:Position = 'function' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 7) }
+FUNCTION:Position = FUNCTION_TEXT WS
+    { result := FUNCTION_TEXT }
+INIT_TEXT :Position= 'init' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+INIT:Position = INIT_TEXT WS
+    { result := INIT_TEXT }
+VAR_TEXT:Position = 'var' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 3) }
+VAR:Position = VAR_TEXT WS
+    { result := VAR_TEXT }
+DEF_TEXT:Position = 'def' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 3) }
+DEF:Position = DEF_TEXT WS
+    { result := DEF_TEXT }
+CONSTANT_TEXT:Position = 'constant' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 8) }
+CONSTANT:Position = CONSTANT_TEXT WS
+    { result := CONSTANT_TEXT }
+PROPERTY_TEXT:Position = 'property' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 8) }
+PROPERTY:Position = PROPERTY_TEXT WS 
+    { result := PROPERTY_TEXT }
+PROTECTED_TEXT:Position = '@protected' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 10) }
+PROTECTED:Position = PROTECTED_TEXT WS
+    { result := PROTECTED_TEXT }
+PRIVATE_TEXT:Position = '@private' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 8) }
+PRIVATE:Position = PRIVATE_TEXT WS
+    { result := PRIVATE_TEXT }
+ATCLASS_TEXT:Position = '@class' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 6) }
+ATCLASS:Position = ATCLASS_TEXT WS
+    { result := ATCLASS_TEXT }
+THREAD_TEXT:Position = '@thread' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 7) }
+THREAD:Position = THREAD_TEXT WS
+    { result := THREAD_TEXT }
+ABSTRACT_TEXT:Position = '@abstract' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 9) }
+ABSTRACT:Position = ABSTRACT_TEXT WS
+    { result := ABSTRACT_TEXT }
+EXTERNAL_TEXT:Position = '@external' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 9) }
+EXTERNAL:Position = EXTERNAL_TEXT WS
+    { result := EXTERNAL_TEXT }
+OVERRIDE_TEXT:Position = '@override' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 9) }
+OVERRIDE:Position = OVERRIDE_TEXT WS
+    { result := OVERRIDE_TEXT }
+READONLY_TEXT:Position = '@readonly' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 9) }
+READONLY:Position = READONLY_TEXT WS
+    { result := READONLY_TEXT }
+LIMITED_TEXT:Position = '@limited' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 8) }
+LIMITED:Position = LIMITED_TEXT WS
+    { result := LIMITED_TEXT }
+ATSELF_TEXT:Position = '@self' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+ATSELF:Position = ATSELF_TEXT WS
+    { result := ATSELF_TEXT }
+SAFERETURN_TEXT:Position = '@safeReturn' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 11) }
+SAFERETURN:Position = SAFERETURN_TEXT WS
+    { result := SAFERETURN_TEXT }
+UNSAFEFUNCTION_TEXT:Position = '@unsafeFunction' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 15) }
+UNSAFEFUNCTION:Position = UNSAFEFUNCTION_TEXT WS
+    { result := UNSAFEFUNCTION_TEXT }
+FINAL_TEXT:Position = '@final' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 6) }
+FINAL:Position = FINAL_TEXT WS
+    { result := FINAL_TEXT }
 WRAPPER_METHOD = '@$wrapperMethod' WS
-MATH_TEXT = '@math' ![A-Za-z_$0-9]
-MATH = MATH_TEXT WS
+MATH_TEXT:Position = '@math' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+MATH:Position = MATH_TEXT WS
+    { result := MATH_TEXT }
 OVERFLOW_TEXT = 'overflow' ![A-Za-z_$0-9]
 OVERFLOW = OVERFLOW_TEXT WS
-INVARIANT_TEXT = '@invariant' ![A-Za-z_$0-9]
-INVARIANT = INVARIANT_TEXT WS
+INVARIANT_TEXT:Position = '@invariant' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 10) }
+INVARIANT:Position = INVARIANT_TEXT WS
+    { result := INVARIANT_TEXT }
 INSTANCE = '@$instance' WS
-PRE_TEXT = '@pre' ![A-Za-z_$0-9]
-PRE = PRE_TEXT WS
-POST_TEXT = '@post' ![A-Za-z_$0-9]
-POST = POST_TEXT WS
-PRE_OR = '@preOr' WS
-POST_AND = '@postAnd' WS
-ATRETURN_TEXT = '@return' ![A-Za-z_$0-9]
-ATRETURN = ATRETURN_TEXT WS
-TRUE_TEXT = 'true' ![A-Za-z_$0-9]
-TRUE = TRUE_TEXT WS
-FALSE_TEXT = 'false' ![A-Za-z_$0-9]
-FALSE = FALSE_TEXT WS
-NULL_TEXT = 'null' ![A-Za-z_$0-9]
-NULL = NULL_TEXT WS
-SELF_TEXT = 'self' ![A-Za-z_$0-9]
-SELF = SELF_TEXT WS
-SUPER_TEXT = 'super' ![A-Za-z_$0-9]
-SUPER = SUPER_TEXT WS
-BY_TEXT = 'by' ![A-Za-z_$0-9]
-BY = BY_TEXT WS
-FOR_TEXT = 'for' ![A-Za-z_$0-9]
-FOR = FOR_TEXT WS
-IN_TEXT = 'in' ![A-Za-z_$0-9]
-IN = IN_TEXT WS
-WHILE_TEXT = 'while' ![A-Za-z_$0-9]
-WHILE = WHILE_TEXT WS
-DO_TEXT = 'do' ![A-Za-z_$0-9]
-DO = DO_TEXT WS
-LOOP_TEXT = 'loop' ![A-Za-z_$0-9]
-LOOP = LOOP_TEXT WS
-IF_TEXT = 'if' ![A-Za-z_$0-9]
-IF = IF_TEXT WS
-ELSE_TEXT = 'else' ![A-Za-z_$0-9]
-ELSE = ELSE_TEXT WS
-SWITCH_TEXT = 'switch' ![A-Za-z_$0-9]
-SWITCH = SWITCH_TEXT WS
-CASE_TEXT = 'case' ![A-Za-z_$0-9]
-CASE = CASE_TEXT WS
-DEFAULT_TEXT = 'default' ![A-Za-z_$0-9]
-DEFAULT = DEFAULT_TEXT WS
-RETURN_TEXT = 'return' ![A-Za-z_$0-9]
-CONTINUE_TEXT = 'continue' ![A-Za-z_$0-9]
-BREAK_TEXT = 'break' ![A-Za-z_$0-9]
-ASSERT_TEXT = 'assert' ![A-Za-z_$0-9]
-ASSERT = ASSERT_TEXT WS
-UNREACHABLE_TEXT = 'unreachable' ![A-Za-z_$0-9]
-UNREACHABLE = UNREACHABLE_TEXT WS
-TRY_TEXT = 'try' ![A-Za-z_$0-9]
-TRY = TRY_TEXT WS
-CATCH_TEXT = 'catch' ![A-Za-z_$0-9]
-CATCH = CATCH_TEXT WS
-THROW_TEXT = 'throw' ![A-Za-z_$0-9]
-THROW = THROW_TEXT WS
+PRE_TEXT:Position = '@pre' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+PRE:Position = PRE_TEXT WS
+    { result := PRE_TEXT }
+POST_TEXT:Position= '@post' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+POST:Position = POST_TEXT WS
+    { result := POST_TEXT }
+PRE_OR_TEXT:Position= '@preOr' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 6) }
+PRE_OR:Position = PRE_OR_TEXT WS
+    { result := PRE_OR_TEXT }
+POST_AND_TEXT:Position= '@postAnd' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 8) }
+POST_AND:Position = POST_AND_TEXT WS
+    { result := POST_AND_TEXT }
+ATRETURN_TEXT:Position = '@return' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 7) }
+ATRETURN:Position = ATRETURN_TEXT WS
+    { result := ATRETURN_TEXT }
+TRUE_TEXT:Position = 'true' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+TRUE:Position = TRUE_TEXT WS
+    { result := TRUE_TEXT }
+FALSE_TEXT:Position = 'false' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+FALSE:Position = FALSE_TEXT WS
+    { result := FALSE_TEXT }
+NULL_TEXT:Position = 'null' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+NULL:Position = NULL_TEXT WS
+    { result := NULL_TEXT }
+SELF_TEXT:Position = 'self' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+SELF:Position = SELF_TEXT WS
+    { result := SELF_TEXT }
+SUPER_TEXT:Position = 'super' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+SUPER:Position = SUPER_TEXT WS
+    { result := SUPER_TEXT }
+BY_TEXT:Position = 'by' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 2) }
+BY:Position = BY_TEXT WS
+    { result := BY_TEXT }
+FOR_TEXT:Position = 'for' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 3) }
+FOR:Position = FOR_TEXT WS
+    { result := FOR_TEXT }
+IN_TEXT:Position = 'in' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 2) }
+IN:Position = IN_TEXT WS
+    { result := IN_TEXT }
+WHILE_TEXT:Position = 'while' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+WHILE:Position = WHILE_TEXT WS
+    { result := WHILE_TEXT }
+DO_TEXT:Position = 'do' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 2) }
+DO:Position = DO_TEXT WS
+    { result := DO_TEXT }
+LOOP_TEXT:Position = 'loop' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+LOOP:Position = LOOP_TEXT WS
+    { result := LOOP_TEXT }
+IF_TEXT:Position = 'if' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 2) }
+IF:Position = IF_TEXT WS
+    { result := IF_TEXT }
+ELSE_TEXT:Position = 'else' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+ELSE:Position = ELSE_TEXT WS
+    { result := ELSE_TEXT }
+SWITCH_TEXT:Position = 'switch' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 6) }
+SWITCH:Position = SWITCH_TEXT WS
+    { result := SWITCH_TEXT }
+CASE_TEXT:Position = 'case' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 4) }
+CASE:Position = CASE_TEXT WS
+    { result := CASE_TEXT }
+DEFAULT_TEXT:Position = 'default' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 7) }
+DEFAULT:Position = DEFAULT_TEXT WS
+    { result := DEFAULT_TEXT }
+RETURN_TEXT:Position = 'return' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 6) }
+CONTINUE_TEXT:Position = 'continue' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 8) }
+BREAK_TEXT:Position = 'break' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+ASSERT_TEXT:Position = 'assert' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 6) }
+ASSERT:Position = ASSERT_TEXT WS
+    { result := ASSERT_TEXT }
+UNREACHABLE_TEXT:Position = 'unreachable' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 11) }
+UNREACHABLE:Position = UNREACHABLE_TEXT WS
+    { result := UNREACHABLE_TEXT }
+TRY_TEXT:Position = 'try' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 3) }
+TRY:Position = TRY_TEXT WS
+    { result := TRY_TEXT }
+CATCH_TEXT:Position = 'catch' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+CATCH:Position = CATCH_TEXT WS
+    { result := CATCH_TEXT }
+THROW_TEXT:Position = 'throw' ![A-Za-z_$0-9]
+    { result := Position(file, parserState.position - 5) }
+THROW:Position = THROW_TEXT WS
+    { result := THROW_TEXT }
 COLON = ':' WS
 LBRACKET = '[' WS
 RBRACKET = ']' WS

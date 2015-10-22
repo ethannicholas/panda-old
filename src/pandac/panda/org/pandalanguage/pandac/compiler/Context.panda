@@ -70,6 +70,8 @@ class Context {
 
     var currentMethod:MethodStub
 
+    var inClosure:Bit
+
     ============================================================================
     Methods to be added to the current class.
     ============================================================================
@@ -251,12 +253,6 @@ class Context {
 
     function isInstance():Bit {
         return symbolTable[Parameter.SELF_NAME] != null
-    }
-
-    @pre(isInstance)
-    function getSelf(position:Position):Value {
-        def v := symbolTable[Parameter.SELF_NAME]
-        return VariableReference(position, v->Variable)
     }
 
     @private
@@ -817,6 +813,12 @@ class Context {
         if best.length = 1 {
             def finalTarget := getEffectiveTarget(best[0], target)
             assert finalTarget != null
+            if reportErrors & inClosure & target-?>InstanceContext & 
+                    !best[0].annotations.isClass {
+                errors.error("cannot implicitly reference 'self' within a " + 
+                        "closure. Use an explicit 'self.' to make the " +
+                        "capture semantics explicit.", position)
+            }
             return call(position, finalTarget, best[0], params)
         }
         else if best.length = 0 {
