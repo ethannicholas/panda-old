@@ -1,5 +1,6 @@
 package org.pandalanguage.pandac.tree
 
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.types.Type
 
@@ -19,6 +20,24 @@ class UnaryOperation : Value {
         super.init(position, operand.type)
         self.operation := operation
         self.operand := operand
+    }
+
+    @override
+    method implicitCast(position:Position, context:Context, t:Type):Value {
+        if type = t
+            return self
+        if operation = UnaryOperationType.MINUS & 
+                (t.unwrapNullable.isPrimitive | t.unwrapNullable.isWrapper) {
+            def prim := t.convert()->PrimitiveType
+            if operand.canImplicitCastTo(context, prim) {
+                var result:Value := UnaryOperation(position, operation, 
+                        operand.implicitCast(position, context, prim))
+                if t.isWrapper
+                    result := result.wrapped(context, t, false)
+                return result
+            }
+        }
+        return super.implicitCast(position, context, t)
     }
 
     @override

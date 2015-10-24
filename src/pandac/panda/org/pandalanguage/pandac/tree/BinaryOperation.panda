@@ -57,6 +57,30 @@ class BinaryOperation : Value {
         self.right := right
     }
 
+    @override
+    method implicitCast(position:Position, context:Context, t:Type):Value {
+        if type = t
+            return self
+        if (operation = BinaryOperationType.ADD |
+                operation = BinaryOperationType.SUBTRACT |
+                operation = BinaryOperationType.MULTIPLY |
+                operation = BinaryOperationType.DIVIDE) &
+                (t.unwrapNullable.isPrimitive | t.unwrapNullable.isWrapper) {
+            def prim := t.convert()->PrimitiveType
+            if left.canImplicitCastTo(context, prim) & 
+                    right.canImplicitCastTo(context, prim) {
+                var result:Value := BinaryOperation(position, operation, 
+                        left.implicitCast(position, context, prim),
+                        right.implicitCast(position, context, prim))
+                if t.isWrapper
+                    result := result.wrapped(context, t, false)
+                assert result.type = t
+                return result
+            }
+        }
+        return super.implicitCast(position, context, t)
+    }
+
     @private
     @class
     function getType(operation:BinaryOperationType, operandType:Type):Type {

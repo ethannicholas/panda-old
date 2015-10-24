@@ -662,7 +662,7 @@ void* panda$io$Console$stdOut() {
     return (void*) stdout;
 }
 
-short panda$io$FileInputStream$readInt8_$NativePointer_$RInt16(void* handle) {
+short panda$io$FileInputStream$read_$NativePointer_$RInt16(void* handle) {
     unsigned char b;
     if (fread(&b, 1, 1, (FILE*) handle) == 1)
         return b;
