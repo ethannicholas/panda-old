@@ -506,7 +506,36 @@ class IRGenerator {
                         i.position, i.value, IntType.INT64, false)
             }
         }
-        return UnaryOperation(u.position, u.operation, operand)
+        def operator:String
+        switch u.operation {
+            case UnaryOperationType.MINUS: {
+                operator := "-"
+                if operand.type.isPrimitive | operand.type.isWrapper {
+                    def type := operand.type.convert()->PrimitiveType
+                    if type.isNumber {
+                        return UnaryOperation(u.position, u.operation, 
+                                operand.implicitCast(context, type))
+                    }
+                }
+            }
+            case UnaryOperationType.NOT: {
+                return UnaryOperation(u.position, u.operation, 
+                                operand.implicitCast(context, BitType.BIT))
+            }
+            case UnaryOperationType.BITWISE_NOT: {
+                operator := "!!"
+                if operand.type.isPrimitive | operand.type.isWrapper {
+                    def type := operand.type.convert()->PrimitiveType
+                    if type.isInteger {
+                        return UnaryOperation(u.position, u.operation, 
+                                operand.implicitCast(context, type))
+                    }
+                }
+            }
+            default: unreachable
+        }
+        context.errors.error("unary '\{operator}' cannot operate on " +
+                "'\{operand.type.displayName}'", u.position)
     }
 
     method convertBinaryExpression(b:ASTBinaryExpression):Value? {
