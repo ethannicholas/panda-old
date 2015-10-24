@@ -1,9 +1,11 @@
 package org.pandalanguage.pandac.types
 
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.compiler.CompilerException
 uses org.pandalanguage.pandac.compiler.ErrorReporter
 uses org.pandalanguage.pandac.parser.PandaParser
+uses org.pandalanguage.pandac.tree.BinaryOperation
 uses org.pandalanguage.pandac.tree.Position
 
 class FatalErrorReporter : ErrorReporter {
@@ -178,10 +180,37 @@ class Type : Immutable {
             type2 := type2.unwrapNullable
             nullable := true
         }
-        if type1 = RealLiteralType.REAL_LITERAL
+        if type1 = RealLiteralType.REAL_LITERAL {
+            if type2 = RealLiteralType.REAL_LITERAL
+                return RealLiteralType.REAL_LITERAL
+            if type2.isWrapper | type2.isPrimitive {
+                def prim := type2.convert()->PrimitiveType
+                if prim.isNumber() & prim.size <= 4
+                    return RealLiteralType.REAL_LITERAL
+            }
             type1 := RealType.REAL32
-        if type2 = RealLiteralType.REAL_LITERAL
+        }
+        if type2 = RealLiteralType.REAL_LITERAL {
+            if type1 = RealLiteralType.REAL_LITERAL
+                return RealLiteralType.REAL_LITERAL
+            if type1.isWrapper | type1.isPrimitive {
+                def prim := type1.convert()->PrimitiveType
+                if prim.isNumber() & prim.size <= 4
+                    return RealLiteralType.REAL_LITERAL
+            }
             type2 := RealType.REAL32
+        }
+        if (type1.isWrapper | type1.isPrimitive) & 
+                (type2.isWrapper | type2.isPrimitive) {
+            def prim1 := type1.convert()->PrimitiveType
+            def prim2 := type2.convert()->PrimitiveType
+            if prim1.isNumber & prim2.isNumber {
+                return BinaryOperation.mathOperandType(context, 
+                        Dummy(Position.INTERNAL, prim1),
+                        Dummy(Position.INTERNAL, prim2),
+                        true)
+            }
+        }
         def ancestors1 := Array<Type>()
         var test1:Type? := type1.convert()->ClassType
         while test1 != null {

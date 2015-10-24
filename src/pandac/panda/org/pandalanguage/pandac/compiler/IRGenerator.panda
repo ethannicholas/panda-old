@@ -358,8 +358,10 @@ class IRGenerator {
 
     method convertClassLiteral(c:ASTClassLiteral):Value? {
         def type := resolve(c.type)
-        if type != null
+        if type != null {
+            context.getStub(type.convert()->ClassType)
             return ClassLiteral(c.position, type)
+        }
         return null
     }
 
@@ -2545,10 +2547,17 @@ class IRGenerator {
         else
             value := null
         def names := Array<String>()
-        def types := Array<ASTType?>()
+        def types := Array<Type?>()
         for p in l.parameters {
             names.add(p.identifier)
-            types.add(p.type)
+            if p.type != null {
+                def resolved := resolve(p.type)
+                if resolved = null
+                    return null
+                types.add(resolved)
+            }
+            else
+                types.add(null)
         }
         return UnresolvedLambda(context, l.position, names, types, l.value,
                 value)
@@ -2781,7 +2790,8 @@ class IRGenerator {
                         if f.initialValue != null {
                             var initialValue := initializers[f.initialValue]
                             if initialValue = null {
-                                initialValue := resolve(f.initialValue)
+                                initialValue := convertExpression(
+                                        f.initialValue)
                                 initializers[f.initialValue] := initialValue
                             }
                             if initialValue != null {
@@ -2789,6 +2799,9 @@ class IRGenerator {
                                     var reused := reusedTuples[initialValue]
                                     def reference:Value
                                     if reused = null {
+                                        def resolved := resolve(initialValue)
+                                        if resolved = null
+                                            break
                                         reused := ReusedValueDefinition(
                                                 initialValue)
                                         reusedTuples[initialValue] := reused
@@ -2883,12 +2896,14 @@ class IRGenerator {
                     f.owner, false, false, context.currentMethod)
             context.symbolTable.add(selfParam)
         }
-        def expr := resolve(f.initialValue->ASTExpression)
+        def expr := convertExpression(f.initialValue->ASTExpression)
         context.popSymbolTable()
         context.currentClass := old
         if expr != null {
             if expr.checkValid(context) {
-                def type := expr.preferredVariableType(context)
+                def immutable := f.varType = VariableType.CONSTANT | 
+                        f.owner.isImmutable(context)
+                def type := expr.preferredVariableType(context, immutable)
                 if f.tuplePosition = null
                     f.type := type
                 else {

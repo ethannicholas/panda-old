@@ -7,6 +7,8 @@ uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.RealLiteralType
+uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
@@ -26,19 +28,24 @@ class UnresolvedArray : UnresolvedValue {
     }
 
     @class
-    method getValue(context:Context, position:Position, 
-    		values:ListView<Value>):Value? {
+    function getElementType(context:Context, values:ListView<Value>, 
+            variableType:Bit, preferImmutable:Bit):Type? {
+        def getType:(Value)=>(Type)
+        if variableType
+            getType := v => v.preferredVariableType(context, preferImmutable)
+        else
+            getType := v => v.preferredType(context, preferImmutable)
         var elementType:Type
         if values.length = 0
-        	elementType := NullableType.ANY
+            elementType := NullableType.ANY
         else {
             if values[0].isValid {
-            	elementType := values[0].preferredType(context)
-            	for i in 1 .. values.length {
+                elementType := getType(values[0])
+                for i in 1 .. values.length {
                     def v := values[i]
                     if v.isValid {
-            		    elementType := Type.union(context, elementType, 
-                                v.preferredType(context))
+                        elementType := Type.union(context, elementType, 
+                                getType(v))
                     }
                     else
                         return null
@@ -51,9 +58,20 @@ class UnresolvedArray : UnresolvedValue {
             elementType := CharType.CHAR
         else if elementType = NullType.NULL
             elementType := NullableType.ANY
+        else if elementType = RealLiteralType.REAL_LITERAL
+            elementType := RealType.REAL64
+        return elementType
+    }
+
+    @class
+    method getValue(context:Context, position:Position, 
+    		values:ListView<Value>):Value? {
+        def elementType:Type? := getElementType(context, values, false, false)
+        if elementType = null
+            return null
         def typeList := Array<Type>()
         typeList.add(elementType)
-        def type := GenericType(ClassType.ARRAY, typeList)
+        def type := context.resolveType(GenericType(ClassType.ARRAY, typeList).name)->GenericType
         def casted := Array<Value>()
         for v in values
             casted.add(v.implicitCast(context, elementType))
@@ -74,6 +92,31 @@ class UnresolvedArray : UnresolvedValue {
                 return true
         }
         return false
+    }
+
+    @override
+    method preferredType(context:Context, preferImmutable:Bit):Type {
+        def elementType:Type? := getElementType(context, values, false,
+                preferImmutable)
+        if elementType = null
+            return ClassType.OBJECT
+        if preferImmutable & elementType.isImmutable(context)
+            return context.resolveType(GenericType(ClassType.IMMUTABLE_ARRAY, [elementType]).name)
+        else
+            return context.resolveType(GenericType(ClassType.ARRAY, [elementType]).name)
+    }
+
+    @override
+    method preferredVariableType(context:Context, preferImmutable:Bit):Type {
+        var elementType:Type? := getElementType(context, values, true,
+                preferImmutable)
+        if elementType = null
+            return ClassType.OBJECT
+        elementType := elementType.preferredVariableType()
+        if preferImmutable & elementType.isImmutable(context)
+            return context.resolveType(GenericType(ClassType.IMMUTABLE_ARRAY, [elementType]).name)
+        else
+            return context.resolveType(GenericType(ClassType.ARRAY, [elementType]).name)
     }
 
     @override
