@@ -170,6 +170,10 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def writtenTypes := HashSet<String>()
 
+    def tryStack := Stack<Try>()
+
+    def landingPads := HashMap<Try, String>()
+
     init(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         def errors := FatalErrorReporter()
@@ -480,11 +484,24 @@ class LLVMCodeGenerator (CodeGenerator) {
     method call(invocation:String, result:String?, comment:String?) {
         if result != null
             body.write(result + " = ")
-        body.write("call " + invocation)
-        if debug & comment != null
-            body.writeLine("; call: " + comment.replace("\n", "\n; (call cont) "))
-        else
-            body.writeLine()
+        if tryStack.length > 0 {
+            var success := createLabel()
+            var fail := landingPads[tryStack.peek()]
+            if fail = null {
+                fail := createLabel()
+                landingPads[tryStack.peek()] := fail
+            }
+            body.writeLine("invoke " + invocation + " to label %" + success + 
+                    " unwind label %" + fail)
+            createBlock(success, "invoke success")
+        }
+        else {
+            body.write("call " + invocation)
+            if debug & comment != null
+                body.writeLine("; call: " + comment.replace("\n", "\n; (call cont) "))
+            else
+                body.writeLine()
+        }
     }
 
     @protected
@@ -1846,8 +1863,111 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method generateTryCode(t:Try) {
+        def exitLabel := createLabel()
+        tryStack.push(t)
         generateStatementCode(t.statement)
+        tryStack.pop()
+        if !endsInBranch(t.statement)
+            body.writeLine("br label %" + exitLabel)
+        def classType := getLLVMType(ClassType.CLASS)
+        def objectType := getLLVMType(ClassType.OBJECT)
+        def errorType := getLLVMType(ClassType.ERROR)
+        def lpLabel := landingPads[t]
+        def catchLabels := HashMap<Catch, String>()
+        def catchTestLabels := HashMap<Catch, String>()
+        if lpLabel != null {
+            -- set up landing pad
+            createBlock(lpLabel, "landing pad")
+            def landingPad := getTempVariable()
+            body.writeLine(landingPad + 
+                    " = landingpad { i8*, i32 } personality i8* bitcast " +
+                    "(i32 (...)* @pandaPersonality to i8*)")
+            body.level += 1
+            for c in t.catches {
+                catchTestLabels[c] := createLabel()
+                def catchClass := getStub(c.error.type->ClassType)
+                def cc := getClassConstant(catchClass)
+                body.writeLine("catch i8* bitcast (" + cc.type + 
+                        "* @" + cc.name + " to i8*)")
+            }
+            body.level -= 1
+            
+            -- get exception
+            def nativeException := getTempVariable()
+            body.writeLine(nativeException + 
+                    " = extractvalue { i8*, i32 } " + landingPad + 
+                    ", 0")
+            def error := getTempVariable()
+            body.writeLine(error + 
+                    " = call " + errorType + " @pandaCatch(i8* " + 
+                    nativeException + ")")
+            def errorObject := getTempVariable()
+            body.writeLine(errorObject + " = bitcast " + errorType + 
+                    " " + error + " to " + objectType)
+
+            -- run through each catch type, checking to see if we have the right
+            -- kind of variable
+            def resumeLabel := createLabel()
+            var first := true
+            for (i, c) in t.catches.enumeration() {
+                if first {
+                    if debug {
+                        body.writeLine("; catch test for " + 
+                                c.error.type.name)
+                    }
+                }
+                else {
+                    createBlock(catchTestLabels[c]->String,
+                            "catch test for " + c.error.type.name)
+                }
+                first := false
+                def catchLabel := createLabel()
+                catchLabels[c] := catchLabel
+                def catchClass := getStub(c.error.type->ClassType)
+                def catchClassConstant := getClassConstant(catchClass)
+                def test := getTempVariable()
+                body.writeLine(test + 
+                        " = call i1 " +
+                        "@panda$core$Panda$instanceOf(" + 
+                        objectType + " " + errorObject + ", " + classType + 
+                        " bitcast(" + catchClassConstant.type + "* @" + 
+                        catchClassConstant.name + " to " + classType + 
+                        "), i1 0)")
+                def nextLabel:String
+                if i < t.catches.length - 1
+                    nextLabel := catchTestLabels[t.catches[i + 1]]
+                else
+                    nextLabel := resumeLabel
+                -- either branch to the catch for this type or to the next
+                -- test
+                body.writeLine("br i1 " + test + ", label %" + 
+                        catchLabel + ", label %" + nextLabel)
+            }
+            -- handle no match case
+            createBlock(resumeLabel, "no match, re-throw")
+            body.writeLine("resume { i8*, i32 } " + landingPad)
+            
+            -- write actual catch blocks
+            for c in t.catches {
+                createBlock(catchLabels[c]->String, "catch " + 
+                        c.error.type.name)
+                -- cast error to the right type and store it in its
+                -- respective variable
+                def cast := getTempVariable()
+                body.writeLine(cast + " = bitcast " + errorType +
+                        " " + error + " to " + 
+                        getLLVMType(c.error.type))
+                body.writeLine("store " + getLLVMType(c.error.type) + 
+                        " " + cast + ", " + getLLVMType(c.error.type) + 
+                        "* %" + getName(c.error))
+                generateStatementCode(c.statement)
+                if !endsInBranch(c.statement)
+                    body.writeLine("br label %" + exitLabel)
+            }
+        }
+        createBlock(exitLabel, "after try")
     }
+
 
     @protected
     method generateThrowCode(t:Throw) {
@@ -2147,6 +2267,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         body.writeLine("declare {i64, i1} @llvm.umul.with.overflow.i64(i64 %a, i64 %b)")
 
         body.writeLine("declare void @pandaThrow(\{getLLVMType(ClassType.ERROR)})")
+        body.writeLine("declare \{getLLVMType(ClassType.ERROR)} @pandaCatch(i8*)")
+        body.writeLine("declare i32 @pandaPersonality(...)")
         body.writeLine("declare void @llvm.trap() noreturn nounwind")
         body.writeLine("declare void @pandaCheckSignCasti8(i8)")
         body.writeLine("declare void @pandaCheckSignCasti16(i16)")
