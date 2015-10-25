@@ -54,7 +54,7 @@ public class PandaCore {
     }
     
     public static java.lang.String toJavaString(panda.core.String string) {
-        int length = string.length_$Rpanda$core$Int32();
+        int length = string.get_length_$Rpanda$core$Int32();
         char[] chars = new char[length];
         for (int i = 0; i < length; i++)
             chars[i] = string.$ARR_Int32_$Rpanda$core$Char(i);

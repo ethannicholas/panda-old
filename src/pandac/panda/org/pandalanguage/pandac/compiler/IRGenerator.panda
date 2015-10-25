@@ -99,6 +99,7 @@ uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.PrimitiveArrayCopy
 uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexAssignment
 uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexValue
+uses org.pandalanguage.pandac.tree.PropertyGet
 uses org.pandalanguage.pandac.tree.RealLiteral
 uses org.pandalanguage.pandac.tree.Return
 uses org.pandalanguage.pandac.tree.ReusedValue
@@ -192,6 +193,8 @@ class IRGenerator {
     method createFieldReference(position:Position, var contextValue:Value, 
             f:FieldNode, allowNoArgFunctions:Bit):Value {
         inferFieldType(f)
+        if f.varType = VariableType.PROPERTY
+            return PropertyGet(context, position, contextValue, f)
         if allowNoArgFunctions {
             def result := context.testCall(position, contextValue, f.name, 
                     Array<Value>())
@@ -298,7 +301,7 @@ class IRGenerator {
         def type := target.type.unwrapNullable
         if type-!>MethodType {
             context.errors.error("expected a method, but found " +
-                    "'\{target.type.displayName}:\{target.class.name}'", target.position)
+                    "'\{target.type.displayName}'", target.position)
             return null
         }
         def unwrapped := target.implicitCast(context, type)
@@ -683,15 +686,15 @@ class IRGenerator {
                     context.errors.error("cannot reference class field " +
                             "'\{f}' from an instance context", position)
                 }
-                return FieldReference(position, 
-                            ClassLiteral(position, f.owner), f)
+                return createFieldReference(position, 
+                        ClassLiteral(position, f.owner), f, false)
             }
             else {
                 if target = null {
                     if context.isInstance {
-                        return FieldReference(position, 
+                        return createFieldReference(position, 
                                 implicitSelf(position).implicitCast(context, 
-                                    f.owner), f)
+                                    f.owner), f, false)
                     }
                     else {
                         context.errors.error("cannot reference instance " +
@@ -700,8 +703,8 @@ class IRGenerator {
                         return null
                     }
                 }
-                return FieldReference(position, target.implicitCast(context, 
-                        f.owner), f)
+                return createFieldReference(position, 
+                        target.implicitCast(context, f.owner), f, false)
             }
         }
         if s-?>Methods {
@@ -2097,6 +2100,13 @@ class IRGenerator {
                     right.position)
             return null
         }
+        else if left-?>PropertyGet {
+            def p := left->PropertyGet
+            constant SET_PATTERN := "set_{}"
+            def setName := String.format(SET_PATTERN, p.field.name)
+            return ValueStatement(context.call(p.position, p.object, setName, 
+                    [right], null, true))
+        }
 
         var resolvedLeft := resolve(left)
         if resolvedLeft = null
@@ -2190,24 +2200,6 @@ class IRGenerator {
                         array, index, cast)
             }
         }
--*
-        else if left-?>PossibleIndexedAssignment {
-            var pia := left->PossibleIndexedAssignment
-            var params := [pia.index, right]
-            var call := callAssignmentMethod(pia.context, "[]", params)
-            if call != null
-                currentNode.add(call)
-            else {
-                -- FIXME use map
-                var types := PrimitiveArray<String>()
-                for p in params
-                    types.append(p.type.displayName)
-                throw CompilerException("'\{pia.context.type.displayName}' does " + 
-                        "not define the indexed assignment ([]:=) operator " +
-                        "for \{types}", pia.position)
-            }
-        }
-*-
         else if left-?>MethodCall {
             -- assigning to a method call. We need to look for a corresponding
             -- assignment method / field.
@@ -3041,92 +3033,6 @@ class IRGenerator {
         }
     }
 
-    @pre(f.varType = VariableType.PROPERTY)
-    @pre(f.name.endsWith("$PROPERTY"))
-    function needsGetter(f:FieldNode, cl:ClassStub):Bit {
-        def name := f.name[0 .. f.name.length - "$PROPERTY".length]
-        for m in cl.methods {
-            if m.name = name & m.methodType = MethodNodeType.FUNCTION &
-                    m.parameters.length = 0
-                return false
-        }
-        return true
-    }
-
-    @pre(f.varType = VariableType.PROPERTY)
-    @pre(f.name.endsWith("$PROPERTY"))
-    function needsSetter(f:FieldNode, cl:ClassStub):Bit {
-        if f.annotations.isReadOnly
-            return false
-        def name := f.name[0 .. f.name.length - "$PROPERTY".length] + ":="
-        for m in cl.methods {
-            if m.name = name & m.methodType = MethodNodeType.METHOD &
-                    m.parameters.length = 1
-                return false
-        }
-        return true
-    }
-
-    method createProperties(cl:ClassStub) {
-        for f in cl.fields {
-            if f.varType = VariableType.PROPERTY {
-                inferFieldType(f)
-                context.symbolTables.remove(cl)
-                cl.symbols.remove(f.name)
-                def name := f.name[0 .. f.name.length - "$PROPERTY".length]
-                def field := FieldNode(f.position, cl.type, "_" + 
-                        name, f.annotations, VariableType.VAR, f.type, 
-                        f.initialValue, f.tuplePosition)
-                StubGenerator.addSymbol(field, field.position, cl.symbols, 
-                        context.errors)
-
-                if needsGetter(f, cl) {
-                    def getterStatements := Array<ASTStatement>()
-                    getterStatements.add(ASTReturn(f.position, 
-                            ASTIdentifier(f.position, field.name)))
-                    def getterBody := ASTBlock(f.position, 
-                            getterStatements)
-                    def getter := MethodStub(f.position, name, 
-                            Annotations(f.position), 
-                            MethodNodeType.FUNCTION, 
-                            Array<FormalParameter>(), f.type, 
-                            getterBody, cl.type)
-                    StubGenerator.addSymbol(getter, cl.symbols, 
-                            context.errors)
-                }
-
-                if needsSetter(f, cl) {
-                    def setterStatements := Array<ASTStatement>()
-                    def parameters := Array<FormalParameter>()
-                    def parameter := FormalParameter(f.position, "value", 
-                            f.type, false, false)
-                    parameters.add(parameter)
-                    def lvalues := Array<ASTExpression>()
-                    lvalues.add(ASTIdentifier(f.position, field.name))
-                    setterStatements.add(ASTAssignment(lvalues, null, 
-                            ASTIdentifier(f.position, parameter.name)))
-                    def setterBody := ASTBlock(f.position, 
-                            setterStatements)
-                    def annotationTypes := Array<AnnotationType>()
-                    annotationTypes.add(AnnotationType.SELF)
-                    def setterAnnotations := Annotations(f.position, 
-                            annotationTypes)
-                    def setter := MethodStub(f.position, 
-                            name + ":=", setterAnnotations, 
-                            MethodNodeType.METHOD, parameters, 
-                            VoidType.VOID, setterBody, cl.type)
-                    StubGenerator.addSymbol(setter, cl.symbols, 
-                            context.errors)
-                }
-            }
-        }
-    }
-
-    method createProperties() {
-        for cl in context.classes.values
-            createProperties(cl)
-    }
-
     @class
     function getThreadLocalInitializerName(f:FieldNode):String {
         return "$init\{f.name}"
@@ -3164,7 +3070,6 @@ class IRGenerator {
         do {
             madeProgress := false
             createAllStubs()
-            createProperties()
             createThreadLocalInitializers()
             def filtered := context.classes.values.filter(cl => !cl.isExternal & 
                     !classes.contains(cl.name))

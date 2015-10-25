@@ -515,10 +515,10 @@ void panda$core$System$execStream(
     FILE* inHandle = (FILE*) inHandleArg;
     FILE* outHandle = (FILE*) outHandleArg;
     char* path = pandaGetString(program);
-    panda$collections$CollectionView$LTpanda$core$String$GT$length_TYPE* length =
+    panda$collections$CollectionView$LTpanda$core$String$GT$get_length_TYPE* length =
             pandaGetInterfaceMethod((panda$core$Object*) pandaArgs, 
                     &panda$collections$CollectionView$LTpanda$core$String$GT_class, 
-                    panda$collections$CollectionView$LTpanda$core$String$GT$length_INDEX);
+                    panda$collections$CollectionView$LTpanda$core$String$GT$get_length_INDEX);
     panda$collections$ListView$LTpanda$core$String$GT$$ARR_TYPE* subscript =
             pandaGetInterfaceMethod((panda$core$Object*) pandaArgs, 
                     &panda$collections$ListView$LTpanda$core$String$GT_class, 

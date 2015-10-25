@@ -1,14 +1,17 @@
 package org.pandalanguage.pandac.tree
 
+uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.types.Type
 
 ================================================================================
-Represents a reference to a class or instance field.
+Represents a reference to a property.
 ================================================================================
-class FieldReference : Value {
+class PropertyGet : UnresolvedValue {
+    constant METHOD_NAME_PATTERN := "get_{}"
+
     ============================================================================
-    The object in which the field is found (a ClassLiteral for a class field).
+    The object in which the property is found.
     ============================================================================
     def object:Value
 
@@ -18,13 +21,22 @@ class FieldReference : Value {
     def field:FieldNode
 
     @pre(!object.type.isPrimitive)
-    init(position:Position, object:Value, field:FieldNode) {
-        super.init(position, field.type->Type)
-        assert ((field.annotations.isClass | field.annotations.isThread) & 
-                    object->ClassLiteral.value = field.owner) |
-                (object.type = field.owner) : "getting field \{field.owner}:\{field}:\{field.position} from \{object}:\{object.type}"
+    init(context:Context, position:Position, object:Value, field:FieldNode) {
+        super.init(position, "missing getter for \{field.name}", 
+                context.call(position, object,
+                    String.format(METHOD_NAME_PATTERN, field.name), [], 
+                field.type, false))
+        assert field.varType = VariableType.PROPERTY & object.type = field.owner
         self.object := object
         self.field := field
+    }
+
+    @override
+    method reportError(context:Context) {
+        context.errors.error("class '\{field.owner.name}' does not implement " +
+                "a '\{String.format(METHOD_NAME_PATTERN, field.name)}' " +
+                "method to serve as a getter for property '\{field.name}'",
+                position)
     }
 
     @override
