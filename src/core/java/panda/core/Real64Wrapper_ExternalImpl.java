@@ -10,27 +10,27 @@ class Real64Wrapper_ExternalImpl implements panda.core.Real64Wrapper_External {
     }
 
     @Override
-    public boolean isInfinite_$Rpanda$core$Bit(double self) {
+    public boolean get_isInfinite_$Rpanda$core$Bit(double self) {
         return Double.isInfinite(self);
     }
 
     @Override
-    public boolean isNaN_$Rpanda$core$Bit(double self) {
+    public boolean get_isNaN_$Rpanda$core$Bit(double self) {
         return Double.isNaN(self);
     }
 
     @Override
-    public double sqrt_$Rpanda$core$Real64(double self) {
+    public double get_sqrt_$Rpanda$core$Real64(double self) {
         return Math.sqrt(self);
     }
 
     @Override
-    public double sin_$Rpanda$core$Real64(double self) {
+    public double get_sin_$Rpanda$core$Real64(double self) {
         return Math.sin(self);
     }
 
     @Override
-    public double cos_$Rpanda$core$Real64(double self) {
+    public double get_cos_$Rpanda$core$Real64(double self) {
         return Math.cos(self);
     }
 

@@ -53,7 +53,7 @@ static pthread_key_t currentThreadKey;
 
 static Bit debugAllocations = 0;
 
-Int32 panda$core$Object$hash(Object* object) {
+Int32 panda$core$Object$get_hash(Object* object) {
     return (Int32) ((uintptr_t) object); // this will truncate the pointer on
                                          // 64-bit systems, but that's ok
 }
@@ -1034,42 +1034,42 @@ union Real64Int64 {
     Int64 i;
 };
 
-Int32 panda$core$Int8Wrapper$length(Int8 self) {
+Int32 panda$core$Int8Wrapper$get_length(Int8 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$Int16Wrapper$length(Int16 self) {
+Int32 panda$core$Int16Wrapper$get_length(Int16 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$Int32Wrapper$length(Int32 self) {
+Int32 panda$core$Int32Wrapper$get_length(Int32 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$Int64Wrapper$length(Int64 self) {
+Int32 panda$core$Int64Wrapper$get_length(Int64 self) {
     UInt32 high = self >> 32;
     if (high != 0)
         return 32 - __builtin_clz(high);
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt8Wrapper$length(UInt8 self) {
+Int32 panda$core$UInt8Wrapper$get_length(UInt8 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt16Wrapper$length(panda$core$UInt16Wrapper* self) {
-    return 32 - __builtin_clz(self->value);
+Int32 panda$core$UInt16Wrapper$get_length(UInt16 self) {
+    return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt32Wrapper$length(panda$core$UInt32Wrapper* self) {
-    return 32 - __builtin_clz(self->value);
+Int32 panda$core$UInt32Wrapper$get_length(UInt32 self) {
+    return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt64Wrapper$length(panda$core$UInt64Wrapper* self) {
-    UInt32 high = self->value >> 32;
+Int32 panda$core$UInt64Wrapper$get_length(UInt64 self) {
+    UInt32 high = self >> 32;
     if (high != 0)
         return 32 - __builtin_clz(high);
-    return 32 - __builtin_clz(self->value);
+    return 32 - __builtin_clz(self);
 }
 
 Int32 panda$core$Panda$real32Bits(Real32 r) {
@@ -1084,27 +1084,27 @@ Int64 panda$core$Panda$real64Bits(Real64 r) {
     return u.i;
 }
 
-Real32 panda$core$Real32Wrapper$sqrt(Real32 r) {
+Real32 panda$core$Real32Wrapper$get_sqrt(Real32 r) {
     return sqrt(r);
 }
 
-Real32 panda$core$Real32Wrapper$sin(Real32 r) {
+Real32 panda$core$Real32Wrapper$get_sin(Real32 r) {
     return sin(r);
 }
 
-Real32 panda$core$Real32Wrapper$cos(Real32 r) {
+Real32 panda$core$Real32Wrapper$get_cos(Real32 r) {
     return cos(r);
 }
 
-Real64 panda$core$Real64Wrapper$sqrt(Real64 r) {
+Real64 panda$core$Real64Wrapper$get_sqrt(Real64 r) {
     return sqrt(r);
 }
 
-Real64 panda$core$Real64Wrapper$sin(Real64 r) {
+Real64 panda$core$Real64Wrapper$get_sin(Real64 r) {
     return sin(r);
 }
 
-Real64 panda$core$Real64Wrapper$cos(Real64 r) {
+Real64 panda$core$Real64Wrapper$get_cos(Real64 r) {
     return cos(r);
 }
 
@@ -1112,19 +1112,19 @@ Real64 panda$core$Real64Wrapper$atan2(Real64 y, Real64 x) {
     return atan2(y, x);
 }
 
-Bit panda$core$Real32Wrapper$isInfinite(Real32 r) {
+Bit panda$core$Real32Wrapper$get_isInfinite(Real32 r) {
     return isinf(r);
 }
 
-Bit panda$core$Real64Wrapper$isInfinite(Real64 r) {
+Bit panda$core$Real64Wrapper$get_isInfinite(Real64 r) {
     return isinf(r);
 }
 
-Bit panda$core$Real32Wrapper$isNaN(Real32 r) {
+Bit panda$core$Real32Wrapper$get_isNaN(Real32 r) {
     return isnan(r);
 }
 
-Bit panda$core$Real64Wrapper$isNaN(Real64 r) {
+Bit panda$core$Real64Wrapper$get_isNaN(Real64 r) {
     return isnan(r);
 }
 

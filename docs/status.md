@@ -69,22 +69,6 @@ we are building a CFG, performing (very basic) dataflow analysis, and so forth
 (though given the currently-limited applications of this data, there are 
 probably some serious bugs in the existing code).
 
-Compiler Performance
---------------------
-
-Right this second, the compiler is much slower than it should be. There are some
-general performance trouble spots which are certainly affecting this, but the
-major issue is blocked on generics: Array types are all instantiated separately,
-and each of them has a bunch of methods getting compiled for it. Since simply
-parsing the core libraries involves creation of a bunch of array types, this 
-adds up to hundreds of unnecessary method compilations and thousands of lines of
-code just to compile "Hello, World!".
-
-Obviously, this isn't going to remain this way! Once generics are in and I can
-reign in the craziness by reusing existing array implementations internally, the
-time to compile "Hello, World!" should immediately drop back down to a fraction
-of a second.
-
 APIs
 ----
 
@@ -93,42 +77,6 @@ time API, no networking, no arbitrary-precision math, only the most incredibly
 simple of a graphics API, no sound API, and there are a million other things 
 missing. This isn't because those things aren't important; it's simply because I
 am currently the only person working on Panda and it's a very, very big project.
-
-Generics
---------
-
-Generics are the only major missing language feature (as opposed to API) 
-remaining for 1.0, but it's a big one. A lot of the groundwork has been laid, 
-but finishing it up will not be a quick process. Panda's generics are going to 
-be powerful enough to define things like the map and fold function on arrays in 
-a completely generic fashion, so you can call e.g.
-
-    (1 ... 5).map(x => x * 2.5)
-
-and it will sort out that the lambda's type is `(Int)=>(Real)` and that 
-therefore the result of the `map` call must be `Array<Real>`. The proposed
-syntax for the `map` function on `ListView<T>` is:
-
-    function <T2> map(fn:(T)=>(T2)):ListView<T2> {
-        def result := new Array<T2>()
-        for v in self
-            result.append(fn(v))
-        return result
-    }
-
-Of course, you don't actually need to know this; this is just what the 
-`ListView<T>` interface will provide as the default implementation of the 
-function. But hopefully it is instructive to see the syntax.
-
-This is even more complex than it looks, because there are effectively thirteen
-types supported internally by Panda: Int8, Int16, Int32, Int64, UInt8, UInt16,
-UInt32, UInt64, Real32, Real64, Bit, Char, and Object. Naturally, the compiler
-jumps through a lot of hoops to make it look like everything is an Object, but
-internally that isn't the case. This means that this particular `map()` function
-must be instantiated differently for different combinations of types, though
-since all non-primitive Objects will be treated the same, the number of 
-different implementations which actually get instantiated should be small
-compared to the madness that happens with C++ templates.
 
 The "init hole"
 ---------------
@@ -174,7 +122,7 @@ need work:
     quick-and-dirty implementation to begin with, and then I found out that some
     of the things I was doing didn't play right with this particular garbage 
     collector, and then I found some other problems, and... well, you know how 
-    it goes. It's a bit of a mess right now.
+    it goes. It's a bit of a mess (ok, a huge mess) right now.
 2. The API needs work. Creating new threads feels "heavier" than I would like it
     to; might be worth introducing a keyword or at least some kind of simpler
     syntax to spawn a new thread. There's also no way to select among multiple 
@@ -246,7 +194,7 @@ we really only need one more bit of storage somewhere, so that we can
 distinguish between `null` and non-`null` numbers. Unfortunately the current
 approach is simply to fall all the way back to creating actual `Object` 
 instances. Even more unfortunately, there are a couple of spots where this 
-actually creates major performance concerns: several common `String` operations, 
+actually creates major performance concerns: several common `String` operations
 and byte-by-byte/char-by-char `InputStream` reading both use nullable numbers to
 signal exceptional results, and I'm sure the sheer number of objects we are
 creating is murder.
@@ -331,30 +279,6 @@ Resources
 The compiler will be able to embed files into the executable, sort of like
 embedding resource files into a Java .jar file. (Well, exactly like that, when 
 you're compiling to a .jar file...)
-
-Better Regular Expression Syntax
---------------------------------
-
-Panda sets aside the hash (`#`) character as a special kind of "quote" for what
-are internally known as `plugin` values. The only such plugin currently is
-regular expressions: if the "quoted" value starts ands ends with a slash (`/`),
-the value is treated as a regular expression.
-
-Plugins create a nice way to "gently" introduce experimental new syntax such as
-regular expressions, but I'd like to make regular expressions first-class 
-citizens in Panda source code. This means that you will be able to write:
-
-    def pattern := /\d+/
-
-instead of the current:
-    
-    def pattern := #/\d+/#
-
-The only real difficulty here is that regular expressions have their own 
-grammar, with their own tokens, which basically requires me to be able to 
-"switch modes" during lexical analysis in order to process a different grammar. 
-The good news is that it shouldn't be all that hard to do, and then we've got 
-the general ability to embed other languages within Panda without too much fuss.
 
 Compile-Time Safety Errors
 --------------------------
@@ -519,12 +443,6 @@ Threading
 
 As discussed above, threading is a major candidate for breaking changes.
 
-Removing '`new`'
-----------------
-
-There is no technical reason to require the `new` keyword when creating objects.
-I'm strongly considering removing it.
-
 `switch`
 --------
 
@@ -600,9 +518,7 @@ Here are my major concerns:
 1. Exception handling is unbelievably slow, particularly when you consider the
    time it takes to assemble stack traces. It's not a big deal when you only
    have exceptions for truly exceptional situations, but when it crops up during
-   ordinary day-to-day usage of a program (say, hypothetically, during
-   speculative compilation of a structure) it is a significant performance 
-   drain.
+   ordinary day-to-day usage of a program it is a significant performance drain.
 2. finally is, in general, a terrible way to handle object cleanup. With a 
    better cleanup system as discussed above, the use cases for finally drop
    dramatically... I'm tempted to just leave it out and see how much people

@@ -159,6 +159,10 @@ class IRGenerator {
 
     constant UNESCAPED_BRACE := /(?<!\\)\{/
 
+    constant GET_PATTERN := "get_{}"
+
+    constant SET_PATTERN := "set_{}"
+
     var context:Context
 
     def currentlyInferring := HashSet<FieldNode>()
@@ -191,28 +195,16 @@ class IRGenerator {
 
     @private
     method createFieldReference(position:Position, var contextValue:Value, 
-            f:FieldNode, allowNoArgFunctions:Bit):Value {
+            f:FieldNode):Value {
         inferFieldType(f)
         if f.varType = VariableType.PROPERTY
             return PropertyGet(context, position, contextValue, f)
-        if allowNoArgFunctions {
-            def result := context.testCall(position, contextValue, f.name, 
-                    Array<Value>())
-            if result != null & result->MethodCall.methodStub.methodType =
-                    MethodNodeType.FUNCTION
-                return result
-        }
         def result := FieldReference(position, contextValue, f)
         return result
     }
 
     method getMember(position:Position, var contextValue:Value,
             var name:String):Value? {
-        return getMember(position, contextValue, name, true)
-    }
-
-    method getMember(position:Position, var contextValue:Value,
-            var name:String, allowNoArgFunctions:Bit):Value? {
         if name = "class"
             name := "$class"
         if contextValue-?>ClassLiteral {
@@ -687,14 +679,14 @@ class IRGenerator {
                             "'\{f}' from an instance context", position)
                 }
                 return createFieldReference(position, 
-                        ClassLiteral(position, f.owner), f, false)
+                        ClassLiteral(position, f.owner), f)
             }
             else {
                 if target = null {
                     if context.isInstance {
                         return createFieldReference(position, 
                                 implicitSelf(position).implicitCast(context, 
-                                    f.owner), f, false)
+                                    f.owner), f)
                     }
                     else {
                         context.errors.error("cannot reference instance " +
@@ -704,7 +696,7 @@ class IRGenerator {
                     }
                 }
                 return createFieldReference(position, 
-                        target.implicitCast(context, f.owner), f, false)
+                        target.implicitCast(context, f.owner), f)
             }
         }
         if s-?>Methods {
@@ -720,11 +712,6 @@ class IRGenerator {
                 }
             }
             if methods.length = 1 {
-                if methods[0].methodType = MethodNodeType.FUNCTION &
-                        methods[0].parameters.length = 0 {
-                    return context.call(position, target, methods[0], 
-                            Array<Value>())
-                }
                 return MethodReference(context, position, target, 
                         methods[0])
             }
@@ -769,7 +756,7 @@ class IRGenerator {
 
     method makeClosure(ref:MethodReference):Value {
         def parameters := Array<ASTParameter>()
-        assert ref.target-?>ClassLiteral : "making closure of \{ref.target}:\{ref.target.class} at \{ref.position}"
+        assert ref.target-?>ClassLiteral : "making closure of instance method \{ref.methodStub} at \{ref.position}"
         for p in ref.methodStub.parameters {
             parameters.add(ASTParameter(p.position, p.name, 
                     toASTType(p.position, p.type), p.isVar, p.isVarArg))
@@ -1724,8 +1711,7 @@ class IRGenerator {
         context.localVariables.add(lengthVar)
         statements.add(ValueStatement(VariableAssignment(f.position, 
                 lengthVar, getMember(f.position, array.createReference(), 
-                    "length")->Value, 
-                true)))
+                    "$length")->Value)))
         def typeParams := Array<Type>()
         typeParams.add(elementType)
         def bodyStatements := Array<Statement>()
@@ -2102,7 +2088,6 @@ class IRGenerator {
         }
         else if left-?>PropertyGet {
             def p := left->PropertyGet
-            constant SET_PATTERN := "set_{}"
             def setName := String.format(SET_PATTERN, p.field.name)
             return ValueStatement(context.call(p.position, p.object, setName, 
                     [right], null, true))
@@ -2871,9 +2856,79 @@ class IRGenerator {
         context.pushSymbolTable(context.getSymbolTable(cl))
     }
 
+    method checkProperties(cl:ClassStub) {
+        def properties := cl.fields.filter(
+                f => f.varType = VariableType.PROPERTY)
+        def methods := cl.methods
+        for p in properties {
+            def getName := String.format(GET_PATTERN, p.name)
+            def getters := methods.filter(m => m.name = getName)
+            if getters.length > 1 {
+                def error := MutableString("expected only one '\{getName}' " +
+                        "method, but found:")
+                for g in getters
+                    error.append("\n    \{g}")
+                context.errors.error(error.convert(), cl.position)
+            }
+            if getters.length = 1 {
+                def getter := getters.iterator().next()
+                if getter.methodType != MethodNodeType.FUNCTION {
+                    context.errors.error("property getters must be functions",
+                            getter.position)
+                }
+                if getter.parameters.length > 0 {
+                    context.errors.error("property getters must take zero " +
+                            "parameters", getter.position)
+                }
+                if getter.returnType != p.type {
+                    context.errors.error("property '\{p.name}' has type " +
+                            "'\{p.type.displayName}', but " +
+                            "'\{getter.name}' returns " +
+                            "'\{getter.returnType.displayName}'", 
+                            getter.position)
+                }
+            }
+            def setName := String.format(SET_PATTERN, p.name)
+            def setters := methods.filter(m => m.name = setName)
+            if setters.length > 1 {
+                def error := MutableString("expected only one '\{setName}' " +
+                        "method, but found:")
+                for s in setters
+                    error.append("\n    \{s}")
+                context.errors.error(error.convert(), cl.position)
+            }
+            if setters.length = 1 {
+                def setter := setters.iterator().next()
+                if setter.parameters.length = 1 {
+                    def type := setter.parameters[0].type
+                    if type != p.type {
+                        context.errors.error("property '\{p.name}' has type " +
+                            "'\{p.type.displayName}', but " +
+                            "'\{setter.name}' accepts '\{type.displayName}'", 
+                            setter.position)
+                    }
+                }
+                else {
+                    context.errors.error("property setters must take one " +
+                            "parameter", setter.position)
+                }
+                if setter.returnType != VoidType.VOID {
+                    context.errors.error("property setters may not have a " +
+                            "return type", setter.position)
+
+                }
+            }
+            if getters.length = 0 & setters.length = 0 {
+                context.errors.error("property '\{p.name}' has neither a " +
+                        "getter nor a setter", p.position)
+            }
+        }
+    }
+
     method convertClass(cl:ClassStub):ClassNode {
         context.methods.clear()
         pushSymbols(cl)
+        checkProperties(cl)
         for f in cl.fields
             inferFieldType(f)
         for m in cl.methods.filter(m => m.body != null) {
@@ -2884,7 +2939,7 @@ class IRGenerator {
         context.popSymbolTable()
         if !cl.isInterface & !cl.annotations.isAbstract {
             for m in cl.virtualMethods(context) {
-                if m.annotations.isAbstract() {
+                if m.annotations.isAbstract {
                      context.errors.error("non-abstract class '\{cl.name}' " +
                             "does not implement abstract \{m}", cl.position)
                 }
