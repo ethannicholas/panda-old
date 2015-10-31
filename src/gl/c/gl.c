@@ -259,7 +259,6 @@ void pandaPremultiply(UInt8* pixels, int pitch, int width, int height) {
 panda$gl$images$Image* panda$gl$images$Image$load(panda$io$File* file) {
     SDL_Surface* sdlSurface = IMG_Load(pandaGetString(file->path));
     panda$gl$images$Image* result = pandaNew(panda$gl$images$Image);
-    printf("assuming ARGB32 image for now - premultiplying\n");
     pandaPremultiply(sdlSurface->pixels, sdlSurface->pitch, sdlSurface->w,
             sdlSurface->h);
     cairo_surface_t* cairoSurface = cairo_image_surface_create_for_data(
@@ -486,8 +485,8 @@ panda$gl$events$Event* pandaCreateEvent(SDL_Event* event) {
     }
 }
 
-void panda$gl$Window$startRenderLoop(panda$gl$Window* self, void** m) {
-/*    panda$gl$Renderer$present_TYPE* present =
+/*void panda$gl$Window$startRenderLoop(panda$gl$Window* self, void** m) {
+    panda$gl$Renderer$present_TYPE* present =
             (panda$gl$Renderer$present_TYPE*) 
                 *(&self->renderer->cl->vtable + 
                     panda$gl$Renderer$present_INDEX);    
@@ -516,5 +515,5 @@ void panda$gl$Window$startRenderLoop(panda$gl$Window* self, void** m) {
             frameTicks = newTicks - totalTicks;
         }
         totalTicks = newTicks;
-    }*/
-}
+    }
+}*/

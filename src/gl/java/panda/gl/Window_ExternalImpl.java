@@ -147,15 +147,6 @@ class Window_ExternalImpl implements panda.gl.Window_External {
     }
 
     @Override
-    public void startRenderLoop_$LPpanda$core$Real64$RP$EQ$AM$GT$LP$RP(panda.gl.Window window, 
-            panda.methods.panda$core$Real64 m) {
-        for (;;) {
-            m.raw(16.66);
-            panda.threads.Thread.sleep_class_Int32(1000 / 60);
-        }
-    }
-
-    @Override
     public void close(panda.gl.Window self) {
     }
 }
