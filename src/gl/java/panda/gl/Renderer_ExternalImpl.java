@@ -30,12 +30,12 @@ class Renderer_ExternalImpl implements panda.gl.Renderer_External {
     }
 
     @Override
-    public void setPaint(panda.gl.Renderer renderer, panda.gl.Paint paint) {
+    public void setPaint_panda$gl$Paint(panda.gl.Renderer renderer, panda.gl.Paint paint) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void setTransform(panda.gl.Renderer renderer, panda.gl.Transform transform) {
+    public void setTransform_panda$gl$Transform(panda.gl.Renderer renderer, panda.gl.Transform transform) {
         throw new UnsupportedOperationException();
     }
 
@@ -48,22 +48,22 @@ class Renderer_ExternalImpl implements panda.gl.Renderer_External {
     }
 
     @Override
-    public void clip(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
+    public void clip_panda$gl$shapes$Shape(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void fill(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
+    public void fill_panda$gl$shapes$Shape(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void stroke(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
+    public void stroke_panda$gl$shapes$Shape(panda.gl.Renderer renderer, panda.gl.shapes.Shape shape) {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void drawImage(panda.gl.Renderer renderer, 
+    public void drawImage_panda$gl$images$Image_panda$gl$shapes$Rectangle(panda.gl.Renderer renderer, 
             panda.gl.images.Image image,
             panda.gl.shapes.Rectangle dest) {
         throw new UnsupportedOperationException();
@@ -90,7 +90,7 @@ class Renderer_ExternalImpl implements panda.gl.Renderer_External {
         if (lastPresent != 0) {
             int delta = (int) (current - lastPresent);
             if (delta < FRAME_MILLIS)
-                panda.threads.Thread.sleep(FRAME_MILLIS - delta);
+                panda.threads.Thread.sleep_class_Int32(FRAME_MILLIS - delta);
         }
         lastPresent = current;
     }

@@ -21,28 +21,28 @@ void pandaGLInit() {
 panda$gl$events$Event* pandaCreateEvent(SDL_Event* event);
 
 void panda$gl$GLMessageQueue$pumpEvents(panda$gl$GLMessageQueue* self) {
-    panda$threads$MessageQueue$post_TYPE* post =
-            (panda$threads$MessageQueue$post_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$post_INDEX);    
+    panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$post_TYPE* post =
+            (panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$post_TYPE*) 
+                *(&self->cl->vtable + panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$post_INDEX);    
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        post((panda$threads$MessageQueue*) self, 
-                (panda$core$Immutable*) pandaCreateEvent(&event));
+        post((panda$threads$MessageQueue$LTpanda$gl$events$Event$GT*) self, 
+                (panda$gl$events$Event*) pandaCreateEvent(&event));
     }
 }
 
 void panda$gl$GLMessageQueue$waitForEvent(panda$gl$GLMessageQueue* self) {
-    panda$threads$MessageQueue$hasMessage_TYPE* hasMessage =
-            (panda$threads$MessageQueue$hasMessage_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$hasMessage_INDEX);    
-    if (!hasMessage((panda$threads$MessageQueue*) self)) {
-        panda$threads$MessageQueue$post_TYPE* post =
-                (panda$threads$MessageQueue$post_TYPE*) 
-                    *(&self->cl->vtable + panda$threads$MessageQueue$post_INDEX);    
+    panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$hasMessage_TYPE* hasMessage =
+            (panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$hasMessage_TYPE*) 
+                *(&self->cl->vtable + panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$hasMessage_INDEX);    
+    if (!hasMessage((panda$threads$MessageQueue$LTpanda$gl$events$Event$GT*) self)) {
+        panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$post_TYPE* post =
+                (panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$post_TYPE*) 
+                    *(&self->cl->vtable + panda$threads$MessageQueue$LTpanda$gl$events$Event$GT$post_INDEX);    
         SDL_Event event;
         SDL_WaitEvent(&event);
-        post((panda$threads$MessageQueue*) self, 
-                (panda$core$Immutable*) pandaCreateEvent(&event));
+        post((panda$threads$MessageQueue$LTpanda$gl$events$Event$GT*) self, 
+                (panda$gl$events$Event*) pandaCreateEvent(&event));
     }
 }
 
@@ -51,7 +51,7 @@ void panda$gl$GLMessageQueue$waitForEvent_Int32(panda$gl$GLMessageQueue* self,
     panda$gl$GLMessageQueue$waitForEvent(self);
 }
 
-void panda$gl$Window$init(panda$gl$Window* self, String* title, Int32 x, 
+void panda$gl$Window$initialize(panda$gl$Window* self, String* title, Int32 x, 
         Int32 y, Int32 width, Int32 height) {
     pandaGLInit();
     self->native = SDL_CreateWindow(pandaGetString(title), x, y, width, 
@@ -68,7 +68,7 @@ typedef struct NativeRenderer {
 
 panda$gl$Renderer* panda$gl$Window$createRenderer(panda$gl$Window* window) {
     panda$gl$Renderer* result = pandaNew(panda$gl$Renderer);
-    panda$gl$Renderer$new(result);
+    panda$gl$Renderer$init(result);
 
     NativeRenderer* renderer = MALLOC(sizeof(NativeRenderer));
     SDL_Surface* sdlSurface = SDL_CreateRGBSurface(
@@ -155,13 +155,28 @@ void pandaCreatePath(panda$gl$Renderer* renderer,
                 &panda$gl$shapes$Shape_class, 
                 panda$gl$shapes$Shape$path_INDEX);
     panda$gl$Transform$transform_TYPE* transform;
-    panda$gl$shapes$PathSegment$Array* path = getPath(shape);
+    panda$collections$ListView$LTpanda$gl$shapes$PathSegment$GT* path = getPath(shape);
+    panda$collections$CollectionView$LTpanda$gl$shapes$PathSegment$GT$get_length_TYPE* getLength =
+            (panda$collections$CollectionView$LTpanda$gl$shapes$PathSegment$GT$get_length_TYPE*) pandaGetInterfaceMethod(
+                (panda$core$Object*) path,
+                &panda$collections$ListView$LTpanda$gl$shapes$PathSegment$GT_class, 
+                panda$collections$CollectionView$LTpanda$gl$shapes$PathSegment$GT$get_length_INDEX);
+    panda$collections$ListView$LTpanda$gl$shapes$PathSegment$GT$$ARR_TYPE* getIndex =
+            (panda$collections$ListView$LTpanda$gl$shapes$PathSegment$GT$$ARR_TYPE*) pandaGetInterfaceMethod(
+                (panda$core$Object*) path,
+                &panda$collections$ListView$LTpanda$gl$shapes$PathSegment$GT_class, 
+                panda$collections$ListView$LTpanda$gl$shapes$PathSegment$GT$$ARR_INDEX);
+    panda$gl$shapes$PathSegmentType$convert_$RInt32_TYPE* toInt =
+            (panda$gl$shapes$PathSegmentType$convert_$RInt32_TYPE*) 
+                *(&panda$gl$shapes$PathSegmentType_class.vtable + 
+                    panda$gl$shapes$PathSegmentType$convert_$RInt32_INDEX);    
+    int length = getLength((panda$collections$CollectionView$LTpanda$gl$shapes$PathSegment$GT*) path);
     int i;
-    for (i = 0; i < path->$length; i++) {
-        panda$gl$shapes$PathSegment* segment = path->contents[i];
+    for (i = 0; i < length; i++) {
+        panda$gl$shapes$PathSegment* segment = getIndex((panda$collections$ListView$LTpanda$gl$shapes$PathSegment$GT*) path, i);
         double x = segment->position->x;
         double y = segment->position->y;
-        switch (segment->type->value) {
+        switch (toInt(segment->type)) {
             case 0 /* MOVE */:
                 cairo_move_to(context, x, y);
                 break;
@@ -254,19 +269,19 @@ panda$gl$images$Image* panda$gl$images$Image$load(panda$io$File* file) {
             sdlSurface->h,
             sdlSurface->pitch);
     result->native = cairoSurface;
-    result->_width = sdlSurface->w;
-    result->_height = sdlSurface->h;
+    result->width = sdlSurface->w;
+    result->height = sdlSurface->h;
     return result;
 }
 
 void panda$gl$Renderer$drawImage(panda$gl$Renderer* renderer, 
             panda$gl$images$Image* image, panda$gl$shapes$Rectangle* dest) {
     cairo_t* context = ((NativeRenderer*) renderer->native)->context;
-    if (dest->width != image->_width || dest->height != image->_height) {
+    if (dest->width != image->width || dest->height != image->height) {
         cairo_save(context);
         cairo_translate(context, dest->x, dest->y);
-        cairo_scale(context, dest->width / image->_width,
-                dest->height / image->_height);
+        cairo_scale(context, dest->width / image->width,
+                dest->height / image->height);
         cairo_set_source_surface(context, (cairo_surface_t*) image->native, 
                 0, 0);
         cairo_paint(context);
@@ -472,7 +487,7 @@ panda$gl$events$Event* pandaCreateEvent(SDL_Event* event) {
 }
 
 void panda$gl$Window$startRenderLoop(panda$gl$Window* self, void** m) {
-    panda$gl$Renderer$present_TYPE* present =
+/*    panda$gl$Renderer$present_TYPE* present =
             (panda$gl$Renderer$present_TYPE*) 
                 *(&self->renderer->cl->vtable + 
                     panda$gl$Renderer$present_INDEX);    
@@ -501,5 +516,5 @@ void panda$gl$Window$startRenderLoop(panda$gl$Window* self, void** m) {
             frameTicks = newTicks - totalTicks;
         }
         totalTicks = newTicks;
-    }
+    }*/
 }

@@ -38,7 +38,7 @@ class Window_ExternalImpl implements panda.gl.Window_External {
     }
 
     @Override
-    public void init(panda.gl.Window self, panda.core.String title, int x, int y, int width, int height) {
+    public void initialize_panda$core$String_Int32_Int32_Int32_Int32(panda.gl.Window self, panda.core.String title, int x, int y, int width, int height) {
         init();
         final WindowImpl impl = new WindowImpl();
 
@@ -72,62 +72,62 @@ class Window_ExternalImpl implements panda.gl.Window_External {
         frame.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyPressed(java.awt.event.KeyEvent e) {
                 panda.gl.events.KeyEvent event = 
-                        panda.gl.events.KeyEvent.createnew$init(
+                        panda.gl.events.KeyEvent.createnew$init_panda$gl$events$EventType_panda$gl$events$Key_Int16(
                             panda.gl.events.EventType.$KEYDOWN,
                             getKey(e.getKeyCode()),
                             (short) 0);
-                self.$eventQueue.post(event);
+                self.$eventQueue.post_panda$gl$events$Event(event);
             }
 
             public void keyReleased(java.awt.event.KeyEvent e) {
                 panda.gl.events.KeyEvent event = 
-                        panda.gl.events.KeyEvent.createnew$init(
+                        panda.gl.events.KeyEvent.createnew$init_panda$gl$events$EventType_panda$gl$events$Key_Int16(
                             panda.gl.events.EventType.$KEYUP,
                             getKey(e.getKeyCode()),
                             (short) 0);
-                self.$eventQueue.post(event);
+                self.$eventQueue.post_panda$gl$events$Event(event);
             }
         });
 
         frame.addMouseMotionListener(new java.awt.event.MouseMotionListener() {
             public void mouseMoved(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseMotionEvent event = 
-                        panda.gl.events.MouseMotionEvent.createnew$init(
+                        panda.gl.events.MouseMotionEvent.createnew$init_panda$gl$events$EventType_panda$gl$Point(
                             panda.gl.events.EventType.$MOUSEMOTION,
-                            panda.gl.Point.createnew$init(e.getX(),
+                            panda.gl.Point.createnew$init_Real64_Real64(e.getX(),
                                     e.getY()));
-                self.$eventQueue.post(event);
+                self.$eventQueue.post_panda$gl$events$Event(event);
             }
 
             public void mouseDragged(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseMotionEvent event = 
-                        panda.gl.events.MouseMotionEvent.createnew$init(
+                        panda.gl.events.MouseMotionEvent.createnew$init_panda$gl$events$EventType_panda$gl$Point(
                             panda.gl.events.EventType.$MOUSEMOTION,
-                            panda.gl.Point.createnew$init(e.getX(),
+                            panda.gl.Point.createnew$init_Real64_Real64(e.getX(),
                                     e.getY()));
-                self.$eventQueue.post(event);
+                self.$eventQueue.post_panda$gl$events$Event(event);
             }
         });
 
         frame.addMouseListener(new java.awt.event.MouseAdapter() {
             public void mousePressed(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseEvent event = 
-                        panda.gl.events.MouseEvent.createnew$init(
+                        panda.gl.events.MouseEvent.createnew$init_panda$gl$events$EventType_Int8_panda$gl$Point(
                             panda.gl.events.EventType.$MOUSEDOWN,
                             (byte) e.getButton(),
-                            panda.gl.Point.createnew$init(e.getX(),
+                            panda.gl.Point.createnew$init_Real64_Real64(e.getX(),
                                     e.getY()));
-                self.$eventQueue.post(event);
+                self.$eventQueue.post_panda$gl$events$Event(event);
             }
 
             public void mouseReleased(java.awt.event.MouseEvent e) {
                 panda.gl.events.MouseEvent event = 
-                        panda.gl.events.MouseEvent.createnew$init(
+                        panda.gl.events.MouseEvent.createnew$init_panda$gl$events$EventType_Int8_panda$gl$Point(
                             panda.gl.events.EventType.$MOUSEUP,
                             (byte) e.getButton(),
-                            panda.gl.Point.createnew$init(e.getX(),
+                            panda.gl.Point.createnew$init_Real64_Real64(e.getX(),
                                     e.getY()));
-                self.$eventQueue.post(event);
+                self.$eventQueue.post_panda$gl$events$Event(event);
             }
         });
 
@@ -135,29 +135,23 @@ class Window_ExternalImpl implements panda.gl.Window_External {
     }
 
     @Override
-    public panda.gl.Renderer createRenderer(panda.gl.Window self) {
+    public panda.gl.Renderer createRenderer_$Rpanda$gl$Renderer(panda.gl.Window self) {
         panda.gl.Renderer result = panda.gl.Renderer.createnew$init();
         result.$native = new RendererImpl((WindowImpl) self.$native);
         return result;
     }
 
     void init() {
-        panda.gl.events.EventType.$classInit();
-        panda.gl.events.Key.$classInit();
+        panda.gl.events.EventType.$classInit_class();
+        panda.gl.events.Key.$classInit_class();
     }
 
     @Override
-    public void startRenderLoop(panda.gl.Window window, 
-            panda.core.MutableMethod m) {
-        try {
-            for (;;) {
-                if (true)
-                    throw new UnsupportedOperationException();
-//                ((panda.methods.$nullary) m.$rawPtr).method();
-                Thread.sleep(1000 / 60);
-            }
-        }
-        catch (InterruptedException e) {
+    public void startRenderLoop_$LPpanda$core$Real64$RP$EQ$AM$GT$LP$RP(panda.gl.Window window, 
+            panda.methods.panda$core$Real64 m) {
+        for (;;) {
+            m.raw(16.66);
+            panda.threads.Thread.sleep_class_Int32(1000 / 60);
         }
     }
 

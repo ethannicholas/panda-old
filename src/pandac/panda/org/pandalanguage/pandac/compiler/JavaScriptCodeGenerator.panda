@@ -1,0 +1,946 @@
+package org.pandalanguage.pandac.compiler
+
+uses org.pandalanguage.pandac.stubs.ClassStub
+uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.tree.AbstractLoop
+uses org.pandalanguage.pandac.tree.Assert
+uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BinaryOperationType
+uses org.pandalanguage.pandac.tree.BitLiteral
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.Catch
+uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.Continue
+uses org.pandalanguage.pandac.tree.Do
+uses org.pandalanguage.pandac.tree.DynamicCall
+uses org.pandalanguage.pandac.tree.FieldAssignment
+uses org.pandalanguage.pandac.tree.FieldNode
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.Loop
+uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodNodeType
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
+uses org.pandalanguage.pandac.tree.Node
+uses org.pandalanguage.pandac.tree.NullLiteral
+uses org.pandalanguage.pandac.tree.Parameter
+uses org.pandalanguage.pandac.tree.Position
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexAssignment
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexValue
+uses org.pandalanguage.pandac.tree.RealLiteral
+uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.ReusedValue
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.Statement
+uses org.pandalanguage.pandac.tree.StringLiteral
+uses org.pandalanguage.pandac.tree.Super
+uses org.pandalanguage.pandac.tree.Throw
+uses org.pandalanguage.pandac.tree.Try
+uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.UnaryOperationType
+uses org.pandalanguage.pandac.tree.Unreachable
+uses org.pandalanguage.pandac.tree.Unwrap
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.Variable
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.While
+uses org.pandalanguage.pandac.types.BitType
+uses org.pandalanguage.pandac.types.CharType
+uses org.pandalanguage.pandac.types.IntType
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+uses org.pandalanguage.pandac.types.PrimitiveType
+uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
+
+class JavaScriptCodeGenerator (CodeGenerator) {
+    constant NAME := "JavaScriptCodeGenerator.name"
+    constant PANDAMAIN_NAME := "$pandaMain"
+    constant NEWSTRING := "panda$core$PandaCore$newString"
+    constant METHOD_INDEX := "methodIndex"
+    constant INTERFACE_METHOD_INDEX := "interfaceMethodIndex"
+
+    def program:Program
+    def context:Context
+    def methodNamer:MethodNamer
+
+    def names := HashMap<Object, String>()
+    def methodIndex := HashMap<MethodStub, Int>()
+    def interfaceMethodIndex := HashMap<MethodStub, Int>()
+    def loops := Stack<AbstractLoop>()
+    
+    var rootPath:File?
+    var out := IndentedOutputStream(Console.outputStream)
+    var variableIndex := 0
+    var currentMethod:MethodNode?
+
+    init(p:Program, compilerSettings:CompilerSettings) {
+        self.program := p
+        def errors := FatalErrorReporter()
+        self.context := IRGenerator(p.root, p.stubs, p.stubGenerator, 
+                compilerSettings, errors).context
+        self.methodNamer := MethodNamer(context, JavaMethodNamingStrategy())
+    }
+
+    @override
+    function defaultExtension():String? {
+        return null
+    }
+    
+    @class
+    method getName(cl:ClassStub):String {
+        return getName(cl.type)
+    }
+
+    @class
+    method getName(cl:ClassNode):String {
+        return getName(cl.stub)
+    }
+
+    @class
+    method getName(t:Type):String {
+        if t.isNullable
+            return getName(t.unwrapNullable)
+        if t.isPrimitiveArray {
+            var prefix:String
+            if t.name.startsWith(ImmutablePrimitiveArray.name)
+                prefix := "panda$collections$ImmutablePrimitiveArray$"
+            else
+                prefix := "panda$collections$PrimitiveArray$"
+            def elementType := t.convert()->PrimitiveArrayType.elementType
+            return prefix + MethodNamer.escapeTypeName(getName(elementType))
+        }    
+        return MethodNamer.escapeTypeName(t.name)
+    }
+
+    method getName(m:MethodStub):String {
+        return methodNamer.getName(m)
+    }
+
+    function getName(f:FieldNode):String {
+        -- prepending a "$" prevents conflicts with Java keywords, and also
+        -- handles weird cases where a field has the same name as a package
+        -- (consider trying to refer to "panda.core.String" when we have
+        -- defined a field named "panda")
+        return "$" + f.name
+    }
+    
+    @pre(currentMethod != null)
+    method getName(v:Variable):String {
+        def result := names[v]
+        if result = null {
+           if v-?>Parameter & v.name = Parameter.SELF_NAME
+                result := "$this"
+            else {
+                result := v.name + variableIndex
+                variableIndex += 1
+            }
+            names[v] := result
+        }
+        return result
+    }
+
+    method generateMethodCallCode(mc:MethodCall) {
+        def m := mc.methodStub
+        if m.isDeclaredVirtual & !m.annotations.isWrapperMethod {
+            if context.getStub(m.owner).isInterface {
+                out.write("callInterfaceMethod(")
+                def index := interfaceMethodIndex[m]
+                assert index != null: "\{m.owner.name}::\{m.name} did not " +
+                        "have an INTERFACE_METHOD_INDEX"
+                out.write("\{getName(m.owner)}, \{index}, ")
+            }
+            else {
+                if m.isDeclaredVirtual {
+                    generateValueCode(mc.target)
+                    out.write(".$cl.vtable[")
+                }
+                else {
+                    def cm := currentMethod
+                    assert cm != null
+                    def superclass := context.getStub(cm.stub.owner).superclass
+                    assert superclass != null
+                    out.write(getName(superclass) + ".vtable[")
+                }
+                var mi := methodIndex[m]
+                assert mi != null
+                out.write(mi + "](")
+            }
+        }
+        else {
+            out.write(getName(m.owner))
+            out.write(".")
+            out.write(getName(m))
+            out.write("(")
+        }
+        for (i, p) in mc.parameters.enumeration() {
+            if i > 0
+                out.write(", ")
+            generateValueCode(mc.parameters[i])
+        }
+        out.write(")")
+    }
+    
+    method generateUnaryOperationCode(u:UnaryOperation) {
+        switch u.operation {
+            case UnaryOperationType.MINUS: {
+                if u.operand-?>IntegerLiteral {
+                    var v := u.operand->IntegerLiteral.value
+                    if v = Int32.MAX->UInt64 + 1 {
+                        out.write(Int32.MIN)
+                        return
+                    }
+                }
+                out.write("-(")
+                generateValueCode(u.operand)
+                out.write(")")
+            }
+            case UnaryOperationType.NOT: {
+                out.write("(!")
+                generateValueCode(u.operand)
+                out.write(")")
+            }
+            case UnaryOperationType.BITWISE_NOT: {
+                out.write("(~")
+                generateValueCode(u.operand)
+                out.write(")")
+            }
+        }
+    }
+    
+    method generateBinaryOperationCode(b:BinaryOperation, op:String) {
+        if b.left.type = IntType.INT64 {
+            generateValueCode(b.left)
+            out.write(".")
+            switch op {
+                case "+":   out.write("add")
+                case "-":   out.write("sub")
+                case "*":   out.write("mul")
+                case "/":   out.write("div")
+                case "%":   out.write("rem")
+                case ">>":  out.write("ashr")
+                case ">>>": out.write("lshr")
+                case "<<":  out.write("shl")
+                case "&":   out.write("and")
+                case "|":   out.write("or")
+                case "^":   out.write("xor")
+                case "==":  out.write("eq")
+                case "!=":  out.write("ne")
+                case ">":   out.write("gt")
+                case "<":   out.write("lt")
+                case ">=":  out.write("gte")
+                case "<=":  out.write("lte")
+                default:    throw AssertionError("unsupported: " + op)
+            }
+            out.write("(")
+            generateValueCode(b.right)
+            out.write(")")
+        }
+        else {
+            out.write("(")
+            generateValueCode(b.left)
+            out.write(" ")
+            out.write(op)
+            out.write(" ")
+            generateValueCode(b.right)
+            out.write(")")
+        }
+    }
+    
+    method generatePrimitiveArrayIndexValueCode(i:PrimitiveArrayIndexValue) {
+        generateValueCode(i.array)
+        out.write(".contents[")
+        generateValueCode(i.index)
+        out.write("]")
+    }
+    
+    method generateFieldReferenceCode(f:FieldReference) {
+        if f.object-?>ClassLiteral
+            out.write(getName(f.object->ClassLiteral.value))
+        else
+            generateValueCode(f.object)
+        out.write(".")
+        out.write(getName(f.field))
+    }
+    
+    method generateConstructCode(c:Construct) {
+        var m := c.initCall.methodStub
+        out.write(getName(m.owner))
+        out.write(".create")
+        out.write(getName(m))
+        out.write("(")
+        for (i, p) in c.initCall.parameters.enumeration() {
+            if i > 0
+                out.write(", ")
+            generateValueCode(p)
+        }
+        out.write(")")
+    }
+    
+    method generateNewPrimitiveArrayWithLengthCode(n:NewPrimitiveArrayWithLength) {
+        out.write("panda$core$PandaCore$newPrimitiveArrayWithLength(")
+        out.write(getName(n.type))
+        out.write(", ")
+        generateValueCode(n.arrayLength)
+        out.write(")")
+    }
+    
+    method generateNewPrimitiveArrayWithValuesCode(n:NewPrimitiveArrayWithValues) {
+        out.write("panda$core$PandaCore$newPrimitiveArrayWithValues(")
+        out.write(getName(n.type))
+        for v in n.values {
+            out.write(", ")
+            generateValueCode(v)
+        }
+        out.write(")")
+    }
+    
+    method generateIntegerLiteralCode(i:IntegerLiteral) {
+        constant MASK := 0b11111111111111111111111111111111->UInt64
+        if i.type = IntType.INT64 {
+            out.write("new Int64(" + i.value >> 32 && MASK + ", " + 
+                    i.value && MASK + ")")
+        }
+        else
+            out.write(i.value)
+    }
+    
+    method generateReusedValueDefinitionCode(rvd:ReusedValueDefinition) {
+        def name := "$reused\{names.length}"
+        names[rvd] := name
+        out.write(name + " = ")
+        generateValueCode(rvd.value)
+    }
+
+    method generateReusedValueCode(rv:ReusedValue) {
+        def name := names[rv.owner]
+        assert name != null: "ReusedValue at \{rv.position} has not been named"
+        out.write(name)
+    }
+
+    method generateDynamicCallCode(dc:DynamicCall) {
+        generateValueCode(dc.methodValue)
+        out.write(".$rawPtr(")
+        for (i, p) in dc.parameters.enumeration() {
+            if i != 0
+                out.write(", ")
+            generateValueCode(p)
+        }
+        out.write(")")
+    }
+
+    method generateBinaryOperationCode(b:BinaryOperation) {
+        switch b.operation {
+            case BinaryOperationType.EQUAL:
+                generateBinaryOperationCode(b, "==")
+            case BinaryOperationType.NOT_EQUAL:
+                generateBinaryOperationCode(b, "!=")
+            case BinaryOperationType.IDENTITY:                
+                generateBinaryOperationCode(b, "==")
+            case BinaryOperationType.NOT_IDENTITY:
+                generateBinaryOperationCode(b, "!=")
+            case BinaryOperationType.LESS_THAN:
+                generateBinaryOperationCode(b, "<")
+            case BinaryOperationType.LESS_THAN_OR_EQUAL:
+                generateBinaryOperationCode(b, "<=")
+            case BinaryOperationType.GREATER_THAN:
+                generateBinaryOperationCode(b, ">")
+            case BinaryOperationType.GREATER_THAN_OR_EQUAL:
+                generateBinaryOperationCode(b, ">=")
+            case BinaryOperationType.ADD:
+                generateBinaryOperationCode(b, "+")
+            case BinaryOperationType.SUBTRACT:
+                generateBinaryOperationCode(b, "-")
+            case BinaryOperationType.MULTIPLY:
+                generateBinaryOperationCode(b, "*")
+            case BinaryOperationType.DIVIDE:
+                generateBinaryOperationCode(b, "/")
+            case BinaryOperationType.INT_DIVIDE: {
+                if b.type != IntType.INT64 {
+                    out.write("(")
+                    generateBinaryOperationCode(b, "/")
+                    out.write(" | 0)")
+                }
+                else
+                    generateBinaryOperationCode(b, "/")
+            }
+            case BinaryOperationType.REMAINDER:
+                generateBinaryOperationCode(b, "%")
+            case BinaryOperationType.BITWISE_AND:
+                generateBinaryOperationCode(b, "&")
+            case BinaryOperationType.BITWISE_OR:
+                generateBinaryOperationCode(b, "|")
+            case BinaryOperationType.BITWISE_XOR:
+                generateBinaryOperationCode(b, "^")
+            case BinaryOperationType.AND:
+                generateBinaryOperationCode(b, "&&")
+            case BinaryOperationType.OR:
+                generateBinaryOperationCode(b, "||")
+            case BinaryOperationType.XOR:
+                generateBinaryOperationCode(b, "^")
+            case BinaryOperationType.SHIFT_LEFT:
+                generateBinaryOperationCode(b, "<<")
+            case BinaryOperationType.SHIFT_RIGHT: {
+                if b.type->IntType.signed
+                    generateBinaryOperationCode(b, ">>")
+                else
+                    generateBinaryOperationCode(b, ">>>")
+            }
+        }
+    }
+
+    method generateValueCode(v:Value) {
+        if v-?>VariableAssignment
+            generateVariableAssignmentCode(v->VariableAssignment)
+        else if v-?>MethodCall
+            generateMethodCallCode(v->MethodCall)
+        else if v-?>UnaryOperation
+            generateUnaryOperationCode(v->UnaryOperation)
+        else if v-?>BinaryOperation
+            generateBinaryOperationCode(v->BinaryOperation)
+        else if v-?>PrimitiveArrayIndexValue
+            generatePrimitiveArrayIndexValueCode(v->PrimitiveArrayIndexValue)
+        else if v-?>IntegerLiteral
+            generateIntegerLiteralCode(v->IntegerLiteral)
+        else if v-?>RealLiteral
+            out.write(v->RealLiteral.value)
+        else if v-?>StringLiteral
+            out.write(NEWSTRING + "(" + v + ")")
+        else if v-?>BitLiteral
+            out.write(v->BitLiteral.value)
+        else if v-?>ClassLiteral
+            out.write(getName(v->ClassLiteral.value))
+        else if v-?>VariableReference 
+            out.write(getName(v->VariableReference.variable))
+        else if v-?>FieldReference
+            generateFieldReferenceCode(v->FieldReference)
+        else if v-?>NullLiteral
+            out.write("null")
+        else if v-?>Cast {
+            if v.type = IntType.INT64 & 
+                    (v->Cast.value.type->PrimitiveType).size < 8 {
+                out.write("Int64.fromDouble(")
+                generateValueCode(v->Cast.value)
+                out.write(")")
+            }
+            else if v->Cast.value.type = IntType.INT64 {
+                generateValueCode(v->Cast.value)
+                out.write(".toDouble()")
+            }
+            else
+                generateValueCode(v->Cast.value)
+        }
+        else if v-?>Construct
+            generateConstructCode(v->Construct)
+        else if v-?>NewPrimitiveArrayWithLength
+            generateNewPrimitiveArrayWithLengthCode(v->NewPrimitiveArrayWithLength)
+        else if v-?>NewPrimitiveArrayWithValues
+            generateNewPrimitiveArrayWithValuesCode(v->NewPrimitiveArrayWithValues)
+        else if v-?>Unwrap
+            generateValueCode(v->Unwrap.value)
+        else if v-?>ReusedValueDefinition
+            generateReusedValueDefinitionCode(v->ReusedValueDefinition)
+        else if v-?>ReusedValue
+            generateReusedValueCode(v->ReusedValue)
+        else if v-?>DynamicCall
+            generateDynamicCallCode(v->DynamicCall)
+        else
+            throw AssertionError("unsupported value type: " + v.class.name)
+    }
+    
+    method generateIfCode(i:If) {
+        out.write("if (")
+        generateValueCode(i.test)
+        out.write(") " )
+        generateStatementCode(i.thenStatement)
+        var elseStatement := i.elseStatement
+        if elseStatement != null {
+            out.write("else ")
+            generateStatementCode(elseStatement)
+        }
+    }
+    
+    method generateLoopCode(l:Loop) {
+        loops.push(l)
+        var label := l.label
+        if label != null
+            out.write(label + ": ")
+        out.write("for (;;) ")
+        generateStatementCode(l.statement)
+        loops.pop()
+    }
+    
+    method generateLoopWithContinueBlockCode(l:LoopWithContinueBlock) {
+        loops.push(l)
+        var label := l.label
+        if label != null
+            out.write(label + ": ")
+        out.writeLine("for (;;) {")
+        out.level += 1
+        generateStatementCode(l.statement)
+        generateBlockCode(l.continueBlock)
+        out.level -= 1
+        out.writeLine("}")
+        loops.pop()
+    }
+    
+    method generateWhileCode(w:While) {
+        loops.push(w)
+        var label := w.label
+        if label != null
+            out.write(label + ": ")
+        out.write("while (")
+        generateValueCode(w.test)
+        out.write(") ")
+        generateStatementCode(w.statement)
+        loops.pop()
+    }
+    
+    method generateDoCode(d:Do) {
+        loops.push(d)
+        var label := d.label
+        if label != null
+            out.write(label + ": ")
+        out.write("do ")
+        generateStatementCode(d.statement)
+        out.write(" while (")
+        generateValueCode(d.test)
+        out.write(");")
+        loops.pop()
+    }
+
+    method generateVariableAssignmentCode(va:VariableAssignment) {
+        out.write(getName(va.variable) + " = ")
+        generateValueCode(va.value)
+    }
+    
+    method generateFieldAssignmentCode(fa:FieldAssignment) {
+        generateValueCode(fa.object)
+        out.write(".")
+        out.write(getName(fa.fieldNode))
+        out.write(" = ")
+        generateValueCode(fa.value)
+        out.writeLine(";")
+    }
+    
+    method generatePrimitiveArrayIndexAssignmentCode(
+            ia:PrimitiveArrayIndexAssignment) {
+        generateValueCode(ia.array)
+        out.write(".contents[")
+        generateValueCode(ia.index)
+        out.write("] = ")
+        generateValueCode(ia.value)
+        out.writeLine(";")
+    }
+    
+    method generateAssertCode(a:Assert) {
+        -*
+        out.write("assert ")
+        generateValueCode(a.test)
+        out.writeLine(";")
+        *-
+    }
+    
+    method generateUnreachableCode(u:Unreachable) {
+    }
+    
+    method generateThrowCode(t:Throw) {
+        out.write("throw new PandaException(")
+        generateValueCode(t.error)
+        out.writeLine(");")
+    }
+    
+    method generateTryCode(t:Try) {
+        out.write("try ")
+        generateStatementCode(t.statement)
+        var rawName := "$e" + variableIndex
+        variableIndex += 1
+        out.writeLine("catch (" + rawName + ") {")
+        out.level += 1
+        var eName := "$e" + variableIndex
+        variableIndex += 1
+        out.writeLine("var " + eName + " = " + rawName + 
+                ".getPandaError();")
+        for (i, c) in t.catches.enumeration() {
+            if i > 1
+                out.write("else ")
+            out.write("if (" + eName + " instanceof " + getName(c.error.type) + 
+                    ") ")
+            generateStatementCode(c.statement)
+        }
+        if t.catches.length > 0
+            out.write("else ")
+        out.writeLine("throw new RuntimeException(" + rawName + ");")
+        out.level -= 1
+        out.writeLine("}")
+    }
+    
+    method generateReturnCode(r:Return) {
+        out.write("return")
+        var value := r.value
+        if value != null {
+            out.write(" ")
+            generateValueCode(value)
+        }
+        out.writeLine(";")
+    }
+    
+    method generateBreakCode(b:Break) {
+        out.write("break")
+        var label := b.label
+        if label != null
+            out.write(" " + label)
+        out.writeLine(";")
+    }
+    
+    function findLoop(label:String?):AbstractLoop {
+        if label = null
+            return loops.peek
+        for i in 0 .. loops.length {
+            if loops.peek(i).label = label
+                return loops.peek(i)
+        }
+        unreachable
+    }
+
+    method generateContinueCode(c:Continue) {
+        def target := findLoop(c.label)
+        if target-?>LoopWithContinueBlock
+            generateBlockCode(target->LoopWithContinueBlock.continueBlock)
+        out.write("continue")
+        var label := c.label
+        if label != null
+            out.write(" " + label)
+        out.writeLine(";")
+    }
+    
+    method generateStatementCode(s:Statement) {
+        out.writeLine("// " + s.class.name + ": " + s)
+        switch s.class {
+            case ValueStatement: {
+                var v := s->ValueStatement.value
+                generateValueCode(s->ValueStatement.value)
+                out.writeLine(";")
+            }
+            case FieldAssignment: generateFieldAssignmentCode(
+                    s->FieldAssignment)
+            case PrimitiveArrayIndexAssignment: 
+                    generatePrimitiveArrayIndexAssignmentCode(
+                        s->PrimitiveArrayIndexAssignment)
+            case If: generateIfCode(s->If)
+            case Loop: generateLoopCode(s->Loop)
+            case LoopWithContinueBlock: generateLoopWithContinueBlockCode(
+                    s->LoopWithContinueBlock)
+            case While: generateWhileCode(s->While)
+            case Do: generateDoCode(s->Do)
+            case Block: generateBlockCode(s->Block)
+            case Assert: generateAssertCode(s->Assert)
+            case Unreachable: generateUnreachableCode(s->Unreachable)
+            case Return: generateReturnCode(s->Return)
+            case Break: generateBreakCode(s->Break)
+            case Continue: generateContinueCode(s->Continue)
+            case Throw: generateThrowCode(s->Throw)
+            case Try: generateTryCode(s->Try)
+            default: {
+                throw AssertionError("unsupported statement type: " + 
+                        s.class.name)
+            }
+        }
+    }
+    
+    method generateBlockCode(b:Block) {
+        out.writeLine("{")
+        out.level += 1
+        for s in b.statements
+            generateStatementCode(s->Statement)
+        out.level -= 1
+        out.writeLine("}")
+    }
+ 
+    method generateMainBlockCode(m:MethodNode) {
+        out.writeLine("{")
+        out.level += 1
+        for v in m.localVariables {
+            out.writeLine("var " + 
+                    getName(v) + ";")
+        }
+        generateBlockCode(m.body)
+        if m.stub.name = MethodNode.CLASS_INIT_NAME {
+            def cm := currentMethod
+            assert cm != null
+            def cl := context.getStub(cm.stub.owner)
+            for f in cl.fields {
+                if f.annotations.isThread
+                    generateFieldCode(f)
+            }
+        }
+        out.level -= 1
+        out.write("}")
+    }
+
+    method generateFieldCode(f:FieldNode) {
+-*        if f.annotations.isThread {
+            out.writeLine(getName(f.owner) + "." + getName(f) + " = ")
+            var initializer := f.parent->ClassNode.symbolTable.getMethod(
+                    f.position,
+                    ASTGenerator.getThreadLocalInitializerName(f),
+                    [], true)
+            if initializer != null
+                out.write(getName(f.owner) + "." + getName(initializer) + "();")
+            else
+                out.write("0")
+            out.writeLine(";")
+        }*-
+    }
+
+    method generateMethodCode(m:MethodNode) {
+        if m.stub.annotations.isAbstract {
+            out.write("null")
+            return
+        }
+        currentMethod := m
+        if m.stub.isDeclaredVirtual
+            out.write("/* \{getName(m.stub.owner)}::\{getName(m.stub)} */ function(")
+        else
+            out.write("\{getName(m.stub.owner)}.\{getName(m.stub)} = function(")
+        for (i, p) in m.parameters.enumeration() {
+            if i > 0
+                out.write(", ")
+            out.write(getName(p))
+        }
+        if m.parameters.length = 0 & getName(m.stub) = PANDAMAIN_NAME
+            out.write("$arg")
+        out.write(") ")
+        if m.stub.annotations.isExternal {
+            out.writeLine("{")
+            out.level += 1
+        }
+        if m.stub.annotations.isExternal {
+            if m.stub.returnType != VoidType.VOID
+                out.write("return ")
+            out.write("$external.")
+            out.write(getName(m.stub.owner) + "$")
+            out.write(getName(m.stub) + "(")
+            for (i, p) in m.parameters.enumeration() {
+                if i > 0
+                    out.write(", ")
+                out.write(getName(p))
+            }
+            out.writeLine(");")
+        }
+        else {
+            generateMainBlockCode(m)
+            if !m.stub.isDeclaredVirtual
+                out.writeLine()
+        }
+        if m.stub.annotations.isExternal {
+            out.level -= 1
+            out.writeLine("}")
+        }
+
+        if m.stub.methodType = MethodNodeType.INIT {
+            out.write(getName(m.stub.owner) + ".create" + getName(m.stub) + 
+                    " = function(")
+            for i in 1 .. m.stub.parameters.length {
+                if i > 1
+                    out.write(", ")
+                var p := m.parameters[i]
+                out.write(getName(p))
+            }
+            out.writeLine(") {")
+            out.level += 1
+            out.writeLine("var $this = { };")
+            out.writeLine("$this.$cl = \{getName(m.stub.owner)};")
+            out.write("\{getName(m.stub.owner)}.\{getName(m.stub)}(")
+            for (i, p) in m.parameters.enumeration() {
+                if i > 0
+                    out.write(", ")
+                out.write(getName(p))
+            }
+            out.writeLine(");")
+            out.writeLine("return $this;")
+            out.level -= 1
+            out.writeLine("}")
+        }
+
+        currentMethod := null
+    }
+    
+    method getFileName(cl:ClassStub):String {
+        def result :=  getName(cl).replace(".", "/").replace("$", "/").replace(
+                "//", "/") + ".js"
+        if result.startsWith("/")
+            return result[1..]
+        return result
+    }
+
+    method writeVTable(cl:ClassNode) {
+        def vtable := cl.stub.virtualMethods(context)
+        for (i, m) in vtable.enumeration() {
+            out.write(getName(cl) + ".vtable.push(")
+            if m.owner = cl {
+                for node in cl.methods {
+                    if node.stub = m
+                        generateMethodCode(node)
+                }
+            }
+            else
+                out.write("\{getName(m.owner)}.vtable[\{i}]")
+            out.writeLine(")")
+            if m.annotations.isWrapperMethod {
+                out.writeLine("\{getName(m.owner)}.\{getName(m)} = " + 
+                        "\{getName(cl)}.vtable[\{i}];")
+            }
+        }
+    }
+
+    method writeITables(cl:ClassStub) {
+        out.writeLine(getName(cl) + ".itable = { }")
+        for intf in cl.allInterfaces(context) {
+            out.write("\{getName(cl)}.itable[\{getName(intf)}] = [")
+            def itable := cl.interfaceMethods(intf, context)
+            for (i, m) in itable.enumeration() {
+                if i != 0
+                    out.writeLine(",")
+                def index := methodIndex[m]
+                assert index != null
+                out.write("\{getName(m.owner)}.vtable[\{index}]")
+            }
+            out.writeLine("]")
+        }
+    }
+
+    method generateClassCode(cl:ClassNode) {
+        def rootPath := self.rootPath
+        assert rootPath != null
+        def dest := rootPath.resolve(getFileName(cl.stub))
+        def parent := dest.parent()
+        if parent = null {
+            throw CompilerException("could not determine parent " +
+                    "directory of '" + dest + "'")
+        }
+        parent.createDirectories()
+        out := IndentedOutputStream(BufferedOutputStream(
+                dest.openOutputStream()))
+        out.writeLine(getName(cl) + ".$cl = panda$core$Class")
+        def superclass := cl.stub.superclass
+        if superclass != null
+            out.writeLine(getName(cl) + ".superclass = " + getName(superclass))
+        out.writeLine(getName(cl) + ".$name = panda$core$PandaCore$newString('" + 
+                getName(cl) + "');")
+        writeVTable(cl)
+        writeITables(cl.stub)
+        for m in cl.methods.filter(m => !m.stub.isDeclaredVirtual)
+            generateMethodCode(m)
+        out.close()
+    }
+
+    method prepTables() {
+        def classes := context.classes
+        for cl in classes.values {
+            def vtable := cl.virtualMethods(context)
+            for (i, m) in vtable.enumeration() {
+                methodIndex[m] := i
+                if cl.isInterface
+                    interfaceMethodIndex[m] := i
+            }
+        }
+    }
+
+    method getMainClass():String? {
+        def classes := program.classes.values
+        for cl in classes {
+            if cl.stub.methods.filter(
+                    m => m.name = MethodNode.MAIN_NAME).length > 0
+                return getName(cl)
+        }
+        return null
+    }
+
+    -- FIXME use a Set
+    method writeScript(out:IndentedOutputStream,
+            cl:ClassStub, visited:List<ClassStub>) {
+        for v in visited {
+            if v == cl
+                return
+        }
+        def superclass := cl.superclass
+        if superclass != null
+            writeScript(out, context.getStub(superclass), visited)
+        visited.add(cl)
+        out.writeLine("<script src=\"" + getFileName(cl) + "\"></script>")
+    }
+
+    method generateHTML(html:File) {
+        def out := IndentedOutputStream(BufferedOutputStream(
+                html.openOutputStream()))
+        out.writeLine("<html>")
+        out.level += 1
+        out.writeLine("<head>")
+        out.level += 1
+        def classes := program.stubs
+        out.writeLine("<script>")
+        for cl in classes.values
+            out.writeLine(getName(cl) + " = { vtable: [] };")
+        -- force these arrays to be defined, even if they weren't present in the
+        -- code, so that PandaCore works. It's ok (though not ideal) if they 
+        -- were already defined.
+        out.writeLine("panda$collections$PrimitiveArray$Int16  = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Int32  = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Int64  = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Bit    = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Real32 = { vtable: [] };")
+        out.writeLine("panda$collections$PrimitiveArray$Real64 = { vtable: [] };")
+        out.writeLine("</script>")
+        out.writeLine("<script src=\"term.js\"></script>")
+        out.writeLine("<script src=\"panda$core$PandaCore.js\"></script>")
+        def visited := Array<ClassStub>()
+        for cl in classes.values
+            writeScript(out, cl, visited)
+        out.writeLine("<script>")
+        out.level += 1
+        for cl in classes.values {
+            for m in cl.methods {
+                if m.name = MethodNode.CLASS_INIT_NAME {
+                    out.writeLine(getName(cl) + "." + 
+                            MethodNode.CLASS_INIT_NAME + "()")
+                    break
+                }
+            }
+        }
+        out.level -= 1
+        out.writeLine("</script>")
+        out.level -= 1
+        out.writeLine("</head>")
+        out.write("<body ")
+        var main := getMainClass()
+        if main != null
+            out.write("onload=\"" + main + ".$pandaMain()\"")
+        out.writeLine(">")
+        out.writeLine("</body>")
+        out.level -= 1
+        out.writeLine("</html>")
+        out.close()
+    }
+
+    @override
+    method generateCode(target:File) {
+        if !target.isDirectory()
+            throw CompilerException("JavaScript output must be to a directory")
+        rootPath := target
+        prepTables()
+        def classes := program.classes
+        for cl in classes.values
+            generateClassCode(cl)
+        generateHTML(target.resolve("main.html"))
+    }
+}

@@ -1863,11 +1863,7 @@ class IRGenerator {
             case BinaryOperationType.LESS_THAN_OR_EQUAL:    methodName := "<="
             case BinaryOperationType.GREATER_THAN_OR_EQUAL: methodName := ">="
             case BinaryOperationType.POWER: return power(position, left, right)
-            default: {
-                context.errors.error("unsupported binary operator '\{op}'",
-                        position)
-                return null
-            }
+            default: assert false : "unsupported binary operator '\{op}'"
         }
         def resolvedLeft := resolve(left)
         if resolvedLeft != null
@@ -2011,6 +2007,52 @@ class IRGenerator {
         return context.testCall(target.position, target, name + ":=", params)
     }
 
+    function getBinaryOperationType(name:String):BinaryOperationType {
+        switch name {
+            case "+":   return BinaryOperationType.ADD
+            case "-":   return BinaryOperationType.SUBTRACT
+            case "*":   return BinaryOperationType.MULTIPLY
+            case "/":   return BinaryOperationType.DIVIDE
+            case "//":  return BinaryOperationType.INT_DIVIDE
+            case "%":   return BinaryOperationType.REMAINDER
+            case "<<":  return BinaryOperationType.SHIFT_LEFT
+            case ">>":  return BinaryOperationType.SHIFT_RIGHT
+            case "&":   return BinaryOperationType.AND
+            case "|":   return BinaryOperationType.OR
+            case "~":   return BinaryOperationType.XOR
+            case "&&":  return BinaryOperationType.BITWISE_AND
+            case "||":  return BinaryOperationType.BITWISE_OR
+            case "~~":  return BinaryOperationType.BITWISE_XOR
+            case "=":   return BinaryOperationType.EQUAL
+            case "!=":  return BinaryOperationType.NOT_EQUAL
+            case "==":  return BinaryOperationType.IDENTITY
+            case "!==": return BinaryOperationType.NOT_IDENTITY
+            case "<":   return BinaryOperationType.LESS_THAN
+            case ">":   return BinaryOperationType.GREATER_THAN
+            case "<=":  return BinaryOperationType.LESS_THAN_OR_EQUAL
+            case ">=":  return BinaryOperationType.GREATER_THAN_OR_EQUAL
+            case "^":   return BinaryOperationType.POWER
+            default: unreachable
+        }
+    }
+
+    function unwrapBinary(v:Value):(Value, BinaryOperationType, Value) {
+        if v-?>BinaryOperation {
+            def b := v->BinaryOperation
+            return (b.left, b.operation, b.right)
+        }
+        assert v-?>MethodCall
+        def m := v->MethodCall
+        def op := getBinaryOperationType(m.methodStub.name)
+        def left:Value
+        if m.methodStub.annotations.isClass
+            left := m.parameters[0]
+        else
+            left := m.target
+        def right := m.parameters[m.parameters.length - 1]
+        return (left, op, right)
+    }
+
     -- FIXME refactoring required! I did this all wrong and dumb. When I first
     -- started working on Panda, all lvalues were also rvalues. Then one
     -- situation crept in where the two weren't exactly the same, so I hacked it
@@ -2145,12 +2187,11 @@ class IRGenerator {
             def object:Value
             def finalRight:Value
             if reuse & fv.object-!>ClassLiteral {
-                def old := unwrapCast(right)->BinaryOperation
-                assert old.left = fv
+                def oldLeft, oldOp, oldRight := unwrapBinary(right)
                 object := ReusedValueDefinition(fv.object)
-                def newRight := BinaryOperation(old.position, old.operation,
-                        FieldReference(old.position, object, fv.field), 
-                        old.right)
+                def newRight := getBinaryValue(right.position,
+                        FieldReference(right.position, object, fv.field), oldOp, 
+                        oldRight)
                 def cast := newRight.implicitCast(context, fv.field.type)
                 finalRight := cast
             }
@@ -2165,12 +2206,11 @@ class IRGenerator {
         else if resolvedLeft-?>PrimitiveArrayIndexValue {
             def iv := left->PrimitiveArrayIndexValue
             if reuse {
-                def old := unwrapCast(right)->BinaryOperation
-                assert old.left = iv
+                def oldLeft, oldOp, oldRight := unwrapBinary(right)
                 def array := ReusedValueDefinition(iv.array)
                 def index := ReusedValueDefinition(iv.index)
-                def newRight := BinaryOperation(old.position, old.operation,
-                        PrimitiveArrayIndexValue(array, index), old.right)
+                def newRight := getBinaryValue(right.position, 
+                        PrimitiveArrayIndexValue(array, index), oldOp, oldRight)
                 def cast := newRight.implicitCast(context,
                         array.type.convert()->PrimitiveArrayType.elementType)
                 return PrimitiveArrayIndexAssignment(left.position,
@@ -2291,7 +2331,15 @@ class IRGenerator {
         }
 
         if left.length > 1 {
--*            var result := Array<Statement>()
+            def result := Array<Statement>()
+            def types := Array<ASTType>()
+            for l in left
+                types.add(toASTType(l.position, l.preferredType(context)))
+            def type := context.resolveType(ASTTupleType(right.position, types,
+                    false))
+            if type = null
+                return null
+            right := right.implicitCast(context, type)
             def reused := ReusedValueDefinition(right)
             result.add(ValueStatement(reused))
             for (i, lvalue) in left.enumeration() {
@@ -2301,17 +2349,17 @@ class IRGenerator {
                             TupleType.FIELD_PREFIX + i)
                     assert tupleValue != null : "can't-happen tuple failure"
                     def assignment := processSingleAssignment(lvalue, 
-                            assignmentOp, tupleValue, reuse)
-                    if assignments = null
+                            tupleValue, reuse)
+                    if assignment = null
                         return null
+                    result.add(assignment)
                 }
             }
-            return Block(position, result)*-
-            unreachable
+            return Block(position, result)
         }
         else {
             def lvalue := left[0]
-            assert lvalue != null
+            assert lvalue != null : "singleAssignment missing lvalue"
             return processSingleAssignment(lvalue, right, reuse)
         }
     }
@@ -2324,7 +2372,6 @@ class IRGenerator {
                 return null
             lvalues.add(converted)
         }
-        assert lvalues.length = 1 : "tuples not supported"
         def rvalue := convertExpression(a.rvalue)
         if rvalue = null
             return null
@@ -2473,6 +2520,21 @@ class IRGenerator {
                 ClassType.ERROR))
     }
 
+    -- God, this needs to die. Ok, so what's going on is that Type instances
+    -- must be fully resolved and unique. ASTType instances don't have to be, 
+    -- they are eventually resolved to Types. This made sense at one point -- 
+    -- the parser produces these unresolved types, and we later resolve them.
+    -- We end up with two problems. First, sometimes we have a Type but need an
+    -- ASTType, as when making synthetic stubs from TupleType, 
+    -- PrimitiveArrayType, etc. Plus we sometimes have a type and need to derive
+    -- another type from it, as when we have T but want Array<T>. Since the
+    -- machinery was already in place to create ASTTypes from Types to solve the
+    -- first problem, I ended up just using it for the second problem as well.
+    -- We turn Type(T) into ASTType(T), then create ASTType(Array<T>), then
+    -- resolve that into Type(Array<T>). And that is so mind-bogglingly stupid
+    -- that I want to punch past me for ending up in this situation.
+    -- ASTType needs to die altogether. Type needs to lose its uniqueness
+    -- requirement.
     @class
     function toASTType(position:Position, var t:Type):ASTType? {
         if t = VoidType.VOID
@@ -3135,9 +3197,13 @@ class IRGenerator {
         }
         while madeProgress
         def root := MutablePackage("")
-        for cl in context.classes.values
+        def modules := Array<Module>()
+        for cl in context.classes.values {
             addClass(cl, root)
+            if cl.name.startsWith("panda.gl.")
+                modules.add(Module.PANDAGL)
+        }
         return Program(root.convert()->Package, context.classes, classes, 
-                context.stubGenerator)
+                modules, context.stubGenerator)
     }
 }

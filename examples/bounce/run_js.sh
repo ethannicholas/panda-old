@@ -1,6 +1,3 @@
-echo "JavaScript support is not enabled yet, sorry :-("
-exit
-
 EXAMPLE_HOME="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BASEDIR="$EXAMPLE_HOME/../.."
 source $BASEDIR/scripts/setup-script.sh
