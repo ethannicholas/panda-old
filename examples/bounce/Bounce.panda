@@ -1,109 +1,104 @@
-uses panda.gl.Color
-uses panda.gl.Renderer
-uses panda.gl.Window
-uses panda.gl.events.Event
-uses panda.gl.events.EventType
-uses panda.gl.events.MouseEvent
-uses panda.gl.events.MouseMotionEvent
-uses panda.gl.shapes.Rectangle
-uses panda.gl.images.Image
+uses panda.gl.GL
+uses panda.ui.Window
+uses panda.ui.events.Event
+uses panda.ui.events.EventType
+uses panda.ui.events.MouseEvent
+uses panda.ui.events.MouseMotionEvent
+uses panda.ui.images.Image
+uses panda.ui.images.Sprite
 
 class Ball {
-    constant FRICTION:Real := 0.1
-    constant ELASTICITY:Real := 0.7
+    constant FRICTION:Real32 := 0.1
+    constant ELASTICITY:Real32 := 0.7
 
-    var x:Real
-    var y:Real
-    var width:Int
-    var height:Int
-    var xv:Real
-    var yv:Real
-    var Image:Image
+    def sprite:Sprite
+    var x:Real32
+    var y:Real32
+    var xv:Real32
+    var yv:Real32
     var dying:Bit
 
-    init(Image:Image) {
-        self.Image := Image
-        self.width := Image.width
-        self.height := Image.height
+    init(sprite:Sprite) {
+        self.sprite := sprite
     }
 
-    method step(ticks:Real):Bit {
+    method step(ticks:Real32):Bit {
         x += xv * ticks / 16
         y += yv * ticks / 16
         yv += Bounce.G
-        if !dying & y + height > Bounce.WINDOW_HEIGHT {
+        if !dying & y + sprite.height / 2 > Bounce.WINDOW_HEIGHT {
             xv *= 1 - FRICTION
             yv := -yv * 0.7
             if yv > -2
                 dying := true
-            y := Bounce.WINDOW_HEIGHT - height
+            y := Bounce.WINDOW_HEIGHT - sprite.height / 2
         }
-        return y < Bounce.WINDOW_HEIGHT
+        return y - sprite.height / 2 < Bounce.WINDOW_HEIGHT
     }
 
-    method render(renderer:Renderer) {
-        def x := x.convert()->Int
-        def y := y.convert()->Int
-        renderer.drawImage(Image, Rectangle(x, y, width, height))
+    method render() {
+        sprite.draw(x, y)
     }
 }
 
 class Bounce {
-    constant G:Real := 0.18
-    constant WINDOW_WIDTH := 1280
-    constant WINDOW_HEIGHT := 720
+    constant G:Real32 := 0.18
+    constant WINDOW_WIDTH := 640
+    constant WINDOW_HEIGHT := 480
     constant X_SPREAD := 3
     constant Y_SPREAD := 6
     constant MAX_DROPRATE := 15
     constant SOFT_MAX := 2000
 
     @class
-    method loadImages(renderer:Renderer):Array<Image> {
-        var result := Array<Image>()
-        result.add(Image.load(File("images/basketball.png")))
-        result.add(Image.load(File("images/bowling.png")))
-        result.add(Image.load(File("images/golf.png")))
-        result.add(Image.load(File("images/soccer.png")))
-        result.add(Image.load(File("images/tennis.png")))
-        return result
+    method loadSprites(gl:GL):ListView<Sprite> {
+        return [
+            Sprite(Image.load(File("images/basketball.png")), gl),
+            Sprite(Image.load(File("images/bowling.png")), gl),
+            Sprite(Image.load(File("images/golf.png")), gl),
+            Sprite(Image.load(File("images/soccer.png")), gl),
+            Sprite(Image.load(File("images/tennis.png")), gl)
+        ]
     }
 
     @class
     method main() {
         constant ballWidth:Int16 := 50
         constant ballHeight:Int16 := 50
-        def window := Window("Click and drag", Rectangle(200, 200, 
-                WINDOW_WIDTH, WINDOW_HEIGHT))
-        def renderer := window.renderer
-        def Images := loadImages(renderer)
+        def window := Window("Click and drag", 200, 200, WINDOW_WIDTH, 
+                WINDOW_HEIGHT)
+        def gl := window.glContext
+        gl.clearColor(1, 1, 1, 1)
+        gl.enable(GL.BLEND)
+        gl.blendFunc(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA)
+        def sprites := loadSprites(gl)
         var x:Real := 0
         var y:Real := 0
         var xv:Real := 2
         var yv:Real := 0
         var g:Real := 0.18
-        renderer.paint := Color.WHITE
         def balls := Array<Ball>()
         var mouseDown := false
         var mouseHoldTime := 0
         var pendingDrops:Real := 0
-        var mouseX:Real := 0
-        var mouseY:Real := 0
+        var mouseX:Real32 := 0
+        var mouseY:Real32 := 0
         var currentBall := 0
         var lastTime := Panda.currentTime()
         loop {
             def now := Panda.currentTime()
-            def ticks := now - lastTime
-            renderer.clear()
+            def ticks := (now - lastTime)->Real32
+            gl.clear(GL.COLOR_BUFFER_BIT)
             for i in balls.length - 1 ... 0 by -1 {
                 if balls[i].step(ticks)
-                    balls[i].render(renderer)
+                    balls[i].render()
                 else {
                     for j in i ... balls.length - 2
                         balls[j] := balls[j + 1] 
                     balls.removeIndex(balls.length - 1)
                 }
             }
-            renderer.present()
+            gl.swapBuffers()
             while window.eventQueue.hasMessage() {
                 def event := window.eventQueue.getMessage()->Event
                 if event.type = EventType.KEYDOWN
@@ -111,7 +106,7 @@ class Bounce {
                 else if event.type = EventType.MOUSEUP {
                     mouseDown := false
                     currentBall += 1
-                    if currentBall > Images.length
+                    if currentBall > sprites.length
                         currentBall := 0
                 }
                 else if event.type = EventType.MOUSEDOWN {
@@ -119,25 +114,25 @@ class Bounce {
                     mouseDown := true
                     mouseHoldTime := 0
                     pendingDrops := 1
-                    mouseX := mb.position.x
-                    mouseY := mb.position.y
+                    mouseX := mb.x
+                    mouseY := mb.y
                 }                    
                 else if event.type = EventType.MOUSEMOTION {
                     def mm := event->MouseMotionEvent
-                    mouseX := mm.position.x
-                    mouseY := mm.position.y
+                    mouseX := mm.x
+                    mouseY := mm.y
                 }
             }
             if mouseDown {
                 while pendingDrops >= 1 {
-                    var ImageIndex := currentBall
-                    if ImageIndex = Images.length
-                        ImageIndex := Random.int(Images.length)
-                    def ball := Ball(Images[ImageIndex])
-                    ball.x := mouseX - ball.width / 2
-                    ball.y := mouseY - ball.height / 2
-                    ball.xv := (Random.real64() - 0.5) * X_SPREAD
-                    ball.yv := (Random.real64() - 0.5) * Y_SPREAD
+                    var spriteIndex := currentBall
+                    if spriteIndex = sprites.length
+                        spriteIndex := Random.int(sprites.length)
+                    def ball := Ball(sprites[spriteIndex])
+                    ball.x := mouseX
+                    ball.y := mouseY
+                    ball.xv := (Random.real32() - 0.5) * X_SPREAD
+                    ball.yv := (Random.real32() - 0.5) * Y_SPREAD
                     balls.add(ball)
                     if balls.length > SOFT_MAX {
                         for b in balls {

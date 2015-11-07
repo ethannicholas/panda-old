@@ -1,0 +1,157 @@
+package panda.ui.images
+
+uses panda.gl.GL
+uses panda.gl.Matrix3
+uses panda.gl.Vector2
+
+================================================================================
+A two-dimensional image that can be repeatedly stamped on the screen.
+================================================================================
+class Sprite {
+	@private
+	@class
+	def uv:ImmutableArray<Real32> := [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]
+
+	@private
+	def texture:UInt32
+
+	============================================================================
+	The  width of the image, in pixels.
+	============================================================================
+	def width:Int
+
+	============================================================================
+	The "natural" height of the image, in pixels.
+	============================================================================
+	def height:Int
+
+	============================================================================
+	The `x` position of the pixel within the image that serves as its anchor
+	point, with `0` being the left edge and `width` being the right	edge. All 
+	positioning and transformations are relative to the anchor point. The anchor 
+	point does not have to be inside the image. The default `anchorX` is
+	`width // 2`.
+	============================================================================
+	var anchorX:Int
+
+	============================================================================
+	The `y` position of the pixel within the image that serves as its anchor
+	point, with `0` being the top edge and `height` being the bottom edge. All 
+	positioning and transformations are relative to the anchor point. The anchor 
+	point does not have to be inside the image. The default `anchorY` is
+	`height // 2`.
+	============================================================================
+	var anchorY:Int
+
+	@private
+	def gl:GL
+
+	init(img:Image, gl:GL) {
+		init(img, gl, false)
+	}
+
+	============================================================================
+	Creates a new Sprite. This creates an OpenGL texture from the image, so each
+	`Image` should only have a single `Sprite` created from it (which may then
+	be stamped to the screen as many times as needed).
+
+	@param img the image to create a texture from
+	@param gl the GL context
+	@param smoothing `true` if the sprite should be interpolated when scaled,
+			`false` to use nearest-neighbor sampling
+	============================================================================
+	init(img:Image, gl:GL, smoothing:Bit) {
+		self.gl := gl
+		self.width := img.width
+		self.height := img.height
+		self.anchorX := img.width // 2
+		self.anchorY := img.height // 2
+		texture := gl.createTexture()
+		gl.activeTexture(GL.TEXTURE0)
+		gl.bindTexture(GL.TEXTURE_2D, texture)
+		gl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, img.width, img.height, 
+				GL.BGRA, GL.UNSIGNED_BYTE, img.pixels)
+		def filter:UInt32
+		if smoothing
+			filter := GL.LINEAR
+		else
+			filter := GL.NEAREST
+		gl.texParameter(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, filter)
+		gl.texParameter(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, filter)
+		gl.enableSprites()
+	}
+
+	============================================================================
+	Stamps a single copy of the sprite onto the screen. The coordinates are the
+	window coordinates of the sprite's anchor point. This method does not enable
+	[GL.BLEND] or alter the `blendFunc`, so you will need to ensure that these
+	are set appropriately for your needs.
+	============================================================================
+	method draw(var x:Real32, var y:Real32) {
+		gl.useProgram(gl.simpleSpriteProgram)
+		gl.activeTexture(GL.TEXTURE0)
+		gl.bindTexture(GL.TEXTURE_2D, texture)
+        gl.uniform(gl.simpleSpriteScreenSize, Vector2(640, 480))
+		gl.uniform(gl.simpleSpriteSampler, 0)
+		x -= anchorX
+		y -= anchorY
+		gl.vertexAttribPointer(gl.simpleSpritePosition, 2, GL.FLOAT, false, 0, 
+				[x, y, x + width, y, x + width, y + height, x, y, x + width, 
+					y + height, x, y + height], 0)
+		gl.enableVertexAttribArray(gl.simpleSpritePosition)
+		gl.vertexAttribPointer(gl.simpleSpriteUV, 2, GL.FLOAT, false, 0, uv, 0)
+		gl.enableVertexAttribArray(gl.simpleSpriteUV)
+		gl.drawArrays(GL.TRIANGLES, 0, 6)
+	}
+
+	============================================================================
+	Stamps multiple copies of the sprite onto the screen. This is much faster
+	than drawing them one at a time. The coordinates are the window coordinates 
+	of the sprite's anchor point. This method does not enable [GL.BLEND] or 
+	alter the `blendFunc`, so you will need to ensure that these are set 
+	appropriately for your needs.
+	============================================================================
+	method draw(positions:ListView<Vector2>) {
+		gl.useProgram(gl.simpleSpriteProgram)
+		gl.activeTexture(GL.TEXTURE0)
+		gl.bindTexture(GL.TEXTURE_2D, texture)
+        gl.uniform(gl.simpleSpriteScreenSize, Vector2(640, 480))
+		gl.uniform(gl.simpleSpriteSampler, 0)
+		def vertices := Array<Real32>(positions.length * 24)
+		for p in positions {
+			def x := p.x - anchorX
+			def y := p.y - anchorY
+			vertices.add(x)
+			vertices.add(y)
+			vertices.add(0)
+			vertices.add(0)
+			vertices.add(x + width)
+			vertices.add(y)
+			vertices.add(1)
+			vertices.add(0)
+			vertices.add(x + width)
+			vertices.add(y + height)
+			vertices.add(1)
+			vertices.add(1)
+			vertices.add(x)
+			vertices.add(y)
+			vertices.add(0)
+			vertices.add(0)
+			vertices.add(x + width)
+			vertices.add(y + height)
+			vertices.add(1)
+			vertices.add(1)
+			vertices.add(x)
+			vertices.add(y + height)
+			vertices.add(0)
+			vertices.add(1)
+		}
+		gl.vertexAttribPointer(gl.simpleSpritePosition, 2, GL.FLOAT, false, 16, 
+				vertices, 0)
+		gl.enableVertexAttribArray(gl.simpleSpritePosition)
+		gl.vertexAttribPointer(gl.simpleSpriteUV, 2, GL.FLOAT, false, 16, 
+				vertices, 8)
+		gl.enableVertexAttribArray(gl.simpleSpriteUV)
+		gl.drawArrays(GL.TRIANGLES, 0, positions.length->UInt32 * 6)
+	}
+}

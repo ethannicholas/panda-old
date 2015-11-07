@@ -1,0 +1,144 @@
+package panda.gl
+
+class Matrix4 : Value {
+    constant IDENTITY := Matrix4(1, 0, 0, 0, 
+                                 0, 1, 0, 0, 
+                                 0, 0, 1, 0, 
+                                 0, 0, 0, 1)
+
+    @private
+    def contents:ImmutablePrimitiveArray<Real32>
+
+    init(m11:Real32, m12:Real32, m13:Real32, m14:Real32, m21:Real32, m22:Real32,
+            m23:Real32, m24:Real32, m31:Real32, m32:Real32, m33:Real32, 
+            m34:Real32, m41:Real32, m42:Real32, m43:Real32, m44:Real32) {
+        def contents := PrimitiveArray<Real32>(16)
+        contents[ 0] := m11
+        contents[ 1] := m12
+        contents[ 2] := m13
+        contents[ 3] := m14
+        contents[ 4] := m21
+        contents[ 5] := m22
+        contents[ 6] := m23
+        contents[ 7] := m24
+        contents[ 8] := m31
+        contents[ 9] := m32
+        contents[10] := m33
+        contents[11] := m34
+        contents[12] := m41
+        contents[13] := m42
+        contents[14] := m43
+        contents[15] := m44
+        self.contents := ImmutablePrimitiveArray<Real32>(contents)
+    }
+
+    @private
+    init(contents:PrimitiveArray<Real32>) {
+        self.contents := ImmutablePrimitiveArray<Real32>(contents)
+    }
+
+    function convert():String {
+        return "[\{contents[0]}, \{contents[1]}, \{contents[2]}, \{contents[3]}]\n" +
+               "[\{contents[4]}, \{contents[5]}, \{contents[6]}, \{contents[7]}]\n" +
+               "[\{contents[8]}, \{contents[9]}, \{contents[10]}, \{contents[11]}]\n" +
+               "[\{contents[12]}, \{contents[13]}, \{contents[14]}, \{contents[15]}]"
+    }
+
+    @private
+    function get(row:Int, column:Int):Real32 {
+        return contents[row * 4 + column]
+    }
+
+    function *(m:Matrix4):Matrix4 {
+        def results := PrimitiveArray<Real32>(16)
+        for column in 0 .. 4 {
+            for row in 0 .. 4 {
+                var sum:Real32 := 0
+                for i in 0 .. 4
+                    sum += get(i, row) * m.get(column, i)
+                results[column * 4 + row] := sum
+            }
+        }
+        return Matrix4(results)
+    }
+
+    function *(v:Vector3):Vector3 {
+        def v4 := self * Vector4(v.x, v.y, v.z, 1)
+        return Vector3(v4.x / v4.w, v4.y / v4.w, v4.z / v4.w)
+    }
+
+    function *(v:Vector4):Vector4 {
+        def x := get(0, 0) * v.x + get(0, 1) * v.y + get(0, 2) * v.z + get(0, 3) * v.w
+        def y := get(1, 0) * v.x + get(1, 1) * v.y + get(1, 2) * v.z + get(1, 3) * v.w
+        def z := get(2, 0) * v.x + get(2, 1) * v.y + get(2, 2) * v.z + get(2, 3) * v.w
+        def w := get(3, 0) * v.x + get(3, 1) * v.y + get(3, 2) * v.z + get(3, 3) * v.w
+        return Vector4(x, y, z, w)
+    }
+
+    @class
+    function translation(x:Real32, y:Real32, z:Real32):Matrix4 {
+        return Matrix4(1, 0, 0, 0,
+                       0, 1, 0, 0,
+                       0, 0, 1, 0,
+                       x, y, z, 1)
+    }
+
+    @class
+    function scale(s:Real32):Matrix4 {
+        return Matrix4(s, 0, 0, 0,
+                       0, s, 0, 0,
+                       0, 0, s, 0,
+                       0, 0, 0, 1)
+    }
+
+    @class
+    function rotation(angle:Real32, var axis:Vector3):Matrix4 {
+        def cos := angle.cos
+        def sin := angle.sin
+
+        axis := axis.normalized()
+        def temp := (1 - cos) * axis
+
+        return Matrix4(cos + temp.x * axis.x, temp.x * axis.y + sin * axis.z,
+                    temp.x * axis.z - sin * axis.y, 0,
+                temp.y * axis.x - sin * axis.z, cos + temp.y * axis.y,
+                    temp.y * axis.z + sin * axis.x, 0,
+                temp.z * axis.x + sin * axis.y, temp.z * axis.y - sin * axis.x, 
+                    cos + temp.z * axis.z, 0,
+                0, 0, 0, 1)
+    }
+
+    @class
+    function orthographic(left:Real32, right:Real32, bottom:Real32, top:Real32,
+            near:Real32, far:Real32):Matrix4 {
+        return Matrix4(2 / (right - left), 0, 0, 0,
+                      0, 2 / (top - bottom), 0, 0,
+                      0, 0, 2 / (far - near), 0,
+                      -(right + left) / (right - left),
+                          - (top + bottom) / (top - bottom),
+                          - (far + near) / (far - near),
+                          1)
+    }
+
+    @class
+    function perspective(fov:Real32, aspect:Real32, near:Real32, 
+            far:Real32):Matrix4 {
+        def tanHalfFov := (fov / 2).tan
+        return Matrix4(1 / (aspect * tanHalfFov), 0, 0, 0,
+                0, 1 / tanHalfFov, 0, 0,
+                0, 0, -(far + near) / (far - near), -1,
+                0, 0, -2 * far * near / (far - near), 0)
+    }
+
+    @class
+    function lookAt(eye:Vector3, target:Vector3, up:Vector3):Matrix4 {
+        def f := (target - eye).normalized()
+        def s := f.cross(up).normalized()
+        def u := s.cross(f)
+
+        return Matrix4(s.x, u.x, -f.x, 0,
+                      s.y, u.y, -f.y, 0,
+                      s.z, u.z, -f.z, 0,
+                      -s.dot(eye), -u.dot(eye), f.dot(eye), 1)
+    }
+}

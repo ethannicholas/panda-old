@@ -72,14 +72,14 @@ else
     echo ", '-relocation-model=pic'" >> "$STATIC_SETTINGS"
 fi
 echo "]" >> "$STATIC_SETTINGS"
-echo "constant PANDAGL_GCC_ARGS:ImmutableArray<String> := [" >> "$STATIC_SETTINGS"
+echo "constant PANDAUI_GCC_ARGS:ImmutableArray<String> := [" >> "$STATIC_SETTINGS"
 if [ `uname` = "Darwin" ]; then
-    echo "'-l', 'pandagl', '-l', 'SDL2', '-l', 'SDL2_image', " >> "$STATIC_SETTINGS"
+    echo "'-l', 'pandaui', '-l', 'SDL2', '-l', 'SDL2_image', " >> "$STATIC_SETTINGS"
     echo "'-L/opt/local/lib', '-lcairo', " >> "$STATIC_SETTINGS"
-    echo "'-L', '/opt/local/lib', '-L', '\$PANDA_HOME/native/gl/lib/'" >> "$STATIC_SETTINGS"
+    echo "'-L', '/opt/local/lib', '-L', '\$PANDA_HOME/native/ui/lib/'" >> "$STATIC_SETTINGS"
 else
-    echo "'-lpandagl', '-lSDL2', '-lSDL2_image', '-L/usr/lib/SDL2', '-L/usr/lib/x86_64-linux-gnu/', " >> "$STATIC_SETTINGS"
-    echo "'-L', '/opt/local/lib', '-L', '\$PANDA_HOME/native/gl/lib/'" >> "$STATIC_SETTINGS"
+    echo "'-lpandaui', '-lSDL2', '-lSDL2_image', '-L/usr/lib/SDL2', '-L/usr/lib/x86_64-linux-gnu/', " >> "$STATIC_SETTINGS"
+    echo "'-L', '/opt/local/lib', '-L', '\$PANDA_HOME/native/ui/lib/'" >> "$STATIC_SETTINGS"
 fi
 echo "]" >> "$STATIC_SETTINGS"
 echo "}" >> "$STATIC_SETTINGS"
