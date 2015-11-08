@@ -1,6 +1,9 @@
 package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ASTFile
+uses org.pandalanguage.pandac.ast.ASTInstanceDeclaration
+uses org.pandalanguage.pandac.ast.ASTNode
+uses org.pandalanguage.pandac.ast.ASTUnparsedClass
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.tree.ClassNode
@@ -53,6 +56,7 @@ class CompilerErrorReporter : ErrorReporter {
         Console.writeLine("error: \{format(position)}: " + 
                 message)
         compiler.errorQueue.post(ERROR_MESSAGE)
+        Panda.dumpStack()
     }
 
     @override
@@ -177,6 +181,36 @@ class PandaCompiler {
     }
 
     @protected
+    @class
+    method parsePLink(f:File, parser:PandaParser):ASTFile {
+        def entries := Array<ASTNode>()
+        def input := f.openInputStream()
+        def position := Position(f, 0)
+        loop {
+            def nameLength := input.readInt16()
+            if nameLength = null 
+                break
+            def name := Array<UInt8>()
+            input.read(name, nameLength)
+            assert name.length = nameLength
+            def codeLength := input.readInt32()
+            assert codeLength != null
+            if codeLength > 0 {
+                def code := Array<UInt8>()
+                input.read(code, codeLength)
+                assert code.length = codeLength
+                entries.add(ASTUnparsedClass(position, String(name), 
+                        String(code)))
+            }
+            else {
+                entries.add(ASTInstanceDeclaration(position,
+                        parser.parseType(String(name), position)))
+            }
+        }
+        return ASTFile(f, entries)
+    }
+
+    @protected
     method getASTFiles(settings:CompilerSettings):CollectionView<ASTFile> {
         def result := Array<ASTFile>()
         def threads := Thread.preferredThreadCount().min(
@@ -196,7 +230,11 @@ class PandaCompiler {
                         def f := workQueue.getMessage()
                         if f = null
                             break
-                        def parsed := parser.parseFile(f)
+                        def parsed:ASTFile
+                        if f.name.endsWith(".plink")
+                            parsed := parsePLink(f, parser)
+                        else
+                            parsed := parser.parseFile(f)
                         if parsed != null
                             result.add(parsed)
                     }

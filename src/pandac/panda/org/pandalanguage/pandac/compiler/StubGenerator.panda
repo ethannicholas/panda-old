@@ -34,8 +34,10 @@ uses org.pandalanguage.pandac.ast.ASTSwitchCase
 uses org.pandalanguage.pandac.ast.ASTTupleType
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
+uses org.pandalanguage.pandac.ast.ASTUnparsedClass
 uses org.pandalanguage.pandac.ast.ASTUnreachable
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
+uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
 uses org.pandalanguage.pandac.stubs.Methods
@@ -133,6 +135,8 @@ class StubGenerator {
 
     def astClasses := HashMap<String, (ASTClass, ClassContext)>()
 
+    def astUnparsedClasses := HashMap<String, ASTUnparsedClass>()
+
     def astEnums := HashMap<String, (ASTEnum, ClassContext)>()
 
     def stubs := HashMap<String, ClassStub>()
@@ -198,6 +202,22 @@ class StubGenerator {
                     if currentPackage != null
                         name := currentPackage + "." + name
                     addType(ClassType(name), decl.position)
+                }
+                else if decl-?>ASTUnparsedClass {
+                    def name := decl->ASTUnparsedClass.name
+                    def type:Type
+                    if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
+                        def symbolTable := SymbolTable()
+                        usePackage("panda.core", symbolTable, 
+                                Array<String>(), Position.INTERNAL)
+                        type := WrapperType(resolveType(ASTClassType(
+                                decl.position, name[0 .. name.length - 
+                                    "Wrapper".length], null, false), 
+                                symbolTable)->PrimitiveType)
+                    }
+                    else
+                        type := ClassType(name)
+                    addType(type, decl.position)
                 }
                 else if decl-?>ASTPackageDeclaration
                     currentPackage := decl->ASTPackageDeclaration.name
@@ -272,6 +292,10 @@ class StubGenerator {
                     astClasses[name] := (decl->ASTClass, ClassContext(
                             currentPackage, LookupContext(packageUses,
                                 classAliases)))
+                }
+                else if decl-?>ASTUnparsedClass {
+                    def aup := decl->ASTUnparsedClass
+                    astUnparsedClasses[aup.name] := aup
                 }
                 else if decl-?>ASTEnum {
                     var name := decl->ASTEnum.name
@@ -979,11 +1003,25 @@ class StubGenerator {
                 addSymbol(initMethod[1], symbols.mySymbols, errors)
             }
         }
+        def genericParameters:Array<(String, Type?)>?
+        if cl.genericParameters != null {
+            genericParameters := Array<(String, Type?)>()
+            for gp in cl.genericParameters {
+                def type:Type?
+                if gp.type != null
+                    type := resolveType(gp.type, symbolTable)
+                else
+                    type := null
+                genericParameters.add((gp.identifier, type))
+            }
+        }
+        else
+            genericParameters := null
         return ClassStub(cl.position, classType, 
                 cl.isInterface, annotations, superclass->ClassType?, 
                 interfaces, symbols.mySymbols, LookupContext(packageUses, 
                         classAliases), 
-                cl.invariants, cl.genericParameters, cl.isExternal, null)
+                cl.invariants, genericParameters, cl.isExternal, null)
     }
 
     method convertEnum(e:ASTEnum, currentPackage:String?,
@@ -1202,23 +1240,43 @@ class StubGenerator {
     method getStub(name:String):ClassStub? {
         var result := stubs[name]
         if result = null {
-            def classLookup := astClasses[name]
-            if classLookup != null {
-                def cl, context := classLookup
-                def symbolTable := getSymbolTable(context.lookupContext)
-                result := convertClass(cl, getPackage(name), symbolTable,
-                        context.lookupContext.packageUses, 
-                        HashMap<String, String>(
-                                context.lookupContext.classAliases))
-                stubs[name] := result
+            def unparsedClass := astUnparsedClasses[name]
+            if unparsedClass != null {
+                def parsed := PandaParser(errors).parseBodyEntry(
+                        unparsedClass.text, Position(File("<internal>.plink"), 0))
+                if parsed-?>ASTClass {
+                    def cl := parsed->ASTClass
+                    def symbolTable := SymbolTable(masterSymbolTable)
+                    result := convertClass(cl, getPackage(name), symbolTable,
+                            [], HashMap<String, String>())
+                    stubs[name] := result
+                }
+                else if parsed-?>ASTEnum {
+                    def e := parsed->ASTEnum
+                    def symbolTable := SymbolTable(masterSymbolTable)
+                    result := convertEnum(e, getPackage(name), symbolTable)
+                    stubs[name] := result
+                }
             }
             else {
-                def enumLookup := astEnums[name]
-                if enumLookup != null {
-                    def cl, context := enumLookup
+                def classLookup := astClasses[name]
+                if classLookup != null {
+                    def cl, context := classLookup
                     def symbolTable := getSymbolTable(context.lookupContext)
-                    result := convertEnum(cl, getPackage(name), symbolTable)
+                    result := convertClass(cl, getPackage(name), symbolTable,
+                            context.lookupContext.packageUses, 
+                            HashMap<String, String>(
+                                    context.lookupContext.classAliases))
                     stubs[name] := result
+                }
+                else {
+                    def enumLookup := astEnums[name]
+                    if enumLookup != null {
+                        def cl, context := enumLookup
+                        def symbolTable := getSymbolTable(context.lookupContext)
+                        result := convertEnum(cl, getPackage(name), symbolTable)
+                        stubs[name] := result
+                    }
                 }
             }
         }

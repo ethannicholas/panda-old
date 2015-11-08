@@ -22,6 +22,7 @@ echo "Compiling core (native)..."
 
 mkdir -p $NATIVE_TARGET/core/c
 $PANDAC -XnoCoreLib -f h -o $NATIVE_TARGET/core/c/panda.h $CORE_FILES
+
 cd src/core/c
 ./build.sh
 cd "$BASEDIR"
