@@ -56,7 +56,6 @@ class CompilerErrorReporter : ErrorReporter {
         Console.writeLine("error: \{format(position)}: " + 
                 message)
         compiler.errorQueue.post(ERROR_MESSAGE)
-        Panda.dumpStack()
     }
 
     @override
@@ -80,6 +79,7 @@ class PandaCompiler {
     def parser := PandaParser(errors)
     var errorCount := 0
     var warningCount := 0
+    var checkpoints := false
 
     @class
     function determinePandaHome():File {
@@ -170,34 +170,45 @@ class PandaCompiler {
     }
 
     method checkpoint(label:String) {
--*        var now := Panda.currentTime()
+        var now := Panda.currentTime()
         var lastCheckpointLabel := lastCheckpointLabel
-        if lastCheckpointLabel != null {
+        if checkpoints & lastCheckpointLabel != null {
             Console.writeLine(lastCheckpointLabel + " - " + 
                     (now - lastCheckpointTime) + "ms")
         }
         self.lastCheckpointLabel := label
-        lastCheckpointTime := now*-
+        lastCheckpointTime := now
     }
 
     @protected
     @class
     method parsePLink(f:File, parser:PandaParser):ASTFile {
-        def entries := Array<ASTNode>()
-        def input := f.openInputStream()
         def position := Position(f, 0)
+        def reportError := method() {
+            throw CompilerException("error reading PLink file",
+                    position)
+        }
+        def entries := Array<ASTNode>()
+        def input := BufferedInputStream(f.openInputStream())
         loop {
             def nameLength := input.readInt16()
             if nameLength = null 
                 break
             def name := Array<UInt8>()
-            input.read(name, nameLength)
+            while name.length < nameLength {
+                if input.read(name, nameLength - name.length) = null
+                    reportError()
+            }
             assert name.length = nameLength
             def codeLength := input.readInt32()
-            assert codeLength != null
+            if codeLength = null
+                reportError()
             if codeLength > 0 {
                 def code := Array<UInt8>()
-                input.read(code, codeLength)
+                while code.length < codeLength {
+                    if input.read(code, codeLength - code.length) = null
+                        reportError()
+                }
                 assert code.length = codeLength
                 entries.add(ASTUnparsedClass(position, String(name), 
                         String(code)))
@@ -207,6 +218,7 @@ class PandaCompiler {
                         parser.parseType(String(name), position)))
             }
         }
+        input.close()
         return ASTFile(f, entries)
     }
 
@@ -215,6 +227,7 @@ class PandaCompiler {
         def result := Array<ASTFile>()
         def threads := Thread.preferredThreadCount().min(
                 settings.sources.length)
+        threads := 1
         if threads > 1 {
             def workQueue := MessageQueue<File?>()
             def responseQueue := MessageQueue<ImmutableArray<ASTFile>>()
@@ -249,7 +262,11 @@ class PandaCompiler {
         else {
             for f in settings.sources {
                 def input := BufferedInputStream(f.openInputStream())
-                def parsed := parser.parseFile(f)
+                def parsed:ASTFile
+                if f.name.endsWith(".plink")
+                    parsed := parsePLink(f, parser)
+                else
+                    parsed := parser.parseFile(f)
                 if parsed != null
                     result.add(parsed)
                 input.close()
@@ -397,6 +414,8 @@ class PandaCompiler {
                     loadCoreLibraries := false
                 case "-XpreserveTempArtifacts":
                     preserveTempArtifacts := true
+                case "-Xtime":
+                    checkpoints := true
                 default: {
                     if arg.endsWith(".panda")
                         sources.add(File(arg))
