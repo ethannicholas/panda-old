@@ -162,8 +162,7 @@
     { result := [] }
 bodyEntries:Array<ASTNode> = bodyEntries bodyEntry
     { 
-        result := [] 
-        result.addAll(bodyEntries)
+        result := bodyEntries
         result.add(bodyEntry)
     }
 bodyEntries:Array<ASTNode> = bodyEntry
@@ -191,18 +190,25 @@ optionalTrailingLineComment =
     { result := statement }
 
 packageDeclaration:ASTPackageDeclaration = PACKAGE ^ dottedName
-    { result := ASTPackageDeclaration(PACKAGE, dottedName) }
-dottedName:String = dottedName DOT IDENTIFIER
-    { result := dottedName + "." + IDENTIFIER.text }
-dottedName:String = IDENTIFIER
-    { result := IDENTIFIER.text }
+    { result := ASTPackageDeclaration(PACKAGE, dottedName.convert()) }
+dottedName:MutableString = dottedName DOT IDENTIFIER
+    { 
+        result := dottedName
+        result.append(".")
+        result.append(IDENTIFIER.text)
+    }
+dottedName:MutableString = IDENTIFIER
+    { result := MutableString(IDENTIFIER.text) }
 usesStatement:ASTUsesDeclaration = USES usesName
-    { result := ASTUsesDeclaration(USES, usesName, null) }
+    { result := ASTUsesDeclaration(USES, usesName.convert(), null) }
 usesStatement:ASTUsesDeclaration = USES id:dottedName AS ^ alias:dottedName
-    { result := ASTUsesDeclaration(USES, id, alias) }
-usesName:String = dottedName DOT STAR
-    { result := dottedName + ".*" }
-usesName:String = dottedName
+    { result := ASTUsesDeclaration(USES, id.convert(), alias.convert()) }
+usesName:MutableString = dottedName DOT STAR
+    { 
+        result := dottedName
+        result.append(".*") 
+    }
+usesName:MutableString = dottedName
     { result := dottedName }
 instanceDeclaration:ASTInstanceDeclaration = INSTANCE ^ type
     { result := ASTInstanceDeclaration(Position(file, parserState.position), type) }
@@ -259,8 +265,7 @@ enumDeclaration:ASTEnum = optionalDoccomment optionalAnnotations ENUM ^
     }
 enumValues:Array<ASTEnumValue> = enumValues COMMA enumValue
     {
-        result := []
-        result.addAll(enumValues)
+        result := enumValues
         result.add(enumValue)
     }
 enumValues:Array<ASTEnumValue> = enumValue
@@ -296,8 +301,7 @@ optionalGenericsDeclaration:Array<ASTTypedIdentifier>? =
 genericsDeclarations:Array<ASTTypedIdentifier> = genericsDeclarations COMMA
         optionallyTypedIdentifier
     { 
-        result := []
-        result.addAll(genericsDeclarations)
+        result := genericsDeclarations
         result.add(optionallyTypedIdentifier)
     }
 genericsDeclarations:Array<ASTTypedIdentifier> = optionallyTypedIdentifier
@@ -312,8 +316,7 @@ classMembers:Array<ASTNode> =
     { result := [] }
 classMemberList:Array<ASTNode> = classMemberList classMember
     { 
-        result := []
-        result.addAll(classMemberList)
+        result := classMemberList
         result.add(classMember)
     }
 classMemberList:Array<ASTNode> =
@@ -330,8 +333,7 @@ classMember:ASTNode = fieldDeclaration
     { result := fieldDeclaration }
 annotations:Array<ASTAnnotation> = annotations annotation
     {
-        result := []
-        result.addAll(annotations)
+        result := annotations
         result.add(annotation)
     }
 annotations:Array<ASTAnnotation> = annotation
@@ -376,8 +378,7 @@ postcondition:ASTPostcondition = POST_AND LPAREN expression RPAREN
     { result := ASTPostcondition(Position(file, parserState.position), expression, true) }
 postconditions:Array<ASTPostcondition> = postconditions postcondition
     {
-        result := []
-        result.addAll(postconditions)
+        result := postconditions
         result.add(postcondition)
     }
 postconditions:Array<ASTPostcondition> = postcondition
@@ -467,8 +468,7 @@ formalParameters:Array<ASTParameter> = LPAREN RPAREN
     { result := [] }
 parameterList:Array<ASTParameter> = parameterList COMMA parameter
     {
-        result := []
-        result.addAll(parameterList)
+        result := parameterList
         result.add(parameter)
     }
 parameterList:Array<ASTParameter> = parameter
@@ -594,8 +594,7 @@ varDeclaration:ASTVarDeclaration = CONSTANT varDeclarations ASSIGNMENT expressio
 varDeclarations:Array<ASTTypedIdentifier> = varDeclarations COMMA 
         optionallyTypedIdentifier
     { 
-        result := [] 
-        result.addAll(varDeclarations)
+        result := varDeclarations
         result.add(optionallyTypedIdentifier)
     }
 varDeclarations:Array<ASTTypedIdentifier> = optionallyTypedIdentifier
@@ -702,8 +701,7 @@ switchStatement:ASTSwitch = SWITCH expression LBRACE switchCases defaultCase
     }
 switchCases:Array<ASTSwitchCase> = switchCases switchCase
     { 
-        result := []
-        result.addAll(switchCases)
+        result := switchCases
         result.add(switchCase)
     }
 switchCases:Array<ASTSwitchCase> = switchCase
@@ -720,8 +718,7 @@ tryStatement:ASTStatement = TRY ^ statementOrBlock catchBlocks
     { result := ASTTry(Position(file, parserState.position), statementOrBlock, catchBlocks, null) }
 catchBlocks:Array<ASTCatch> = catchBlocks catchBlock
     { 
-        result := []
-        result.addAll(catchBlocks)
+        result := catchBlocks
         result.add(catchBlock)
     }
 catchBlocks:Array<ASTCatch> = catchBlock
@@ -742,14 +739,12 @@ statements:Array<ASTStatement> = terminalStatement
     { result := [terminalStatement] }
 statements:Array<ASTStatement> = statementList terminalStatement
     {
-        result := []
-        result.addAll(statementList)
+        result := statementList
         result.add(terminalStatement)
     }
 statementList:Array<ASTStatement> = statementList statement
     {
-        result := []
-        result.addAll(statementList)
+        result := statementList
         result.add(statement)
     }
 statementList:Array<ASTStatement> = statement
@@ -789,13 +784,13 @@ unreachableStatement:ASTUnreachable = UNREACHABLE
 
 @type:ASTType = dottedName optionalQuestion
     { 
-        result := ASTClassType(Position(file, parserState.position), dottedName, null,
-                optionalQuestion) 
+        result := ASTClassType(Position(file, parserState.position), 
+                dottedName.convert(), null, optionalQuestion) 
     }
 @type:ASTType = dottedName genericParameters optionalQuestion
     { 
-        result := ASTClassType(Position(file, parserState.position), dottedName,
-                genericParameters, optionalQuestion) 
+        result := ASTClassType(Position(file, parserState.position), 
+                dottedName.convert(), genericParameters, optionalQuestion) 
     }
 @type:ASTType = LPAREN typeList RPAREN optionalQuestion
     { result := ASTTupleType(Position(file, parserState.position), typeList, optionalQuestion) }
@@ -827,8 +822,7 @@ genericParameters:Array<ASTType> = LT typeList GT
     { result := typeList }
 typeList:Array<ASTType> = typeList COMMA type
     { 
-        result := []
-        result.addAll(typeList)
+        result := typeList
         result.add(type)
     }
 typeList:Array<ASTType> = type
@@ -1105,8 +1099,7 @@ parameters:Array<ASTExpression> = LPAREN RPAREN
     { result := [] }
 expressionList:Array<ASTExpression> = expressionList COMMA expression
     { 
-        result := [] 
-        result.addAll(expressionList)
+        result := expressionList
         result.add(expression)
     }
 expressionList:Array<ASTExpression> = expression
@@ -1238,8 +1231,7 @@ lambdaParameters:Array<ASTTypedIdentifier> = LPAREN typedLambdaParameters RPAREN
 untypedLambdaParameters:Array<ASTTypedIdentifier> = untypedLambdaParameters 
         COMMA IDENTIFIER
     { 
-        result := []
-        result.addAll(untypedLambdaParameters)
+        result := untypedLambdaParameters
         result.add(ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 null))
     }
@@ -1251,8 +1243,7 @@ untypedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER
 typedLambdaParameters:Array<ASTTypedIdentifier> = typedLambdaParameters 
         COMMA IDENTIFIER COLON type
     { 
-        result := []
-        result.addAll(typedLambdaParameters)
+        result := typedLambdaParameters
         result.add(ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text,
                 type))
     }
@@ -1285,21 +1276,27 @@ IDENTIFIER:Identifier = identifierContents WS
     }
 identifierContents:Identifier = identifierText
     { 
-        result := Identifier(identifierText, Position(file, 
+        result := Identifier(identifierText.convert(), Position(file, 
                 parserState.position - identifierText.length))
     }
-identifierText:String = identifierStart identifierChars ![A-Za-z_$0-9]
-    { result := identifierStart + identifierChars }
-identifierText:String = identifierStart ![A-Za-z_$0-9]
+identifierText:MutableString = identifierStart identifierChars ![A-Za-z_$0-9]
+    { 
+        result := identifierStart
+        result.append(identifierChars) 
+    }
+identifierText:MutableString = identifierStart ![A-Za-z_$0-9]
     { result := identifierStart }
-identifierStart:String = char:[a-zA-Z_$]
-    { result := char }
-identifierChars:String = identifierChars identifierChar
-    { result := identifierChars + identifierChar }
-identifierChars:String = identifierChar
+identifierStart:MutableString = char:[a-zA-Z_$]
+    { result := MutableString(char) }
+identifierChars:MutableString = identifierChars identifierChar
+    { 
+        result := identifierChars
+        result.append(identifierChar)
+    }
+identifierChars:MutableString = identifierChar
     { result := identifierChar }
-identifierChar:String = char:[a-zA-Z_$0-9]
-    { result := char }
+identifierChar:MutableString = char:[a-zA-Z_$0-9]
+    { result := MutableString(char) }
 
 INTEGER:ASTIntegerLiteral = DECIMAL_TEXT WS
     { result := ASTIntegerLiteral(Position(file, parserState.position), DECIMAL_TEXT.convert()) }

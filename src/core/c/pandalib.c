@@ -670,44 +670,34 @@ short panda$io$FileInputStream$read_$NativePointer_$RInt16(void* handle) {
         return -1;
 }
 
-panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTInt8$GT_Int32_$RInt32$Z(
-        panda$io$FileInputStream* self, 
-        panda$collections$ListWriter$LTpanda$core$Int8$GT* bytes, 
-        Int32 max) {
-    panda$collections$CollectionWriter$LTpanda$core$Int8$GT$add_TYPE* add =
-            pandaGetInterfaceMethod((panda$core$Object*) bytes, 
-                    &panda$collections$CollectionWriter$LTpanda$core$Int8$GT_class, 
-                    panda$collections$CollectionWriter$LTpanda$core$Int8$GT$add_INDEX);
-    Int8 data[max];
-    // FIXME check for errors
-    int count = fread(data, 1, max, (FILE*) self->nativeFile);
-    if (count <= 0)
-        return NULL;
-    for (int i = 0; i < count; i++) {
-        add((panda$collections$CollectionWriter$LTpanda$core$Int8$GT*) bytes, 
-                data[i]);
-    }
-    panda$core$Int32Wrapper* result = pandaNew(panda$core$Int32Wrapper);
-    result->value = count;
-    return result;
-}
+void panda$collections$Array$LTpanda$core$UInt8$GT$ensureCapacity(panda$collections$Array$LTpanda$core$UInt8$GT* arr, Int32 length);
 
 panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int32_$RInt32$Z(
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$UInt8$GT* bytes,
         Int32 max) {
-    panda$collections$CollectionWriter$LTpanda$core$UInt8$GT$add_TYPE* add =
-            pandaGetInterfaceMethod((panda$core$Object*) bytes, 
-                    &panda$collections$CollectionWriter$LTpanda$core$UInt8$GT_class, 
-                    panda$collections$CollectionWriter$LTpanda$core$UInt8$GT$add_INDEX);
     UInt8 data[max];
     // FIXME check for errors
     int count = fread(data, 1, max, (FILE*) self->nativeFile);
     if (count <= 0)
         return NULL;
-    for (int i = 0; i < count; i++) {
-        add((panda$collections$CollectionWriter$LTpanda$core$UInt8$GT*) bytes, 
-                data[i]);
+    if (bytes->cl == &panda$collections$Array$LTpanda$core$UInt8$GT_class) {
+        panda$collections$Array$LTpanda$core$UInt8$GT* arr =
+                (panda$collections$Array$LTpanda$core$UInt8$GT*) bytes;
+        panda$collections$Array$LTpanda$core$UInt8$GT$ensureCapacity(arr, 
+                arr->_length + count);
+        memcpy(&arr->contents->contents[arr->_length], data, count);
+        arr->_length += count;
+    }
+    else {
+        panda$collections$CollectionWriter$LTpanda$core$UInt8$GT$add_UInt8_TYPE* add =
+                pandaGetInterfaceMethod((panda$core$Object*) bytes, 
+                        &panda$collections$CollectionWriter$LTpanda$core$UInt8$GT_class, 
+                        panda$collections$CollectionWriter$LTpanda$core$UInt8$GT$add_UInt8_INDEX);
+        for (int i = 0; i < count; i++) {
+            add((panda$collections$CollectionWriter$LTpanda$core$UInt8$GT*) bytes, 
+                    data[i]);
+        }
     }
     panda$core$Int32Wrapper* result = pandaNew(panda$core$Int32Wrapper);
     result->value = count;
@@ -718,10 +708,10 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int3
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$Char$GT* chars, 
         Int32 max) {
-    panda$collections$CollectionWriter$LTpanda$core$Char$GT$add_TYPE* add =
+    panda$collections$CollectionWriter$LTpanda$core$Char$GT$add_Char_TYPE* add =
             pandaGetInterfaceMethod((panda$core$Object*) chars, 
                     &panda$collections$CollectionWriter$LTpanda$core$Char$GT_class, 
-                    panda$collections$CollectionWriter$LTpanda$core$Char$GT$add_INDEX);
+                    panda$collections$CollectionWriter$LTpanda$core$Char$GT$add_Char_INDEX);
     Char data[max];
     // FIXME check for errors
     int count = fread(data, 1, max, (FILE*) self->nativeFile);
@@ -773,10 +763,10 @@ panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list_$RListView$LTF
     if ((dir = opendir(path)) != NULL) {
         result = pandaNew(panda$collections$Array$LTpanda$io$File$GT);
         panda$collections$Array$LTpanda$io$File$GT$init(result);
-        panda$collections$Array$LTpanda$io$File$GT$add_TYPE* add =
-                (panda$collections$Array$LTpanda$io$File$GT$add_TYPE*) 
+        panda$collections$Array$LTpanda$io$File$GT$add_File_TYPE* add =
+                (panda$collections$Array$LTpanda$io$File$GT$add_File_TYPE*) 
                     *(&result->cl->vtable + 
-                    panda$collections$Array$LTpanda$io$File$GT$add_INDEX);    
+                    panda$collections$Array$LTpanda$io$File$GT$add_File_INDEX);    
         while ((ent = readdir(dir)) != NULL) {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
                 continue;
