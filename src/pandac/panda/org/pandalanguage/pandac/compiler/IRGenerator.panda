@@ -1127,9 +1127,10 @@ class IRGenerator {
                         context)
                 if v.vars.length > 1 {
                     if initializerType.unwrapNullable-!>TupleType {
-                        context.errors.error("assigning to multiple " +
-                                "variables from a non-tuple expression",
+                        context.errors.error("expected a tuple of length " +
+                                "\{v.vars.length} for multi-valued assignment",
                                 initializer.position)
+                        return null
                     }
                     type := initializerType.unwrapNullable->TupleType.types[i]
                 }
@@ -1147,7 +1148,7 @@ class IRGenerator {
         if initializer != null {
             if v.vars.length = 1 {
                 if locals[0].name = "_" {
-                    context.errors.error("'_' is is only permitted in " +
+                    context.errors.error("'_' is only permitted in " +
                             "multiple assignments from a tuple", v.position)
                     return null
                 }            
@@ -1166,9 +1167,15 @@ class IRGenerator {
             }
             else
                 initializer := resolve(initializer)
-            def tuple := LocalVariable(v.position, "$tuple\{nameCount}",
-                    initializer.type.unwrapNullable, VariableType.DEF,
-                    context.currentMethod)
+            def tuple := LocalVariable(initializer.position, 
+                    "$tuple\{nameCount}", initializer.type.unwrapNullable, 
+                    VariableType.DEF, context.currentMethod)
+            if tuple.type->TupleType.types.length != locals.length {
+                context.errors.error("expected a tuple of length " +
+                        "\{locals.length} for multi-valued assignment",
+                        tuple.position)
+                return null
+            }
             context.localVariables.add(tuple)
             nameCount += 1
             def statements := Array<Statement>()
@@ -2452,7 +2459,7 @@ class IRGenerator {
                 return convertBreak(s->ASTBreak)
             case ASTContinue:
                 return convertContinue(s->ASTContinue)
-            case ASTVarDeclaration:
+            case ASTVarDeclaration: 
                 return convertVarDeclaration(s->ASTVarDeclaration)
             case ASTAssignment:
                 return convertAssignment(s->ASTAssignment)
