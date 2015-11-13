@@ -1078,6 +1078,14 @@ Real32 panda$core$Real32Wrapper$get_sqrt(Real32 r) {
     return sqrt(r);
 }
 
+Real32 panda$core$Real32Wrapper$get_floor(Real32 r) {
+    return floor(r);
+}
+
+Real32 panda$core$Real32Wrapper$get_ceil(Real32 r) {
+    return ceil(r);
+}
+
 Real32 panda$core$Real32Wrapper$get_sin(Real32 r) {
     return sin(r);
 }
@@ -1088,6 +1096,14 @@ Real32 panda$core$Real32Wrapper$get_cos(Real32 r) {
 
 Real64 panda$core$Real64Wrapper$get_sqrt(Real64 r) {
     return sqrt(r);
+}
+
+Real64 panda$core$Real64Wrapper$get_floor(Real64 r) {
+    return floor(r);
+}
+
+Real64 panda$core$Real64Wrapper$get_ceil(Real64 r) {
+    return ceil(r);
 }
 
 Real64 panda$core$Real64Wrapper$get_sin(Real64 r) {
@@ -1215,7 +1231,7 @@ String* pandaUTextToString(UText* ut, int length) {
     return result;
 }
 
-Int32 panda$core$Matcher$groupCount_$NativePointer_$RInt32(void* nr) {
+Int32 panda$core$Matcher$_groupCount(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
     Int32 result = uregex_groupCount(((NativeRegex*) nr)->regex, &status);
     if (U_FAILURE(status))
@@ -1233,7 +1249,7 @@ String* panda$core$Matcher$group_$NativePointer_Int32_$RString(void* nr, Int32 g
     return pandaUTextToString(ut, length);
 }
 
-Int32 panda$core$Matcher$start_$NativePointer_$RInt32(void* nr) {
+Int32 panda$core$Matcher$_start(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
     Int32 result = uregex_start(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
@@ -1241,7 +1257,7 @@ Int32 panda$core$Matcher$start_$NativePointer_$RInt32(void* nr) {
     return result;
 }
 
-Int32 panda$core$Matcher$end_$NativePointer_$RInt32(void* nr) {
+Int32 panda$core$Matcher$_end(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
     Int32 result = uregex_end(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))

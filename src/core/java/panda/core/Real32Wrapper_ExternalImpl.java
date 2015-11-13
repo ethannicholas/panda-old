@@ -25,6 +25,16 @@ class Real32Wrapper_ExternalImpl implements panda.core.Real32Wrapper_External {
     }
 
     @Override
+    public float get_floor_$Rpanda$core$Real32(float self) {
+        return (float) Math.floor(self);
+    }
+
+    @Override
+    public float get_ceil_$Rpanda$core$Real32(float self) {
+        return (float) Math.ceil(self);
+    }
+
+    @Override
     public float get_sin_$Rpanda$core$Real32(float self) {
         return (float) Math.sin(self);
     }

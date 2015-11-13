@@ -25,6 +25,16 @@ class Real64Wrapper_ExternalImpl implements panda.core.Real64Wrapper_External {
     }
 
     @Override
+    public double get_floor_$Rpanda$core$Real64(double self) {
+        return (double) Math.floor(self);
+    }
+
+    @Override
+    public double get_ceil_$Rpanda$core$Real64(double self) {
+        return (double) Math.ceil(self);
+    }
+
+    @Override
     public double get_sin_$Rpanda$core$Real64(double self) {
         return Math.sin(self);
     }

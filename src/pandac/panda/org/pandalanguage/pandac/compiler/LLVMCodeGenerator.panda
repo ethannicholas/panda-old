@@ -174,6 +174,8 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def landingPads := HashMap<Try, String>()
 
+    def writtenMethods := HashSet<MethodStub>()
+
     init(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         def errors := FatalErrorReporter()
@@ -205,18 +207,11 @@ class LLVMCodeGenerator (CodeGenerator) {
             writtenStubs.add(name)
             if !stub.annotations.isUnspecified
                 writeTypeDescriptor(stub)
-            if stub.isExternal {
-                -- write external stubs
-                for m in stub.methods {
-                    if !stub.annotations.isUnspecified | m.annotations.isClass
-                        writeMethodDeclaration(m)
-                }
-                for f in stub.fields {
-                    if (!stub.annotations.isUnspecified | 
-                            f.annotations.isClass | f.annotations.isThread) & 
-                            f.owner.name = stub.name {
-                        writeFieldDeclaration(f)
-                    }
+            for f in stub.fields {
+                if (!stub.annotations.isUnspecified | 
+                        f.annotations.isClass | f.annotations.isThread) & 
+                        f.owner.name = stub.name {
+                    writeFieldDeclaration(f)
                 }
             }
         }
@@ -671,7 +666,6 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     function getMethodIndex(cl:ClassConstant, m:MethodStub):Int {
-        -- FIXME use indexOf when that's available
         def result := cl.methods.indexOf(m)
         assert result != null : m + " not found in class constant"
         return result
@@ -737,6 +731,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             visited.add(intf)
             def intfCC := getClassConstant(intf)
             def methods := cl.interfaceMethods(intf, context)
+            header.writeLine("; ITABLE: \{cl.name}")
             def name := "@" + getName(cl) + "$." + getName(intf)
             def type := "{ " + getLLVMType(ClassType.CLASS) + 
                     ", %$itable*, [" + methods.length + " x i8*] }"
@@ -747,6 +742,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     getLLVMType(ClassType.CLASS) + "), " + previous + ", [" + 
                     methods.length + " x i8*][")
             for (i, m) in methods.enumeration() {
+                program.liveMethods.add(m)
                 if i > 0
                     header.write(", ")
                 if m.annotations.isAbstract
@@ -758,7 +754,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             header.writeLine("] }")
             previous := "%$itable* bitcast(" + type + "* " + name + 
-                    " to %$itable*)" 
+                    " to %$itable*)"
         }
         return previous
     }
@@ -782,8 +778,11 @@ class LLVMCodeGenerator (CodeGenerator) {
             -- printed, and we don't want to be in the middle of output when
             -- that happens
             var nameRef := "<error>"
-            if !cl.isExternal
+            if !cl.isExternal {
                 nameRef := getStringConstantReference(name)
+                for m in methods
+                    program.liveMethods.add(m)
+            }
             getClassConstant(getStub(ClassType.CLASS.name))
 
             def superclassConstant:ClassConstant?
@@ -869,7 +868,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if result = null {
             def string := getStub(ClassType.STRING)
             def primitiveChars := Array<Char>()
-            for c in s
+            for c in s.characters
                 primitiveChars.add(c)
             def chars := getCharPrimitiveArrayConstantReference(primitiveChars)
             result := "@s" + stringConstants.length
@@ -1229,7 +1228,9 @@ class LLVMCodeGenerator (CodeGenerator) {
         assert classInit.length = 1 : "expected exactly one method named " +
                 "'\{MethodNode.CLASS_INIT_NAME} in \{cl}, found " +
                 classInit.length
-        call("fastcc void @\{getName(classInit.iterator().next())}()")
+        def stub := classInit.iterator().next()
+        call("fastcc void @\{getName(stub)}()")
+        program.liveMethods.add(stub)
     }
     
     @protected
@@ -1278,6 +1279,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             def callString := MutableString("fastcc " + getLLVMType(type) + 
                     " @panda$core$Panda$getThreadLocal" + suffix + 
                     "(i32 " + threadLocalId + ", ")
+            def stub := getStub(Panda.name).symbols["getThreadLocal" + 
+                    suffix]->Methods.methods[0]
+            program.liveMethods.add(stub)
             def initializer := symbolTable[
                         IRGenerator.getThreadLocalInitializerName(fr.field)
                     ]->Methods?
@@ -1287,6 +1291,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                         " bitcast(" + getLLVMType(fr.type) + "()* @" + 
                         getName(initializer.methods[0]) + " to " + 
                         getLLVMType(NativePointerType.NATIVE_POINTER) + "))")
+                program.liveMethods.add(initializer.methods[0])
             }
             else
                 callString.append("i8* null)") -- no initializer function
@@ -1668,6 +1673,9 @@ class LLVMCodeGenerator (CodeGenerator) {
                 suffix := "Object"
             call("fastcc void @panda$core$Panda$setThreadLocal" + 
                     suffix + "(i32 " + threadLocalId + ", " + ref + ")")
+            def stub := getStub(Panda.name).symbols["setThreadLocal" + 
+                    suffix]->Methods.methods[0]
+            program.liveMethods.add(stub)
         }
     }
 
@@ -1805,7 +1813,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     function findLoop(label:String?):AbstractLoop {
         if label = null
-            return loops.peek
+            return loops.peek()
         for i in 0 .. loops.length {
             if loops.peek(i).label = label
                 return loops.peek(i)
@@ -1836,6 +1844,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         writeBody("br \{getTypedReference(a.test)}, label %\{succeedLabel}, " +
                 "label %\{failLabel}", "assert test")
         body.writeLine()
+        program.liveMethods.add(getStub(Panda.name).symbols["failAssert"]->Methods.methods[0])
         createBlock(failLabel, "assert fail")
         var error := a.error
         if error != null {
@@ -2030,31 +2039,32 @@ class LLVMCodeGenerator (CodeGenerator) {
     method writeFieldDeclaration(f:FieldNode) {
         if f.varType = VariableType.PROPERTY
             return
+        def out := header
         if f.annotations.isClass {
             -- write class field
-            body.write("@" + getName(f) + " = ")
+            out.write("@" + getName(f) + " = ")
             def cl := getStub(f.owner)
             if cl.isExternal
-                body.write("external ")
+                out.write("external ")
             else if f.owner.isPrimitiveArray
-                body.write(SHARED_LINKAGE + " ")
-            body.write("global " + getLLVMType(f.type))
+                out.write(SHARED_LINKAGE + " ")
+            out.write("global " + getLLVMType(f.type))
             if !cl.isExternal
-                body.writeLine(" " + getDefaultValue(f))
+                out.writeLine(" " + getDefaultValue(f))
             else
-                body.writeLine()
+                out.writeLine()
         }
         else if f.annotations.isThread {
             -- write thread field
-            body.write("@" + getName(f) + " = ")
+            out.write("@" + getName(f) + " = ")
             def cl := getStub(f.owner)
             if cl.isExternal
-                body.write("external ")
-            body.write("global i32")
+                out.write("external ")
+            out.write("global i32")
             if !cl.isExternal
-                body.writeLine(" 0")
+                out.writeLine(" 0")
             else
-                body.writeLine()
+                out.writeLine()
         }
     }
 
@@ -2070,56 +2080,65 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method writeMethodDeclaration(m:MethodStub) {
-        assert currentMethod = null : "generating stub for \{m.owner} while in the middle of a method"
-        if m.annotations.isAbstract & !m.annotations.isExternal
-            return
-        def private := m.annotations.isPrivate
         def external := m.annotations.isExternal
+        if (m.name != MethodNode.CLASS_INIT_NAME & !program.liveMethods.contains(m) & !external) | 
+                (m.annotations.isAbstract & !m.annotations.isExternal) |
+                writtenMethods.contains(m) {
+            writtenMethods.add(m)
+            return
+        }
+        writtenMethods.add(m)
+        def private := m.annotations.isPrivate
         def immutableReturn := m.returnType != VoidType.VOID & 
                 isKnownToBeImmutable(m.returnType)
         for p in m.parameters {
             if context.classes[p.type.name] != null
                 writeTypeDescriptor(p.type)
         }
-        body.writeLine()
+        header.writeLine()
         if debug
-            body.writeLine("; method: " + m.convert().replace("\n", "\n; (method cont) "))
-        body.write("declare ")
+            header.writeLine("; method: " + m.convert().replace("\n", "\n; (method cont) "))
+        header.write("declare ")
         if !external
-            body.write("fastcc ")
-        body.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
+            header.write("fastcc ")
+        header.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
         var first := true
         if !m.annotations.isClass {
-            body.write("\{getSelfType(m)} %self")
+            header.write("\{getSelfType(m)} %self")
             first := false
         }
         for (i, p) in m.parameters.enumeration() {
             if first
                 first := false
             else
-                body.write(", ")
-            body.write(getLLVMType(p.type))
+                header.write(", ")
+            header.write(getLLVMType(p.type))
         }
-        body.write(")")
+        header.write(")")
         if m.methodType = MethodNodeType.FUNCTION & immutableReturn
-            body.write(" readonly")
-        body.writeLine()
+            header.write(" readonly")
+        header.writeLine()
     }
 
     @protected
     method writeClassInitializers() {
-        for (_, cl) in context.classes {
+-*        for (_, cl) in context.classes {
             def classInit := cl.methods.filter(
                     m => m.name = MethodNode.CLASS_INIT_NAME)
             if classInit.length = 0
                 continue
-            call("fastcc void @\{getName(classInit.iterator().next())}()")
-        }
+            def stub := classInit.iterator().next()
+            program.liveMethods.add(stub)
+            call("fastcc void @\{getName(stub)}()")
+        }*-
     }
 
     @protected
     method generateMethodCode(m:MethodNode) {
         assert currentMethod = null
+        if writtenMethods.contains(m.stub)
+            return
+        writtenMethods.add(m.stub)
         if m.stub.annotations.isAbstract
             return
         references.clear()
@@ -2198,15 +2217,42 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     method generateClassCode(cl:ClassNode) {
         for f in cl.stub.fields {
-            if f.owner.name = cl.stub.name
+            if f.owner.name = cl.stub.name & !f.annotations.isClass &
+                    !f.annotations.isThread
                 writeFieldDeclaration(f)
         }
         for m in cl.stub.methods {
             if m.annotations.isExternal
                 writeMethodDeclaration(m)
         }
-        for m in cl.methods
-            generateMethodCode(m)
+    }
+
+    method writeMethods() {
+        var progress:Bit
+        do {
+            progress := false
+            for stub in program.stubs.values.filter(stub => stub.isExternal) {
+                for m in stub.methods {
+                    if (!stub.annotations.isUnspecified | m.annotations.isClass) &
+                            program.liveMethods.contains(m) & 
+                            !writtenMethods.contains(m) {
+                        progress := true
+                        writeMethodDeclaration(m)
+                    }
+                }
+            }
+            for (_, cl) in classes {
+                for m in cl.methods {
+                    if (context.compilerSettings.isLibrary | 
+                            program.liveMethods.contains(m.stub)) & 
+                            !writtenMethods.contains(m.stub) {
+                        generateMethodCode(m)
+                        progress := true
+                    }
+                }
+            }
+        }
+        while progress
     }
 
     @override
@@ -2218,22 +2264,16 @@ class LLVMCodeGenerator (CodeGenerator) {
                 '"')
         header.writeLine('%$itable = type { %panda$core$Class*, %$itable*, ' +
                 "[0 x i8*] }")
-        getClassConstant(context.getStub(ClassType.STRING))
-        getClassConstant(context.getStub(ClassType.PANDA))
-        def stubs := context.classes.values
-        for cl in stubs {
-            if !cl.annotations.isUnspecified
-                writeTypeDescriptor(cl)
-        }
-        getStub(ClassType.METHOD)
-        getStub(ClassType.MUTABLE_METHOD)
-        for cl in stubs {
-            if !cl.annotations.isUnspecified
-                getClassConstant(cl)
-            getStub(cl.type)
+        def stubs := HashMap<String, ClassStub>(context.classes)
+        for (_, stub) in stubs {
+            if context.compilerSettings.isLibrary & 
+                    !stub.annotations.isUnspecified
+                getClassConstant(stub)
+            getStub(stub.type)
         }
         for (_, cl) in classes
             generateClassCode(cl)
+        writeMethods()
 
         body.writeLine("declare void @pandaInit()")
         body.writeLine("declare void @pandaCheckLibVersion(i32)")

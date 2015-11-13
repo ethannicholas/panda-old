@@ -24,17 +24,17 @@ class Matcher_ExternalImpl implements panda.core.Matcher_External {
     }
 
     @Override
-    public int groupCount_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
+    public int _groupCount_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
         return ((java.util.regex.Matcher) nativeHandle).groupCount() + 1;
     }
 
     @Override
-    public int start_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
+    public int _start_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
         return ((java.util.regex.Matcher) nativeHandle).start();
     }
 
     @Override
-    public int end_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
+    public int _end_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
         return ((java.util.regex.Matcher) nativeHandle).end();
     }
 }

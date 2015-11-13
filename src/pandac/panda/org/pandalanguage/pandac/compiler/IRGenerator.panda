@@ -115,7 +115,6 @@ uses org.pandalanguage.pandac.tree.Unreachable
 uses org.pandalanguage.pandac.tree.UnresolvedArray
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
 uses org.pandalanguage.pandac.tree.UnresolvedDotExpression
-uses org.pandalanguage.pandac.tree.UnresolvedIdentifier
 uses org.pandalanguage.pandac.tree.UnresolvedIndex
 uses org.pandalanguage.pandac.tree.UnresolvedLambda
 uses org.pandalanguage.pandac.tree.UnresolvedMethod
@@ -461,7 +460,7 @@ class IRGenerator {
                 result.append(expr.formatString)
             }
             result.append("}")
-            lastEnd := matcher.end()
+            lastEnd := matcher.end
         }
         if lastEnd > 0 {
             def chars := convertStringChars(string.position, s[lastEnd..], false)
@@ -755,7 +754,8 @@ class IRGenerator {
             return symbolReference(position, result)
         if context.isInstance
             return getMember(position, implicitSelf(position), name)
-        return UnresolvedIdentifier(position, name, null)
+        context.errors.error("unknown identifier '\{name}'", position)
+        return null
     }
 
     method makeClosure(ref:MethodReference):Value {
@@ -1929,8 +1929,8 @@ class IRGenerator {
             name := "[...]:="
         else
             name := "[..]:="
-        return context.testCall(u.position, u.contextValue, name, 
-                params)
+        return context.call(u.position, u.contextValue, name, params, 
+                VoidType.VOID, false)
     }
 
     @private
@@ -2015,7 +2015,8 @@ class IRGenerator {
                     return result
             }
         }
-        return context.testCall(target.position, target, name + ":=", params)
+        return context.call(target.position, target, name + ":=", params,
+                VoidType.VOID, false)
     }
 
     function getBinaryOperationType(name:String):BinaryOperationType {
@@ -2100,8 +2101,8 @@ class IRGenerator {
             def params := Array<Value>()
             params.add(index.index)
             params.add(right)
-            def call := context.testCall(index.position, index.contextValue, 
-                    "[]:=", params)
+            def call := context.call(index.position, index.contextValue, 
+                    "[]:=", params, VoidType.VOID, false)
             if call != null
                 return ValueStatement(call)
             context.errors.error("'\{index.contextValue.type.displayName}' " +
@@ -2792,6 +2793,7 @@ class IRGenerator {
         def closureInstance := Construct(MethodCall(m.position, 
                 ClassLiteral(m.position, closureType), 
                 closureInit, initParameters))
+        context.liveMethods.add(closureInit)
         context.captures.pop()
         return Cast(m.position, closureInstance, rawStub.type(context),
                 CastType.IMPLICIT)
@@ -2833,6 +2835,9 @@ class IRGenerator {
     }
 
     method convertMethod(m:MethodStub):MethodNode {
+        if m.name = MethodNode.MAIN_NAME | (context.compilerSettings.isLibrary &
+                !m.annotations.isPrivate)
+            context.liveMethods.add(m)
         context.localVariables.clear()
         context.currentMethod := m
         context.pushSymbolTable()
@@ -3216,6 +3221,6 @@ class IRGenerator {
                 modules.add(Module.PANDAUI)
         }
         return Program(root.convert()->Package, context.classes, classes, 
-                modules, context.stubGenerator)
+                modules, context.liveMethods, context.stubGenerator)
     }
 }
