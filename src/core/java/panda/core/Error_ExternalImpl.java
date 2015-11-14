@@ -10,7 +10,6 @@ class Error_ExternalImpl implements panda.core.Error_External {
                 new java.lang.Throwable().getStackTrace();
         result.contents = new panda.core.StackTraceEntry[trace.length];
         result.$$length = trace.length;
-        result.$$maxLength = trace.length;
         for (int i = 0; i < trace.length; i++) {
             java.lang.StackTraceElement javaEntry = trace[i];
             panda.core.StackTraceEntry entry = new panda.core.StackTraceEntry();

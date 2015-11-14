@@ -89,15 +89,11 @@ class PrimitiveArrayType : GenericType {
         def length := FieldNode(position, self, "$length", 
                 Annotations(position, final), VariableType.DEF, 
                 IntType.INT32, null, null)
-        def maxLength := FieldNode(position, self, "$maxLength",
-                Annotations(position, final), VariableType.DEF, 
-                 IntType.INT32, null, null)
         def elements := FieldNode(position, self, FieldNode.ELEMENTS_NAME, 
                 Annotations(position, final), VariableType.DEF,
                 elementType, null, null)
         def symbols := SymbolTable()
         symbols.add(length)
-        symbols.add(maxLength)
         symbols.add(elements)
         def classAnnotations := Array<AnnotationType>()
         if unspecified
@@ -114,103 +110,7 @@ class PrimitiveArrayType : GenericType {
                 IntType.INT32, lengthBody, self)
         addMethod(lengthFunction, symbols)
 
-        def annotations := Array<ASTAnnotation>()
-        annotations.add(ASTSimpleAnnotation(position, "synthetic"))
-        annotations.add(ASTSimpleAnnotation(position, "safeReturn"))
-        def parser := PandaParser(FatalErrorReporter())
-        def immutable := 
-                name.startsWith(ImmutablePrimitiveArray.name)
-        def mutableVersion:String
-        if immutable {
-            mutableVersion := PrimitiveArray.name + 
-                    name[name.indexOf("<")->Int..]
-        }
-        else
-            mutableVersion := name
-        def convert:String
-        if immutable
-            convert := ".convert()->\{name}"
-        else
-            convert := ""
-        def sle1 := parser.parseMethodDeclaration(
-                "function [..](left:panda.core.Int32," +
-                "right:panda.core.Int32):\{name} {\n" +
-                "var result := \{mutableVersion}(right - left)\n" +
-                "for (i, v) in (left .. right).enumeration()\n" +
-                "    result[i] := self[v]\n" +
-                "return result\{convert}\n" +
-                "}", null, annotations, position)
-        assert sle1 != null
-        addMethod(context.stubGenerator.convertMethod(false, sle1, self, 
-                symbols)->MethodStub, symbols)
-
-        def sle2 := parser.parseMethodDeclaration(
-                "function [..](rawLeft:panda.core.Int32?," +
-                "rawRight:panda.core.Int32?):\{name} {\n" +
-                "def left:panda.core.Int32\n" +
-                "if rawLeft = null\n" +
-                "    left := 0\n" +
-                "else\n" +
-                "    left := rawLeft\n" +
-                "def right:panda.core.Int32\n" +
-                "if rawRight = null\n" +
-                "    right := length()\n" +
-                "else\n" +
-                "    right := rawRight\n" +
-                "var result := \{mutableVersion}(right - left)\n" +
-                "for (i, v) in (left .. right).enumeration()\n" +
-                "    result[i] := self[v]\n" +
-                "return result\{convert}\n" +
-                "}", null, annotations, position)
-        assert sle2 != null
-        addMethod(context.stubGenerator.convertMethod(false, sle2, self, 
-                symbols)->MethodStub, symbols)
-
-        def sli1 := parser.parseMethodDeclaration(
-                "function [...](left:panda.core.Int32," +
-                "right:panda.core.Int32):\{name} {\n" +
-                "var result := \{mutableVersion}(right - left + 1)\n" +
-                "for (i, v) in (left ... right).enumeration()\n" +
-                "    result[i] := self[v]\n" +
-                "return result\{convert}\n" +
-                "}", null, annotations, position)
-        assert sli1 != null
-        addMethod(context.stubGenerator.convertMethod(false, sli1, self, 
-                symbols)->MethodStub, symbols)
-
-        def sli2 := parser.parseMethodDeclaration(
-                "function [...](rawLeft:panda.core.Int32?," +
-                "rawRight:panda.core.Int32?):\{name} {\n" +
-                "def left:panda.core.Int32\n" +
-                "if rawLeft = null\n" +
-                "    left := 0\n" +
-                "else\n" +
-                "    left := rawLeft\n" +
-                "def right:panda.core.Int32\n" +
-                "if rawRight = null\n" +
-                "    right := length() - 1\n" +
-                "else\n" +
-                "    right := rawRight\n" +
-                "var result := \{mutableVersion}(right - left + 1)\n" +
-                "for (i, v) in (left ... right).enumeration()\n" +
-                "    result[i] := self[v]\n" +
-                "return result\{convert}\n" +
-                "}", null, annotations, position)
-        assert sli2 != null
-        addMethod(context.stubGenerator.convertMethod(false, sli2, self, 
-                symbols)->MethodStub, symbols)
-
-        if !immutable {
-            def immutableVersion := ImmutablePrimitiveArray.name + 
-                    name[name.indexOf("<")->Int..]
-            def cnv := parser.parseMethodDeclaration(
-                "function convert():\{immutableVersion} {\n" +
-                "    return \{immutableVersion}(self)\n" +
-                "}", null, annotations, position)
-            assert cnv != null
-            addMethod(context.stubGenerator.convertMethod(false, cnv, self, 
-                    symbols)->MethodStub, symbols)
-        }
+        def immutable := name.startsWith(ImmutablePrimitiveArray.name)
 
         def superclass:ClassType
         if immutable

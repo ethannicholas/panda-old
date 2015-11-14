@@ -103,7 +103,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     constant CLASS_POINTER_INDEX := 0
     
     @private 
-    constant ARRAY_CONTENTS_INDEX := 3
+    constant ARRAY_CONTENTS_INDEX := 2
 
     -- index of the vtable within the class structure. Note that Class is 
     -- special and this information is spread between more locations than I
@@ -175,6 +175,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     def landingPads := HashMap<Try, String>()
 
     def writtenMethods := HashSet<MethodStub>()
+
+    def declarations := HashSet<String>()
 
     init(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
@@ -529,6 +531,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def classType := getLLVMType(ClassType.CLASS)
         writeBody(cast + " = bitcast " + cc.type + "* @" + cc.name +
                 " to " + classType, "convert class pointer")
+        declarations.add("declare i8* @_pandaNew(%panda$core$Class*, i32)")
         def alloc := createCallReference("i8* @_pandaNew(" + classType + " " + 
                 cast + ", i32 " + size(targetType) + ")", 
                 "allocate " + targetType.name)
@@ -894,6 +897,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         def typeString := getLLVMType(value.type)
         def left := getTypedReference(value.left)
         def right := getTypedReference(value.right)
+        body.writeLine("declare {\{typeString}, i1} @llvm.\{op}.with.overflow.i64(\{typeString} %a, \{typeString} %b)")
+
         def result := createCommandReference("call { " + typeString + 
                 ", i1 } @llvm." + op + ".with.overflow." + typeString + "(" + 
                 left + ", " + right + ")", value.convert())
@@ -901,6 +906,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         writeBody(flag + " = extractvalue { " + typeString + 
                 ", i1 } " + result + ", 1", "extract overflow flag")
         def p := value.position
+        declarations.add("declare void @pandaCheckOverflow(i1)")
         call("void @pandaCheckOverflow(i1 " + flag + ")")
         return createCommandReference("extractvalue { " + typeString + 
                 ", i1 } " + result + ", 0", "load results of '" + op + "'")
@@ -1049,6 +1055,11 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "convert class pointer")
         def ref := getReference(na.arrayLength)
         assert ref != null : "expected non-null ref in createNewPrimitiveArrayWithLengthReference"
+        declarations.add("declare i8* @pandaNewPrimitiveArrayWithLength(" + 
+                getLLVMType(ClassType.CLASS) + ", " + 
+                getLLVMType(IntType.INT32) + ", " +
+                getLLVMType(IntType.INT32) + ", " +
+                getLLVMType(BitType.BIT) + ")")
         def alloc := createCallReference(
                 "i8* @pandaNewPrimitiveArrayWithLength(\{classType} \{cast}, " + 
                 "i32 \{ref}, i32 \{size(elementType)}, i1 " +
@@ -1071,6 +1082,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         writeBody("\{arrayCast} = bitcast \{rawPrimitiveArray} to " + 
                 getLLVMType(ClassType.PRIMITIVE_ARRAY), 
                 "cast array pointer to PrimitiveArray")
+        declarations.add("declare i8* @pandaNewPrimitiveArrayCopy(" + 
+                getLLVMType(ClassType.CLASS) + ", " + 
+                getLLVMType(ClassType.PRIMITIVE_ARRAY) + ", " + 
+                getLLVMType(IntType.INT32) + ", " +
+                getLLVMType(BitType.BIT) + ")")
         def alloc := createCallReference("i8* " +
                 "@pandaNewPrimitiveArrayCopy(\{classType} \{cast}, " + 
                 "\{getLLVMType(ClassType.PRIMITIVE_ARRAY)} \{arrayCast}, " +
@@ -1131,6 +1147,10 @@ class LLVMCodeGenerator (CodeGenerator) {
             else
                 references.add(raw)
         }
+        declarations.add("declare i8* @pandaNewPrimitiveArrayWithValues(" + 
+                getLLVMType(ClassType.CLASS) + ", " + 
+                getLLVMType(IntType.INT32) + ", " + 
+                getLLVMType(IntType.INT32) + ", ...)")
         def code := MutableString("i8* (\{classType}, i32, i32, ...)* " +
                 "@pandaNewPrimitiveArrayWithValues(\{classType} \{cast}, i32 " + 
                 "\{na.values.length}, i32 \{type}")
@@ -1610,6 +1630,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             def cast := getTempVariable()
             def arrayType := getLLVMType(ClassType.PRIMITIVE_ARRAY)
             body.writeLine("\{cast} = bitcast \{arrayRef} to \{arrayType}")
+            declarations.add("declare void @pandaCheckBounds(\{getLLVMType(ClassType.PRIMITIVE_ARRAY)}, i32)")
             call("void @pandaCheckBounds(\{arrayType} \{cast}, \{indexRef})")
         }
         def arrayContentsPointer := createCommandReference("getelementptr " +
@@ -1853,6 +1874,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             else {
                 assert error.type = ClassType.ERROR : 
                         "expected msg.type = ERROR but found \{error.type}"
+                declarations.add("declare void @pandaThrow(\{getLLVMType(ClassType.ERROR)})")
                 call("void @pandaThrow(\{getTypedReference(error)})")
             }
         }
@@ -1888,6 +1910,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             -- set up landing pad
             createBlock(lpLabel, "landing pad")
             def landingPad := getTempVariable()
+            declarations.add("declare i32 @pandaPersonality(...)")
             body.writeLine(landingPad + 
                     " = landingpad { i8*, i32 } personality i8* bitcast " +
                     "(i32 (...)* @pandaPersonality to i8*)")
@@ -1907,6 +1930,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     " = extractvalue { i8*, i32 } " + landingPad + 
                     ", 0")
             def error := getTempVariable()
+            declarations.add("declare \{getLLVMType(ClassType.ERROR)} @pandaCatch(i8*)")
             body.writeLine(error + 
                     " = call " + errorType + " @pandaCatch(i8* " + 
                     nativeException + ")")
@@ -2274,67 +2298,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         for (_, cl) in classes
             generateClassCode(cl)
         writeMethods()
-
-        body.writeLine("declare void @pandaInit()")
-        body.writeLine("declare void @pandaCheckLibVersion(i32)")
-        body.writeLine("declare void @pandaCheckOverflow(i1)")
-        body.writeLine("declare {i8, i1}  @llvm.sadd.with.overflow.i8(i8 %a, i8 %b)")
-        body.writeLine("declare {i16, i1} @llvm.sadd.with.overflow.i16(i16 %a, i16 %b)")
-        body.writeLine("declare {i32, i1} @llvm.sadd.with.overflow.i32(i32 %a, i32 %b)")
-        body.writeLine("declare {i64, i1} @llvm.sadd.with.overflow.i64(i64 %a, i64 %b)")
-
-        body.writeLine("declare {i8, i1}  @llvm.uadd.with.overflow.i8(i8 %a, i8 %b)")
-        body.writeLine("declare {i16, i1} @llvm.uadd.with.overflow.i16(i16 %a, i16 %b)")
-        body.writeLine("declare {i32, i1} @llvm.uadd.with.overflow.i32(i32 %a, i32 %b)")
-        body.writeLine("declare {i64, i1} @llvm.uadd.with.overflow.i64(i64 %a, i64 %b)")
-
-        body.writeLine("declare {i8, i1}  @llvm.ssub.with.overflow.i8(i8 %a, i8 %b)")
-        body.writeLine("declare {i16, i1} @llvm.ssub.with.overflow.i16(i16 %a, i16 %b)")
-        body.writeLine("declare {i32, i1} @llvm.ssub.with.overflow.i32(i32 %a, i32 %b)")
-        body.writeLine("declare {i64, i1} @llvm.ssub.with.overflow.i64(i64 %a, i64 %b)")
-
-        body.writeLine("declare {i8, i1}  @llvm.usub.with.overflow.i8(i8 %a, i8 %b)")
-        body.writeLine("declare {i16, i1} @llvm.usub.with.overflow.i16(i16 %a, i16 %b)")
-        body.writeLine("declare {i32, i1} @llvm.usub.with.overflow.i32(i32 %a, i32 %b)")
-        body.writeLine("declare {i64, i1} @llvm.usub.with.overflow.i64(i64 %a, i64 %b)")
-
-        body.writeLine("declare {i8, i1}  @llvm.smul.with.overflow.i8(i8 %a, i8 %b)")
-        body.writeLine("declare {i16, i1} @llvm.smul.with.overflow.i16(i16 %a, i16 %b)")
-        body.writeLine("declare {i32, i1} @llvm.smul.with.overflow.i32(i32 %a, i32 %b)")
-        body.writeLine("declare {i64, i1} @llvm.smul.with.overflow.i64(i64 %a, i64 %b)")
-
-        body.writeLine("declare {i8, i1}  @llvm.umul.with.overflow.i8(i8 %a, i8 %b)")
-        body.writeLine("declare {i16, i1} @llvm.umul.with.overflow.i16(i16 %a, i16 %b)")
-        body.writeLine("declare {i32, i1} @llvm.umul.with.overflow.i32(i32 %a, i32 %b)")
-        body.writeLine("declare {i64, i1} @llvm.umul.with.overflow.i64(i64 %a, i64 %b)")
-
-        body.writeLine("declare void @pandaThrow(\{getLLVMType(ClassType.ERROR)})")
-        body.writeLine("declare \{getLLVMType(ClassType.ERROR)} @pandaCatch(i8*)")
-        body.writeLine("declare i32 @pandaPersonality(...)")
-        body.writeLine("declare void @llvm.trap() noreturn nounwind")
-        body.writeLine("declare void @pandaCheckSignCasti8(i8)")
-        body.writeLine("declare void @pandaCheckSignCasti16(i16)")
-        body.writeLine("declare void @pandaCheckSignCasti32(i32)")
-        body.writeLine("declare void @pandaCheckSignCasti64(i64)")
-
-        body.writeLine("declare i8* @_pandaNew(%panda$core$Class*, i32)")
-
-        body.writeLine("declare i8* @pandaNewPrimitiveArrayWithLength(" + 
-                getLLVMType(ClassType.CLASS) + ", " + 
-                getLLVMType(IntType.INT32) + ", " +
-                getLLVMType(IntType.INT32) + ", " +
-                getLLVMType(BitType.BIT) + ")")
-        body.writeLine("declare i8* @pandaNewPrimitiveArrayWithValues(" + 
-                getLLVMType(ClassType.CLASS) + ", " + 
-                getLLVMType(IntType.INT32) + ", " + 
-                getLLVMType(IntType.INT32) + ", ...)")
-        body.writeLine("declare i8* @pandaNewPrimitiveArrayCopy(" + 
-                getLLVMType(ClassType.CLASS) + ", " + 
-                getLLVMType(ClassType.PRIMITIVE_ARRAY) + ", " + 
-                getLLVMType(IntType.INT32) + ", " +
-                getLLVMType(BitType.BIT) + ")")
-        def array := getLLVMType(ClassType.PRIMITIVE_ARRAY)
-        body.writeLine("declare void @pandaCheckBounds(\{array}, i32)")
+        for decl in declarations
+            body.writeLine(decl)
 
         def parent := target.parent()
         if parent = null {
