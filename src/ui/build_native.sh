@@ -10,7 +10,7 @@ mkdir -p $NATIVE_TARGET/ui/lib
 mkdir -p $SHARED_TARGET/ui/lib
 rm -f $SHARED_TARGET/ui/lib/pandaui.plink
 $PANDAC -f h -o $NATIVE_TARGET/ui/ui.h src/ui/panda/panda/ui/*.panda src/ui/panda/panda/ui/events/*.panda src/ui/panda/panda/ui/images/*.panda src/ui/panda/panda/gl/*.panda
-$PANDAC -f lib -o $NATIVE_TARGET/ui/lib/pandaui.o src/ui/panda/panda/ui/*.panda src/ui/panda/panda/ui/events/*.panda src/ui/panda/panda/ui/images/*.panda src/ui/panda/panda/gl/*.panda
+$PANDAC -f lib -O -o $NATIVE_TARGET/ui/lib/pandaui.o src/ui/panda/panda/ui/*.panda src/ui/panda/panda/ui/events/*.panda src/ui/panda/panda/ui/images/*.panda src/ui/panda/panda/gl/*.panda
 $PANDAC -f plink -o $SHARED_TARGET/ui/lib/pandaui.plink src/ui/panda/panda/ui/*.panda src/ui/panda/panda/ui/events/*.panda src/ui/panda/panda/ui/images/*.panda src/ui/panda/panda/gl/*.panda
 if [ "$?" -ne "0" ]; then
     exit 1

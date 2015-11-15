@@ -10,7 +10,7 @@ mkdir -p $JAVA_TARGET/core/java
 mkdir -p $JAVA_TARGET/core/lib
 mkdir -p $JAVA_TARGET/core/classes
 
-$PANDAC -f java -o $JAVA_TARGET/core/java `find src/core/panda -name "*.panda"`
+$PANDAC -f java -O -o $JAVA_TARGET/core/java `find src/core/panda -name "*.panda"`
 
 $PANDAC -f javah -o $JAVA_TARGET/core/java `find src/core/panda -name "*.panda"`
 

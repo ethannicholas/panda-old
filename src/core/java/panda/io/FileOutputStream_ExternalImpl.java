@@ -24,7 +24,7 @@ class FileOutputStream_ExternalImpl implements panda.io.FileOutputStream_Externa
     }
 
     @Override
-    public void writeInt8_class_panda$core$$NativePointer_Int8(java.lang.Object nativeFile, byte b) {
+    public void writeUInt8_class_panda$core$$NativePointer_UInt8(java.lang.Object nativeFile, byte b) {
         try {
             ((java.io.FileOutputStream) nativeFile).write(b);
         }
@@ -34,11 +34,11 @@ class FileOutputStream_ExternalImpl implements panda.io.FileOutputStream_Externa
     }
 
     @Override
-    public void writeInt8Array_class_panda$core$$NativePointer_panda$collections$ListView$LTpanda$core$Int8$GT_Int32_Int32(java.lang.Object nativeFile, panda.collections.ListView$.$Lpanda$core$Int8$R b, int offset, int length) {
+    public void writeUInt8Array_class_panda$core$$NativePointer_panda$collections$ListView$LTpanda$core$UInt8$GT_Int32_Int32(java.lang.Object nativeFile, panda.collections.ListView$.$Lpanda$core$UInt8$R b, int offset, int length) {
         try {
             byte[] buffer = new byte[length];
             for (int i = 0; i < length; i++)
-                buffer[i] = b.$ARR_Int32_$Rpanda$core$Int8(i + offset);
+                buffer[i] = b.$ARR_Int32_$Rpanda$core$UInt8(i + offset);
             ((java.io.FileOutputStream) nativeFile).write(buffer);
         }
         catch (java.io.IOException e) {

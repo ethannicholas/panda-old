@@ -27,7 +27,7 @@ cd src/core/c
 ./build.sh
 cd "$BASEDIR"
 
-$PANDAC -XpreserveTempArtifacts -XnoCoreLib -f lib -o $NATIVE_TARGET/core/lib/PandaCoreClasses.o $CORE_FILES
+$PANDAC -XpreserveTempArtifacts -XnoCoreLib -O -f lib -o $NATIVE_TARGET/core/lib/PandaCoreClasses.o $CORE_FILES
 
 mkdir -p $NATIVE_TARGET/core/lib
 
@@ -42,7 +42,7 @@ fi
 echo "Compiling pandac (native)..."
 
 mkdir -p $NATIVE_TARGET/pandac/bin
-$PANDAC -XpreserveTempArtifacts -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
+$PANDAC -XpreserveTempArtifacts -O -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
     $STATIC_SETTINGS $SHARED_TARGET/PandaLRParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda \
     src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
 
@@ -53,6 +53,6 @@ mkdir -p build/js
 JAVASCRIPT_TARGET="$TARGET/js"
 mkdir -p $JAVASCRIPT_TARGET/core
 cp src/core/js/*.js $JAVASCRIPT_TARGET/core
-$PANDAC -XnoCoreLib -f js -o $JAVASCRIPT_TARGET/core `find src/core/panda -name "*.panda"`
+$PANDAC -XnoCoreLib -O -f js -o $JAVASCRIPT_TARGET/core `find src/core/panda -name "*.panda"`
 
 scripts/build_ui.sh

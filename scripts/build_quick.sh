@@ -14,6 +14,6 @@ echo "Compiling pandac (native, unoptimized) using latest Java compiler..."
 echo "THIS IS UNSAFE if the core classes have changed since the last full build!"
 
 mkdir -p $NATIVE_TARGET/pandac/bin
-$PANDAC -XpreserveTempArtifacts -O0 -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
+$PANDAC -XpreserveTempArtifacts -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
     $STATIC_SETTINGS $SHARED_TARGET/PandaLRParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda \
     src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda

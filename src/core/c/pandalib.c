@@ -726,22 +726,22 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int3
     return result;
 }
 
-void panda$io$FileOutputStream$writeInt8(void* handle, Int8 b) {
+void panda$io$FileOutputStream$writeUInt8(void* handle, UInt8 b) {
     // FIXME check for errors
     fwrite(&b, 1, 1, (FILE*) handle);
 }
 
 void panda$collections$Array$LTpanda$core$Int8$GT$$ARR();
 
-void panda$io$FileOutputStream$writeInt8Array(void* handle, 
-        panda$collections$ListView$LTpanda$core$Int8$GT* b, Int32 offset, 
+void panda$io$FileOutputStream$writeUInt8Array(void* handle, 
+        panda$collections$ListView$LTpanda$core$UInt8$GT* b, Int32 offset, 
         Int32 length) {
-    panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_TYPE* subscript =
+    panda$collections$ListView$LTpanda$core$UInt8$GT$$ARR_TYPE* subscript =
             pandaGetInterfaceMethod((panda$core$Object*) b, 
-                    &panda$collections$ListView$LTpanda$core$Int8$GT_class, 
-                    panda$collections$ListView$LTpanda$core$Int8$GT$$ARR_INDEX);
+                    &panda$collections$ListView$LTpanda$core$UInt8$GT_class, 
+                    panda$collections$ListView$LTpanda$core$UInt8$GT$$ARR_INDEX);
     const Int32 BUFFER_SIZE = 8192;
-    Int8 data[BUFFER_SIZE];
+    UInt8 data[BUFFER_SIZE];
     while (length > 0) {
         int currentLength = MIN(length, BUFFER_SIZE);
         for (int i = 0; i < currentLength; i++)
