@@ -526,8 +526,11 @@ fieldDeclaration:ASTField = optionalDoccomment optionalAnnotations
                 varDeclaration) 
     }
 
-@statement:ASTStatement = varDeclaration
+declaration:ASTStatement = varDeclaration
     { result := varDeclaration }
+declaration:ASTStatement = namedMethodValue
+    { result := namedMethodValue }
+
 @statement:ASTStatement = ifStatement
     { result := ifStatement }
 @statement:ASTStatement = forLoop 
@@ -721,13 +724,17 @@ statements:Array<ASTStatement> = statementList terminalStatement
         result := statementList
         result.add(terminalStatement)
     }
-statementList:Array<ASTStatement> = statementList statement
+statementList:Array<ASTStatement> = statementList statementOrDeclaration
     {
         result := statementList
-        result.add(statement)
+        result.add(statementOrDeclaration)
     }
-statementList:Array<ASTStatement> = statement
-    { result := [statement] }
+statementList:Array<ASTStatement> = statementOrDeclaration
+    { result := [statementOrDeclaration] }
+statementOrDeclaration:ASTStatement = statement
+    { result := statement }
+statementOrDeclaration:ASTStatement = declaration
+    { result := declaration }
 
 terminalStatement:ASTStatement = returnStatement 
     { result := returnStatement }
@@ -1250,6 +1257,24 @@ typedLambdaParameters:Array<ASTTypedIdentifier> = IDENTIFIER COLON type
                 formalParameters, optionalTypeDeclaration, block)
     }
 
+namedMethodValue:ASTStatement = METHOD IDENTIFIER formalParameters ^ 
+        optionalTypeDeclaration block
+    {
+        def m := ASTMethodValue(METHOD, MethodNodeType.METHOD, 
+                formalParameters, optionalTypeDeclaration, block)
+        result := ASTVarDeclaration(METHOD, VariableType.DEF, 
+                [ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text, null)], 
+                m)
+    }
+namedMethodValue:ASTStatement = FUNCTION IDENTIFIER formalParameters ^ 
+        optionalTypeDeclaration block
+    {
+        def m := ASTMethodValue(FUNCTION, MethodNodeType.FUNCTION, 
+                formalParameters, optionalTypeDeclaration, block)
+        result := ASTVarDeclaration(FUNCTION, VariableType.DEF, 
+                [ASTTypedIdentifier(IDENTIFIER.position, IDENTIFIER.text, null)], 
+                m)
+    }
 
 IDENTIFIER:Identifier = identifierContents WS
     {
