@@ -2,110 +2,89 @@ Method References
 =================
 
 A *method reference* is a value that refers to an existing 
-[method](methods.html). Method references are written:
+[method](methods.html). Methods are referenced much like fields, using a dot:
 
-    <ClassName>::<methodName>
+    <expression>.<methodName>
 
-or
-
-    <ClassName>::<methodName>(<parameterTypes>)
-
-For instance, you may refer to the `matches(RegularExpression)` method in 
-`panda.core.String` using the expressions `String::matches`, 
-`String::matches(RegularExpression)`, or even 
-`panda.core.String::matches(panda.core.RegularExpression)`.
-
-If there is more than one method with that name, you must specify the method's
-parameter types. For instance, there are several variants of the `String`
-method `indexOf`, so `String::indexOf` will result in a compile-time error due
-to the ambiguity. Specifying the parameter types, for instance 
-`String::indexOf(String)`, allows you to specify the particular method variant
-you mean.
-
-Keep in mind, as described in [method types](types.html#methodTypes), that 
-instance methods take an additional hidden parameter containing the value of
-`self`. For instance, `String::indexOf(String)` ostensibly takes only one 
-parameter, but actually has type `(String, String)=>(Int?)`. The first parameter
-is the implicit `self` parameter, and the second parameter is the explicit
-parameter (the string to search for). The following code snippet demonstrates 
-how such method references work:
+For instance:
 
 @SOURCE(
-    def example := "Hello, World!"
-    def replace := String::replace(String, String)
-    Console.writeLine(replace(example, "Hello", "Goodbye"))
-)
-
-This displays `Goodbye, World!`. Note that the replace function is declared to
-take two parameters, but when calling it in this fashion we pass in three
-parameters: `self`, followed by its two declared parameters. This code is 
-equivalent to:
-
-@SOURCE(
-    def example := "Hello, World!"
-    Console.writeLine(example.replace("Hello", "Goodbye"))
-)
-
-Method references may also refer to operators. For instance, we can obtain a 
-reference to the addition operator defined in the `Int` class:
-
-@SOURCE(
-    def add := Int::+
-    Console.writeLine(add(12, 17))
-)
-
-This displays `29`. The built-in operators defined on the numeric classes are
-particularly useful in combination with `ListView` functions such as `map`, 
-`fold`, and `combine`:
-
-@SOURCE(
-    Console.writeLine((2 ... 10).fold(Int::*))
-)
-
-This combines the numbers 2 through 10 using the `Int::*` function; in other
-words, it computes the factorial of 10. To add two arrays of numbers together,
-we can `combine` using the `Int::+` operator:
-
-    -- FIXME combine isn't actually implemented yet
-    def list1 := [37, 12, -5]
-    def list2 := [8, 9, 14]
-    Console.writeLine(list1.combine(list2, Int::+))
-
-This displays `[45, 21, 9]`.
-
-
-Method References and Overriding
---------------------------------
-
-Calls to references to overridden method are appropriately resolved at runtime.
-For instance, given the code:
-
-@SOURCE(
-    class Super {
-        method hello() {
-            Console.writeLine("Super says hello!")
+    class Example {
+        @class
+        function positive(x:Int):Int {
+            return x > 0
         }
     }
 
-    class Sub : Super {
-        @override
-        method hello() {
-            Console.writeLine("Sub says hello!")
-        }
-    }
-
-    def sub := new Sub()
-    def hello := Super::hello
-    hello(sub)
+    def numbers := [1, -5, 19, 3, -9, -52]
+    def positiveNumbers := numbers.filter(Example.positive)
 )
 
-This program creates a reference to `Super::hello` and then invokes it on an
-object of type `Sub`. Given the reference to `Super::hello`, you might expect 
-this to display:
+The expression `Example.positive` is a static reference to the function. Passing
+this function to the `filter` function uses it as a predicate to filter out all
+non-positive numbers from the list, resulting in `[1, 19, 3]`.
 
-    Super says hello!
+Ambiguous References
+--------------------
 
-but since `Sub` overrides the `hello` method, the subclass implementation is 
-invoked, and the program actually displays:
+As methods can be overloaded, method references may be ambiguous. For instance,
+the code:
 
-    Sub says hello!
+@SOURCE(
+    def write := Console.writeLine -- error, ambiguous!
+)
+
+does not compile, because there are several overloads of the method 
+`Console.writeLine` with various parameters. Ambiguous references are only 
+errors if there is not enough context to determine the desired type; assigning
+the reference to a variable with the correct type, passing the value to a method
+expecting a specific method type, casting to the desired method type, and so
+forth will all resolve the ambiguity.
+
+@SOURCE(
+    def write1 := Console.writeLine->(String)=&>() -- explicit cast, works!
+    def write2:(String)=&>() := Console.writeLine  -- expected type, works!
+)
+
+Instance Methods
+----------------
+
+The examples so far have demonstrated references to class methods. Instance
+methods are slightly more complicated, as they need an object instance to 
+operate on. There are two ways to do this. You may reference the method directly
+in an instance of the object, in which case the method always applies to that
+instance:
+
+@SOURCE(
+    def max0 := 0.max -- reference to Int.max function applied to 0
+)
+
+Now `max0` is a function you can call, such as `max0(-5)` (yielding `0`) or
+`max0(12)` (yielding 12).
+
+You may also reference the method as if it were a class method:
+
+@SOURCE(
+    def max := Int.max -- reference to Int.max function with no instance
+)
+
+This produces a method reference which takes an extra parameter: the instance to
+be operated on. The first parameter of this method reference is the `self` that
+the method is to operate on, and all other parameters of the method follow 
+normally. Our `max` variable above can be called as `max(89, 42)`, which is 
+evaluated the same way that `89.max(42)` would be and yields `89`.
+
+Operator Methods
+----------------
+
+Overloaded operators are ordinary methods in Panda, and can be referenced just
+as any other method can be. The `panda.core.Int32` class defines the 
+`+(Int):Int` instance method, and thus the following can be written:
+
+@SOURCE(
+    def add := Int.+ -- (Int, Int)=>(Int), adds two numbers
+    Console.writeLine(add(9, 5)) -- displays '14'
+
+    def add10 := 10.+ -- (Int)=>(Int), adds 10 to its argument
+    Console.writeLine(add10(25)) -- displays '35'
+)

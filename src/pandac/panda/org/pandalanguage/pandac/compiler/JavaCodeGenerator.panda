@@ -43,6 +43,7 @@ uses org.pandalanguage.pandac.tree.RealLiteral
 uses org.pandalanguage.pandac.tree.Return
 uses org.pandalanguage.pandac.tree.ReusedValue
 uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.SkippedValue
 uses org.pandalanguage.pandac.tree.Statement
 uses org.pandalanguage.pandac.tree.StringLiteral
 uses org.pandalanguage.pandac.tree.Super
@@ -635,53 +636,7 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         out.write(")")
     }
--*
-    method generateMethodValueCode(mv:MethodValue) {
-        out.write(getJavaType(mv.type) + ".createnew$init(new " + 
-                getJavaMethodType(mv.type.unwrapNullable->MethodType) + "() { ")
-        var m := mv.rawMethodNode
-        out.write("public java.lang.Object method(")
-        for (i, p) in m.parameters.enumeration() {
-            if i > 0
-                out.write(", ")
-            out.write(getJavaType(p.type) + " param" + i)
-        }
-        out.write(") { ") 
-        if m.returnType != VoidType.VOID {
-            out.write("return ")
-            if m.returnType.isPrimitive {
-                out.write(m.returnType->PrimitiveType.wrapperVersion().name + 
-                        ".createnew$init(")
-            }
-        }
-        var start:Int
-        if m.annotations.isClass | m.annotations.isWrapperMethod {
-            out.write(getName(m.owner))
-            start := 0
-        }
-        else {
-            out.write("param0")
-            start := 1
-        }
-        out.write("." + getName(m) + "(")
-        for (i, p) in m.parameters.enumeration() {
-            if i < start
-                continue
-            if i > start
-                out.write(", ")
-            out.write("param" + i)
-        }
-        out.write(")")
-        if m.returnType = VoidType.VOID
-            out.write("; return null")
-        else {
-            if m.returnType.isPrimitive {
-                out.write(")")
-            }
-        }
-        out.write("; } }, null)")
-    }
-*-
+
     method generateDynamicCallCode(d:DynamicCall) {
         if d.type != VoidType.VOID {
             out.write("((")
@@ -741,6 +696,14 @@ class JavaCodeGenerator (CodeGenerator) {
         out.write(name)
     }
 
+    method generateSkippedValueCode(s:SkippedValue) {
+        out.write("((\{getJavaType(s.type)}) panda.core.PandaCore.skip(")
+        generateValueCode(s.discardedValue)
+        out.write(", ")
+        generateValueCode(s.actualValue)
+        out.write("))")        
+    }
+
     method generateValueCode(v:Value, topLevel:Bit) {
         if v-?>VariableAssignment
             generateVariableAssignmentCode(v->VariableAssignment, topLevel)
@@ -797,12 +760,12 @@ class JavaCodeGenerator (CodeGenerator) {
         }
         else if v-?>ReusedValue
             generateReusedValueCode(v->ReusedValue)
---       else if v-?>MethodReference
---           generateMethodReferenceCode(v->MethodReference)
         else if v-?>DynamicCall
             generateDynamicCallCode(v->DynamicCall)
         else if v-?>Super
             generateSuperCode(v->Super)
+        else if v-?>SkippedValue
+            generateSkippedValueCode(v->SkippedValue)
         else {
             throw InternalCompilerException("unsupported value type: " + 
                     "\{v}:\{v.class.name}", v.position)

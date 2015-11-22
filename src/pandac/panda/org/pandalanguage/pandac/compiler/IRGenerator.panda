@@ -104,6 +104,7 @@ uses org.pandalanguage.pandac.tree.RealLiteral
 uses org.pandalanguage.pandac.tree.Return
 uses org.pandalanguage.pandac.tree.ReusedValue
 uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.SkippedValue
 uses org.pandalanguage.pandac.tree.Statement
 uses org.pandalanguage.pandac.tree.StringLiteral
 uses org.pandalanguage.pandac.tree.Super
@@ -667,6 +668,40 @@ class IRGenerator {
         return getIdentifier(position, "self")
     }
 
+    method capture(v:Variable) {
+        if context.captures.length > 0 {
+            if (v-?>Parameter | v-?>LocalVariable) {
+                def owner:MethodStub
+                if v-?>Parameter
+                    owner := v->Parameter.owner
+                else
+                    owner := v->LocalVariable.owner
+                for i in 0 .. context.captures.length {
+                    def capture := context.captures.peek(i)
+                    if owner = capture[0] {
+                        if v.name = "$self"
+                            capture[1].add(v)
+                        break
+                    }
+                    capture[1].add(v)
+                }
+            }
+            else if (v-?>FieldNode & isClosure(v->FieldNode.owner)) {
+                def owner := v->FieldNode.owner
+                for i in 0 .. context.captures.length {
+                    def capture := context.captures.peek(i)
+                    if owner = capture[0].owner
+                        break
+                    capture[1].add(v)
+                }
+            }
+        }
+    }
+
+    function isClosure(t:Type):Bit {
+        return t.name.contains("$closure")
+    }
+
     method symbolReference(position:Position, s:Symbol):Value? {
         return symbolReference(position, null, s)
     }
@@ -687,6 +722,17 @@ class IRGenerator {
             else {
                 if target = null {
                     if context.isInstance {
+                        if isClosure(f.owner) {
+                            if context.inClosure {
+                                capture(f)
+                                -- only happens during capture pre-scan, so we can
+                                -- just return a dummy value
+                                return Dummy(position, f.type)
+                            }
+                            def s := VariableReference(position, 
+                                    context.symbolTable[Parameter.SELF_NAME]->Variable)
+                            return createFieldReference(position, s, f)
+                        }
                         return createFieldReference(position, 
                                 implicitSelf(position).implicitCast(context, 
                                     f.owner), f)
@@ -722,24 +768,8 @@ class IRGenerator {
         }
         if s-?>Variable {
             def v := s->Variable
-            if context.captures.length > 0 & 
-                    (v-?>Parameter | v-?>LocalVariable) {
-                def owner:MethodStub
-                if v-?>Parameter
-                    owner := v->Parameter.owner
-                else
-                    owner := v->LocalVariable.owner
-                for i in 0 .. context.captures.length {
-                    def capture := context.captures.peek(i)
-                    if owner = capture[0] {
-                        if v.name = "$self"
-                            capture[1].add(v)
-                        break
-                    }
-                    capture[1].add(v)
-                }
-            }
-            return VariableReference(position, s->Variable)
+            capture(v)
+            return VariableReference(position, v)
         }
         if s-?>Package
             return PackageReference(position, s->Package)
@@ -760,16 +790,49 @@ class IRGenerator {
 
     method makeClosure(ref:MethodReference):Value {
         def parameters := Array<ASTParameter>()
-        assert ref.target-?>ClassLiteral : "making closure of instance method \{ref.methodStub} at \{ref.position}"
+        constant IMPLICIT_SELF := "$implicitSelf"
+        if !ref.methodStub.annotations.isClass & ref.target-?>ClassLiteral {
+            def owner:Type
+            if ref.methodStub.annotations.isWrapperMethod
+                owner := ref.methodStub.owner.convert()->PrimitiveType
+            else
+                owner := ref.methodStub.owner
+            parameters.add(ASTParameter(ref.position, IMPLICIT_SELF, 
+                    toASTType(ref.position, owner), false, 
+                    false))
+        }
         for p in ref.methodStub.parameters {
             parameters.add(ASTParameter(p.position, p.name, 
                     toASTType(p.position, p.type), p.isVar, p.isVarArg))
         }
-        def nameComps := ref.target->ClassLiteral.value.name.split(".")
-        var classRef:ASTExpression := ASTIdentifier(ref.position, nameComps[0])
-        for n in nameComps[1..]
-            classRef := ASTDotExpression(classRef, n)
-        def methodRef := ASTDotExpression(classRef, ref.methodStub.name)
+        def nameComps := ref.methodStub.owner.name.split(".")
+        def target:ASTExpression
+        def discardedValue:Value?
+        if ref.target-?>ClassLiteral {
+            if ref.methodStub.annotations.isClass {
+                var classRef:ASTExpression := ASTIdentifier(ref.position, 
+                        nameComps[0])
+                for n in nameComps[1..]
+                    classRef := ASTDotExpression(classRef, n)
+                target := classRef
+
+            }
+            else
+                target := ASTIdentifier(ref.position, IMPLICIT_SELF)
+            discardedValue := null
+        }
+        else {
+            def targetVar := LocalVariable(ref.position, 
+                    "$closureTarget" + nameCount, ref.target.type, 
+                    VariableType.VAR, context.currentMethod)
+            nameCount += 1
+            context.localVariables.add(targetVar)
+            context.symbolTable.add(targetVar)
+            target := ASTIdentifier(ref.position, targetVar.name)
+            discardedValue := VariableAssignment(ref.position, targetVar,
+                    ref.target)
+        }
+        def methodRef := ASTDotExpression(target, ref.methodStub.name)
         def parameterRefs := Array<ASTExpression>()
         for p in ref.methodStub.parameters
             parameterRefs.add(ASTIdentifier(ref.position, p.name))
@@ -782,7 +845,11 @@ class IRGenerator {
         def value := ASTMethodValue(ref.position, ref.methodStub.methodType, 
                 parameters, toASTType(ref.position, ref.methodStub.returnType), 
                 ASTBlock(ref.position, [statement]))
-        return resolve(value)
+        def resolved := resolve(value)
+        if discardedValue != null
+            return SkippedValue(discardedValue, resolved)
+        else
+            return resolved
     }
 
     method resolve(v:Value):Value? {
@@ -2603,6 +2670,8 @@ class IRGenerator {
             def ir := IRGenerator(context.root, context.classes,
                     context.stubGenerator, context.compilerSettings,
                     context.errors)
+            ir.context.currentClass := context.currentClass
+            ir.context.currentMethod := context.currentMethod
             ir.context.pushSymbolTable(context.symbolTable)
             ir.context.pushSymbolTable()
             ir.context.symbolTable.addAll(context.symbolTable.mySymbols)
@@ -2722,7 +2791,10 @@ class IRGenerator {
             context.symbolTable.add(p)
         }
         if !lastMethod.annotations.isClass {
-            def selfType := lastMethod.owner
+            var selfType := lastMethod.owner
+            def index := selfType.name.indexOf("$closure")
+            if index != null
+                selfType := resolveClass(m.position, selfType.name[..index])->ClassLiteral.value
             def selfParam := Parameter(m.position, "$" + Parameter.SELF_NAME,
                     selfType, false, false, rawStub)
             context.symbolTable.add(selfParam)
@@ -2748,8 +2820,12 @@ class IRGenerator {
             def shimParameters := Array<ASTExpression>()
             for p in formalParameters
                 shimParameters.add(ASTIdentifier(m.position, p.name))
-            def call := ASTCallExpression(ASTIdentifier(m.position,
-                    RAW_NAME), shimParameters)
+            var call:ASTExpression := ASTCallExpression(ASTIdentifier(
+                    m.position, RAW_NAME), shimParameters)
+            if m.returnType != null {
+                call := ASTArrowExpression(ArrowOperationType.CAST, call,
+                        m.returnType)
+            }
             def statements := Array<ASTStatement>()
             statements.add(ASTReturn(m.position, call))
             def shimBody := ASTBlock(m.position, statements)
@@ -2786,7 +2862,14 @@ class IRGenerator {
         def initParameters := Array<Value>()
         for v in captures {
             if v.name = "$" + Parameter.SELF_NAME
-                initParameters.add(implicitSelf(m.position))
+                initParameters.add(convertSelf(ASTSelf(m.position)))
+            else if v-?>FieldNode {
+                def f := v->FieldNode
+                initParameters.add(FieldReference(m.position, 
+                        VariableReference(m.position, context.symbolTable[
+                            Parameter.SELF_NAME]->Variable),
+                        f))
+            }
             else
                 initParameters.add(VariableReference(m.position, v))
         }

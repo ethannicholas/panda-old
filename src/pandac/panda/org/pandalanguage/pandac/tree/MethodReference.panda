@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.UnresolvedType
 
@@ -37,12 +38,24 @@ class MethodReference : Value {
 
     @override
     method preferredType(context:Context, preferImmutable:Bit):Type {
-        return methodStub.type(context)
+        def raw := methodStub.type(context)
+        if !methodStub.annotations.isClass & target-?>ClassLiteral {
+            def parameters := Array<Type>()
+            if methodStub.annotations.isWrapperMethod
+                parameters.add(methodStub.owner.convert()->PrimitiveType)
+            else
+                parameters.add(methodStub.owner)
+            parameters.addAll(raw.methodParameters)
+            return context.resolveType(IRGenerator.toASTType(position,
+                    MethodType(parameters, raw.returnType, raw.isFunction, 
+                        raw.immutableMethod)))
+        }
+        return raw
     }    
 
     @override
     function implicitCastCost(context:Context, t:Type):Int? {
-        return methodStub.type(context).implicitCastCost(context, t)
+        return preferredType(context, false).implicitCastCost(context, t)
     }
 
     @override

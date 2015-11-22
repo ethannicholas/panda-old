@@ -49,6 +49,7 @@ uses org.pandalanguage.pandac.tree.RealLiteral
 uses org.pandalanguage.pandac.tree.Return
 uses org.pandalanguage.pandac.tree.ReusedValue
 uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.SkippedValue
 uses org.pandalanguage.pandac.tree.Statement
 uses org.pandalanguage.pandac.tree.StringLiteral
 uses org.pandalanguage.pandac.tree.Super
@@ -767,6 +768,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         var name := cl.name
         var cc := classConstants[name]
         if cc = null {
+            getStub(ClassType.CLASS)
+            getStub(ClassType.STRING)
             def methods := cl.virtualMethods(context)
             def className := getName(cl)
             cc := ClassConstant(
@@ -1459,11 +1462,11 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @protected
     method createVariableReference(vr:VariableReference):String {
-        var variable := vr.variable
+        def variable := vr.variable
         if variable-?>Parameter & variable.varType = VariableType.DEF
             return "%" + getName(variable)
         return createCommandReference("load " + getLLVMType(vr.type) + "* %" + 
-                getName(variable), vr.convert())
+                getName(variable) + "; \{variable.class.name}", vr.convert())
     }
         
     @protected
@@ -1562,6 +1565,12 @@ class LLVMCodeGenerator (CodeGenerator) {
         return "bitcast(\{cc.type}* @\{cc.name} to \{classType})"
     }
 
+    @protected
+    method createSkippedValueReference(s:SkippedValue):String {
+        getReference(s.discardedValue)
+        return getReference(s.actualValue)
+    }
+
     -- return value is nullable so void expressions (method calls) can return
     -- null
     @protected
@@ -1591,6 +1600,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case ReusedValueDefinition: return createReusedValueDefinitionReference(v->ReusedValueDefinition)
             case ReusedValue: return createReusedValueReference(v->ReusedValue) 
             case Super: return createSuperReference(v->Super)
+            case SkippedValue: return createSkippedValueReference(v->SkippedValue)
             default: {
                 throw CompilerException("unsupported value class: " + 
                         "\{v.class.name}: \{v}", v.position)

@@ -92,4 +92,8 @@ public class PandaCore {
         result.contents = contents;
         return result;
     }
+
+    public static java.lang.Object skip(java.lang.Object a, java.lang.Object b) {
+        return b;
+    }
 }
