@@ -1809,20 +1809,32 @@ class IRGenerator {
     }
 
     method convertFor(f:ASTFor):Statement? {
+        context.pushSymbolTable()
         var list := convertExpression(f.list)
         if list = null
             return null
-        if list-?>UnresolvedRange
-            return convertRangeFor(f, list->UnresolvedRange)
+        if list-?>UnresolvedRange {
+            def result := convertRangeFor(f, list->UnresolvedRange)
+            context.popSymbolTable()
+            return result
+        }
         list := resolve(list)
         if list = null
             return null
         if list.type.name.startsWith("panda.collections.PrimitiveArray<") |
-                list.type.name.startsWith("panda.collections.ImmutablePrimitiveArray<")
-            return convertPrimitiveArrayFor(f, list)
-        if list.type.name.startsWith("panda.collections.Iterator<")
-            return convertIteratorFor(f, list)
-        return convertIterableFor(f, list)
+                list.type.name.startsWith("panda.collections.ImmutablePrimitiveArray<") {
+            def result := convertPrimitiveArrayFor(f, list)
+            context.popSymbolTable()
+            return result
+        }
+        if list.type.name.startsWith("panda.collections.Iterator<") {
+            def result := convertIteratorFor(f, list)
+            context.popSymbolTable()
+            return result
+        }
+        def result := convertIterableFor(f, list)
+        context.popSymbolTable()
+        return result
     }
 
     method convertLoop(l:ASTLoop):Statement? {
