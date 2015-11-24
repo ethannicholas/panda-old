@@ -30,22 +30,17 @@ class UnresolvedArray : UnresolvedValue {
     @class
     function getElementType(context:Context, values:ListView<Value>, 
             variableType:Bit, preferImmutable:Bit):Type? {
-        def getType:(Value)=>(Type)
-        if variableType
-            getType := v => v.preferredVariableType(context, preferImmutable)
-        else
-            getType := v => v.preferredType(context, preferImmutable)
         var elementType:Type
         if values.length = 0
             elementType := NullableType.ANY
         else {
             if values[0].isValid {
-                elementType := getType(values[0])
+                elementType := values[0].preferredType(context, preferImmutable)
                 for i in 1 .. values.length {
                     def v := values[i]
                     if v.isValid {
                         elementType := Type.union(context, elementType, 
-                                getType(v), true)
+                                v.preferredType(context, preferImmutable), true)
                     }
                     else
                         return null
@@ -54,6 +49,8 @@ class UnresolvedArray : UnresolvedValue {
             else
                 return null
         }
+        if variableType
+            elementType := elementType.preferredVariableType
         if elementType = StringOrCharType.STRING_OR_CHAR
             elementType := CharType.CHAR
         else if elementType = NullType.NULL
@@ -69,9 +66,8 @@ class UnresolvedArray : UnresolvedValue {
         def elementType:Type? := getElementType(context, values, false, false)
         if elementType = null
             return null
-        def typeList := Array<Type>()
-        typeList.add(elementType)
-        def type := context.resolveType(GenericType(ClassType.ARRAY, typeList).name)->GenericType
+        def type := context.resolveType(GenericType(ClassType.ARRAY, 
+                [elementType]).name)->GenericType
         def casted := Array<Value>()
         for v in values
             casted.add(v.implicitCast(context, elementType))
