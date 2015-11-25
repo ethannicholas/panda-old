@@ -52,6 +52,7 @@ uses org.pandalanguage.pandac.ast.ASTUnaryExpression
 uses org.pandalanguage.pandac.ast.ASTUnreachable
 uses org.pandalanguage.pandac.ast.ASTVarDeclaration
 uses org.pandalanguage.pandac.ast.ASTWhile
+uses org.pandalanguage.pandac.ast.ClassCategory
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
@@ -235,8 +236,15 @@ class IRGenerator {
             return symbolReference(position, contextValue.implicitCast(context,
                     type), member)
         }
-        context.errors.error("'\{contextValue.type.displayName}' does not " +
-                "have a member named '\{name}'", position)
+        if contextValue-?>ClassLiteral {
+            context.errors.error("'\{contextValue.type.displayName}(" + 
+                    "\{contextValue})' does not have a member named '\{name}'", 
+                    position)
+        }
+        else {
+            context.errors.error("'\{contextValue.type.displayName}' does " +
+                    "not have a member named '\{name}'", position)
+        }
         return null
     }
 
@@ -909,7 +917,7 @@ class IRGenerator {
             return null
         }
         def stub := context.getStub(type.convert()->ClassType)
-        if stub.isInterface {
+        if stub.classCategory = ClassCategory.INTERFACE {
             context.errors.error("interfaces may not be instantiated",
                     n.position)
             return null
@@ -2849,7 +2857,7 @@ class IRGenerator {
         def lookupContext := context.currentClass.lookupContext
         def superclass := ClassType.METHOD
         def closureStub := ClassStub(m.position, closureType, 
-                false, Annotations(m.position, closureAnnotations), 
+                ClassCategory.CLASS, Annotations(m.position, closureAnnotations), 
                 superclass, Array<ClassType>(), closureSymbols, lookupContext,
                 Array<ASTInvariant>(), null, false, 
                 context.currentClass.type)
@@ -3098,10 +3106,11 @@ class IRGenerator {
             context.methods.add(convertMethod(m))
         }
         context.popSymbolTable()
-        if !cl.isInterface & !cl.annotations.isAbstract {
+        if cl.classCategory != ClassCategory.INTERFACE & 
+                !cl.annotations.isAbstract {
             for m in cl.virtualMethods(context) {
                 if m.annotations.isAbstract {
-                     context.errors.error("non-abstract class '\{cl.name}' " +
+                    context.errors.error("non-abstract class '\{cl.name}' " +
                             "does not implement abstract \{m}", cl.position)
                 }
             }
@@ -3185,8 +3194,8 @@ class IRGenerator {
                         createStub(cl->ClassType)  
                 } 
                 else {
-                    def astEnum := context.stubGenerator.astEnums[cl.name]
-                    if astEnum != null & !astEnum[0].isExternal
+                    def astChoice := context.stubGenerator.astChoices[cl.name]
+                    if astChoice != null & !astChoice[0].isExternal
                         createStub(cl->ClassType)  
                 }
             }
@@ -3225,6 +3234,8 @@ class IRGenerator {
     }
 
     method addClass(cl:ClassStub, root:MutablePackage) {
+        if cl.containingClass != null
+            return
         var currentPackage := root
         def components := cl.name.split(".")
         def currentName := MutableString()

@@ -5,10 +5,10 @@ uses org.pandalanguage.pandac.ast.ASTAssignment
 uses org.pandalanguage.pandac.ast.ASTBitLiteral
 uses org.pandalanguage.pandac.ast.ASTBlock
 uses org.pandalanguage.pandac.ast.ASTCallExpression
+uses org.pandalanguage.pandac.ast.ASTChoice
 uses org.pandalanguage.pandac.ast.ASTClass
 uses org.pandalanguage.pandac.ast.ASTClassType
 uses org.pandalanguage.pandac.ast.ASTDotExpression
-uses org.pandalanguage.pandac.ast.ASTEnum
 uses org.pandalanguage.pandac.ast.ASTExpression
 uses org.pandalanguage.pandac.ast.ASTExpressionStatement
 uses org.pandalanguage.pandac.ast.ASTField
@@ -37,6 +37,7 @@ uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.ast.ASTUnparsedClass
 uses org.pandalanguage.pandac.ast.ASTUnreachable
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
+uses org.pandalanguage.pandac.ast.ClassCategory
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
@@ -133,11 +134,11 @@ class StubGenerator {
 
     def types := HashMap<String, Type>()
 
-    def astClasses := HashMap<String, (ASTClass, ClassContext)>()
+    def astClasses := HashMap<String, (ASTClass, ClassContext, ClassType?)>()
 
     def astUnparsedClasses := HashMap<String, ASTUnparsedClass>()
 
-    def astEnums := HashMap<String, (ASTEnum, ClassContext)>()
+    def astChoices := HashMap<String, (ASTChoice, ClassContext, ClassType?)>()
 
     def stubs := HashMap<String, ClassStub>()
 
@@ -174,31 +175,41 @@ class StubGenerator {
     }
 
     @private
+    method findClassNames(prefix:String?, cl:ASTClass) {
+        var name := cl.name
+        if prefix != null
+            name := prefix + "." + name
+        def type:Type
+        if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
+            def symbolTable := SymbolTable()
+            usePackage("panda.core", symbolTable, 
+                    Array<String>(), Position.INTERNAL)
+            type := WrapperType(resolveType(ASTClassType(
+                    cl.position, name[0 .. name.length - 
+                        "Wrapper".length], null, false), 
+                    symbolTable)->PrimitiveType)
+        }
+        else
+            type := ClassType(name)
+        addType(type, cl.position)
+        for nestedClass in cl.contents.filter(n => n-?>ASTClass)
+            findClassNames(name, nestedClass->ASTClass)
+        for nestedChoice in cl.contents.filter(n => n-?>ASTChoice) {
+            addType(ClassType(name + "." + nestedChoice->ASTChoice.name), 
+                    nestedChoice.position)
+        }
+    }
+
+    @private
     method findClassNames() {
         var currentPackage:String?
         for f in files {
             currentPackage := null
             for decl in f.entries {
-                if decl-?>ASTClass {
-                    var name := decl->ASTClass.name
-                    if currentPackage != null
-                        name := currentPackage + "." + name
-                    def type:Type
-                    if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
-                        def symbolTable := SymbolTable()
-                        usePackage("panda.core", symbolTable, 
-                                Array<String>(), Position.INTERNAL)
-                        type := WrapperType(resolveType(ASTClassType(
-                                decl.position, name[0 .. name.length - 
-                                    "Wrapper".length], null, false), 
-                                symbolTable)->PrimitiveType)
-                    }
-                    else
-                        type := ClassType(name)
-                    addType(type, decl.position)
-                }
-                else if decl-?>ASTEnum {
-                    var name := decl->ASTEnum.name
+                if decl-?>ASTClass
+                    findClassNames(currentPackage, decl->ASTClass)
+                else if decl-?>ASTChoice {
+                    var name := decl->ASTChoice.name
                     if currentPackage != null
                         name := currentPackage + "." + name
                     addType(ClassType(name), decl.position)
@@ -291,19 +302,19 @@ class StubGenerator {
                         type := ClassType(name)
                     astClasses[name] := (decl->ASTClass, ClassContext(
                             currentPackage, LookupContext(packageUses,
-                                classAliases)))
+                                classAliases)), null->ClassType?)
                 }
                 else if decl-?>ASTUnparsedClass {
                     def aup := decl->ASTUnparsedClass
                     astUnparsedClasses[aup.name] := aup
                 }
-                else if decl-?>ASTEnum {
-                    var name := decl->ASTEnum.name
+                else if decl-?>ASTChoice {
+                    var name := decl->ASTChoice.name
                     if currentPackage != null
                         name := currentPackage + "." + name
-                    astEnums[name] := (decl->ASTEnum, ClassContext(
+                    astChoices[name] := (decl->ASTChoice, ClassContext(
                             currentPackage, LookupContext(packageUses,
-                                classAliases)))
+                                classAliases)), null->ClassType?)
                 }
                 else if decl-?>ASTPackageDeclaration
                     currentPackage := decl->ASTPackageDeclaration.name
@@ -345,17 +356,18 @@ class StubGenerator {
             }
             if needImplicit {
                 def implicitClass := ClassStub(Position.INTERNAL, 
-                        implicitType, false, 
+                        implicitType, ClassCategory.CLASS, 
                         Annotations(Position.INTERNAL), 
                         null, Array<ClassType>(), 
                         implicitClassSymbols.mySymbols, 
                         LookupContext(packageUses, classAliases), 
                         Array<ASTInvariant>(), null, false, null)
                 astClasses[implicitClass.name] := (ASTClass(
-                        Position.INTERNAL, implicitClass.name, false, 
-                        null, null, null, null, null, [], [], [], false),
-                        ClassContext(currentPackage, 
-                            LookupContext(packageUses, classAliases)))
+                        Position.INTERNAL, implicitClass.name, 
+                        ClassCategory.CLASS, null, null, null, null, null, [], 
+                        false), ClassContext(currentPackage, 
+                            LookupContext(packageUses, classAliases)), 
+                        null->ClassType?)
                 stubs[implicitClass.name] := implicitClass
                 addType(implicitClass.type, implicitClass.position)
             }
@@ -377,8 +389,10 @@ class StubGenerator {
                     currentPackage[c] := next
                 }
                 else if next-!>MutablePackage {
-                    errors.error("name conflict between class '\{currentName}'" +
-                            "and package '\{currentName}'", position)
+                    types[type.name] := type
+                    break
+--                    errors.error("name conflict between class '\{currentName}'" +
+  --                          "and package '\{currentName}'", position)
                 }
                 currentPackage := next->MutablePackage
             }
@@ -883,7 +897,7 @@ class StubGenerator {
     }
 
     function isAbstract(cl:ASTClass):Bit {
-        if cl.isInterface 
+        if cl.classCategory = ClassCategory.INTERFACE
             return true
         def annotations := cl.annotations
         if annotations != null {
@@ -898,11 +912,14 @@ class StubGenerator {
 
     method convertClass(cl:ASTClass, currentPackage:String?,
             parentSymbolTable:SymbolTable, rawPackageUses:ListView<String>,
-            classAliases:HashMap<String, String>):ClassStub {
+            classAliases:HashMap<String, String>,
+            containingClass:ClassType?):ClassStub {
         def packageUses := Array<String>(rawPackageUses)
         def symbolTable := SymbolTable(parentSymbolTable)
         def className:String
-        if currentPackage != null {
+        if containingClass != null
+            className := containingClass.name + "." + cl.name
+        else if currentPackage != null {
             className := currentPackage + "." + cl.name
             usePackage(currentPackage, symbolTable, packageUses, cl.position)
         }
@@ -960,17 +977,51 @@ class StubGenerator {
         }
         def symbols := SymbolTable()
         var foundInit := false
-        for m in cl.methods {
-            def converted := convertMethod(cl.isExternal, m, classType, 
-                    symbolTable)
-            if converted != null {
-                checkMethodSignature(converted)
-                addSymbol(converted, symbols.mySymbols, errors)
-                foundInit |= converted.methodType = 
-                        MethodNodeType.INIT
+        def invariants := Array<ASTInvariant>()
+        for node in cl.contents {
+            if node-?>ASTMethod {
+                def m := node->ASTMethod
+                def converted := convertMethod(cl.isExternal, m, classType, 
+                        symbolTable)
+                if converted != null {
+                    checkMethodSignature(converted)
+                    addSymbol(converted, symbols.mySymbols, errors)
+                    foundInit |= converted.methodType = 
+                            MethodNodeType.INIT
+                }
             }
+            else if node-?>ASTField
+                convertFields(node->ASTField, classType, symbolTable, symbols)
+            else if node-?>ASTClass {
+                def nestedClass := node->ASTClass
+                def fullName := className + "." + nestedClass.name
+                astClasses[fullName] := (nestedClass, 
+                        ClassContext(currentPackage, LookupContext(packageUses, 
+                            classAliases)), 
+                        classType)
+                def nestedType := resolveType(ASTClassType(cl.position, 
+                        fullName, null, false), symbolTable)->ClassType
+                addSymbol(TypeSymbol(nestedType), nestedClass.name, 
+                        nestedClass.position, symbols.mySymbols, errors)
+            }
+            else if node-?>ASTChoice {
+                def nestedChoice := node->ASTChoice
+                def fullName := className + "." + nestedChoice.name
+                astChoices[fullName] := (nestedChoice, 
+                        ClassContext(currentPackage, LookupContext(packageUses, 
+                            classAliases)), 
+                        classType)
+                def nestedType := resolveType(ASTClassType(cl.position, 
+                        fullName, null, false), symbolTable)->ClassType
+                addSymbol(TypeSymbol(nestedType), nestedChoice.name, 
+                        nestedChoice.position, symbols.mySymbols, errors)
+            }
+            else if node-?>ASTInvariant
+                invariants.add(node->ASTInvariant)
+            else
+                assert false : "invalid class node: \{node.class.name}"
         }
-        if !cl.isInterface & !foundInit {
+        if cl.classCategory != ClassCategory.INTERFACE & !foundInit {
             -- create implicit no-arg init
             def statements := Array<ASTStatement>()
             def superInit := ASTDotExpression(
@@ -986,8 +1037,6 @@ class StubGenerator {
                     classType)
             addSymbol(c, symbols.mySymbols, errors)
         }
-        for decl in cl.fields
-            convertFields(decl, classType, symbolTable, symbols)
         var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null
             annotations += AnnotationType.UNSPECIFIED
@@ -1018,34 +1067,39 @@ class StubGenerator {
         else
             genericParameters := null
         return ClassStub(cl.position, classType, 
-                cl.isInterface, annotations, superclass->ClassType?, 
+                cl.classCategory, annotations, superclass->ClassType?, 
                 interfaces, symbols.mySymbols, LookupContext(packageUses, 
                         classAliases), 
-                cl.invariants, genericParameters, cl.isExternal, null)
+                invariants, genericParameters, cl.isExternal, 
+                containingClass)
     }
 
-    method convertEnum(e:ASTEnum, currentPackage:String?,
-            symbolTable:SymbolTable):ClassStub {
+    method convertChoice(c:ASTChoice, currentPackage:String?,
+            symbolTable:SymbolTable, containingClass:ClassType?):ClassStub {
         def className:String
-        if currentPackage != null
-            className := currentPackage + "." + e.name
+        if containingClass != null
+            className := containingClass.name + "." + c.name
+        else if currentPackage != null {
+            className := currentPackage + "." + c.name
+            usePackage(currentPackage, symbolTable, [], c.position)
+        }
         else
-            className := e.name
-        def classType := resolveType(ASTClassType(e.position, className, 
+            className := cl.name
+        def classType := resolveType(ASTClassType(c.position, className, 
                 null, false), symbolTable)->ClassType
         def symbols := SymbolTable(masterSymbolTable)
         def fieldAnnotations := Array<AnnotationType>()
         fieldAnnotations.add(AnnotationType.CLASS)
-        for v in e.values {
+        for v in c.values {
             def initialValue := ASTNew(v.position, 
-                    ASTClassType(e.position, className, null, false),
+                    ASTClassType(c.position, className, null, false),
                     Array<ASTExpression>())
             symbols.add(FieldNode(v.position, classType, v.name, 
                     Annotations(v.position, fieldAnnotations), 
                     VariableType.DEF, classType, initialValue, null))
         }
-        if !e.isExternal {
-            def initMethod := createClassInit(e.position, classType, symbols)
+        if !c.isExternal {
+            def initMethod := createClassInit(c.position, classType, symbols)
             if initMethod != null {
                 addSymbol(initMethod[0], initMethod[0].position, 
                         symbols.mySymbols, errors)
@@ -1056,33 +1110,33 @@ class StubGenerator {
         -- create implicit no-arg init
         var statements := Array<ASTStatement>()
         def superInit := ASTDotExpression(
-                ASTSuper(e.position), MethodNode.INIT_NAME)
+                ASTSuper(c.position), MethodNode.INIT_NAME)
         statements.add(ASTExpressionStatement(ASTCallExpression(
                 superInit, Array<ASTExpression>())))
-        var block := ASTBlock(e.position, statements)
+        var block := ASTBlock(c.position, statements)
         def initAnnotations := Array<AnnotationType>()
         initAnnotations.add(AnnotationType.PRIVATE)
-        def c := MethodStub(e.position, MethodNode.INIT_NAME, 
-                Annotations(e.position, initAnnotations), 
+        def initStub := MethodStub(c.position, MethodNode.INIT_NAME, 
+                Annotations(c.position, initAnnotations), 
                 MethodNodeType.INIT, Array<FormalParameter>(), 
                 VoidType.VOID, block, classType)
-        addSymbol(c, symbols.mySymbols, errors)
+        addSymbol(initStub, symbols.mySymbols, errors)
 
         -- create convert to integer
         statements := Array<ASTStatement>()
         var cases := Array<ASTSwitchCase>()
-        for (i, v) in e.values.enumeration() {
+        for (i, v) in c.values.enumeration() {
             def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTIdentifier(e.position, v.name))
-            cases.add(ASTSwitchCase(e.position, caseValues, ASTReturn(e.position,
-                    ASTIntegerLiteral(e.position, i->UInt64))))
+            caseValues.add(ASTIdentifier(c.position, v.name))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTIntegerLiteral(c.position, i->UInt64))))
         }
-        statements.add(ASTSwitch(e.position, ASTSelf(e.position), cases,
-                ASTUnreachable(e.position)))
-        block := ASTBlock(e.position, statements)
-        def convertToInt := MethodStub(e.position, 
+        statements.add(ASTSwitch(c.position, ASTSelf(c.position), cases,
+                ASTUnreachable(c.position)))
+        block := ASTBlock(c.position, statements)
+        def convertToInt := MethodStub(c.position, 
                 MethodNode.CONVERT_NAME, 
-                Annotations(e.position, Array<AnnotationType>()), 
+                Annotations(c.position, Array<AnnotationType>()), 
                 MethodNodeType.FUNCTION, Array<FormalParameter>(), 
                 IntType.INT32, block, classType)
         addSymbol(convertToInt, symbols.mySymbols, errors)
@@ -1090,18 +1144,18 @@ class StubGenerator {
         -- create convert to string
         statements := Array<ASTStatement>()
         cases := Array<ASTSwitchCase>()
-        for (i, v) in e.values.enumeration() {
+        for (i, v) in c.values.enumeration() {
             def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTIdentifier(e.position, v.name))
-            cases.add(ASTSwitchCase(e.position, caseValues, ASTReturn(e.position,
-                    ASTStringLiteral(e.position, v.name))))
+            caseValues.add(ASTIdentifier(c.position, v.name))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTStringLiteral(c.position, v.name))))
         }
-        statements.add(ASTSwitch(e.position, ASTSelf(e.position), cases,
-                ASTUnreachable(e.position)))
-        block := ASTBlock(e.position, statements)
-        def convertToString := MethodStub(e.position, 
+        statements.add(ASTSwitch(c.position, ASTSelf(c.position), cases,
+                ASTUnreachable(c.position)))
+        block := ASTBlock(c.position, statements)
+        def convertToString := MethodStub(c.position, 
                 MethodNode.CONVERT_NAME, 
-                Annotations(e.position, Array<AnnotationType>()), 
+                Annotations(c.position, Array<AnnotationType>()), 
                 MethodNodeType.FUNCTION, Array<FormalParameter>(), 
                 ClassType.STRING, block, classType)
         addSymbol(convertToString, symbols.mySymbols, errors)
@@ -1109,23 +1163,23 @@ class StubGenerator {
         -- create convert from integer
         statements := Array<ASTStatement>()
         cases := Array<ASTSwitchCase>()
-        for (i, v) in e.values.enumeration() {
+        for (i, v) in c.values.enumeration() {
             def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTIntegerLiteral(e.position, i->UInt64))
-            cases.add(ASTSwitchCase(e.position, caseValues, ASTReturn(e.position,
-                    ASTIdentifier(e.position, v.name))))
+            caseValues.add(ASTIntegerLiteral(c.position, i->UInt64))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTIdentifier(c.position, v.name))))
         }
-        statements.add(ASTSwitch(e.position, 
-                ASTIdentifier(e.position, "value"), cases,
-                ASTUnreachable(e.position)))
-        block := ASTBlock(e.position, statements)
+        statements.add(ASTSwitch(c.position, 
+                ASTIdentifier(c.position, "value"), cases,
+                ASTUnreachable(c.position)))
+        block := ASTBlock(c.position, statements)
         def cvtAnnotations := Array<AnnotationType>()
         cvtAnnotations.add(AnnotationType.CLASS)
         def convertParameters := Array<FormalParameter>()
-        convertParameters.add(FormalParameter(e.position, "value", 
+        convertParameters.add(FormalParameter(c.position, "value", 
                 IntType.INT32, false, false))
-        def convertFromInt := MethodStub(e.position, "fromInt", 
-                Annotations(e.position, cvtAnnotations), 
+        def convertFromInt := MethodStub(c.position, "fromInt", 
+                Annotations(c.position, cvtAnnotations), 
                 MethodNodeType.FUNCTION, convertParameters, 
                 classType, block, classType)
         addSymbol(convertFromInt, symbols.mySymbols, errors)
@@ -1133,33 +1187,33 @@ class StubGenerator {
         -- create convert from string
         statements := Array<ASTStatement>()
         cases := Array<ASTSwitchCase>()
-        for v in e.values {
+        for v in c.values {
             def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTStringLiteral(e.position, v.name))
-            cases.add(ASTSwitchCase(e.position, caseValues, ASTReturn(e.position,
-                    ASTIdentifier(e.position, v.name))))
+            caseValues.add(ASTStringLiteral(c.position, v.name))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTIdentifier(c.position, v.name))))
         }
-        statements.add(ASTSwitch(e.position, 
-                ASTIdentifier(e.position, "value"), cases,
-                ASTUnreachable(e.position)))
-        block := ASTBlock(e.position, statements)
+        statements.add(ASTSwitch(c.position, 
+                ASTIdentifier(c.position, "value"), cases,
+                ASTUnreachable(c.position)))
+        block := ASTBlock(c.position, statements)
         def cvtAnnotations := Array<AnnotationType>()
         cvtAnnotations.add(AnnotationType.CLASS)
         def convertParameters := Array<FormalParameter>()
-        convertParameters.add(FormalParameter(e.position, "value", 
+        convertParameters.add(FormalParameter(c.position, "value", 
                 ClassType.STRING, false, false))
-        def convertFromString := MethodStub(e.position, "fromString", 
-                Annotations(e.position, cvtAnnotations), 
+        def convertFromString := MethodStub(c.position, "fromString", 
+                Annotations(c.position, cvtAnnotations), 
                 MethodNodeType.FUNCTION, convertParameters, 
                 classType, block, classType)
         addSymbol(convertFromString, symbols.mySymbols, errors)
 
-        def annotations := convertAnnotations(e.position, e.annotations)
-        return ClassStub(e.position, classType, 
-                false, annotations, ClassType.ENUMERATION, 
-                Array<ClassType>(), symbols.mySymbols, LookupContext(), 
+        def annotations := convertAnnotations(c.position, c.annotations)
+        return ClassStub(c.position, classType, ClassCategory.CLASS,
+                annotations, ClassType.ENUMERATION, 
+                Array<ClassType>(), symbols.mySymbols, LookupContext(),
                 Array<ASTInvariant>(), null, 
-                e.isExternal, null)
+                c.isExternal, null)
     }
 
     @class
@@ -1182,12 +1236,18 @@ class StubGenerator {
     @class
     method addSymbol(s:Symbol, position:Position, map:Map<String, Symbol>, 
             errors:ErrorReporter) {
-        if map[s.name] != null {
-            errors.error("invalid redefinition of symbol '\{s.name}'",
+        addSymbol(s, s.name, position, map, errors)
+    }
+
+    @class
+    method addSymbol(s:Symbol, name:String, position:Position, 
+            map:Map<String, Symbol>, errors:ErrorReporter) {
+        if map[name] != null {
+            errors.error("invalid redefinition of symbol '\{name}'",
                     position)
         }
         else
-            map[s.name] := s
+            map[name] := s
     }
 
     method getPackage(name:String, position:Position):MutablePackage? {
@@ -1198,6 +1258,7 @@ class StubGenerator {
                 if s-?>MutablePackage
                     current := s->MutablePackage
                 else {
+                    Panda.dumpStack()
                     errors.error("no package named '\{name}'", position)
                     return null
                 }
@@ -1271,33 +1332,36 @@ class StubGenerator {
                     def cl := parsed->ASTClass
                     def symbolTable := SymbolTable(masterSymbolTable)
                     result := convertClass(cl, getPackage(name), symbolTable,
-                            [], HashMap<String, String>())
+                            [], HashMap<String, String>(), null)
                     stubs[name] := result
                 }
-                else if parsed-?>ASTEnum {
-                    def e := parsed->ASTEnum
+                else if parsed-?>ASTChoice {
+                    def c := parsed->ASTChoice
                     def symbolTable := SymbolTable(masterSymbolTable)
-                    result := convertEnum(e, getPackage(name), symbolTable)
+                    result := convertChoice(c, getPackage(name), symbolTable,
+                            null)
                     stubs[name] := result
                 }
             }
             else {
                 def classLookup := astClasses[name]
                 if classLookup != null {
-                    def cl, context := classLookup
+                    def cl, context, containingClass := classLookup
                     def symbolTable := getSymbolTable(context.lookupContext)
                     result := convertClass(cl, getPackage(name), symbolTable,
                             context.lookupContext.packageUses, 
                             HashMap<String, String>(
-                                    context.lookupContext.classAliases))
+                                context.lookupContext.classAliases),
+                            containingClass)
                     stubs[name] := result
                 }
                 else {
-                    def enumLookup := astEnums[name]
-                    if enumLookup != null {
-                        def cl, context := enumLookup
+                    def choiceLookup := astChoices[name]
+                    if choiceLookup != null {
+                        def cl, context, containingClass := choiceLookup
                         def symbolTable := getSymbolTable(context.lookupContext)
-                        result := convertEnum(cl, getPackage(name), symbolTable)
+                        result := convertChoice(cl, getPackage(name), 
+                                symbolTable, containingClass)
                         stubs[name] := result
                     }
                 }

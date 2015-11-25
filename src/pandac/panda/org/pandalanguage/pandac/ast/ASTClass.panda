@@ -2,10 +2,15 @@ package org.pandalanguage.pandac.ast
 
 uses org.pandalanguage.pandac.tree.Position
 
+enum ClassCategory {
+    CLASS,
+    INTERFACE
+}
+
 class ASTClass : ASTNode {
     def name:String
 
-    def isInterface:Bit
+    def classCategory:ClassCategory
 
     def doccomment:String?
 
@@ -19,22 +24,17 @@ class ASTClass : ASTNode {
 
     def genericParameters:ImmutableArray<ASTTypedIdentifier>?
 
-    def methods:ImmutableArray<ASTMethod>
+    def contents:ImmutableArray<ASTNode>
 
-    def fields:ImmutableArray<ASTField>
-
-    def invariants:ImmutableArray<ASTInvariant>
-
-    init(position:Position, name:String, isInterface:Bit, 
+    init(position:Position, name:String, classCategory:ClassCategory, 
             doccomment:String?, annotations:ListView<ASTAnnotation>?, 
             superclass:ASTType?, interfaces:ListView<ASTType>?, 
             genericParameters:ListView<ASTTypedIdentifier>?,
-            methods:ListView<ASTMethod>, fields:ListView<ASTField>, 
-            invariants:ListView<ASTInvariant>, isExternal:Bit) {
+            contents:ListView<ASTNode>, isExternal:Bit) {
         super.init(position)
-        self.name        := name
-        self.isInterface := isInterface
-        self.doccomment  := doccomment
+        self.name := name
+        self.classCategory := classCategory
+        self.doccomment := doccomment
         if annotations != null
             self.annotations := ImmutableArray<ASTAnnotation>(annotations)
         else
@@ -50,38 +50,34 @@ class ASTClass : ASTNode {
             self.interfaces := ImmutableArray<ASTType>(interfaces)
         else
             self.interfaces := null
-        self.fields      := ImmutableArray<ASTField>(fields)
-        self.methods     := ImmutableArray<ASTMethod>(methods)
-        self.invariants  := ImmutableArray<ASTInvariant>(invariants)
+        self.contents := ImmutableArray<ASTNode>(contents)
         self.isExternal  := isExternal
     }
 
     @override
     method write(out:IndentedOutputStream) {
-        if isInterface
-            out.write("interface ")
-        else
-            out.write("class ")
+        switch classCategory {
+            case ClassCategory.CLASS:
+                out.write("class ")
+            case ClassCategory.INTERFACE:
+                out.write("interface ")
+        }
         out.write(name)
         if superclass != null | interfaces != null
             out.write(" : ")
         if superclass != null
             out.write(superclass)
         if interfaces != null {
-            if !isInterface
+            if classCategory != ClassCategory.INTERFACE
                 out.write(" (")
             out.write(interfaces.join(","))
-            if !isInterface
+            if classCategory != ClassCategory.INTERFACE
                 out.write(")")
         }
         out.writeLine(" {")
         out.level += 1
-        for i in invariants
-            i.write(out)
-        for f in fields
-            f.write(out)
-        for m in methods
-            m.write(out)
+        for node in contents
+            node.write(out)
         out.level -= 1
         out.writeLine("}")
     }
