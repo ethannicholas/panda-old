@@ -796,8 +796,7 @@ class StubGenerator {
                 owner)
     }
 
-    method convertFields(f:ASTField, owner:ClassType, 
-            symbolTable:SymbolTable, dest:SymbolTable) {
+    method convertFields(f:ASTField, owner:ClassType, symbolTable:SymbolTable) {
         def result := Array<FieldNode>()
         var annotations := convertAnnotations(f.position, f.annotations)
         if f.decl.varType = VariableType.CONSTANT
@@ -826,7 +825,7 @@ class StubGenerator {
             def field := FieldNode(f.position, owner, name, 
                     annotations, f.decl.varType, type, f.decl.initializer, 
                     tuplePosition)
-            addSymbol(field, field.position, dest.mySymbols, errors)
+            addSymbol(field, field.position, symbolTable.mySymbols, errors)
             if annotations.isThread {
                 def indexAnnotations := Array<AnnotationType>()
                 indexAnnotations.add(AnnotationType.CLASS)
@@ -838,7 +837,8 @@ class StubGenerator {
                         v.identifier + INDEX_SUFFIX, Annotations(f.position,
                             indexAnnotations),
                         VariableType.DEF, IntType.INT32, initializer, 0)
-                addSymbol(fieldIndex, fieldIndex.position, dest.mySymbols, errors)
+                addSymbol(fieldIndex, fieldIndex.position, 
+                        symbolTable.mySymbols, errors)
             }
         }
     }
@@ -975,24 +975,11 @@ class StubGenerator {
                 }
             }
         }
-        def symbols := SymbolTable()
+        def symbols := SymbolTable(symbolTable)
         var foundInit := false
         def invariants := Array<ASTInvariant>()
         for node in cl.contents {
-            if node-?>ASTMethod {
-                def m := node->ASTMethod
-                def converted := convertMethod(cl.isExternal, m, classType, 
-                        symbolTable)
-                if converted != null {
-                    checkMethodSignature(converted)
-                    addSymbol(converted, symbols.mySymbols, errors)
-                    foundInit |= converted.methodType = 
-                            MethodNodeType.INIT
-                }
-            }
-            else if node-?>ASTField
-                convertFields(node->ASTField, classType, symbolTable, symbols)
-            else if node-?>ASTClass {
+            if node-?>ASTClass {
                 def nestedClass := node->ASTClass
                 def fullName := className + "." + nestedClass.name
                 astClasses[fullName] := (nestedClass, 
@@ -1016,10 +1003,23 @@ class StubGenerator {
                 addSymbol(TypeSymbol(nestedType), nestedChoice.name, 
                         nestedChoice.position, symbols.mySymbols, errors)
             }
+        }
+        for node in cl.contents {
+            if node-?>ASTMethod {
+                def m := node->ASTMethod
+                def converted := convertMethod(cl.isExternal, m, classType, 
+                        symbols)
+                if converted != null {
+                    checkMethodSignature(converted)
+                    addSymbol(converted, symbols.mySymbols, errors)
+                    foundInit |= converted.methodType = 
+                            MethodNodeType.INIT
+                }
+            }
+            else if node-?>ASTField
+                convertFields(node->ASTField, classType, symbols)
             else if node-?>ASTInvariant
                 invariants.add(node->ASTInvariant)
-            else
-                assert false : "invalid class node: \{node.class.name}"
         }
         if cl.classCategory != ClassCategory.INTERFACE & !foundInit {
             -- create implicit no-arg init
