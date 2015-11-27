@@ -27,6 +27,8 @@ class PLinkCodeGenerator (CodeGenerator) {
 
     def context:Context
 
+    constant VERSION:Int16 := 0
+
     init(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         self.compilerSettings := compilerSettings
@@ -104,6 +106,15 @@ class PLinkCodeGenerator (CodeGenerator) {
         def name := cl.name.convert()->Array<UInt8>
         out.writeInt16(name.length->Int16)
         out.write(name)
+
+        if cl.containingClass != null {
+            def cName := cl.containingClass.name.convert()->Array<UInt8>
+            out.writeInt16(cName.length->Int16)
+            out.write(cName)
+        }
+        else {
+            out.writeInt16(0)
+        }
 
         def oldOut := out
         def buffer := MemoryOutputStream()
@@ -194,6 +205,7 @@ class PLinkCodeGenerator (CodeGenerator) {
     @override
     method generateCode(target:File) {
         out := IndentedOutputStream(target.openOutputStream())
+        out.writeInt16(VERSION)
         for cl in program.classes.values {
             def type := cl.stub.type
             if type.isPrimitiveArray | type.isTuple | type-?>GenericType
@@ -208,6 +220,7 @@ class PLinkCodeGenerator (CodeGenerator) {
             def name := type.name.convert()->Array<UInt8>
             out.writeInt16(name.length->Int16)
             out.write(name)
+            out.writeInt16(0)
             out.writeInt32(0)
         }
         out.close()

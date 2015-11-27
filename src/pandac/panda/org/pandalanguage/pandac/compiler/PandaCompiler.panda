@@ -184,14 +184,17 @@ class PandaCompiler {
     @class
     method parsePLink(f:File, parser:PandaParser):ASTFile {
         def position := Position(f, 0)
-        def reportError := method() {
+        method reportError() {
             throw CompilerException("error reading PLink file",
                     position)
         }
         def entries := Array<ASTNode>()
         def input := BufferedInputStream(f.openInputStream())
+        var first := true
+        def version := input.readInt16()
         loop {
             def nameLength := input.readInt16()
+            first := false
             if nameLength = null 
                 break
             def name := Array<UInt8>(nameLength)
@@ -200,6 +203,18 @@ class PandaCompiler {
                     reportError()
             }
             assert name.length = nameLength
+            def containingClass:String?
+            def containingClassLength := input.readInt16()
+            if containingClassLength != 0 {
+                def cc := Array<UInt8>(containingClassLength)
+                while cc.length < containingClassLength {
+                    if input.read(cc, containingClassLength - cc.length) = null
+                        reportError()
+                }
+                containingClass := String(cc)
+            }
+            else
+                containingClass := null
             def codeLength := input.readInt32()
             if codeLength = null
                 reportError()
@@ -211,9 +226,10 @@ class PandaCompiler {
                 }
                 assert code.length = codeLength
                 entries.add(ASTUnparsedClass(position, String(name), 
-                        String(code)))
+                        String(code), containingClass))
             }
             else {
+                assert containingClass = null
                 entries.add(ASTInstanceDeclaration(position,
                         parser.parseType(String(name), position)))
             }
