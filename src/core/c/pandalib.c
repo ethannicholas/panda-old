@@ -491,21 +491,25 @@ void panda$threads$Thread$sleep(Int32 millis) {
     usleep(millis * 1000);
 }
 
-panda$core$OperatingSystemInfo* panda$core$System$operatingSystem() {
-    panda$core$OperatingSystemType$$classInit();
-    panda$core$OperatingSystemType* type;
+panda$core$System$OperatingEnvironmentInfo* panda$core$System$operatingEnvironment() {
+    panda$core$System$OperatingEnvironmentInfo$Type$$classInit();
+    panda$core$System$OperatingEnvironmentInfo$OperatingSystem$$classInit();
+    panda$core$System$OperatingEnvironmentInfo$OperatingSystem* os;
 #ifdef _WIN32
-    type = class_panda$core$OperatingSystemType$WINDOWS;
+    os = class_panda$core$System$OperatingEnvironmentInfo$OperatingSystem$WINDOWS;
 #elif __APPLE__    
-    type = class_panda$core$OperatingSystemType$MACOSX;
+    os = class_panda$core$System$OperatingEnvironmentInfo$OperatingSystem$MACOSX;
 #elif __linux
-    type = class_panda$core$OperatingSystemType$LINUX;
+    os = class_panda$core$System$OperatingEnvironmentInfo$OperatingSystem$LINUX;
 #else
-    type = class_panda$core$OperatingSystemType$OTHER_UNIX;
+    os = class_panda$core$System$OperatingEnvironmentInfo$OperatingSystem$OTHER_UNIX;
 #endif
-    panda$core$OperatingSystemInfo* result = 
-            pandaNew(panda$core$OperatingSystemInfo);
+    panda$core$System$OperatingEnvironmentInfo$Type* type = 
+            class_panda$core$System$OperatingEnvironmentInfo$Type$NATIVE;
+    panda$core$System$OperatingEnvironmentInfo* result = 
+            pandaNew(panda$core$System$OperatingEnvironmentInfo);
     result->type = type;
+    result->operatingSystem = os;
     return result;
 }
 
