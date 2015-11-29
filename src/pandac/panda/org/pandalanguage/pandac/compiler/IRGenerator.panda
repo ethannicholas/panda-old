@@ -128,7 +128,6 @@ uses org.pandalanguage.pandac.tree.ValueStatement
 uses org.pandalanguage.pandac.tree.Variable
 uses org.pandalanguage.pandac.tree.VariableAssignment
 uses org.pandalanguage.pandac.tree.VariableReference
-uses org.pandalanguage.pandac.tree.VariableType
 uses org.pandalanguage.pandac.tree.While
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
@@ -196,7 +195,7 @@ class IRGenerator {
     method createFieldReference(position:Position, var contextValue:Value, 
             f:FieldNode):Value {
         inferFieldType(f)
-        if f.varType = VariableType.PROPERTY
+        if f.kind = Variable.Kind.PROPERTY
             return PropertyGet(context, position, contextValue, f)
         def result := FieldReference(position, contextValue, f)
         return result
@@ -817,7 +816,7 @@ class IRGenerator {
         else {
             def targetVar := LocalVariable(ref.position, 
                     "$closureTarget" + nameCount, ref.target.type, 
-                    VariableType.VAR, context.currentMethod)
+                    Variable.Kind.VAR, context.currentMethod)
             nameCount += 1
             context.localVariables.add(targetVar)
             context.symbolTable.add(targetVar)
@@ -1199,7 +1198,7 @@ class IRGenerator {
                     type := initializerType
             }
             def local := LocalVariable(decl.position, decl.identifier, type,
-                    v.varType, context.currentMethod)
+                    v.kind, context.currentMethod)
             if decl.identifier != "_" {
                 context.localVariables.add(local)
                 context.symbolTable.add(local)
@@ -1230,7 +1229,7 @@ class IRGenerator {
                 initializer := resolve(initializer)
             def tuple := LocalVariable(initializer.position, 
                     "$tuple\{nameCount}", initializer.type.unwrapNullable, 
-                    VariableType.DEF, context.currentMethod)
+                    Variable.Kind.DEF, context.currentMethod)
             if tuple.type->TupleType.types.length != locals.length {
                 context.errors.error("expected a tuple of length " +
                         "\{locals.length} for multi-valued assignment",
@@ -1320,7 +1319,7 @@ class IRGenerator {
                 }
             }
             def valueVar := LocalVariable(v.position, v.identifier, type,
-                    VariableType.DEF, context.currentMethod)
+                    Variable.Kind.DEF, context.currentMethod)
             valueVars.add(valueVar)
             if v.identifier != "_" {
                 context.localVariables.add(valueVar)
@@ -1347,7 +1346,7 @@ class IRGenerator {
         }
         else {
             tupleVar := LocalVariable(f.position, "$tuple", elementType,
-                    VariableType.DEF, context.currentMethod)
+                    Variable.Kind.DEF, context.currentMethod)
             context.localVariables.add(tupleVar)
         }
         bodyStatements.add(ValueStatement(VariableAssignment(
@@ -1724,7 +1723,7 @@ class IRGenerator {
             type := range.value->Value.type->GenericType.parameters[0]
         }
         def loopVar := LocalVariable(v.position, v.identifier, type,
-                VariableType.DEF, context.currentMethod)
+                Variable.Kind.DEF, context.currentMethod)
         context.localVariables.add(loopVar)
         context.symbolTable.add(loopVar)
         def step := range.step
@@ -1765,7 +1764,7 @@ class IRGenerator {
             else
                 type := elementType
             def valueVar := LocalVariable(v.position, v.identifier, type,
-                    VariableType.DEF, context.currentMethod)
+                    Variable.Kind.DEF, context.currentMethod)
             valueVars.add(valueVar)
             context.localVariables.add(valueVar)
             context.symbolTable.add(valueVar)
@@ -1773,13 +1772,13 @@ class IRGenerator {
         def statements := Array<Statement>()
         statements.add(ValueStatement(array))
         def indexVar := LocalVariable(f.position, "$index", IntType.INT32,
-                    VariableType.VAR, context.currentMethod)
+                    Variable.Kind.VAR, context.currentMethod)
         context.localVariables.add(indexVar)
         statements.add(ValueStatement(VariableAssignment(f.position, 
                 indexVar, IntegerLiteral(f.position, 0, indexVar.type, 
                 true), true)))
         def lengthVar := LocalVariable(f.position, "$length", IntType.INT32,
-                    VariableType.VAR, context.currentMethod)
+                    Variable.Kind.VAR, context.currentMethod)
         context.localVariables.add(lengthVar)
         statements.add(ValueStatement(VariableAssignment(f.position, 
                 lengthVar, getMember(f.position, array.createReference(), 
@@ -2573,7 +2572,7 @@ class IRGenerator {
             return null
         context.getStub(type.convert()->ClassType)
         def error := LocalVariable(c.position, c.name, type, 
-                VariableType.DEF, context.currentMethod)
+                Variable.Kind.DEF, context.currentMethod)
         context.localVariables.add(error)
         context.pushSymbolTable()
         context.symbolTable.add(error)
@@ -2670,7 +2669,7 @@ class IRGenerator {
                 if type = null
                     return null
                 context.symbolTable.add(LocalVariable(
-                        p.position, p.identifier, type, VariableType.DEF,
+                        p.position, p.identifier, type, Variable.Kind.DEF,
                         context.currentMethod))
             }
             def ir := IRGenerator(context.root, context.classes,
@@ -2736,7 +2735,7 @@ class IRGenerator {
             parameters.add(FormalParameter(position, v.name, v.type, false, 
                     false))
             fields.add(FieldNode(position, owner, v.name, 
-                    Annotations(position), VariableType.DEF, v.type, null,
+                    Annotations(position), Variable.Kind.DEF, v.type, null,
                     null))
         }
         def body := Array<ASTStatement>()
@@ -3025,7 +3024,7 @@ class IRGenerator {
 
     method checkProperties(cl:ClassStub) {
         def properties := cl.fields.filter(
-                f => f.varType = VariableType.PROPERTY)
+                f => f.kind = Variable.Kind.PROPERTY)
         def methods := cl.methods
         for p in properties {
             def getName := String.format(GET_PATTERN, p.name)
@@ -3147,7 +3146,7 @@ class IRGenerator {
         context.currentClass := old
         if expr != null {
             if expr.checkValid(context) {
-                def immutable := f.varType = VariableType.CONSTANT | 
+                def immutable := f.kind = Variable.Kind.CONSTANT | 
                         f.owner.isImmutable(context)
                 def type := expr.preferredVariableType(context, immutable)
                 if f.tuplePosition = null
