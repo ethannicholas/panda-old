@@ -20,6 +20,7 @@ uses org.pandalanguage.pandac.ast.ASTIntegerLiteral
 uses org.pandalanguage.pandac.ast.ASTInvariant
 uses org.pandalanguage.pandac.ast.ASTMethod
 uses org.pandalanguage.pandac.ast.ASTMethodType
+uses org.pandalanguage.pandac.ast.ASTNestedDeclaration
 uses org.pandalanguage.pandac.ast.ASTNew
 uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
 uses org.pandalanguage.pandac.ast.ASTParameter
@@ -175,11 +176,11 @@ class StubGenerator {
     }
 
     @private
-    method findClassNames(prefix:String?, cl:ASTClass) {
+    method findClassNames(prefix:String?, cl:ASTClass, nested:Bit) {
         var name := cl.name
         if prefix != null
             name := prefix + "." + name
-        def type:Type
+        def type:ClassType
         if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
             def symbolTable := SymbolTable()
             usePackage("panda.core", symbolTable, 
@@ -191,12 +192,13 @@ class StubGenerator {
         }
         else
             type := ClassType(name)
-        addType(type, cl.position)
+        addType(type, cl.position, nested)
         for nestedClass in cl.contents.filter(n => n-?>ASTClass)
-            findClassNames(name, nestedClass->ASTClass)
+            findClassNames(name, nestedClass->ASTClass, true)
         for nestedChoice in cl.contents.filter(n => n-?>ASTChoice) {
-            addType(ClassType(name + "." + nestedChoice->ASTChoice.name), 
-                    nestedChoice.position)
+            def choiceType := ClassType(name + "." + 
+                    nestedChoice->ASTChoice.name)
+            addType(choiceType, nestedChoice.position, true)
         }
     }
 
@@ -207,7 +209,7 @@ class StubGenerator {
             currentPackage := null
             for decl in f.entries {
                 if decl-?>ASTClass
-                    findClassNames(currentPackage, decl->ASTClass)
+                    findClassNames(currentPackage, decl->ASTClass, false)
                 else if decl-?>ASTChoice {
                     var name := decl->ASTChoice.name
                     if currentPackage != null
@@ -215,7 +217,8 @@ class StubGenerator {
                     addType(ClassType(name), decl.position)
                 }
                 else if decl-?>ASTUnparsedClass {
-                    def name := decl->ASTUnparsedClass.name
+                    def up := decl->ASTUnparsedClass
+                    def name := up.name
                     def type:Type
                     if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
                         def symbolTable := SymbolTable()
@@ -228,7 +231,7 @@ class StubGenerator {
                     }
                     else
                         type := ClassType(name)
-                    addType(type, decl.position)
+                    addType(type, decl.position, up.containingClass != null)
                 }
                 else if decl-?>ASTPackageDeclaration
                     currentPackage := decl->ASTPackageDeclaration.name
@@ -375,6 +378,14 @@ class StubGenerator {
     }
 
     method addType(type:Type, position:Position) {
+        addType(type, position, false)
+    }
+
+    method addType(type:Type, position:Position, nested:Bit) {
+        if nested {
+            types[type.name] := type
+            return
+        }
         var currentPackage := root
         def components := type.name.split(".")
         def currentName := MutableString()
@@ -389,16 +400,14 @@ class StubGenerator {
                     currentPackage[c] := next
                 }
                 else if next-!>MutablePackage {
-                    types[type.name] := type
-                    break
---                    errors.error("name conflict between class '\{currentName}'" +
-  --                          "and package '\{currentName}'", position)
+                    errors.error("name conflict between class '\{currentName}'" +
+                            "and package '\{currentName}'", position)
                 }
                 currentPackage := next->MutablePackage
             }
             else {
---                assert currentPackage[c] = null : "package '\{currentPackage}'" +
---                        " already contains a symbol named '\{c}'"
+                assert currentPackage[c] = null : "package '\{currentPackage}'" +
+                        " already contains a symbol named '\{c}'"
                 currentPackage[c] := TypeSymbol(type)
                 types[type.name] := type
             }
@@ -457,6 +466,20 @@ class StubGenerator {
         return result[0]
     }
 
+    @private
+    method resolveExtraComponents(type:Type, extras:ListView<String>):(Type, ListView<String>) {
+        var current := type
+        for (i, name) in extras.enumeration() {
+            def stub := getStub(current.convert()->ClassType.name)
+            assert stub != null : "no stub for \{current.name}"
+            def next := stub.symbols[name]
+            if next = null | next-!>TypeSymbol
+                return (current, extras[i..])
+            current := next->TypeSymbol.type
+        }
+        return (current, [])
+    }
+
     method resolveTypeWithExtras(type:ASTType, 
             symbols:SymbolTable):(Type, ListView<String>)? {
         var result:Type?
@@ -473,7 +496,8 @@ class StubGenerator {
                         for i in components.length - 2 ... 0 by -1 {
                             def symbol := symbols[components[0 ... i].join(".")]
                             if symbol-?>TypeSymbol {
-                                return (symbol->TypeSymbol.type, 
+                                return resolveExtraComponents(
+                                        symbol->TypeSymbol.type, 
                                         components[i + 1..])
                             }
                         }
@@ -782,7 +806,7 @@ class StubGenerator {
             else
                 return null
         }
-        var returnType:Type?
+        def returnType:Type?
         if m.returnType != null {
             returnType := resolveType(m.returnType->ASTType, symbolTable)
             if returnType = null
@@ -1007,6 +1031,14 @@ class StubGenerator {
                         fullName, null, false), symbolTable)->ClassType
                 addSymbol(TypeSymbol(nestedType), nestedChoice.name, 
                         nestedChoice.position, symbols.mySymbols, errors)
+            }
+            else if node-?>ASTNestedDeclaration {
+                def nestedType := resolveType(node->ASTNestedDeclaration.type, 
+                        symbolTable)->ClassType
+                def name := nestedType.name
+                def simpleName := name[name.lastIndexOf(".")->Int + 1..]
+                addSymbol(TypeSymbol(nestedType), simpleName, node.position, 
+                        symbols.mySymbols, errors)
             }
         }
         for node in cl.contents {

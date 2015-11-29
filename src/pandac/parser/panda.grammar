@@ -1,10 +1,8 @@
 {
     package org.pandalanguage.pandac.parser
     
-    uses org.pandalanguage.pandac.ast.Alignment
     uses org.pandalanguage.pandac.ast.ASTArrayLiteral
     uses org.pandalanguage.pandac.ast.ASTArrowExpression
-    uses org.pandalanguage.pandac.ast.ArrowOperationType
     uses org.pandalanguage.pandac.ast.ASTAnnotation
     uses org.pandalanguage.pandac.ast.ASTAssert
     uses org.pandalanguage.pandac.ast.ASTAssignment
@@ -40,6 +38,7 @@
     uses org.pandalanguage.pandac.ast.ASTMethod
     uses org.pandalanguage.pandac.ast.ASTMethodType
     uses org.pandalanguage.pandac.ast.ASTMethodValue
+    uses org.pandalanguage.pandac.ast.ASTNestedDeclaration
     uses org.pandalanguage.pandac.ast.ASTNode
     uses org.pandalanguage.pandac.ast.ASTNullLiteral
     uses org.pandalanguage.pandac.ast.ASTPackageDeclaration
@@ -79,10 +78,11 @@
 
     class FormatField {
         def fillChar:Char
-        def alignment:Alignment
+        def alignment:ASTFormatExpression.Alignment
         def width:Int
 
-        init(fillChar:Char, alignment:Alignment, width:Int) {
+        init(fillChar:Char, alignment:ASTFormatExpression.Alignment, 
+                width:Int) {
             self.fillChar := fillChar
             self.alignment := alignment
             self.width := width
@@ -316,6 +316,11 @@ classMember:ASTNode = interfaceDeclaration
     { result := interfaceDeclaration }
 classMember:ASTNode = choiceDeclaration 
     { result := choiceDeclaration }
+classMember:ASTNode = nestedDeclaration 
+    { result := nestedDeclaration }
+nestedDeclaration:ASTNestedDeclaration = NESTED ^ type
+    { result := ASTNestedDeclaration(Position(file, parserState.position), type) }
+
 annotations:Array<ASTAnnotation> = annotations annotation
     {
         result := annotations
@@ -1051,17 +1056,17 @@ callExpression:ASTExpression = callExpression DOT INIT
     { result := ASTDotExpression(callExpression, "init") }
 callExpression:ASTExpression = callExpression INSTANCEOF typeExpression
     { 
-        result := ASTArrowExpression(ArrowOperationType.INSTANCE_OF,
+        result := ASTArrowExpression(ASTArrowExpression.Kind.INSTANCE_OF,
                 callExpression, typeExpression) 
     }
 callExpression:ASTExpression = callExpression NINSTANCEOF typeExpression
     { 
-        result := ASTArrowExpression(ArrowOperationType.NOT_INSTANCE_OF,
+        result := ASTArrowExpression(ASTArrowExpression.Kind.NOT_INSTANCE_OF,
                 callExpression, typeExpression) 
     }
 callExpression:ASTExpression = callExpression CAST typeExpression
     { 
-        result := ASTArrowExpression(ArrowOperationType.CAST,
+        result := ASTArrowExpression(ASTArrowExpression.Kind.CAST,
                 callExpression, typeExpression) 
     }
 typeExpression:ASTType = type
@@ -1415,12 +1420,12 @@ optionalFillChar:Char = ESCAPE
     { result := ParserUtil.unescape(ESCAPE)[0] }
 optionalFillChar:Char =
     { result := " " }
-alignment:Alignment = '<'
-    { result := Alignment.LEFT }
-alignment:Alignment = '^'
-    { result := Alignment.CENTER }
-alignment:Alignment = '>'
-    { result := Alignment.RIGHT }
+alignment:ASTFormatExpression.Alignment = '<'
+    { result := ASTFormatExpression.Alignment.LEFT }
+alignment:ASTFormatExpression.Alignment = '^'
+    { result := ASTFormatExpression.Alignment.CENTER }
+alignment:ASTFormatExpression.Alignment = '>'
+    { result := ASTFormatExpression.Alignment.RIGHT }
 formatString:String = formatString char:[^\\}]
     { result := formatString + char }
 formatString:String = char:[^\\}]
@@ -1546,6 +1551,7 @@ INVARIANT_TEXT:Position = '@invariant' ![A-Za-z_$0-9]
 INVARIANT:Position = INVARIANT_TEXT WS
     { result := INVARIANT_TEXT }
 INSTANCE = '@$instance' WS
+NESTED = '@$nested' WS
 PRE_TEXT:Position = '@pre' ![A-Za-z_$0-9]
     { result := Position(file, parserState.position - 4) }
 PRE:Position = PRE_TEXT WS
