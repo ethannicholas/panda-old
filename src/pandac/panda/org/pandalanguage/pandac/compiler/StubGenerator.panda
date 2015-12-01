@@ -141,6 +141,8 @@ class StubGenerator {
 
     def astChoices := HashMap<String, (ASTChoice, ClassContext, ClassType?)>()
 
+    def nestedClasses := HashMap<String, List<String>>()
+
     def stubs := HashMap<String, ClassStub>()
 
     def masterSymbolTable:SymbolTable
@@ -176,8 +178,19 @@ class StubGenerator {
     }
 
     @private
+    method addNestedClass(parent:String, child:String) {
+        var list := nestedClasses[parent]
+        if list != null 
+            list.add(child)
+        else
+            nestedClasses[parent] := [child]
+    }
+
+    @private
     method findClassNames(prefix:String?, cl:ASTClass, nested:Bit) {
         var name := cl.name
+        if nested
+            addNestedClass(prefix, name)
         if prefix != null
             name := prefix + "." + name
         def type:ClassType
@@ -196,9 +209,10 @@ class StubGenerator {
         for nestedClass in cl.contents.filter(n => n-?>ASTClass)
             findClassNames(name, nestedClass->ASTClass, true)
         for nestedChoice in cl.contents.filter(n => n-?>ASTChoice) {
-            def choiceType := ClassType(name + "." + 
-                    nestedChoice->ASTChoice.name)
+            def nestedName := nestedChoice->ASTChoice.name
+            def choiceType := ClassType(name + "." + nestedName)
             addType(choiceType, nestedChoice.position, true)
+            addNestedClass(name, nestedName)
         }
     }
 
@@ -939,11 +953,30 @@ class StubGenerator {
         return false
     }
 
+    @private
+    method addNestedAliases(name:String, symbols:SymbolTable) {
+        def nested := nestedClasses[name]
+        if nested != null {
+            for n in nested
+                symbols.add(n, TypeSymbol(types[name + "." + n]))
+        }
+    }
+
+    @private
+    method addNestedAliases(stub:ClassStub, symbols:SymbolTable) {
+        addNestedAliases(stub.name, symbols)
+        if stub.superclass != null
+            addNestedAliases(getStub(stub.superclass.name), symbols)
+        for intf in stub.interfaces
+            addNestedAliases(getStub(intf.name), symbols)
+    }
+
     method convertClass(cl:ASTClass, currentPackage:String?,
             parentSymbolTable:SymbolTable, rawPackageUses:ListView<String>,
-            classAliases:HashMap<String, String>,
+            rawClassAliases:Map<String, String>,
             containingClass:ClassType?):ClassStub {
         def packageUses := Array<String>(rawPackageUses)
+        def classAliases := HashMap<String, String>(rawClassAliases)
         def symbolTable := SymbolTable(parentSymbolTable)
         def className:String
         if containingClass != null
@@ -977,6 +1010,7 @@ class StubGenerator {
                 aliasType(p.identifier, type, symbolTable, classAliases)
             }
         }
+        def symbols := SymbolTable(symbolTable)
         def interfaces := Array<ClassType>()
         var superclass:Type?
         if cl.superclass != null {
@@ -985,6 +1019,11 @@ class StubGenerator {
                 errors.error("cannot subclass \{superclass.displayName}", 
                         cl.position)
                 superclass := null
+            }
+            if superclass != null {
+                def stub := getStub(superclass.name)
+                if stub != null
+                    addNestedAliases(stub, symbols)
             }
         }
         else {
@@ -996,15 +1035,18 @@ class StubGenerator {
         if cl.interfaces != null {
             for t in cl.interfaces->ListView<ASTType> {
                 def type := resolveType(t, symbolTable)
-                if type-?>ClassType
+                if type-?>ClassType {
                     interfaces.add(type->ClassType)
+                    def stub := getStub(type.name)
+                    if stub != null
+                        addNestedAliases(stub, symbols)
+                }
                 else if type != null {
                     errors.error("\{type.displayName} is not an interface",
                             cl.position)
                 }
             }
         }
-        def symbols := SymbolTable(symbolTable)
         var foundInit := false
         def invariants := Array<ASTInvariant>()
         for node in cl.contents {
@@ -1121,7 +1163,7 @@ class StubGenerator {
             usePackage(currentPackage, symbolTable, [], c.position)
         }
         else
-            className := cl.name
+            className := c.name
         def classType := resolveType(ASTClassType(c.position, className, 
                 null, false), symbolTable)->ClassType
         def symbols := SymbolTable(masterSymbolTable)

@@ -195,6 +195,16 @@ class IRGenerator {
     method createFieldReference(position:Position, var contextValue:Value, 
             f:FieldNode):Value {
         inferFieldType(f)
+        if !f.annotations.isClass & !f.annotations.isThread {
+            if !contextValue.canImplicitCastTo(context, f.owner) {
+                context.errors.error("cannot reference instance field " +
+                        "'\{f.name}' belonging to class " +
+                        "'\{f.owner.displayName}' from an instance of " +
+                        "'\{contextValue.type.displayName}'", position)
+                return Dummy(position, f.type)
+            }
+            contextValue := contextValue.implicitCast(context, f.owner)
+        }
         if f.kind = Variable.Kind.PROPERTY
             return PropertyGet(context, position, contextValue, f)
         def result := FieldReference(position, contextValue, f)
@@ -726,8 +736,7 @@ class IRGenerator {
                             return createFieldReference(position, s, f)
                         }
                         return createFieldReference(position, 
-                                implicitSelf(position).implicitCast(context, 
-                                    f.owner), f)
+                                implicitSelf(position), f)
                     }
                     else {
                         context.errors.error("cannot reference instance " +
@@ -736,8 +745,7 @@ class IRGenerator {
                         return null
                     }
                 }
-                return createFieldReference(position, 
-                        target.implicitCast(context, f.owner), f)
+                return createFieldReference(position, target, f)
             }
         }
         if s-?>Methods {
