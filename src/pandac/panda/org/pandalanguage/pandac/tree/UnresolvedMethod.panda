@@ -3,6 +3,7 @@ package org.pandalanguage.pandac.tree
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.Type
 
@@ -23,12 +24,30 @@ class UnresolvedMethod : UnresolvedValue {
         self.methods := methods
     }
 
+    @private
+    method getType(methodStub:MethodStub, context:Context):Type {
+        def raw := methodStub.type(context)
+        if !methodStub.annotations.isClass & target-?>ClassLiteral {
+            def parameters := Array<Type>()
+            if methodStub.annotations.isWrapperMethod
+                parameters.add(methodStub.owner.convert()->PrimitiveType)
+            else
+                parameters.add(methodStub.owner)
+            parameters.addAll(raw.methodParameters)
+            def result := context.resolveType(IRGenerator.toASTType(position,
+                    MethodType(parameters, raw.returnType, raw.isFunction, 
+                        raw.immutableMethod)))
+            return result
+        }
+        return raw
+    }
+
     @override
     method implicitCastCost(context:Context, t:Type):Int? {
         var best := Array<MethodStub>()
         var bestCost := Int.MAX
         for m in methods {
-            def cost := m.type(context).implicitCastCost(context, t)
+            def cost := getType(m, context).implicitCastCost(context, t)
             if cost = null
                 continue
             if cost < bestCost
@@ -44,7 +63,7 @@ class UnresolvedMethod : UnresolvedValue {
         var best := Array<MethodStub>()
         var bestCost := Int.MAX
         for m in methods {
-            def cost := m.type(context).implicitCastCost(context, t)
+            def cost := getType(m, context).implicitCastCost(context, t)
             if cost = null
                 continue
             if cost < bestCost {
@@ -72,7 +91,7 @@ class UnresolvedMethod : UnresolvedValue {
     @override
     method canExplicitCastTo(context:Context, t:Type):Bit {
         for m in methods {
-            if m.type(context).canExplicitCastTo(context, t)
+            if getType(m, context).canExplicitCastTo(context, t)
                 return true
         }
         return false
@@ -82,7 +101,7 @@ class UnresolvedMethod : UnresolvedValue {
     method explicitCast(position:Position, context:Context, t:Type):Value {
         def matches := Array<MethodStub>()
         for m in methods {
-            if m.type(context).canExplicitCastTo(context, t)
+            if getType(m, context).canExplicitCastTo(context, t)
                 matches.add(m)
         }
         if matches.length = 0 {
