@@ -2789,12 +2789,10 @@ class IRGenerator {
         }
         else
             returnType := VoidType.VOID
-        constant RAW_NAME := "raw"
-        constant SHIMMED_NAME := "shimmed"
-        def rawStub := MethodStub(m.position, RAW_NAME, 
+        def stub := MethodStub(m.position, MethodNode.CLOSURE_NAME, 
                 Annotations(m.position), m.methodType, formalParameters, 
                 returnType, m.body, closureType)
-        context.currentMethod := rawStub
+        context.currentMethod := stub
         context.pushSymbolTable()
         def parameters := Array<Parameter>()
         for formal in m.parameters {
@@ -2804,7 +2802,7 @@ class IRGenerator {
                 return null
             }
             def p := Parameter(formal.position, formal.name, type, 
-                    formal.isVar, formal.isVarArg, rawStub)
+                    formal.isVar, formal.isVarArg, stub)
             parameters.add(p)
             context.symbolTable.add(p)
         }
@@ -2814,10 +2812,10 @@ class IRGenerator {
             if index != null
                 selfType := resolveClass(m.position, selfType.name[..index])->ClassLiteral.value
             def selfParam := Parameter(m.position, "$" + Parameter.SELF_NAME,
-                    selfType, false, false, rawStub)
+                    selfType, false, false, stub)
             context.symbolTable.add(selfParam)
         }
-        context.captures.push((rawStub, HashSet<Variable>()))
+        context.captures.push((stub, HashSet<Variable>()))
         -- need to convertBlock in order to grab captures
         def oldAdd := addMethods
         addMethods := false
@@ -2833,35 +2831,8 @@ class IRGenerator {
         def closureAnnotations := Array<AnnotationType>()
         closureAnnotations.add(AnnotationType.SYNTHETIC)
 
-        def shimmedStub:MethodStub
-        if returnType.isPrimitive {
-            def shimParameters := Array<ASTExpression>()
-            for p in formalParameters
-                shimParameters.add(ASTIdentifier(m.position, p.name))
-            var call:ASTExpression := ASTCallExpression(ASTIdentifier(
-                    m.position, RAW_NAME), shimParameters)
-            if m.returnType != null {
-                call := ASTArrowExpression(ASTArrowExpression.Kind.CAST, call,
-                        m.returnType)
-            }
-            def statements := Array<ASTStatement>()
-            statements.add(ASTReturn(m.position, call))
-            def shimBody := ASTBlock(m.position, statements)
-            shimmedStub := MethodStub(m.position, SHIMMED_NAME, 
-                    Annotations(m.position), m.methodType, formalParameters, 
-                    ClassType.OBJECT, shimBody, closureType)
-        }
-        else {
-            shimmedStub := MethodStub(m.position, "shimmed", 
-                    Annotations(m.position), m.methodType, formalParameters, 
-                    returnType, m.body, closureType)
-
-        }
-
-        closureSymbols[rawStub.name] := Methods(rawStub)
-        closureSymbols[shimmedStub.name] := Methods(shimmedStub)
-        closureSymbols[closureInit.name] := 
-                Methods(closureInit)
+        closureSymbols[stub.name] := Methods(stub)
+        closureSymbols[closureInit.name] := Methods(closureInit)
         for f in closureFields
             closureSymbols[f.name] := f
         def lookupContext := context.currentClass.lookupContext
@@ -2896,7 +2867,7 @@ class IRGenerator {
                 closureInit, initParameters))
         context.liveMethods.add(closureInit)
         context.captures.pop()
-        return Cast(m.position, closureInstance, rawStub.type(context),
+        return Cast(m.position, closureInstance, stub.type(context),
                 CastType.IMPLICIT)
     }
 
