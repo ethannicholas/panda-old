@@ -1,11 +1,24 @@
 package org.pandalanguage.pandac.tree
 
+uses org.pandalanguage.pandac.ast.ASTBlock
+uses org.pandalanguage.pandac.ast.ASTCallExpression
+uses org.pandalanguage.pandac.ast.ASTExpression
+uses org.pandalanguage.pandac.ast.ASTExpressionStatement
+uses org.pandalanguage.pandac.ast.ASTIdentifier
+uses org.pandalanguage.pandac.ast.ASTLambdaExpression
+uses org.pandalanguage.pandac.ast.ASTMethodValue
+uses org.pandalanguage.pandac.ast.ASTParameter
+uses org.pandalanguage.pandac.ast.ASTReturn
+uses org.pandalanguage.pandac.ast.ASTStatement
+uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
+uses org.pandalanguage.pandac.ast.ASTValueWrapper
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.compiler.IRGenerator
 uses org.pandalanguage.pandac.compiler.ErrorReporter
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.NullType
 uses org.pandalanguage.pandac.types.PrimitiveType
@@ -92,6 +105,57 @@ class Value : Node {
                 "'\{type.displayName}'", position)
     }
 
+    @private
+    @pre(type-?>MethodType)
+    method shim(context:Context, t:MethodType):Value {
+        def shimParams := Array<ASTParameter>()
+        def callParams := Array<ASTExpression>()
+        for (i, p) in t.methodParameters.enumeration() {
+            def name := "$p\{i}"
+            shimParams.add(ASTParameter(position, name, 
+                    IRGenerator.toASTType(position, p), false, false))
+            callParams.add(ASTIdentifier(position, name))
+        }
+        -- seriously hacky. We need to reference the current value from within
+        -- the closure, but it's a Value and not an ASTExpression. Even if we
+        -- wrap it using ASTValueWrapper, it's too late to figure out what the
+        -- captures are. So we create a dummy value, let that get captured, and
+        -- then replace the dummy value in the Closure constructor with the
+        -- actual value.
+        def captureName := "$capture\{IRGenerator.nameCount}"
+        IRGenerator.nameCount += 1
+        def captureDummy := LocalVariable(position, captureName, type,
+                Variable.Kind.DEF, context.currentMethod)
+        context.pushSymbolTable()
+        context.symbolTable.add(captureDummy)
+        def call := ASTCallExpression(ASTIdentifier(position, captureName), 
+                callParams)
+        def methodNodeType:MethodNodeType
+        if t.isFunction
+            methodNodeType := MethodNodeType.FUNCTION
+        else
+            methodNodeType := MethodNodeType.METHOD
+        def statement:ASTStatement
+        if t.returnType != VoidType.VOID
+            statement := ASTReturn(position, call)
+        else
+            statement := ASTExpressionStatement(call)
+        def closure := ASTMethodValue(position, methodNodeType, shimParams, 
+                IRGenerator.toASTType(position, t.returnType), 
+                ASTBlock(position, [statement]))
+        def result := context.irGenerator.convertMethodValue(closure)
+        if result = null {
+            context.popSymbolTable()
+            return Dummy(position, t)
+        }
+        def closure := IRGenerator.unwrapCast(result.implicitCast(
+                position, context, t))->Closure
+        context.popSymbolTable()
+        def construct := closure.instance.initCall
+        return Closure(position, Construct(MethodCall(position, 
+                construct.target, construct.methodStub, [self])), t)
+    }
+
     method implicitCast(position:Position, context:Context, t:Type):Value {
         assert t != VoidType.VOID : "casting \{self} to void in \{context.currentMethod.owner}:\{context.currentMethod} at \{position}"
         if !checkValid(context) {
@@ -115,6 +179,13 @@ class Value : Node {
         }
         if type.isWrapper & (t.isPrimitive | t.isWrapper)
             return unwrap(context).implicitCast(position, context, t)
+        if type.isMethod & t.isMethod {
+            def m1 := type.convert()->MethodType
+            def m2 := t.convert()->MethodType
+            if m1.methodParameters != m2.methodParameters | 
+                    m1.returnType != m2.returnType
+                return shim(context, t->MethodType)
+        }
         def result := Cast(position, self, t, CastType.IMPLICIT)
         if implicitCastCost(context, t) != null
             return result
