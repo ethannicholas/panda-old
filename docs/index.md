@@ -27,18 +27,18 @@ This is what a simple Panda program looks like:
     ================================================================================
     method rollDice(descriptor:String):Int {
         -- use a regular expression to split the string into its component parts
-        def parsed := descriptor.parse(#/(\d+)?d(\d+)(?:\s*([+\-])\s*(\d+))?/#)
+        def parsed := descriptor.parse(/(\d+)?d(\d+)(?:\s*([+\-])\s*(\d+))?/)
         if parsed = null
-            throw new ParseException(descriptor)
+            throw ParseException(descriptor)
         def count:Int
         if parsed[0] != ""
-            count := parsed[0]->>(Int)
+            count := parsed[0].convert()
         else
             count := 1
-        def sides := parsed[1]->>(Int)
+        def sides := parsed[1].convert()->Int
         var total:Int
         if parsed[3] != ""
-            total := parsed[3]->>(Int)
+            total := parsed[3].convert()->Int
         else
             total := 0
         if parsed[2] = "-"

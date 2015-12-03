@@ -342,19 +342,6 @@ example, I'd prefer to see them split out into a separate module (much as
 regular expression library in every Panda installation, and the same basic deal
 for every "big" and not-strictly-necessary module currently included.
 
-Inner Classes
--------------
-
-At some point I'll probably add inner classes, similar syntactically to Java's.
-It's not as high of a priority as it was for Java, however, because Panda has 
-first class functions and therefore does not have nearly the need for anonymous
-inner classes. Even if it gains support for named inner classes, Panda will 
-probably not offer anonymous inner classes at all: with tuples, first-class 
-functions, lambdas, MessageQueues, and other powerful language features, there 
-just isn't nearly as much need for them as there was in Java.
-
-Inner enums, however, have *got* to happen prior to 1.0.
-
 Multiple-Dimension Indexing
 ---------------------------
 

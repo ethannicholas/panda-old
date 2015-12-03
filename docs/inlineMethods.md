@@ -26,11 +26,45 @@ that you may store methods in variables, return them from methods, create arrays
 of methods, and otherwise treat them as you would any other Panda value.
 
 Methods defined inside of another method may access any visible 
-[defines](defines.html), non-variable method parameters, or fields of the 
-enclosing class.
+[defines](defines.html) or non-variable method parameters, including the
+[self](self.html) value.
 
 See [method types](types.html#methodTypes) for how to describe the 
 [type](type.html) of a method.
+
+Nested Methods
+--------------
+
+In addition to using anonymous methods in expressions, as above, you may define
+named methods inside of other methods:
+
+@SOURCE(
+    method parse(s:String) {
+        method reportError(position:Int) {
+            Console.writeLine("parse error at: \{position}")
+        }
+
+        for c in s.characters {
+            if c = "-"
+                reportError(position)
+        }
+    }
+)
+
+The code above is exactly equivalent to:
+
+@SOURCE(
+    method parse(s:String) {
+        def reportError := method(position:Int) {
+            Console.writeLine("parse error at: \{position}")
+        }
+
+        for c in s.characters {
+            if c = "-"
+                reportError(position)
+        }
+    }
+)
 
 <a name="lambdas"></a>
 Lambdas

@@ -225,6 +225,5 @@ value:
 @SOURCE(
     def list := new Array<Int>()
     --BEGIN
-    def add := Int::+
-    def total := list.fold(add)
+    def total := list.fold(Int.+)
 )

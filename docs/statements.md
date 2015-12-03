@@ -519,7 +519,7 @@ Example:
         default: throw new ParseException()
     }
     --END
-    enum Token {
+    choice Token {
         PLUS, MINUS, TIMES, DIVIDE
     }
 

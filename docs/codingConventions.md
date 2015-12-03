@@ -19,7 +19,7 @@ Class names must always begin with an uppercase letter, with the first letter of
 each subsequent word capitalized (`UpperCamelCase`). Method and variable names 
 must always begin with a lowercase letter, and likewise have the first letter of
 each subsequent word capitalized (`lowerCamelCase`). Constants, including 
-enumeration entries, are named in all caps with underscores between words 
+choice entries, are named in all caps with underscores between words 
 (`THIS_IS_A_CONSTANT`). Abbreviations are generally to be avoided, but may be 
 acceptable where there is a well-accepted historical precedent (e.g. `sqrt`, 
 `cos`). Acronyms such as URL and HTTP appearing within identifiers should be 

@@ -138,3 +138,34 @@ Generic Classes
 ---------------
 
 See the page on [generics](generics.html) for information on generic classes.
+
+Nested Classes
+--------------
+
+Panda allows you to nest class or [choice](choices.html) definitions inside of
+other classes, e.g.:
+
+@SOURCE(
+    class Monster {
+        choice Element {
+            FIRE,
+            WATER,
+            EARTH,
+            AIR,
+            UNALIGNED
+        }
+
+        def element:Element
+
+        init(element:Element) {
+            self.element := element
+        }
+    }
+
+    def redDragon := Monster(Monster.Element.FIRE)
+)
+
+Other than their scope, nested classes are exactly the same as top-level 
+classes. This means that a nested class can be created without an instance of
+its containing class and is in all other ways "independent" of its containing
+class.

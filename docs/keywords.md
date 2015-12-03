@@ -30,12 +30,11 @@ reserves the following keywords:
 * self
 * true
 * false
-* enum
+* choice
 * return
 * break
 * continue
 * null
-* new
 * assert
 * unreachable
 * try
