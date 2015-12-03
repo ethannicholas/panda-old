@@ -1,13 +1,53 @@
 package panda.collections
 
+class FilterIterator<T> (Iterator<T>) {
+    def base:Iterator<T>
+    
+    def filter:(T)=>(Bit)
+    
+    var nextValue:T?
+
+    init(base:Iterator<T>, filter:(T)=>(Bit)) {
+        self.base := base
+        self.filter := filter
+        getNext()
+    }
+
+    method getNext() {
+        do {
+            if base.done {
+                nextValue := null
+                return
+            }
+            nextValue := base.next()
+        }
+        while !filter(nextValue)
+    }
+
+    @override
+    function get_done():Bit {
+        return nextValue = null
+    }
+
+    @override
+    method next():T {
+        def result := nextValue
+        getNext()
+        return result
+    }
+}
+
 ================================================================================
 A forward iterator which returns each element of a collection, one at a time.
 ================================================================================
 interface Iterator<T> {
+    property done:Bit
+
 	============================================================================
 	Returns `true` if the iterator has finished generating elements.
 	============================================================================
-    function done():Bit
+    @protected
+    function get_done():Bit
 
 	============================================================================
 	Returns the next element from the collection.
@@ -15,4 +55,23 @@ interface Iterator<T> {
     @self
     @pre(!done)
     method next():T
+
+    @safeReturn
+    function filter(f:(T)=>(Bit)):Iterator<T> {
+        return FilterIterator<T>(self, f)
+    }
+
+    function fold(f:(T, T)=>(T)):T {
+        var result := next()
+        while !done
+            result := f(result, next())
+        return result
+    }
+
+    function fold(f:(T, T)=>(T), start:T):T {
+        var result := start
+        while !done
+            result := f(result, next())
+        return result
+    }
 }
