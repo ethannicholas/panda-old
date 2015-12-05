@@ -247,6 +247,32 @@ class BinaryOperation : Value {
     }
 
     @class
+    method shiftOperandType(context:Context, leftValue:Value, 
+            rightValue:Value):Type? {
+        var left := leftValue.type
+        var right := rightValue.type
+        if left.isWrapper
+            left := left.convert()->PrimitiveType
+        if right.isWrapper
+            right := right.convert()->PrimitiveType
+        if !left.isInteger | !right.isInteger
+            return null
+        def signed := left->IntType.signed
+        def size := left->PrimitiveType.size.max(right->PrimitiveType.size)
+        switch (signed, size) {
+            case (true, 1): return IntType.INT32
+            case (true, 2): return IntType.INT32
+            case (true, 4): return IntType.INT32
+            case (true, 8): return IntType.INT64
+            case (false, 1): return IntType.UINT32
+            case (false, 2): return IntType.UINT32
+            case (false, 4): return IntType.UINT32
+            case (false, 8): return IntType.UINT64
+        }
+        unreachable
+    }
+
+    @class
     method operandType(context:Context, operation:BinaryOperationType, 
             left:Value, right:Value):Type? {
         switch operation {
@@ -258,11 +284,12 @@ class BinaryOperation : Value {
                 return mathOperandType(context, left, right, true)
             case BinaryOperationType.DIVIDE:
                 return divideOperandType(context, left, right)
+            case BinaryOperationType.SHIFT_LEFT,
+                    BinaryOperationType.SHIFT_RIGHT:
+                return shiftOperandType(context, left, right)
             case BinaryOperationType.BITWISE_AND,
                     BinaryOperationType.BITWISE_OR,
-                    BinaryOperationType.BITWISE_XOR,
-                    BinaryOperationType.SHIFT_LEFT,
-                    BinaryOperationType.SHIFT_RIGHT:
+                    BinaryOperationType.BITWISE_XOR:
                 return mathOperandType(context, left, right, false)
             case BinaryOperationType.AND, BinaryOperationType.OR,
                     BinaryOperationType.XOR:

@@ -14,23 +14,40 @@ are naturally unsigned, but given Panda's bias towards signed types they will
 prefer to be treated as signed types when possible.
 ================================================================================
 class IntegerLiteral : Value {
+    choice TypeForce {
+        -- do not force the sign to match (that is, it is legal to assign this
+        -- integer to a value even if it is too big to represent without a sign
+        -- flip). This is used for hex and binary literals.
+        NONE,
+        -- do not permit a sign flip during assignments. This is the default.
+        SIGN,
+        -- force the type to match, so we can specify that this is, say, a 
+        -- 32 bit zero, and it is not legal to assign it to an Int8 even though
+        -- it would fit
+        TYPE
+    }
+
     def value:UInt64
-    def typeForced:Bit
-    
+    def force:TypeForce
+
     init(position:Position, value:UInt64) {
-        init(position, value, getType(value), false)
-        typeForced := false
+        init(position, value, TypeForce.SIGN)
     }
     
-    @pre(type.isInteger | type = CharType.CHAR)
-    init(position:Position, value:UInt64, type:Type, typeForced:Bit) {
+    init(position:Position, value:UInt64, force:TypeForce) {
+        super.init(position, getType(value))
+        self.value := value
+        self.force := force
+    }
+
+    init(position:Position, value:UInt64, type:Type) {
         super.init(position, type)
         self.value := value
-        self.typeForced := typeForced
+        self.force := TypeForce.TYPE
     }
 
     @class
-    function getType(value:UInt64):Type {
+    function getType(value:UInt64):IntType {
         if value <= Int8.MAX->UInt64
             return IntType.INT8
         if value <= Int16.MAX->UInt64
@@ -46,7 +63,7 @@ class IntegerLiteral : Value {
     Returns the preferred type for this literal in a signed / unsigned context.
     ============================================================================
     function getType(signed:Bit):Type? {
-        if typeForced {
+        if force = TypeForce.TYPE {
             if type->IntType.signed = signed
                 return type
             return null
@@ -90,7 +107,7 @@ class IntegerLiteral : Value {
 
     @override
     function implicitCastCost(context:Context, t:Type):Int? {
-        if typeForced
+        if force = TypeForce.TYPE
             return type.implicitCastCost(context, t)
         def unwrapped:Type
         if t.isWrapper
@@ -98,13 +115,27 @@ class IntegerLiteral : Value {
         else
             unwrapped := t
         if unwrapped.isInteger {
-            def srcType := getType(unwrapped->IntType.signed)
-            if srcType = null
-                return null
-            def result := srcType.implicitCastCost(context, t)
-            if result != null & !unwrapped->IntType.signed
-                return result + 1
-            return result
+            if force = TypeForce.SIGN {
+                def srcType := getType(unwrapped->IntType.signed)
+                if srcType = null
+                    return null
+                def result := srcType.implicitCastCost(context, t)
+                if result != null & !unwrapped->IntType.signed
+                    return result + 1
+                return result
+            }
+            else {
+                def targetSize := unwrapped->PrimitiveType.size
+                def size := getType(false)->PrimitiveType.size
+                var cost := 0
+                while size < targetSize {
+                    cost += 1
+                    size *= 2
+                }
+                if !unwrapped->IntType.signed
+                    cost += 1
+                return cost
+            }
         }
         return super.implicitCastCost(context, t)
     }
@@ -112,7 +143,7 @@ class IntegerLiteral : Value {
     @override
     method implicitCast(position:Position, context:Context, t:Type):Value {
         if t.isInteger & implicitCastCost(context, t) != null
-            return IntegerLiteral(position, value, t, true)
+            return IntegerLiteral(position, value, t)
         return super.implicitCast(position, context, t)
     }
 
