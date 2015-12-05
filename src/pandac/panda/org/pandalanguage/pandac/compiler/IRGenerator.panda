@@ -773,8 +773,8 @@ class IRGenerator {
                 }
             }
             if methods.length = 1 {
-                return MethodReference(context, position, target, 
-                        methods[0])
+                return MethodReference(context, position, 
+                        getMethodTarget(methods[0], target), methods[0])
             }
             return UnresolvedMethod(position, target, methods)
         }
@@ -798,6 +798,19 @@ class IRGenerator {
             return getMember(position, implicitSelf(position), name)
         context.errors.error("unknown identifier '\{name}'", position)
         return null
+    }
+
+    method getMethodTarget(m:MethodStub, target:Value):Value {
+        if target-?>InstanceContext {
+            if m.annotations.isClass
+                return target->InstanceContext.classLiteral
+            else
+                return target->InstanceContext.selfParam
+        }
+        def resolved := resolve(target)
+        if resolved != null
+            return resolved
+        return target
     }
 
     method makeClosure(ref:MethodReference):Value {
@@ -834,8 +847,9 @@ class IRGenerator {
             discardedValue := null
         }
         else {
+            def finalTarget := getMethodTarget(ref.methodStub, ref.target)
             def targetVar := LocalVariable(ref.position, 
-                    "$closureTarget" + nameCount, ref.target.type, 
+                    "$closureTarget" + nameCount, finalTarget.type, 
                     Variable.Kind.VAR, context.currentMethod)
             nameCount += 1
             context.localVariables.add(targetVar)
@@ -3085,8 +3099,7 @@ class IRGenerator {
         context.methods.clear()
         pushSymbols(cl)
         checkProperties(cl)
-        for f in cl.fields
-            inferFieldType(f)
+        cl.fields.apply(inferFieldType)
         for m in cl.methods.filter(m => m.body != null) {
             if cl.annotations.isUnspecified & !m.annotations.isClass
                 continue

@@ -168,6 +168,27 @@ class TupleType : ClassType {
     }
 
     @private
+    method createHash(context:Context):MethodStub {
+        def position := Position.INTERNAL
+        def expression:ASTExpression? := null
+        for (i, type) in types.enumeration() {
+            def field := ASTIndex(ASTSelf(position), 
+                    ASTIntegerLiteral(position, i->UInt64, false))
+            def hash := ASTDotExpression(field, "hash")
+            if expression = null
+                expression := hash
+            else
+                expression := ASTBinaryExpression(
+                        BinaryOperationType.BITWISE_XOR,
+                        expression, hash)
+        }
+        def body := ASTBlock(position, [ASTReturn(position, expression)])
+        return MethodStub(position, "get_hash", 
+                Annotations(position, [AnnotationType.OVERRIDE]), 
+                MethodNodeType.FUNCTION, [], IntType.INT32, body, self)
+    }
+
+    @private
     method createIndex(context:Context):MethodStub {
         def position := Position.INTERNAL
         def parameters := [FormalParameter(position, "i", IntType.INT32, 
@@ -285,6 +306,7 @@ class TupleType : ClassType {
         addMethod(createInit(), symbols)
         addMethod(createConvert(), symbols)
         addMethod(createEquals(context), symbols)
+        addMethod(createHash(context), symbols)
         addMethod(createIndex(context), symbols)
         return ClassStub(position, self, ClassCategory.CLASS, 
                 Annotations(position, classAnnotations), 
