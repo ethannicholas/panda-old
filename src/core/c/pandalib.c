@@ -519,21 +519,21 @@ void panda$core$System$execStream(
     FILE* inHandle = (FILE*) inHandleArg;
     FILE* outHandle = (FILE*) outHandleArg;
     char* path = pandaGetString(program);
-    panda$collections$CollectionView$LTpanda$core$String$GT$get_length_TYPE* length =
+    panda$collections$CollectionView$LTpanda$core$String$GT$get_count_TYPE* count =
             pandaGetInterfaceMethod((panda$core$Object*) pandaArgs, 
                     &panda$collections$CollectionView$LTpanda$core$String$GT_class, 
-                    panda$collections$CollectionView$LTpanda$core$String$GT$get_length_INDEX);
+                    panda$collections$CollectionView$LTpanda$core$String$GT$get_count_INDEX);
     panda$collections$ListView$LTpanda$core$String$GT$$ARR_TYPE* subscript =
             pandaGetInterfaceMethod((panda$core$Object*) pandaArgs, 
                     &panda$collections$ListView$LTpanda$core$String$GT_class, 
                     panda$collections$ListView$LTpanda$core$String$GT$$ARR_INDEX);
-    int argLength = length((panda$collections$CollectionView$LTpanda$core$String$GT*) pandaArgs);
-    char* args[argLength + 2];
+    int argCount = count((panda$collections$CollectionView$LTpanda$core$String$GT*) pandaArgs);
+    char* args[argCount + 2];
     args[0] = path;
     int i;
-    for (i = 0; i < argLength; i++)
+    for (i = 0; i < argCount; i++)
         args[i + 1] = pandaGetString(subscript(pandaArgs, i));
-    args[argLength + 1] = NULL;
+    args[argCount + 1] = NULL;
     pid_t pid = fork();
     if (!pid) {
         if (inHandle != NULL)
@@ -689,9 +689,9 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int
         panda$collections$Array$LTpanda$core$UInt8$GT* arr =
                 (panda$collections$Array$LTpanda$core$UInt8$GT*) bytes;
         panda$collections$Array$LTpanda$core$UInt8$GT$ensureCapacity(arr, 
-                arr->_length + count);
-        memcpy(&arr->contents->contents[arr->_length], data, count);
-        arr->_length += count;
+                arr->_count + count);
+        memcpy(&arr->contents->contents[arr->_count], data, count);
+        arr->_count += count;
     }
     else {
         panda$collections$CollectionWriter$LTpanda$core$UInt8$GT$add_UInt8_TYPE* add =

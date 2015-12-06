@@ -270,36 +270,36 @@ class Context {
             var params:ListView<Value>, returnType:Type?):Int? {
         var result := 0
         var methodParams:ListView<FormalParameter> := m.parameters
-        var isVarArg := methodParams.length > 0 & 
-                methodParams[methodParams.length - 1].isVarArg
+        var isVarArg := methodParams.count > 0 & 
+                methodParams[methodParams.count - 1].isVarArg
         if isVarArg
             result += VARARG_COST
-        if params.length > 0 & params[params.length - 1]-?>Unwrap {
+        if params.count > 0 & params[params.count - 1]-?>Unwrap {
             -- we handle unwrap parameters (such as the call foo(bar, baz...))
             -- by simply turning off varargs; the last parameter is already an
             -- array and we just let it be treated as such
             isVarArg := false
             -- ...but we do need to handle primitive arrays for legacy code
             -- right now
-            def lastType := m.parameters[m.parameters.length - 1].type
+            def lastType := m.parameters[m.parameters.count - 1].type
             if lastType-?>PrimitiveArrayType {
                 def newParams := Array<Value>()
-                newParams.addAll(params[0 .. params.length - 1])
-                newParams.add(Dummy(params[params.length - 1].position,
+                newParams.addAll(params[0 .. params.count - 1])
+                newParams.add(Dummy(params[params.count - 1].position,
                         lastType))
                 params := newParams
             }
         }
         if isVarArg {
             -- strip off vararg parameter, it's not required
-            methodParams := m.parameters[..m.parameters.length - 1]
+            methodParams := m.parameters[..m.parameters.count - 1]
         }
         -- do we have the right number of parameters?
-        if !isVarArg & params.length != methodParams.length | 
-                isVarArg & params.length < methodParams.length
+        if !isVarArg & params.count != methodParams.count | 
+                isVarArg & params.count < methodParams.count
             return null
 
-        for (i, param) in methodParams.enumeration() {
+        for (i, param) in methodParams.enumeration {
             def targetType := param.type
             def cost := params[i].implicitCastCost(self, targetType)
             if cost = null
@@ -310,9 +310,9 @@ class Context {
         
         if isVarArg {
             -- verify that all remaining parameters match the vararg
-            def varArg := m.parameters[m.parameters.length - 1]
+            def varArg := m.parameters[m.parameters.count - 1]
             def varArgType := varArg.type->GenericType.parameters[0]
-            for i in methodParams.length .. params.length {
+            for i in methodParams.count .. params.count {
                 def cost := params[i].implicitCastCost(self, varArgType)
                 if cost = null
                     return null
@@ -543,7 +543,7 @@ class Context {
         msg.append(methodName)
         msg.append("(")
         var first := true
-        for (i, p) in params.enumeration() {
+        for (i, p) in params.enumeration {
             if p-?>Dummy
                 continue
             if first
@@ -562,7 +562,7 @@ class Context {
         for p in params {
 -*            if p-?>UnresolvedLambda {
                 def lambda := p->UnresolvedLambda
-                if lambda.errors.length > 0 {
+                if lambda.errors.count > 0 {
                     msg.append("\n    possible error in lambda at " +
                             "\{lambda.position}:")
                     def entries := PrimitiveArray<Object>()
@@ -571,8 +571,8 @@ class Context {
                     Panda.sort(entries, function(eo1:Object, eo2:Object):Bit {
                         def e1 := eo1->(Object?, Object?)[0]->PrimitiveArray<Type>
                         def e2 := eo2->(Object?, Object?)[0]->PrimitiveArray<Type>
-                        assert e1.length = e2.length
-                        for i in 0 .. e1.length {
+                        assert e1.count = e2.count
+                        for i in 0 .. e1.count {
                             def n1 := e1[i].name
                             def n2 := e2[i].name
                             if n1 > n2
@@ -609,7 +609,7 @@ class Context {
 
     method call(position:Position, var target:Value, m:MethodStub,
             var params:ListView<Value>):Value? {
-        if target.type.isPrimitive & m.name = "hash" & params.length = 0 {
+        if target.type.isPrimitive & m.name = "hash" & params.count = 0 {
             -- simple optimization, avoid calling non-wrapper function in this
             -- common case (can't be a wrapper function because it is an
             -- override)
@@ -638,47 +638,47 @@ class Context {
             return null
         }
         def methodParams := m.parameters
-        var isVarArg := methodParams.length > 0 &
-                methodParams[methodParams.length - 1].isVarArg
-        if params.length > 0 {
-            def last := params[params.length - 1]
+        var isVarArg := methodParams.count > 0 &
+                methodParams[methodParams.count - 1].isVarArg
+        if params.count > 0 {
+            def last := params[params.count - 1]
             if last-?>UnresolvedRange {
                 def range := last->UnresolvedRange
                 def left := range.left
                 if isListView(left) & range.right = null {
                     assert left != null
                     def newParams := Array<Value>()
-                    newParams.addAll(params[0 .. params.length - 1])
+                    newParams.addAll(params[0 .. params.count - 1])
                     newParams.add(Unwrap(left))
                     params := newParams
                 }
             }
         }
-        for (i, p) in params.enumeration() {
+        for (i, p) in params.enumeration {
             if p-?>Unwrap {
                 if !isVarArg {
                     errors.error("'...' may not be used with " +
                             "non-variadic \{m}", position)
                     return null
                 }
-                if i < params.length - 1 {
+                if i < params.count - 1 {
                     errors.error("'...' may only be used " +
                             "with the last parameter of a call", position)
                     return null
                 }
             }
         }
-        if isVarArg & params.length > 0 & params[params.length - 1]-?>Unwrap
+        if isVarArg & params.count > 0 & params[params.count - 1]-?>Unwrap
             isVarArg := false
         def count:Int
         if isVarArg
-            count := methodParams.length - 1
+            count := methodParams.count - 1
         else
-            count := methodParams.length
+            count := methodParams.count
         def finalParams := Array<Value>()
-        if params.length < count | (params.length > count & !isVarArg) {
+        if params.count < count | (params.count > count & !isVarArg) {
             errors.error("\{m} requires \{count} parameters, but found " +
-                    params.length, position)
+                    params.count, position)
             return null
         }
         for i in 0 .. count {
@@ -694,9 +694,9 @@ class Context {
         }
         if isVarArg {
             def values := Array<Value>()
-            def arrayType := methodParams[methodParams.length - 1].type->GenericType
+            def arrayType := methodParams[methodParams.count - 1].type->GenericType
             def elementType := arrayType.parameters[0]
-            for i in count .. params.length {
+            for i in count .. params.count {
                 def cast := params[i].implicitCast(self, elementType)
                 values.add(cast)
             }
@@ -795,15 +795,15 @@ class Context {
     method call(position:Position, target:Value, 
             methods:ListView<MethodStub>, var params:ListView<Value>,
             returnType:Type?, reportErrors:Bit):Value? {
-        if params.length > 0 {
-            def last := params[params.length - 1]
+        if params.count > 0 {
+            def last := params[params.count - 1]
             if last-?>UnresolvedRange {
                 def range := last->UnresolvedRange
                 def left := range.left
                 if isListView(left) & range.right = null {
                     assert left != null
                     def newParams := Array<Value>()
-                    newParams.addAll(params[0 .. params.length - 1])
+                    newParams.addAll(params[0 .. params.count - 1])
                     newParams.add(Unwrap(left))
                     params := newParams
                 }
@@ -824,7 +824,7 @@ class Context {
             else if cost = bestCost
                 best.add(m)
         }
-        if best.length = 1 {
+        if best.count = 1 {
             def finalTarget := getEffectiveTarget(best[0], target)
             assert finalTarget != null
             if reportErrors & inClosure & target-?>InstanceContext & 
@@ -835,7 +835,7 @@ class Context {
             }
             return call(position, finalTarget, best[0], params)
         }
-        else if best.length = 0 {
+        else if best.count = 0 {
             if reportErrors {
                 def types := Array<String>()
                 for p in params
@@ -858,7 +858,7 @@ class Context {
         def result := MutableString()
         result.append("call to '\{methods.iterator.next().name}' with " +
                 "parameters (")
-        for (i, p) in params.enumeration() {
+        for (i, p) in params.enumeration {
             if i > 0
                 result.append(", ")
             result.append(p.type.displayName)
