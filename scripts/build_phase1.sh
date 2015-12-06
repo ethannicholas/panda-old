@@ -39,6 +39,8 @@ export PANDA_HOME="$BASEDIR/build"
 
 echo "Creating parser..."
 $PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
+java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/grammar.grammar src/pandac/parser/GrammarParser.panda
+$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
 mkdir -p $SHARED_TARGET
 java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/panda.grammar $SHARED_TARGET/PandaLRParser.panda
 
