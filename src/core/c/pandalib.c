@@ -34,7 +34,7 @@ void* malloc_atomic(size_t size) {
 
 /***** Basic system functions *****/
 
-static String$Array* arg = NULL;
+static panda$collections$Array$LTpanda$core$String$GT* arg = NULL;
 
 static Bit inited = 0;
 
@@ -96,7 +96,7 @@ void pandaInit() {
     }
 }
 
-void pandaMain(String$Array* arg);
+void pandaMain(panda$collections$Array$LTpanda$core$String$GT* arg);
 
 void pandaStart() {
     panda$threads$Thread* main = pandaNew(panda$threads$Thread);
@@ -115,12 +115,14 @@ int main(int argc, char** argv) {
     executablePath = pandaNewString(argv[0], strlen(argv[0]));
     argc--;
     argv++;
-    arg = (String$Array*) pandaNewPrimitiveArrayWithLength(&panda$collections$PrimitiveArray$LTpanda$core$String$GT_class, 
+    String$Array* primitiveArgs = (String$Array*) pandaNewPrimitiveArrayWithLength(&panda$collections$PrimitiveArray$LTpanda$core$String$GT_class, 
             argc, sizeof(String*), true);
-    String** contents = (String**) arg->contents;
+    String** contents = (String**) primitiveArgs->contents;
     int i;
     for (i = 0; i < argc; i++)
         contents[i] = pandaNewString(argv[i], -1);
+    arg = pandaNew(panda$collections$Array$LTpanda$core$String$GT);
+    panda$collections$Array$LTpanda$core$String$GT$init_PrimitiveArray$LTpanda$core$String$GT(arg, primitiveArgs);
     pandaStart();
 
     // ensure all threads have exited

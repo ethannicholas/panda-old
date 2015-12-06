@@ -82,7 +82,7 @@ public class PandaCore {
                 newString(value + " is not an instance of " + dest)));
     }
 
-    public static panda.collections.PrimitiveArray$.$Lpanda$core$String$R convertArgs(java.lang.String[] arg) {
+    public static panda.collections.Array$.$Lpanda$core$String$R convertArgs(java.lang.String[] arg) {
         panda.collections.PrimitiveArray$.$Lpanda$core$String$R result = 
                 new panda.collections.PrimitiveArray$.$Lpanda$core$String$R();
         result.$$length = arg.length;
@@ -90,7 +90,7 @@ public class PandaCore {
         for (int i = 0; i < arg.length; i++)
             contents[i] = newString(arg[i]);
         result.contents = contents;
-        return result;
+        return panda.collections.Array$.$Lpanda$core$String$R.createnew$init_panda$collections$PrimitiveArray$LTpanda$core$String$GT(result);
     }
 
     public static java.lang.Object skip(java.lang.Object a, java.lang.Object b) {
