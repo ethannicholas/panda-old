@@ -38,11 +38,12 @@ cp $JAVA_TARGET/core/lib/PandaCoreClasses.jar $JAVA_TARGET/pandac/bin/panda.jar
 export PANDA_HOME="$BASEDIR/build"
 
 echo "Creating parser..."
-$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
-java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/grammar.grammar src/pandac/parser/GrammarParser.panda
-$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
+$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/ErrorParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
+java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/grammar.grammar src/pandac/parser/grammar.errors src/pandac/parser/GrammarParser.panda
+java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/errors.grammar src/pandac/parser/errors.errors src/pandac/parser/ErrorParser.panda
+$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/ErrorParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
 mkdir -p $SHARED_TARGET
-java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/panda.grammar $SHARED_TARGET/PandaLRParser.panda
+java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/panda.grammar src/pandac/parser/panda.errors $SHARED_TARGET/PandaLRParser.panda
 
 echo "Compiling pandac (Java)..."
 

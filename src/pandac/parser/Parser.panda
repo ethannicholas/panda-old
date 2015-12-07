@@ -24,13 +24,23 @@ class Parser : Immutable {
 
 	def reducer:Reducer
 
+	def errors:ImmutableArray<String?>
+
 	init(productionIds:ImmutableArray<Int>, 
 			actions:ImmutableArray<ImmutableArray<Action?>>, 
 			gotos:ImmutableArray<ImmutableArray<Int?>>, 
 			reducer:Reducer) {
+		init(productionIds, actions, gotos, [], reducer)
+	}
+
+	init(productionIds:ImmutableArray<Int>, 
+			actions:ImmutableArray<ImmutableArray<Action?>>, 
+			gotos:ImmutableArray<ImmutableArray<Int?>>, 
+			errors:ImmutableArray<String?>, reducer:Reducer) {
 		self.productionIds := productionIds
 		self.actions := actions
 		self.gotos := gotos
+		self.errors := errors
 		self.reducer := reducer
 	}
 
@@ -43,6 +53,12 @@ class Parser : Immutable {
 	}
 
 	function errorText(state:ParserState):String {
+		def id := state.state.state
+		if id < errors.count {
+			def error := errors[id]
+			if error != null
+				return error
+		}
 		return "parse error"
 	}
 
@@ -62,6 +78,46 @@ class Parser : Immutable {
 			def top := parsers.peek()
 			if top.position = text.length
 				return (top.state.next.output, [])
+			if top.state.state < 0 {
+				if top.position > farthest.position
+					farthest := top
+				parsers.pop()
+				continue
+			}
+			def row := actions[top.state.state]
+			def index := text[top.position].convert()->Int
+			def a:Action?
+			if index < row.count
+				a := row[index]
+			else
+				a := null
+			if a = null {
+				def expected := Array<Char>()
+				for (i, v) in row.enumeration {
+					if v != null
+						expected.add(i.convert())
+				}
+				parsers.pop()
+				if top.position > farthest.position
+					farthest := top
+				continue
+			}
+			action(a, file, text, top, parsers)
+		}
+	}
+
+	function partialParse(file:File, text:String, startState:Int):Int {
+		def parsers := Stack<ParserState>()
+		var farthest:ParserState := ParserState(0, 
+				StateNode(startState, "<START>", null))
+		parsers.push(farthest)
+
+		loop {
+			if parsers.count = 0
+				assert false : "parse failure: \{farthest.position}: \{errorText(farthest)}"
+			def top := parsers.peek()
+			if top.position = text.length
+				return top.state.state
 			if top.state.state < 0 {
 				if top.position > farthest.position
 					farthest := top
