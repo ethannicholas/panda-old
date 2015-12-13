@@ -1,6 +1,7 @@
 #include "pandalib.h"
 #include "unicode/utf.h"
 #include "unicode/uregex.h"
+#include "unicode/ustring.h"
 #include "dirent.h"
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -1017,6 +1018,93 @@ void panda$threads$Lock$finalize(Lock* lock) {
     pthread_mutex_destroy(lock->nativeLock);
 }
 
+
+/***** Chars *****/
+
+Bit panda$core$CharWrapper$get_isWhitespace(Char self) {
+    return u_isUWhiteSpace(self);
+}
+
+Bit panda$core$CharWrapper$get_isLowercase(Char self) {
+    return u_isULowercase(self);
+}
+
+Bit panda$core$CharWrapper$get_isUppercase(Char self) {
+    return u_isUUppercase(self);
+}
+
+Bit panda$core$CharWrapper$get_isTitlecase(Char self) {
+    return u_istitle(self);
+}
+
+Char panda$core$CharWrapper$toUppercase(Char self) {
+    return u_toupper(self);
+}
+
+Char panda$core$CharWrapper$toLowercase(Char self) {
+    return u_tolower(self);
+}
+
+Char panda$core$CharWrapper$toTitlecase(Char self) {
+    return u_totitle(self);
+}
+
+
+/***** Strings *****/
+
+panda$core$String* panda$core$String$toUppercase(panda$core$String* self) {
+    UErrorCode status = U_ZERO_ERROR;
+    int32_t length = u_strToUpper(NULL, 0, self->chars->contents, 
+            self->chars->$length, NULL, &status);
+    status = U_ZERO_ERROR;
+    panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* chars = 
+            (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
+            &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
+            length, sizeof(Char), false);
+    u_strToUpper(chars->contents, length, self->chars->contents, 
+            self->chars->$length, NULL, &status);
+    if (U_FAILURE(status))
+        pandaFatalError(u_errorName(status));
+    String* result = pandaNew(panda$core$String);
+    result->chars = chars;
+    return result;
+}
+
+panda$core$String* panda$core$String$toLowercase(panda$core$String* self) {
+    UErrorCode status = U_ZERO_ERROR;
+    int32_t length = u_strToLower(NULL, 0, self->chars->contents, 
+            self->chars->$length, NULL, &status);
+    status = U_ZERO_ERROR;
+    panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* chars = 
+            (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
+            &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
+            length, sizeof(Char), false);
+    u_strToLower(chars->contents, length, self->chars->contents, 
+            self->chars->$length, NULL, &status);
+    if (U_FAILURE(status))
+        pandaFatalError(u_errorName(status));
+    String* result = pandaNew(panda$core$String);
+    result->chars = chars;
+    return result;
+}
+
+panda$core$String* panda$core$String$toTitlecase(panda$core$String* self) {
+    UErrorCode status = U_ZERO_ERROR;
+    int32_t length = u_strToTitle(NULL, 0, self->chars->contents, 
+            self->chars->$length, NULL, NULL, &status);
+    status = U_ZERO_ERROR;
+    panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* chars = 
+            (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
+            &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
+            length, sizeof(Char), false);
+    u_strToTitle(chars->contents, length, self->chars->contents, 
+            self->chars->$length, NULL, NULL, &status);
+    if (U_FAILURE(status))
+        pandaFatalError(u_errorName(status));
+    String* result = pandaNew(panda$core$String);
+    result->chars = chars;
+    return result;    
+}
 
 /***** Math *****/
 
