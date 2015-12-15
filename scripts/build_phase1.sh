@@ -9,13 +9,14 @@ export BASEDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 cd "$BASEDIR"
 source scripts/setup-script.sh
 export PANDA_HOME="$BASEDIR/bootstrap"
-export PANDAC="java -ea -Xmx2g -jar $BASEDIR/bootstrap/java/pandac/bin/pandac.jar -L $NATIVE_TARGET/core/lib $@"
+export PANDAC="java -ea -Xmx2g -cp $BASEDIR/bootstrap/java/pandac/bin/pandac.jar:$BASEDIR/build/java/pandac/bin/panda.jar org.pandalanguage.pandac.compiler.PandaCompiler -L $NATIVE_TARGET/core/lib $@"
 
 export DYLD_LIBRARY_PATH="\"$NATIVE_TARGET/core/lib\":\"$PANDA_HOME/native/core/lib\""
 PANDAC_SRC=src/pandac/panda/org/pandalanguage/pandac
 CORE_FILES="src/core/panda/panda/core/*.panda\
         src/core/panda/panda/collections/*.panda src/core/panda/panda/threads/*.panda\
-        src/core/panda/panda/io/*.panda src/core/panda/panda/math/*.panda"
+        src/core/panda/panda/io/*.panda src/core/panda/panda/math/*.panda\
+        src/core/panda/panda/parser/*.panda"
 
 echo "Compiling core (Java)..."
 
@@ -38,12 +39,20 @@ cp $JAVA_TARGET/core/lib/PandaCoreClasses.jar $JAVA_TARGET/pandac/bin/panda.jar
 export PANDA_HOME="$BASEDIR/build"
 
 echo "Creating parser..."
-$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/ErrorParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
+$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/ErrorParser.panda
 java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/grammar.grammar src/pandac/parser/grammar.errors src/pandac/parser/GrammarParser.panda
 java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/errors.grammar src/pandac/parser/errors.errors src/pandac/parser/ErrorParser.panda
-$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/ErrorParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
+$PANDAC -O -o $JAVA_TARGET/parsergenerator.jar -f jar src/pandac/parser/ParserGenerator.panda src/pandac/parser/GrammarParser.panda src/pandac/parser/ErrorParser.panda
 mkdir -p $SHARED_TARGET
 java -jar $JAVA_TARGET/parsergenerator.jar src/pandac/parser/panda.grammar src/pandac/parser/panda.errors $SHARED_TARGET/PandaLRParser.panda
+java -jar $JAVA_TARGET/parsergenerator.jar src/core/parser/json.grammar src/core/parser/json.errors $SHARED_TARGET/JSONParser.panda
+$PANDAC -O -o  $JAVA_TARGET/core/java -f java $SHARED_TARGET/JSONParser.panda
+cd $JAVA_TARGET/core/java
+javac -Xmaxerrs 10000 -J-Xmx512m -source 1.8 -d $JAVA_TARGET/core/classes `find . -name "*.java"`
+cd $BASEDIR
+mkdir -p $SHARED_TARGET/core/lib
+jar cf $JAVA_TARGET/core/lib/PandaCoreClasses.jar  -C $JAVA_TARGET/core/classes .
+$PANDAC -XnoCoreLib -f plink -o $SHARED_TARGET/core/lib/PandaCoreClasses.plink $CORE_FILES $SHARED_TARGET/JSONParser.panda
 
 echo "Compiling pandac (Java)..."
 
@@ -89,5 +98,4 @@ echo "}" >> "$STATIC_SETTINGS"
 
 mkdir -p "$JAVA_TARGET/pandac/bin"
 $PANDAC -XpreserveTempArtifacts -O -o "$JAVA_TARGET/pandac/bin/pandac.jar" -f jar `find src/pandac/panda -name "*.panda"` \
-    "$STATIC_SETTINGS" $SHARED_TARGET/PandaLRParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda \
-    src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
+    "$STATIC_SETTINGS" $SHARED_TARGET/PandaLRParser.panda

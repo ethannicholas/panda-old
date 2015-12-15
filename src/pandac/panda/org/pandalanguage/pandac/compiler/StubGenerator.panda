@@ -481,7 +481,8 @@ class StubGenerator {
     }
 
     @private
-    method resolveExtraComponents(type:Type, extras:ListView<String>):(Type, ListView<String>) {
+    method resolveExtraComponents(type:Type, extras:ListView<String>,
+            nullable:Bit):(Type, ListView<String>) {
         var current := type
         for (i, name) in extras.enumeration {
             def stub := getStub(current.convert()->ClassType.name)
@@ -491,6 +492,8 @@ class StubGenerator {
                 return (current, extras[i..])
             current := next->TypeSymbol.type
         }
+        if nullable
+            current := NullableType(current)
         return (current, [])
     }
 
@@ -512,7 +515,7 @@ class StubGenerator {
                             if symbol-?>TypeSymbol {
                                 return resolveExtraComponents(
                                         symbol->TypeSymbol.type, 
-                                        components[i + 1..])
+                                        components[i + 1..], type.isNullable)
                             }
                         }
                     }
@@ -1032,6 +1035,8 @@ class StubGenerator {
             else
                 superclass := ClassType.OBJECT
         }
+        if containingClass != null
+            addNestedAliases(getStub(containingClass.name), symbols)
         if cl.interfaces != null {
             for t in cl.interfaces->ListView<ASTType> {
                 def type := resolveType(t, symbolTable)
@@ -1153,6 +1158,109 @@ class StubGenerator {
                 containingClass)
     }
 
+    method createChoiceInit(c:ASTChoice, classType:ClassType):MethodStub {
+        def statements := Array<ASTStatement>()
+        def superInit := ASTDotExpression(
+                ASTSuper(c.position), MethodNode.INIT_NAME)
+        statements.add(ASTExpressionStatement(ASTCallExpression(
+                superInit, Array<ASTExpression>())))
+        def block := ASTBlock(c.position, statements)
+        def initAnnotations := Array<AnnotationType>()
+        initAnnotations.add(AnnotationType.PRIVATE)
+        return MethodStub(c.position, MethodNode.INIT_NAME, 
+                Annotations(c.position, initAnnotations), 
+                MethodNodeType.INIT, Array<FormalParameter>(), 
+                VoidType.VOID, block, classType)
+    }
+
+    method createChoiceConvertToInt(c:ASTChoice, 
+            classType:ClassType):MethodStub {
+        def statements := Array<ASTStatement>()
+        def cases := Array<ASTSwitchCase>()
+        for (i, v) in c.values.enumeration {
+            def caseValues := Array<ASTExpression>()
+            caseValues.add(ASTIdentifier(c.position, v.name))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTIntegerLiteral(c.position, i->UInt64, false))))
+        }
+        statements.add(ASTSwitch(c.position, ASTSelf(c.position), cases,
+                ASTUnreachable(c.position, null)))
+        def block := ASTBlock(c.position, statements)
+        return MethodStub(c.position, 
+                MethodNode.CONVERT_NAME, 
+                Annotations(c.position, Array<AnnotationType>()), 
+                MethodNodeType.FUNCTION, Array<FormalParameter>(), 
+                IntType.INT32, block, classType)
+    }
+
+    method createChoiceConvertToString(c:ASTChoice, 
+            classType:ClassType):MethodStub {
+        def statements := Array<ASTStatement>()
+        def cases := Array<ASTSwitchCase>()
+        for (i, v) in c.values.enumeration {
+            def caseValues := Array<ASTExpression>()
+            caseValues.add(ASTIdentifier(c.position, v.name))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTStringLiteral(c.position, v.name))))
+        }
+        statements.add(ASTSwitch(c.position, ASTSelf(c.position), cases,
+                ASTUnreachable(c.position, null)))
+        def block := ASTBlock(c.position, statements)
+        return MethodStub(c.position, 
+                MethodNode.CONVERT_NAME, 
+                Annotations(c.position, Array<AnnotationType>()), 
+                MethodNodeType.FUNCTION, Array<FormalParameter>(), 
+                ClassType.STRING, block, classType)
+    }
+
+    method createChoiceFromInt(c:ASTChoice, classType:ClassType):MethodStub {
+        def statements := Array<ASTStatement>()
+        def cases := Array<ASTSwitchCase>()
+        for (i, v) in c.values.enumeration {
+            def caseValues := Array<ASTExpression>()
+            caseValues.add(ASTIntegerLiteral(c.position, i->UInt64, false))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTIdentifier(c.position, v.name))))
+        }
+        statements.add(ASTSwitch(c.position, 
+                ASTIdentifier(c.position, "value"), cases,
+                ASTUnreachable(c.position, null)))
+        def block := ASTBlock(c.position, statements)
+        def cvtAnnotations := Array<AnnotationType>()
+        cvtAnnotations.add(AnnotationType.CLASS)
+        def convertParameters := Array<FormalParameter>()
+        convertParameters.add(FormalParameter(c.position, "value", 
+                IntType.INT32, false, false))
+        return MethodStub(c.position, "fromInt", 
+                Annotations(c.position, cvtAnnotations), 
+                MethodNodeType.FUNCTION, convertParameters, 
+                classType, block, classType)
+    }
+
+    method createChoiceFromString(c:ASTChoice, classType:ClassType):MethodStub {
+        def statements := Array<ASTStatement>()
+        def cases := Array<ASTSwitchCase>()
+        for v in c.values {
+            def caseValues := Array<ASTExpression>()
+            caseValues.add(ASTStringLiteral(c.position, v.name))
+            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
+                    ASTIdentifier(c.position, v.name))))
+        }
+        statements.add(ASTSwitch(c.position, 
+                ASTIdentifier(c.position, "value"), cases,
+                ASTUnreachable(c.position, null)))
+        def block := ASTBlock(c.position, statements)
+        def cvtAnnotations := Array<AnnotationType>()
+        cvtAnnotations.add(AnnotationType.CLASS)
+        def convertParameters := Array<FormalParameter>()
+        convertParameters.add(FormalParameter(c.position, "value", 
+                ClassType.STRING, false, false))
+        return MethodStub(c.position, "fromString", 
+                Annotations(c.position, cvtAnnotations), 
+                MethodNodeType.FUNCTION, convertParameters, 
+                classType, block, classType)
+    }
+
     method convertChoice(c:ASTChoice, currentPackage:String?,
             symbolTable:SymbolTable, containingClass:ClassType?):ClassStub {
         def className:String
@@ -1186,112 +1294,19 @@ class StubGenerator {
             }
         }
         
-        -- create implicit no-arg init
-        var statements := Array<ASTStatement>()
-        def superInit := ASTDotExpression(
-                ASTSuper(c.position), MethodNode.INIT_NAME)
-        statements.add(ASTExpressionStatement(ASTCallExpression(
-                superInit, Array<ASTExpression>())))
-        var block := ASTBlock(c.position, statements)
-        def initAnnotations := Array<AnnotationType>()
-        initAnnotations.add(AnnotationType.PRIVATE)
-        def initStub := MethodStub(c.position, MethodNode.INIT_NAME, 
-                Annotations(c.position, initAnnotations), 
-                MethodNodeType.INIT, Array<FormalParameter>(), 
-                VoidType.VOID, block, classType)
-        addSymbol(initStub, symbols.mySymbols, errors)
-
-        -- create convert to integer
-        statements := Array<ASTStatement>()
-        var cases := Array<ASTSwitchCase>()
-        for (i, v) in c.values.enumeration {
-            def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTIdentifier(c.position, v.name))
-            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
-                    ASTIntegerLiteral(c.position, i->UInt64, false))))
-        }
-        statements.add(ASTSwitch(c.position, ASTSelf(c.position), cases,
-                ASTUnreachable(c.position)))
-        block := ASTBlock(c.position, statements)
-        def convertToInt := MethodStub(c.position, 
-                MethodNode.CONVERT_NAME, 
-                Annotations(c.position, Array<AnnotationType>()), 
-                MethodNodeType.FUNCTION, Array<FormalParameter>(), 
-                IntType.INT32, block, classType)
-        addSymbol(convertToInt, symbols.mySymbols, errors)
-
-        -- create convert to string
-        statements := Array<ASTStatement>()
-        cases := Array<ASTSwitchCase>()
-        for (i, v) in c.values.enumeration {
-            def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTIdentifier(c.position, v.name))
-            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
-                    ASTStringLiteral(c.position, v.name))))
-        }
-        statements.add(ASTSwitch(c.position, ASTSelf(c.position), cases,
-                ASTUnreachable(c.position)))
-        block := ASTBlock(c.position, statements)
-        def convertToString := MethodStub(c.position, 
-                MethodNode.CONVERT_NAME, 
-                Annotations(c.position, Array<AnnotationType>()), 
-                MethodNodeType.FUNCTION, Array<FormalParameter>(), 
-                ClassType.STRING, block, classType)
-        addSymbol(convertToString, symbols.mySymbols, errors)
-
-        -- create convert from integer
-        statements := Array<ASTStatement>()
-        cases := Array<ASTSwitchCase>()
-        for (i, v) in c.values.enumeration {
-            def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTIntegerLiteral(c.position, i->UInt64, false))
-            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
-                    ASTIdentifier(c.position, v.name))))
-        }
-        statements.add(ASTSwitch(c.position, 
-                ASTIdentifier(c.position, "value"), cases,
-                ASTUnreachable(c.position)))
-        block := ASTBlock(c.position, statements)
-        def cvtAnnotations := Array<AnnotationType>()
-        cvtAnnotations.add(AnnotationType.CLASS)
-        def convertParameters := Array<FormalParameter>()
-        convertParameters.add(FormalParameter(c.position, "value", 
-                IntType.INT32, false, false))
-        def convertFromInt := MethodStub(c.position, "fromInt", 
-                Annotations(c.position, cvtAnnotations), 
-                MethodNodeType.FUNCTION, convertParameters, 
-                classType, block, classType)
-        addSymbol(convertFromInt, symbols.mySymbols, errors)
-
-        -- create convert from string
-        statements := Array<ASTStatement>()
-        cases := Array<ASTSwitchCase>()
-        for v in c.values {
-            def caseValues := Array<ASTExpression>()
-            caseValues.add(ASTStringLiteral(c.position, v.name))
-            cases.add(ASTSwitchCase(c.position, caseValues, ASTReturn(c.position,
-                    ASTIdentifier(c.position, v.name))))
-        }
-        statements.add(ASTSwitch(c.position, 
-                ASTIdentifier(c.position, "value"), cases,
-                ASTUnreachable(c.position)))
-        block := ASTBlock(c.position, statements)
-        def cvtAnnotations := Array<AnnotationType>()
-        cvtAnnotations.add(AnnotationType.CLASS)
-        def convertParameters := Array<FormalParameter>()
-        convertParameters.add(FormalParameter(c.position, "value", 
-                ClassType.STRING, false, false))
-        def convertFromString := MethodStub(c.position, "fromString", 
-                Annotations(c.position, cvtAnnotations), 
-                MethodNodeType.FUNCTION, convertParameters, 
-                classType, block, classType)
-        addSymbol(convertFromString, symbols.mySymbols, errors)
+        addSymbol(createChoiceInit(c, classType), symbols.mySymbols, errors)
+        addSymbol(createChoiceConvertToInt(c, classType), symbols.mySymbols, 
+                errors)
+        addSymbol(createChoiceConvertToString(c, classType), symbols.mySymbols, 
+                errors)
+        addSymbol(createChoiceFromInt(c, classType), symbols.mySymbols, errors)
+        addSymbol(createChoiceFromString(c, classType), symbols.mySymbols, 
+                errors)
 
         def annotations := convertAnnotations(c.position, c.annotations)
         return ClassStub(c.position, classType, ClassCategory.CLASS,
-                annotations, ClassType.ENUMERATION, 
-                Array<ClassType>(), symbols.mySymbols, LookupContext(),
-                Array<ASTInvariant>(), null, 
+                annotations, ClassType.CHOICE, Array<ClassType>(), 
+                symbols.mySymbols, LookupContext(), Array<ASTInvariant>(), null, 
                 c.isExternal, containingClass)
     }
 

@@ -225,7 +225,7 @@
 
 	class EOFNode : CharNode {
 		init() {
-			super.init(Parser.EOF)
+			super.init(GLRParser.EOF)
 		}
 
 		@override
@@ -316,21 +316,15 @@
 	class Grammar {
 		def productions:ListView<Production>
 
-		def code:String?
+		def topLevelCode:String?
 
-		init(productions:ListView<Production>, code:String?) {
+		def classCode:String?
+
+		init(productions:ListView<Production>, topLevelCode:String?,
+				classCode:String?) {
 			self.productions := productions
-			self.code := code
-		}
-
-		@override
-		function convert():String {
-			def code:String
-			if self.code != null
-				code := "{ \{self.code} }\n"
-			else
-				code := ""
-			return code + productions.join("\n")
+			self.topLevelCode := topLevelCode
+			self.classCode := classCode
 		}
 	}
 
@@ -344,12 +338,16 @@
 	}
 }
 
+{ }
+
 @file:Grammar = grammar
 	{ result := grammar }
-grammar:Grammar = WS code productions
-	{ result := Grammar(productions, code) }
-grammar:Grammar = WS productions
-	{ result := Grammar(productions, null) }
+grammar:Grammar = WS topLevel:optionalCode classCode:optionalCode productions
+	{ result := Grammar(productions, topLevel, classCode) }
+optionalCode:String? = code
+	{ result := code }
+optionalCode:String? = 
+	{ result := null }
 code:String = codeBlock WS
 	{ result := codeBlock }
 codeBlock:String = '{' codeChars '}'
@@ -425,6 +423,10 @@ type:String = dottedIdentifier genericParameters QUESTION
 	{ result := dottedIdentifier + genericParameters + "?" }
 type:String = dottedIdentifier genericParameters
 	{ result := dottedIdentifier + genericParameters }
+type:String = LPAREN types RPAREN QUESTION
+	{ result := "(\{types})?" }
+type:String = LPAREN types RPAREN
+	{ result := "(\{types})" }
 dottedIdentifier:String = identifier
 	{ result := identifier }
 dottedIdentifier:String = dottedIdentifier DOT identifier
@@ -488,6 +490,8 @@ COLON = ':' WS
 EQUAL = '=' WS
 LT = '<' WS
 GT = '>' WS
+LPAREN = '(' WS
+RPAREN = ')' WS
 COMMA = ',' WS
 QUESTION = '?' WS
 CARET = '^' WS

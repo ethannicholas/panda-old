@@ -1,5 +1,7 @@
 package org.pandalanguage.pandac.parser
 
+uses panda.parser.GLRParser
+
 class ImmutableHashSet<T:Immutable> : Immutable (CollectionView<T>) {
     @private
     def contents:ImmutableHashMap<T, T>
@@ -146,7 +148,7 @@ class ParserGenerator {
 
 	def syntheticCount := 0
 
-	def actions := Array<List<Action?>>()
+	def actions := Array<List<GLRParser.Action?>>()
 
 	def gotos := Array<List<Int?>>()
 
@@ -213,15 +215,17 @@ class ParserGenerator {
 		while fragments.count > startSize
 	}
 
-	method setAction(start:Int, char:Char, action:Action) {
+	method setAction(start:Int, char:Char, action:GLRParser.Action) {
 		def old := actions[start][char.convert()]
 		if old != null {
-			if old.type = ActionType.MULTIPLE {
+			if old.type = GLRParser.Action.Type.MULTIPLE {
 				assert old.subactions != null
 				old.subactions.add(action)
 			}
-			else
-				actions[start][char.convert()] := Action([old, action])
+			else {
+				actions[start][char.convert()] := GLRParser.Action([old, 
+						action])
+			}
 		}
 		else
 			actions[start][char.convert()] := action
@@ -371,8 +375,8 @@ class ParserGenerator {
 					if p = f.production {
 						def follows := follow(p.name)
 						for c in follows {
-							setAction(start, c, Action(ActionType.REDUCE, 
-									i))
+							setAction(start, c, GLRParser.Action(
+									GLRParser.Action.Type.REDUCE, i))
 						}
 					}
 				}
@@ -398,18 +402,21 @@ class ParserGenerator {
 			}
 			else if node-?>CharNode {
 				def c := node->CharNode.char
-				setAction(state.id, c, Action(ActionType.SHIFT, target))
+				setAction(state.id, c, GLRParser.Action(
+						GLRParser.Action.Type.SHIFT, target))
 			}
 			else if node-?>CharClassNode {
 				def cl := node->CharClassNode
 				for c in cl.chars()
-					setAction(state.id, c, Action(ActionType.SHIFT, target))
+					setAction(state.id, c, GLRParser.Action(
+							GLRParser.Action.Type.SHIFT, target))
 			}
 			else if node-?>CutNode {
 				for c in START_CHAR ... END_CHAR
-					setAction(state.id, c, Action(ActionType.CUT, target))
-				setAction(state.id, Parser.EOF, Action(ActionType.CUT, 
-						target))
+					setAction(state.id, c, GLRParser.Action(
+							GLRParser.Action.Type.CUT, target))
+				setAction(state.id, GLRParser.EOF, GLRParser.Action(
+						GLRParser.Action.Type.CUT, target))
 			}
 			else
 				unreachable
@@ -428,7 +435,7 @@ class ParserGenerator {
 			}
 		}
 		states.add(state)
-		actions.add(Array<Action?>(END_CHAR.convert()->Int + 1, null))
+		actions.add(Array<GLRParser.Action?>(END_CHAR.convert()->Int + 1, null))
 		gotos.add(Array<Int?>())
 		computeTransitions(state, states)
 		return state.id
@@ -520,7 +527,7 @@ class ParserGenerator {
 	method writeActions(out:OutputStream) {
 		out.writeLine("    constant _actions := createActions()")
 		out.writeLine("    @class")
-		out.writeLine("    function createActions():ImmutableArray<ImmutableArray<Action?>> {")
+		out.writeLine("    function createActions():ImmutableArray<ImmutableArray<GLRParser.Action?>> {")
 		out.writeLine("        return [")
 		for i in 0 .. actions.count {
 			if i > 0
@@ -534,8 +541,8 @@ class ParserGenerator {
 			while row.count > 0 & row[row.count - 1] = null
 				row.removeIndex(row.count - 1)
 			out.writeLine("    @class")
-			out.writeLine("    function createActions\{i}():ImmutableArray<Action?> {")
-			def actionMap := HashMap<Action, Int>()
+			out.writeLine("    function createActions\{i}():ImmutableArray<GLRParser.Action?> {")
+			def actionMap := HashMap<GLRParser.Action, Int>()
 			for a in row {
 				if a != null & !actionMap.contains(a) {
 					def id := actionMap.count
@@ -624,12 +631,12 @@ class ParserGenerator {
 			var type := p.type
 			if !type.endsWith("?")
 				type += "?"
-			out.writeLine("function \{name}(file:File, text:String):(\{type}," +
-					" ListView<ParseError>) {")
-			out.writeLine("    def parser := Parser(_productionIds, " +
+			out.writeLine("function \{name}(text:String, reference:Object?):(\{type}," +
+					" ListView<GLRParser.ParseError>) {")
+			out.writeLine("    def parser := GLRParser(_productionIds, " +
 					"_actions, _gotos, _errors, self)")
-			out.writeLine("    def result, errors := parser.parse(file, text, " +
-					state + ")")
+			out.writeLine("    def result, errors := parser.parse(text, " +
+					state + ", reference)")
 			out.writeLine("	   return (result->\{type}, errors)")
 			out.writeLine("}")
 		}
@@ -660,7 +667,7 @@ class ParserGenerator {
 	method writeReductions(out:OutputStream) {
 		for (i, p) in productions.enumeration {
 			out.writeLine("    @class")
-			out.writeLine("    method reduce\{i}(file:File, parserState:ParserState):Object {")
+			out.writeLine("    method reduce\{i}(parserState:GLRParser.State):Object {")
 			if p.code != null {
 				assert p.type != null : "no type for \{p}"
 				out.writeLine("def result:\{p.type}")
@@ -698,8 +705,8 @@ class ParserGenerator {
 		}
 		out.writeLine()
 		out.writeLine("    ]")
-		out.writeLine("    method reduce(production:Int, file:File, parserState:ParserState):Object? {")
-		out.writeLine("        return REDUCTIONS[production](file, parserState)")
+		out.writeLine("    method reduce(production:Int, parserState:GLRParser.State):Object? {")
+		out.writeLine("        return REDUCTIONS[production](parserState)")
 		out.writeLine("    }")
 		-- FIXME use switch when that's ready
 -*		out.writeLine("    	   switch production {")
@@ -738,13 +745,18 @@ class ParserGenerator {
 	}
 
 	method writeParser(name:String, out:OutputStream) {
+		out.writeLine("uses panda.parser.*")
 		if !validating {
-			if grammar.code != null 
-				out.writeLine(grammar.code[1 .. grammar.code.length - 1])
+			if grammar.topLevelCode != null {
+				out.writeLine(grammar.topLevelCode[1 .. 
+						grammar.topLevelCode.length - 1])
+			}
 		}
-		else
-			out.writeLine("uses org.pandalanguage.pandac.parser.*")
-		out.writeLine("class \{name} : Immutable (Reducer) {")
+		out.writeLine("class \{name} : Immutable (GLRParser.Reducer) {")
+		if grammar.classCode != null {
+				out.writeLine(grammar.classCode[1 .. 
+						grammar.classCode.length - 1])
+		}
 		out.writeLine("    -- I would love to just be able to include the parse tables as inline")
 		out.writeLine("    -- array literals, but Java complains about too much code in the init")
 		out.writeLine("    -- method when I do so")
@@ -757,15 +769,14 @@ class ParserGenerator {
 		out.writeLine("}")
 	}
 
-	class DummyReducer (Reducer) {
+	class DummyReducer (GLRParser.Reducer) {
 		def pg:ParserGenerator
 
 		init(pg:ParserGenerator) {
 			self.pg := pg
 		}
 
-		method reduce(production:Int, file:File, 
-				parserState:ParserState):Object? {
+		method reduce(production:Int, parserState:GLRParser.State):Object? {
 			for n in pg.productions[production].nodes
 				parserState.state := parserState.state.next
 			return null
@@ -773,21 +784,21 @@ class ParserGenerator {
 	}
 
 	method createErrorTable(errorDescriptions:ListView<ErrorDescription>) {
-		def actionsTmp := Array<ImmutableArray<Action?>>()
+		def actionsTmp := Array<ImmutableArray<GLRParser.Action?>>()
 		for a in actions
-			actionsTmp.add(ImmutableArray<Action?>(a))
-		def finalActions := ImmutableArray<ImmutableArray<Action?>>(actionsTmp)
+			actionsTmp.add(ImmutableArray<GLRParser.Action?>(a))
+		def finalActions := ImmutableArray<ImmutableArray<GLRParser.Action?>>(
+				actionsTmp)
 		def gotosTmp := Array<ImmutableArray<Int?>>()
 		for g in gotos
 			gotosTmp.add(ImmutableArray<Int?>(g))
 		def finalGotos := ImmutableArray<ImmutableArray<Int?>>(gotosTmp)
-		def parser := Parser(ImmutableArray<Int>(productionIds), 
+		def parser := GLRParser(ImmutableArray<Int>(productionIds), 
 				finalActions, finalGotos, DummyReducer(self))
 		for (p, s) in startStates {
 			if p.name = "file_START" {
 				for error in errorDescriptions {
-					def result := parser.partialParse(File("error"), 
-							error.errorState, s)
+					def result := parser.partialParse(error.errorState, s)
 					while errors.count <= result
 						errors.add(null)
 					errors[result] := error.errorText
@@ -809,8 +820,8 @@ class ParserGenerator {
 		def grammarText := grammarPath.readAsString()
 		index += 1        
         def grammarParser := GrammarParser()
-        def grammarResult := grammarParser.file(grammarPath, grammarText)
-        assert grammarResult[1].count = 0 : Parser.getPosition(grammarResult[1][0].offset, grammarText) + ": " + grammarResult[1][0].error
+        def grammarResult := grammarParser.file(grammarText, null)
+        assert grammarResult[1].count = 0 : GLRParser.getPosition(grammarResult[1][0].offset, grammarText) + ": " + grammarResult[1][0].error
 		def grammar := grammarResult[0]->Grammar
 		def gen := ParserGenerator(grammar, validating)
 		gen.createParseTable()
@@ -819,8 +830,8 @@ class ParserGenerator {
 		def errorText := errorPath.readAsString()
 		index += 1
         def errorParser := ErrorParser()
-        def errorResult := errorParser.file(errorPath, errorText)
-        assert errorResult[1].count = 0 : Parser.getPosition(errorResult[1][0].offset, errorText) + ": " + errorResult[1][0].error
+        def errorResult := errorParser.file(errorText, null)
+        assert errorResult[1].count = 0 : GLRParser.getPosition(errorResult[1][0].offset, errorText) + ": " + errorResult[1][0].error
         def errors := errorResult[0]->ListView<ErrorDescription>
         gen.createErrorTable(errors)
 

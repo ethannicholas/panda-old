@@ -1,0 +1,177 @@
+{
+    package panda.util
+
+    class JSON {
+-*        choice Node {
+            INT(Int64),
+            REAL(Real64),
+            STRING(String),
+            BOOLEAN(Bit),
+            OBJECT(Map<String, Node>),
+            ARRAY(Array<Node>)
+        }*-
+
+        @private
+        init() { }
+
+        @class
+        function parse(s:String):Object {
+            def result := JSONParser().file(s, null)
+            if result[1].count > 0
+                throw ParseException(result[1].convert())
+            return result[0]
+        }
+
+        ========================================================================
+        @hidden
+        ========================================================================
+        @class
+        @pre(base >= 2 & base <= 36)
+        function parseInt(s:String, base:UInt):UInt64? {
+            var result:UInt64 := 0
+            constant DIGITS := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            constant DIGITS_LOWER := "0123456789abcdefghijklmnopqrstuvwxyz"
+            for i in 0 .. s.length {
+                var digit := DIGITS.indexOf(s[i])
+                if digit = null {
+                    digit := DIGITS_LOWER.indexOf(s[i])
+                }
+                if digit = null | digit >= base {
+                    return null
+                }
+                result := result * base + digit->(UInt64)
+            }
+            return result
+        }
+    }
+}
+
+@file:Object? = WS node
+    { result := node }
+@node:Object? = object
+    { result := object }
+@node:Object? = array
+    { result := array }
+@node:Object? = string
+    { result := string }
+@node:Object? = number
+    { result := number }
+@node:Object? = object
+    { result := object }
+@node:Object? = boolean
+    { result := boolean }
+@node:Object? = nullLiteral
+    { result := nullLiteral }
+@object:Object = LBRACE optionalEntries RBRACE
+    { result := optionalEntries }
+optionalEntries:HashMap<String, Object?> = entries
+    { result := entries }
+optionalEntries:HashMap<String, Object?> =
+    { result := HashMap<String, Object?>() }
+entries:HashMap<String, Object?> = entries COMMA entry
+    { 
+        result := entries
+        result[entry[0]] := entry[1]
+    }
+entries:HashMap<String, Object?> = entry
+    { 
+        result := HashMap<String, Object?>()
+        result[entry[0]] := entry[1]
+    }
+entry:(String, Object) = string COLON node
+    { result := (string, node) }
+@array:Array<Object?> = LBRACKET optionalNodeList RBRACKET
+    { result := optionalNodeList }
+optionalNodeList:Array<Object?> = nodeList
+    { result := nodeList }
+optionalNodeList:Array<Object?> =
+    { result := [] }
+nodeList:Array<Object?> = nodeList COMMA node
+    {
+        result := nodeList
+        result.add(node)
+    }
+nodeList:Array<Object?> = node
+    { result := [node] }
+
+boolean:Object = 'true' WS
+    { result := true }
+boolean:Object = 'false' WS
+    { result := false }
+
+nullLiteral:Object? = 'null' WS
+    { result := null }
+
+string:String = ["] OPTIONAL_STRING_CHARS ["] WS
+    { result := OPTIONAL_STRING_CHARS.convert() }
+OPTIONAL_STRING_CHARS:MutableString = STRING_CHARS
+    { result := STRING_CHARS }
+OPTIONAL_STRING_CHARS:MutableString =
+    { result := MutableString() }
+STRING_CHARS:MutableString = STRING_CHARS STRING_CHAR
+    { 
+        result := STRING_CHARS
+        result.append(STRING_CHAR)
+    }
+STRING_CHARS:MutableString = STRING_CHAR
+    { result := MutableString(STRING_CHAR) }
+STRING_CHAR:String = char:[^"\\\n\r]
+    { result := char }
+STRING_CHAR:String = ESCAPE
+    { result := ESCAPE }
+ESCAPE:String = '\\n'
+    { result := '\n' }
+ESCAPE:String = '\\r'
+    { result := '\r' }
+ESCAPE:String = '\\t'
+    { result := '\t' }
+ESCAPE:String = '\\b'
+    { result := 7->Char.convert() }
+ESCAPE:String = '\\f'
+    { result := 12->Char.convert() }
+ESCAPE:String = '\\u' h1:hex h2:hex h3:hex h4:hex
+    { result := JSON.parseInt(h1 + h2 + h3 + h4, 16)->Char.convert() }
+hex:String = char:[0-9A-Fa-f]
+    { result := char }
+
+number:Object = DECIMAL_TEXT ![.]
+    { result := DECIMAL_TEXT.convert()->Int } 
+number:Object = MINUS DECIMAL_TEXT ![.]
+    { result := -DECIMAL_TEXT.convert()->Int } 
+number:Object = REAL
+    { result := REAL } 
+number:Object = MINUS REAL
+    { result := -REAL } 
+REAL:Real64 = '.' DECIMAL_TEXT WS
+    { result := ("." + DECIMAL_TEXT).convert() }
+REAL:Real64 = '.' DECIMAL_CHARS EXPONENT WS
+    { result := ("." + DECIMAL_CHARS + EXPONENT).convert() }
+REAL:Real64 = d1:DECIMAL_CHARS '.' d2:DECIMAL_TEXT WS
+    { result := (d1 + "." + d2).convert() }
+REAL:Real64 = DECIMAL_CHARS EXPONENT WS
+    { result := (DECIMAL_CHARS + EXPONENT).convert() }
+REAL:Real64 = d1:DECIMAL_CHARS '.' d2:DECIMAL_CHARS EXPONENT WS
+    { result := (d1 + "." + d2 + EXPONENT).convert() }
+DECIMAL_TEXT:String = DECIMAL_CHARS ![A-Za-z_$0-9]
+    { result := DECIMAL_CHARS }
+DECIMAL_CHARS:String = DECIMAL_CHARS DECIMAL_CHAR
+    { result := DECIMAL_CHARS + DECIMAL_CHAR }
+DECIMAL_CHARS:String = DECIMAL_CHAR
+    { result := DECIMAL_CHAR }
+DECIMAL_CHAR:String = digit:[0-9]
+    { result := digit }
+EXPONENT:String = [eE] DECIMAL_TEXT
+    { result := "e" + DECIMAL_TEXT }
+EXPONENT:String = [eE] sign:[+-] DECIMAL_TEXT
+    { result := "e" + sign + DECIMAL_TEXT }
+
+LBRACE = '{' WS
+RBRACE = '}' WS
+LBRACKET = '[' WS
+RBRACKET = ']' WS
+COMMA = ',' WS
+COLON = ':' WS
+MINUS = '-' WS
+WS = WS WS_CHAR
+WS =
+WS_CHAR = [ \r\n\t]    

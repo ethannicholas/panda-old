@@ -15,7 +15,8 @@ export PANDA_HOME="$TARGET"
 
 CORE_FILES="src/core/panda/panda/core/*.panda\
         src/core/panda/panda/collections/*.panda src/core/panda/panda/threads/*.panda\
-        src/core/panda/panda/io/*.panda src/core/panda/panda/math/*.panda"
+        src/core/panda/panda/io/*.panda src/core/panda/panda/math/*.panda\
+        src/core/panda/panda/parser/*.panda build/shared/JSONParser.panda"
 STATIC_SETTINGS="$SHARED_TARGET/StaticSettings.panda"
 
 echo "Compiling core (native)..."
@@ -43,8 +44,7 @@ echo "Compiling pandac (native)..."
 
 mkdir -p $NATIVE_TARGET/pandac/bin
 $PANDAC -XpreserveTempArtifacts -O -o $NATIVE_TARGET/pandac/bin/pandac `find src/pandac/panda -name "*.panda"` \
-    $STATIC_SETTINGS $SHARED_TARGET/PandaLRParser.panda src/pandac/parser/Action.panda src/pandac/parser/Parser.panda \
-    src/pandac/parser/ParserState.panda src/pandac/parser/Reducer.panda src/pandac/parser/StateNode.panda
+    $STATIC_SETTINGS $SHARED_TARGET/PandaLRParser.panda
 
 PANDAC=$NATIVE_TARGET/pandac/bin/pandac
 
