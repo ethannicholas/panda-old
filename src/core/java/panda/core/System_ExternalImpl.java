@@ -4,14 +4,13 @@ class System_ExternalImpl implements panda.core.System_External {
     @Override
     public panda.core.System$OperatingEnvironmentInfo operatingEnvironment_class_$Rpanda$core$System$OperatingEnvironmentInfo() {
         java.lang.String osName = java.lang.System.getProperty("os.name");
-        panda.core.System$OperatingEnvironmentInfo$Type type = 
-                panda.core.System$OperatingEnvironmentInfo$Type.$JVM;
-        panda.core.System$OperatingEnvironmentInfo$OperatingSystem os;
+        panda.core.System$Type type = panda.core.System$Type.$JVM;
+        panda.core.System$OperatingSystem os;
         if (osName.startsWith("Mac OS"))
-            os = panda.core.System$OperatingEnvironmentInfo$OperatingSystem.$MACOSX;
+            os = panda.core.System$OperatingSystem.$MACOSX;
         else
-            os = panda.core.System$OperatingEnvironmentInfo$OperatingSystem.$LINUX;
-        return panda.core.System$OperatingEnvironmentInfo.createnew$init_panda$core$System$OperatingEnvironmentInfo$Type_panda$core$System$OperatingEnvironmentInfo$OperatingSystem(type, os);
+            os = panda.core.System$OperatingSystem.$LINUX;
+        return panda.core.System$OperatingEnvironmentInfo.createnew$init_panda$core$System$Type_panda$core$System$OperatingSystem(type, os);
     }
 
     @Override

@@ -48,7 +48,6 @@ uses org.pandalanguage.pandac.stubs.Package
 uses org.pandalanguage.pandac.stubs.Symbol
 uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
-uses org.pandalanguage.pandac.tree.AnnotationType
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
@@ -340,7 +339,7 @@ class StubGenerator {
                             implicitType, symbolTable)
                     if m != null {
                         m := MethodStub(m.position, m.name, 
-                                m.annotations + AnnotationType.CLASS,
+                                m.annotations + Annotations.Kind.CLASS,
                                 m.methodType, m.parameters, m.returnType, 
                                 m.body, m.owner)
                         checkMethodSignature(m)
@@ -361,10 +360,8 @@ class StubGenerator {
             }
             if mainStatements.count > 0 {
                 def position := Position(f.path, 0)
-                def classAnnotations := Array<AnnotationType>()
-                classAnnotations.add(AnnotationType.CLASS)
                 def main := MethodStub(position, MethodNode.MAIN_NAME, 
-                        Annotations(position, classAnnotations),
+                        Annotations(position, [Annotations.Kind.CLASS]),
                         MethodNodeType.METHOD, Array<FormalParameter>(), 
                         VoidType.VOID, ASTBlock(Position.INTERNAL, 
                         mainStatements), implicitType)
@@ -430,28 +427,29 @@ class StubGenerator {
 
     method convertAnnotations(position:Position, 
             annotations:ListView<ASTAnnotation>?):Annotations {
-        def result := Array<AnnotationType>()
+        def result := Array<Annotations.Kind>()
         if annotations != null {
             for ann in annotations {
                 if ann-?>ASTSimpleAnnotation {
                     def name := ann->ASTSimpleAnnotation.name
                     switch name {
-                        case "protected": result.add(AnnotationType.PROTECTED)
-                        case "private": result.add(AnnotationType.PRIVATE)
-                        case "abstract": result.add(AnnotationType.ABSTRACT)
-                        case "class": result.add(AnnotationType.CLASS)
-                        case "thread": result.add(AnnotationType.THREAD)
-                        case "external": result.add(AnnotationType.EXTERNAL)
-                        case "final": result.add(AnnotationType.FINAL)
-                        case "override": result.add(AnnotationType.OVERRIDE)
-                        case "readonly": result.add(AnnotationType.READONLY)
-                        case "limited": result.add(AnnotationType.LIMITED)
-                        case "self": result.add(AnnotationType.SELF)
-                        case "safeReturn": result.add(AnnotationType.SAFERETURN)
-                        case "unsafeFunction": result.add(AnnotationType.UNSAFEFUNCTION)
-                        case "synthetic": result.add(AnnotationType.SYNTHETIC)
-                        case "$wrapperMethod": result.add(AnnotationType.WRAPPER_METHOD)
-                        case "math(overflow)": result.add(AnnotationType.OVERFLOW)
+                        case "protected": result.add(Annotations.Kind.PROTECTED)
+                        case "private": result.add(Annotations.Kind.PRIVATE)
+                        case "abstract": result.add(Annotations.Kind.ABSTRACT)
+                        case "class": result.add(Annotations.Kind.CLASS)
+                        case "thread": result.add(Annotations.Kind.THREAD)
+                        case "external": result.add(Annotations.Kind.EXTERNAL)
+                        case "final": result.add(Annotations.Kind.FINAL)
+                        case "override": result.add(Annotations.Kind.OVERRIDE)
+                        case "readonly": result.add(Annotations.Kind.READONLY)
+                        case "limited": result.add(Annotations.Kind.LIMITED)
+                        case "self": result.add(Annotations.Kind.SELF)
+                        case "safeReturn": result.add(Annotations.Kind.SAFERETURN)
+                        case "unsafeFunction": result.add(Annotations.Kind.UNSAFEFUNCTION)
+                        case "synthetic": result.add(Annotations.Kind.SYNTHETIC)
+                        case "unspecialized": result.add(Annotations.Kind.UNSPECIALIZED)
+                        case "$wrapperMethod": result.add(Annotations.Kind.WRAPPER_METHOD)
+                        case "math(overflow)": result.add(Annotations.Kind.OVERFLOW)
                         default:
                             errors.error("unsupported annotation '@\{name}'",
                                     ann.position)
@@ -806,7 +804,7 @@ class StubGenerator {
         def parameters := Array<FormalParameter>()
         var annotations := convertAnnotations(m.position, m.annotations)
         if m.body = null & !isExternal & !annotations.isExternal
-            annotations += AnnotationType.ABSTRACT
+            annotations += Annotations.Kind.ABSTRACT
         for (i, p) in m.parameters.enumeration {
             var type := resolveType(p.type, symbolTable)
             if type != null {
@@ -849,7 +847,7 @@ class StubGenerator {
         def result := Array<FieldNode>()
         var annotations := convertAnnotations(f.position, f.annotations)
         if f.decl.kind = Variable.Kind.CONSTANT
-            annotations += AnnotationType.CLASS
+            annotations += Annotations.Kind.CLASS
         for (i, v) in f.decl.vars.enumeration {
             var type:Type? := null
             if v.type != null
@@ -876,9 +874,9 @@ class StubGenerator {
                     tuplePosition)
             addSymbol(field, field.position, symbolTable.mySymbols, errors)
             if annotations.isThread {
-                def indexAnnotations := Array<AnnotationType>()
-                indexAnnotations.add(AnnotationType.CLASS)
-                indexAnnotations.add(AnnotationType.SYNTHETIC)
+                def indexAnnotations := Array<Annotations.Kind>()
+                indexAnnotations.add(Annotations.Kind.CLASS)
+                indexAnnotations.add(Annotations.Kind.SYNTHETIC)
                 def initializer := ASTCallExpression(ASTDotExpression(
                         ASTIdentifier(f.position, "Panda"), "allocThreadLocal"), 
                         Array<ASTExpression>())
@@ -919,8 +917,8 @@ class StubGenerator {
         }
         if createInit {
             -- FIXME need to use array syntax when it's wired up
-            def classAnnotations := Array<AnnotationType>()
-            classAnnotations.add(AnnotationType.CLASS)
+            def classAnnotations := Array<Annotations.Kind>()
+            classAnnotations.add(Annotations.Kind.CLASS)
             def classInited := FieldNode(position, owner->ClassType, 
                     FieldNode.CLASS_INITED_NAME, Annotations(position, 
                         classAnnotations), 
@@ -1126,9 +1124,9 @@ class StubGenerator {
         }
         var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null
-            annotations += AnnotationType.UNSPECIFIED
+            annotations += Annotations.Kind.UNSPECIFIED
         if cl.isExternal
-            annotations += AnnotationType.EXTERNAL
+            annotations += Annotations.Kind.EXTERNAL
         else {
             def initMethod := createClassInit(cl.position, classType, symbols)
             if initMethod != null {
@@ -1168,8 +1166,8 @@ class StubGenerator {
         statements.add(ASTExpressionStatement(ASTCallExpression(
                 superInit, Array<ASTExpression>())))
         def block := ASTBlock(c.position, statements)
-        def initAnnotations := Array<AnnotationType>()
-        initAnnotations.add(AnnotationType.PRIVATE)
+        def initAnnotations := Array<Annotations.Kind>()
+        initAnnotations.add(Annotations.Kind.PRIVATE)
         return MethodStub(c.position, MethodNode.INIT_NAME, 
                 Annotations(c.position, initAnnotations), 
                 MethodNodeType.INIT, Array<FormalParameter>(), 
@@ -1191,7 +1189,7 @@ class StubGenerator {
         def block := ASTBlock(c.position, statements)
         return MethodStub(c.position, 
                 MethodNode.CONVERT_NAME, 
-                Annotations(c.position, Array<AnnotationType>()), 
+                Annotations(c.position, Array<Annotations.Kind>()), 
                 MethodNodeType.FUNCTION, Array<FormalParameter>(), 
                 IntType.INT32, block, classType)
     }
@@ -1211,7 +1209,7 @@ class StubGenerator {
         def block := ASTBlock(c.position, statements)
         return MethodStub(c.position, 
                 MethodNode.CONVERT_NAME, 
-                Annotations(c.position, Array<AnnotationType>()), 
+                Annotations(c.position, Array<Annotations.Kind>()), 
                 MethodNodeType.FUNCTION, Array<FormalParameter>(), 
                 ClassType.STRING, block, classType)
     }
@@ -1229,8 +1227,8 @@ class StubGenerator {
                 ASTIdentifier(c.position, "value"), cases,
                 ASTUnreachable(c.position, null)))
         def block := ASTBlock(c.position, statements)
-        def cvtAnnotations := Array<AnnotationType>()
-        cvtAnnotations.add(AnnotationType.CLASS)
+        def cvtAnnotations := Array<Annotations.Kind>()
+        cvtAnnotations.add(Annotations.Kind.CLASS)
         def convertParameters := Array<FormalParameter>()
         convertParameters.add(FormalParameter(c.position, "value", 
                 IntType.INT32, false, false))
@@ -1253,8 +1251,8 @@ class StubGenerator {
                 ASTIdentifier(c.position, "value"), cases,
                 ASTUnreachable(c.position, null)))
         def block := ASTBlock(c.position, statements)
-        def cvtAnnotations := Array<AnnotationType>()
-        cvtAnnotations.add(AnnotationType.CLASS)
+        def cvtAnnotations := Array<Annotations.Kind>()
+        cvtAnnotations.add(Annotations.Kind.CLASS)
         def convertParameters := Array<FormalParameter>()
         convertParameters.add(FormalParameter(c.position, "value", 
                 ClassType.STRING, false, false))
@@ -1278,8 +1276,8 @@ class StubGenerator {
         def classType := resolveType(ASTClassType(c.position, className, 
                 null, false), symbolTable)->ClassType
         def symbols := SymbolTable(masterSymbolTable)
-        def fieldAnnotations := Array<AnnotationType>()
-        fieldAnnotations.add(AnnotationType.CLASS)
+        def fieldAnnotations := Array<Annotations.Kind>()
+        fieldAnnotations.add(Annotations.Kind.CLASS)
         for v in c.values {
             def initialValue := ASTNew(v.position, 
                     ASTClassType(c.position, className, null, false),
