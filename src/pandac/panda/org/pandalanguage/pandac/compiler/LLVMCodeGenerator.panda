@@ -58,7 +58,6 @@ uses org.pandalanguage.pandac.tree.Super
 uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
 uses org.pandalanguage.pandac.tree.UnaryOperation
-uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.Unreachable
 uses org.pandalanguage.pandac.tree.Unwrap
 uses org.pandalanguage.pandac.tree.Value
@@ -901,7 +900,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def typeString := getLLVMType(value.type)
         def left := getTypedReference(value.left)
         def right := getTypedReference(value.right)
-        body.writeLine("declare {\{typeString}, i1} @llvm.\{op}.with.overflow.i64(\{typeString} %a, \{typeString} %b)")
+        declarations.add("declare {\{typeString}, i1} @llvm.\{op}.with.overflow.\{typeString}(\{typeString} %a, \{typeString} %b)")
 
         def result := createCommandReference("call { " + typeString + 
                 ", i1 } @llvm." + op + ".with.overflow." + typeString + "(" + 
@@ -971,7 +970,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 iv.convert())
     }
     
-    @pre(and.operation = BinaryOperationType.AND)
+    @pre(and.kind = BinaryOperationType.AND)
     method createAndReference(and:BinaryOperation):String {
         def left := getReference(and.left)
         assert left != null : "expected non-null left in createAndReference"
@@ -994,7 +993,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         return result
     }
     
-    @pre(or.operation = BinaryOperationType.OR)
+    @pre(or.kind = BinaryOperationType.OR)
     method createOrReference(or:BinaryOperation):String {
         def left := getReference(or.left)
         assert left != null : "expected non-null left in createOrReference"
@@ -1018,8 +1017,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method createUnaryOperationReference(u:UnaryOperation):String {
-        switch u.operation {
-            case UnaryOperationType.MINUS: {
+        switch u.kind {
+            case UnaryOperation.Kind.MINUS: {
                 var op:String
                 var zero:Value
                 if u.type.isReal {
@@ -1037,11 +1036,11 @@ class LLVMCodeGenerator (CodeGenerator) {
                 return createCommandReference(op + " " + getLLVMType(u.type) + 
                         " " + zeroRef + ", " + valueRef, "unary minus")
             }
-            case UnaryOperationType.NOT: {
+            case UnaryOperation.Kind.NOT: {
                 return createCommandReference("xor " + 
                         getTypedReference(u.operand) + ", 1", "not")
             }
-            case UnaryOperationType.BITWISE_NOT: {
+            case UnaryOperation.Kind.BITWISE_NOT: {
                 return createCommandReference("xor " + 
                         getTypedReference(u.operand) + ", -1", "bitwise not")
             }
@@ -1172,7 +1171,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createBinaryOperationReference(b:BinaryOperation):String {
-        switch b.operation {
+        switch b.kind {
             case BinaryOperationType.ADD: 
                 return createBinaryOperationReference(b, "add", "fadd")
             case BinaryOperationType.SUBTRACT:
@@ -1236,7 +1235,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             case BinaryOperationType.NOT_IDENTITY:
                 return createBinaryOperationReference(b, "icmp ne")
             default: {
-                Console.writeLine("no support for binary operation \{b.operation}")
+                Console.writeLine("no support for binary operation \{b.kind}")
                 unreachable
             }
         }
@@ -1416,38 +1415,36 @@ class LLVMCodeGenerator (CodeGenerator) {
                     "expected actualType to not be primitive"
             assert !destType.isPrimitive :
                     "expected destType to not be primitive"
-            def checkCast := !c.safe & context.compilerSettings.checkCasts
-            if checkCast {
--*                -- verify the cast. Use a dummy for the first 
-                -- parameter just to get the type right.
-                def params := PrimitiveArray<Value>(Dummy(actualType), 
-                        ClassLiteral(destType.unwrapNullable()), 
-                        BitLiteral(destType.isNullable))
-                def panda := ClassType.PANDA().classNode
-                def check := panda.symbolTable.getMethod(c.position,
-                        "checkCast", params, true)
+            if !c.safe & context.compilerSettings.checkCasts {
+                def params := [Dummy(c.position, actualType), 
+                        ClassLiteral(c.position, destType.unwrapNullable), 
+                        BitLiteral(c.position, destType.isNullable)]
+                def check := context.getMethod(
+                        ClassLiteral(c.position, ClassType.PANDA),
+                        "checkCast", params, VoidType.VOID)
                 assert check != null : "expected check to be non-null"
+                program.liveMethods.add(check)
                 for i in 1 .. params.count
                     getTypedReference(params[i])
                 var intermediate := tempResult
-                if actualType != ClassType.OBJECT() {
+                if actualType != ClassType.OBJECT {
                     intermediate := getTempVariable()
                     writeBody(intermediate + " = bitcast " + 
                             getLLVMType(actualType) + " " + tempResult + 
-                            " to " + getLLVMType(ClassType.OBJECT()),
-                            c.value + " -> " + ClassType.OBJECT().name)
+                            " to " + getLLVMType(ClassType.OBJECT),
+                            c.value + " -> " + ClassType.OBJECT.name)
                 }
-                var callString := ("fastcc void @" + getName(check) + 
-                        "(").convert()->MutableString
-                callString.append(getLLVMType(ClassType.OBJECT()) + " " + 
+                var callString := MutableString("fastcc void @" + 
+                        getName(check) + "(")
+                callString.append(getLLVMType(ClassType.OBJECT) + " " + 
                         intermediate)
-                for i in 1 ... params.count - 1 {
+                for i in 1 .. params.count {
                     callString.append(", ")
                     callString.append(getTypedReference(params[i]))
                 }
                 callString.append(")")
                 call(callString.convert(), null, "check cast " + c + ":" + 
-                        c.position)*-
+                        c.position)
             }
             def actualLLVMType := getLLVMType(actualType)
             def destLLVMType := getLLVMType(destType)
@@ -1565,8 +1562,9 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createClosureReference(c:Closure):String {
-        return createCastReference(Cast(c.position, c.instance, c.type, 
-                CastType.IMPLICIT))
+        def cast := Cast(c.position, c.instance, c.type, CastType.IMPLICIT)
+        cast.safe := true
+        return createCastReference(cast)
     }
 
     @protected

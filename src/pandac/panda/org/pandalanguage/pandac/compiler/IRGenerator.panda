@@ -111,7 +111,6 @@ uses org.pandalanguage.pandac.tree.Super
 uses org.pandalanguage.pandac.tree.Throw
 uses org.pandalanguage.pandac.tree.Try
 uses org.pandalanguage.pandac.tree.UnaryOperation
-uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.tree.Unreachable
 uses org.pandalanguage.pandac.tree.UnresolvedArray
 uses org.pandalanguage.pandac.tree.UnresolvedClassLiteral
@@ -518,7 +517,7 @@ class IRGenerator {
         var operand := resolve(u.expression)
         if operand = null
             return null
-        if u.operation = UnaryOperationType.MINUS & operand-?>IntegerLiteral {
+        if u.kind = UnaryOperation.Kind.MINUS & operand-?>IntegerLiteral {
             def i := operand->IntegerLiteral
             switch i.value {
                 case 128: operand := IntegerLiteral(i.position, i.value, 
@@ -531,35 +530,44 @@ class IRGenerator {
                         i.position, i.value, IntType.INT64)
             }
         }
-        if u.operation = UnaryOperationType.MINUS & operand-?>RealLiteral {
+        if u.kind = UnaryOperation.Kind.MINUS & operand-?>RealLiteral {
             def r := operand->RealLiteral
             return RealLiteral(r.position, -r.value)
         }
         def operator:String
-        switch u.operation {
-            case UnaryOperationType.MINUS: {
+        switch u.kind {
+            case UnaryOperation.Kind.MINUS: {
                 operator := "-"
                 if operand.type.isPrimitive | operand.type.isWrapper {
                     def type := operand.type.convert()->PrimitiveType
                     if type.isNumber {
-                        return UnaryOperation(u.position, u.operation, 
+                        return UnaryOperation(u.position, u.kind, 
                                 operand.implicitCast(context, type))
                     }
                 }
             }
-            case UnaryOperationType.NOT: {
-                return UnaryOperation(u.position, u.operation, 
+            case UnaryOperation.Kind.NOT: {
+                return UnaryOperation(u.position, u.kind, 
                                 operand.implicitCast(context, BitType.BIT))
             }
-            case UnaryOperationType.BITWISE_NOT: {
+            case UnaryOperation.Kind.BITWISE_NOT: {
                 operator := "!!"
                 if operand.type.isPrimitive | operand.type.isWrapper {
                     def type := operand.type.convert()->PrimitiveType
                     if type.isInteger {
-                        return UnaryOperation(u.position, u.operation, 
+                        return UnaryOperation(u.position, u.kind, 
                                 operand.implicitCast(context, type))
                     }
                 }
+            }
+            case UnaryOperation.Kind.FORCE_NON_NULLABLE: {
+                if operand.type.isNullable {
+                    return operand.implicitCast(u.position, context,
+                            operand.type.unwrapNullable)
+                }
+                context.errors.error("postfix '!' expected a nullable type, " +
+                        "but found '\{operand.type.displayName}'", u.position)
+                return operand
             }
             default: unreachable
         }
@@ -575,7 +583,7 @@ class IRGenerator {
         def right := resolve(b.right)
         if right = null
             return null
-        return getBinaryValue(b.position, left, b.operation, right)
+        return getBinaryValue(b.position, left, b.kind, right)
     }
 
     method convertInstanceOf(position:Position, var object:Value, 
@@ -646,7 +654,7 @@ class IRGenerator {
             return null
         def right, extras := rightMatch
         var result:Value
-        switch a.operation {
+        switch a.kind {
             case ASTArrowExpression.Kind.CAST:
                 result := left.explicitCast(a.position, context, right)
             case ASTArrowExpression.Kind.INSTANCE_OF:
@@ -655,7 +663,7 @@ class IRGenerator {
                 def instanceOf := convertInstanceOf(a.position, left, right)
                 if instanceOf = null
                     return null
-                result := UnaryOperation(a.position, UnaryOperationType.NOT,
+                result := UnaryOperation(a.position, UnaryOperation.Kind.NOT,
                         instanceOf)
             }
             default:
@@ -1430,7 +1438,7 @@ class IRGenerator {
             return RealLiteral(Position.INTERNAL, i, t->RealType)
         if i < 0 {
             return UnaryOperation(Position.INTERNAL, 
-                    UnaryOperationType.MINUS,
+                    UnaryOperation.Kind.MINUS,
                     IntegerLiteral(Position.INTERNAL, i.abs->UInt64, 
                     t->IntType))
         }        
@@ -1633,7 +1641,7 @@ class IRGenerator {
                 getConvertCast(end.createReference(), unsigned))
         def breakRightRight := BinaryOperation(f.position, 
                 breakLeftRightType, rightSub, UnaryOperation(f.position,
-                    UnaryOperationType.MINUS, getConvertCast(
+                    UnaryOperation.Kind.MINUS, getConvertCast(
                     step.createReference(), unsigned)))
         def breakRight := BinaryOperation(f.position, 
                 BinaryOperationType.AND, breakRightLeft, breakRightRight)
@@ -1776,7 +1784,7 @@ class IRGenerator {
         }
         else if step-?>UnaryOperation {
             def u := step->UnaryOperation
-            if u.operation = UnaryOperationType.MINUS & 
+            if u.kind = UnaryOperation.Kind.MINUS & 
                     u.operand-?>IntegerLiteral {
                 return convertRangeForConstantStep(f, loopVar, 
                         range.left->Value, range.right->Value, 
@@ -2160,7 +2168,7 @@ class IRGenerator {
         v := unwrapCast(v)
         if v-?>BinaryOperation {
             def b := v->BinaryOperation
-            return (b.left, b.operation, b.right)
+            return (b.left, b.kind, b.right)
         }
         assert v-?>MethodCall : "expected MethodCall at \{v.position}, but found \{v}:\{v.class.name}"
         def m := v->MethodCall
@@ -2947,8 +2955,9 @@ class IRGenerator {
             context.symbolTable.add(p)
         }
         if isClosureMethod(m) {
-            context.symbolTable.add(Parameter.SELF_NAME, 
-                    context.symbolTable["$self"])
+            def selfParam := context.symbolTable["$self"]
+            if selfParam != null
+                context.symbolTable.add(Parameter.SELF_NAME, selfParam)
         }
         if !m.annotations.isClass {
             def selfType:Type

@@ -73,7 +73,7 @@
     uses org.pandalanguage.pandac.tree.MethodNode
     uses org.pandalanguage.pandac.tree.MethodNodeType
     uses org.pandalanguage.pandac.tree.Position
-    uses org.pandalanguage.pandac.tree.UnaryOperationType
+    uses org.pandalanguage.pandac.tree.UnaryOperation
     uses org.pandalanguage.pandac.tree.Variable
 
     class FormatField {
@@ -755,7 +755,7 @@ unreachableStatement:ASTUnreachable = UNREACHABLE COLON expression
         optionalQuestion
     { 
         result := ASTMethodType(Position(parserState.reference->File, parserState.position), optionalTypeList, 
-                methodReturnType, true, true, false) 
+                methodReturnType, optionalQuestion, true, false) 
     }
 @type:ASTType = LPAREN optionalTypeList RPAREN YIELDS_METHOD methodReturnType 
         optionalQuestion
@@ -934,73 +934,82 @@ additiveExpression:ASTExpression = additiveExpression BITWISEOR
                 additiveExpression, multiplicativeExpression) 
     }
 
-multiplicativeExpression:ASTExpression = unaryExpression
-    { result := unaryExpression }
+multiplicativeExpression:ASTExpression = preExpression
+    { result := preExpression }
 multiplicativeExpression:ASTExpression = multiplicativeExpression MUL
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.MULTIPLY, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression DIV
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.DIVIDE, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression INTDIV
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.INT_DIVIDE, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression REM
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.REMAINDER, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression SHIFTLEFT
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.SHIFT_LEFT, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression SHIFTRIGHT
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.SHIFT_RIGHT, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression BITWISEAND
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.BITWISE_AND, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 multiplicativeExpression:ASTExpression = multiplicativeExpression BITWISEXOR
-        unaryExpression
+        preExpression
     { 
         result := ASTBinaryExpression(BinaryOperationType.BITWISE_XOR, 
-                multiplicativeExpression, unaryExpression) 
+                multiplicativeExpression, preExpression) 
     }
 
-unaryExpression:ASTExpression = exponentExpression
+preExpression:ASTExpression = postExpression
+    { result := postExpression }
+preExpression:ASTExpression = SUB postExpression
+    { 
+        result := ASTUnaryExpression(Position(parserState.reference->File, parserState.position), 
+                UnaryOperation.Kind.MINUS, postExpression) 
+    }
+preExpression:ASTExpression = NOT postExpression
+    { 
+        result := ASTUnaryExpression(Position(parserState.reference->File, parserState.position), UnaryOperation.Kind.NOT,
+                postExpression) 
+    }
+preExpression:ASTExpression = BITWISENOT postExpression
+    { 
+        result := ASTUnaryExpression(Position(parserState.reference->File, parserState.position), 
+                UnaryOperation.Kind.BITWISE_NOT, postExpression) 
+    }
+
+postExpression:ASTExpression = exponentExpression
     { result := exponentExpression }
-unaryExpression:ASTExpression = SUB exponentExpression
+postExpression:ASTExpression = exponentExpression NOT
     { 
-        result := ASTUnaryExpression(Position(parserState.reference->File, parserState.position), 
-                UnaryOperationType.MINUS, exponentExpression) 
-    }
-unaryExpression:ASTExpression = NOT exponentExpression
-    { 
-        result := ASTUnaryExpression(Position(parserState.reference->File, parserState.position), UnaryOperationType.NOT,
-                exponentExpression) 
-    }
-unaryExpression:ASTExpression = BITWISENOT exponentExpression
-    { 
-        result := ASTUnaryExpression(Position(parserState.reference->File, parserState.position), 
-                UnaryOperationType.BITWISE_NOT, exponentExpression) 
+        result := ASTUnaryExpression(Position(parserState.reference->File, 
+                parserState.position), UnaryOperation.Kind.FORCE_NON_NULLABLE, 
+                exponentExpression)
     }
 
 exponentExpression:ASTExpression = callExpression
@@ -1629,7 +1638,8 @@ LTEQ = '<=' WS
 GTEQ = '>=' WS
 IDENTITY = '==' WS
 NIDENTITY = '!==' WS
-NOT = '!' WS
+NOT_TEXT = '!' ![=]
+NOT = NOT_TEXT WS
 BITWISENOT = '!!' WS
 ASSIGNMENT = ':=' WS
 ADDEQ = '+=' WS 

@@ -1,25 +1,24 @@
 package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
-uses org.pandalanguage.pandac.tree.UnaryOperationType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.Type
 
-choice UnaryOperationType {
-    MINUS,
-    NOT,
-    BITWISE_NOT
-}
-
 class UnaryOperation : Value {
-    def operation:UnaryOperationType
+    choice Kind {
+        MINUS,
+        NOT,
+        BITWISE_NOT,
+        FORCE_NON_NULLABLE
+    }
+
+    def kind:Kind
 
     def operand:Value
 
-    init(position:Position, operation:UnaryOperationType, 
-            operand:Value) {
+    init(position:Position, kind:Kind, operand:Value) {
         super.init(position, operand.type)
-        self.operation := operation
+        self.kind := kind
         self.operand := operand
     }
 
@@ -27,11 +26,11 @@ class UnaryOperation : Value {
     method implicitCast(position:Position, context:Context, t:Type):Value {
         if type = t
             return self
-        if operation = UnaryOperationType.MINUS & 
-                (t.unwrapNullable.isPrimitive | t.unwrapNullable.isWrapper) {
+        if kind = Kind.MINUS & (t.unwrapNullable.isPrimitive | 
+                t.unwrapNullable.isWrapper) {
             def prim := t.convert()->PrimitiveType
             if operand.canImplicitCastTo(context, prim) {
-                var result:Value := UnaryOperation(position, operation, 
+                var result:Value := UnaryOperation(position, kind, 
                         operand.implicitCast(position, context, prim))
                 if t.isWrapper
                     result := result.wrapped(context, t, false)
@@ -54,10 +53,11 @@ class UnaryOperation : Value {
 
     @override
     function convert():String {
-        switch operation {
-            case UnaryOperationType.MINUS:       return "-\{operand}"
-            case UnaryOperationType.NOT:         return "!\{operand}"
-            case UnaryOperationType.BITWISE_NOT: return "!!\{operand}"
+        switch kind {
+            case Kind.MINUS:              return "-\{operand}"
+            case Kind.NOT:                return "!\{operand}"
+            case Kind.BITWISE_NOT:        return "!!\{operand}"
+            case Kind.FORCE_NON_NULLABLE: return "\{operand}!"
             default: unreachable
         }
     }

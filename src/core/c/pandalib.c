@@ -456,6 +456,9 @@ panda$core$Object* panda$core$Object$copy(panda$core$Object* src) {
 Bit instanceOf(Class* srcClass, Class* testClass) {
     if (srcClass == testClass)
         return TRUE;
+    if (srcClass == &panda$core$Method_class && 
+            testClass == &panda$core$MutableMethod_class)
+        return TRUE;
     Class* super = srcClass->superclass;
     if (super == srcClass)
         printf("error: %s\n", pandaGetString(srcClass->name));
