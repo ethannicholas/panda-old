@@ -192,22 +192,31 @@ class IRGenerator {
     }
 
     @private
-    method createFieldReference(position:Position, var contextValue:Value, 
+    method createFieldReference(position:Position, rawContextValue:Value, 
             f:FieldNode):Value {
         inferFieldType(f)
+        def contextValue:Value
         if !f.annotations.isClass & !f.annotations.isThread {
-            if !contextValue.canImplicitCastTo(context, f.owner) {
+            if !rawContextValue.canImplicitCastTo(context, f.owner) {
                 context.errors.error("cannot reference instance field " +
                         "'\{f.name}' belonging to class " +
                         "'\{f.owner.displayName}' from an instance of " +
-                        "'\{contextValue.type.displayName}'", position)
+                        "'\{rawContextValue.type.displayName}'", position)
                 return Dummy(position, f.type)
             }
-            contextValue := contextValue.implicitCast(context, f.owner)
+            contextValue := rawContextValue.implicitCast(context, f.owner)
         }
+        else
+            contextValue := rawContextValue
         if f.kind = Variable.Kind.PROPERTY
             return PropertyGet(context, position, contextValue, f)
-        def result := FieldReference(position, contextValue, f)
+        var result:Value := FieldReference(position, contextValue, f)
+        if rawContextValue.type.unwrapNullable-?>GenericType {
+            def g := rawContextValue.type.unwrapNullable->GenericType
+            if context.getStub(g).annotations.isUnspecialized {
+                result := result.explicitCast(context, f.type.unwrapGenerics)
+            }
+        }
         return result
     }
 
@@ -292,7 +301,7 @@ class IRGenerator {
             }
             def methods := Array<MethodStub>()
             for m in u.methods {
-                if context.matchCost(finalTarget, m, parameters, null) != null
+                if context.matchCost(target, m, parameters, null) != null
                     methods.add(m)
             }
             if methods.count <= 1 {
@@ -653,7 +662,7 @@ class IRGenerator {
         if rightMatch = null
             return null
         def right, extras := rightMatch
-        var result:Value
+        var result:Value?
         switch a.kind {
             case ASTArrowExpression.Kind.CAST:
                 result := left.explicitCast(a.position, context, right)
@@ -669,6 +678,8 @@ class IRGenerator {
             default:
                 unreachable
         }
+        if result = null
+            return null
         for e in extras {
             result := getMember(result.position, result, e)
             if result = null
@@ -970,7 +981,7 @@ class IRGenerator {
         def call := context.call(n.position, ClassLiteral(n.position, type), 
                 inits->Methods.methods, parameters)
         if call != null
-            return Construct(call->MethodCall)
+            return Construct(call->MethodCall, type)
         else
             return null
     }
@@ -1864,9 +1875,12 @@ class IRGenerator {
         if list = null
             return null
         if list-?>UnresolvedRange {
-            def result := convertRangeFor(f, list->UnresolvedRange)
-            context.popSymbolTable()
-            return result
+            def range := list->UnresolvedRange
+            if range.left != null & range.right != null {
+                def result := convertRangeFor(f, list->UnresolvedRange)
+                context.popSymbolTable()
+                return result
+            }
         }
         list := resolve(list)
         if list = null
@@ -2797,9 +2811,8 @@ class IRGenerator {
                     ASTIdentifier(position, field.name)))
         }
         def stub := MethodStub(position, MethodNode.INIT_NAME, 
-                Annotations(position), MethodNodeType.INIT, 
-                parameters, VoidType.VOID, ASTBlock(position, body), 
-                owner)
+                Annotations(position), MethodNodeType.INIT, parameters, null, 
+                VoidType.VOID, ASTBlock(position, body), owner)
         return (stub, fields)
     }
 
@@ -2827,7 +2840,7 @@ class IRGenerator {
         else
             returnType := VoidType.VOID
         def stub := MethodStub(m.position, MethodNode.CLOSURE_NAME, 
-                Annotations(m.position), m.methodType, formalParameters, 
+                Annotations(m.position), m.methodType, formalParameters, null,
                 returnType, m.body, closureType)
         context.currentMethod := stub
         context.pushSymbolTable()
@@ -2941,6 +2954,7 @@ class IRGenerator {
     }
 
     method convertMethod(m:MethodStub):MethodNode {
+        assert context.getSymbolTable(context.currentClass)["self"] = null
         if m.name = MethodNode.MAIN_NAME | (context.compilerSettings.isLibrary &
                 !m.annotations.isPrivate)
             context.liveMethods.add(m)
@@ -3154,12 +3168,14 @@ class IRGenerator {
         currentlyInferring.add(f)
         def old := context.currentClass
         pushSymbols(context.getStub(f.owner))
+        context.pushSymbolTable()
         if !f.annotations.isClass & !f.annotations.isThread {
             def selfParam := Parameter(f.position, Parameter.SELF_NAME,
                     f.owner, false, false, context.currentMethod)
             context.symbolTable.add(selfParam)
         }
         def expr := convertExpression(f.initialValue->ASTExpression)
+        context.popSymbolTable()
         context.popSymbolTable()
         context.currentClass := old
         if expr != null {
@@ -3294,7 +3310,7 @@ class IRGenerator {
                 def m := MethodStub(f.position, 
                         name, Annotations(f.position, [Annotations.Kind.CLASS,
                             Annotations.Kind.SYNTHETIC]),
-                        MethodNodeType.METHOD, Array<FormalParameter>(), 
+                        MethodNodeType.METHOD, Array<FormalParameter>(), null,
                         f.type, ASTBlock(f.position, body), f.owner)
                 StubGenerator.addSymbol(m, cl.symbols, context.errors)
             }

@@ -44,6 +44,7 @@ uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.NullType
+uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.StringOrCharType
@@ -109,7 +110,7 @@ class Context {
         classAnnotation.add(Annotations.Kind.CLASS)
         self.currentMethod := MethodStub(Position.INTERNAL, "<dummy>",
                 Annotations(Position.INTERNAL, classAnnotation),
-                MethodNodeType.METHOD, Array<FormalParameter>(), 
+                MethodNodeType.METHOD, Array<FormalParameter>(), null,
                 VoidType.VOID, null, ClassType.OBJECT)
         symbolTableStack.push(stubGenerator.masterSymbolTable)
         -- force IMMUTABLE_CHAR_ARRAY to have a stub so that String constants
@@ -192,6 +193,8 @@ class Context {
         else if type-?>GenericType {
             def generic := type->GenericType
             def baseStub := getStub(generic.base.name)
+            if baseStub.annotations.isUnspecialized
+                return baseStub
             def parameterStubs := Array<ClassStub?>()
             for p in generic.parameters {
                 if p-!>PrimitiveType & p-!>GenericParameterType
@@ -264,12 +267,9 @@ class Context {
     @private
     constant VARARG_COST := 1
 
-    function matchCost(target:Value, m:MethodStub, 
+    function matchCost(m:MethodType, var isVarArg:Bit,
             var params:ListView<Value>, returnType:Type?):Int? {
         var result := 0
-        var methodParams:ListView<FormalParameter> := m.parameters
-        var isVarArg := methodParams.count > 0 & 
-                methodParams[methodParams.count - 1].isVarArg
         if isVarArg
             result += VARARG_COST
         if params.count > 0 & params[params.count - 1]-?>Unwrap {
@@ -279,7 +279,7 @@ class Context {
             isVarArg := false
             -- ...but we do need to handle primitive arrays for legacy code
             -- right now
-            def lastType := m.parameters[m.parameters.count - 1].type
+            def lastType := m.methodParameters[m.methodParameters.count - 1]
             if lastType-?>PrimitiveArrayType {
                 def newParams := Array<Value>()
                 newParams.addAll(params[0 .. params.count - 1])
@@ -288,18 +288,20 @@ class Context {
                 params := newParams
             }
         }
+        def methodParams:ListView<Type>
         if isVarArg {
             -- strip off vararg parameter, it's not required
-            methodParams := m.parameters[..m.parameters.count - 1]
+            methodParams := m.methodParameters[..m.methodParameters.count - 1]
         }
+        else
+            methodParams := m.methodParameters
         -- do we have the right number of parameters?
         if !isVarArg & params.count != methodParams.count | 
                 isVarArg & params.count < methodParams.count
             return null
 
         for (i, param) in methodParams.enumeration {
-            def targetType := param.type
-            def cost := params[i].implicitCastCost(self, targetType)
+            def cost := params[i].implicitCastCost(self, param)
             if cost = null
                 return null
             else
@@ -308,8 +310,8 @@ class Context {
         
         if isVarArg {
             -- verify that all remaining parameters match the vararg
-            def varArg := m.parameters[m.parameters.count - 1]
-            def varArgType := varArg.type->GenericType.parameters[0]
+            def varArg := m.methodParameters[m.methodParameters.count - 1]
+            def varArgType := varArg->GenericType.parameters[0]
             for i in methodParams.count .. params.count {
                 def cost := params[i].implicitCastCost(self, varArgType)
                 if cost = null
@@ -327,6 +329,19 @@ class Context {
                 result += cost
         }
         return result
+    }
+
+    function matchCost(target:Value, m:MethodStub, var params:ListView<Value>, 
+            returnType:Type?):Int? {
+        var methodParams:ListView<FormalParameter> := m.parameters
+        var isVarArg := methodParams.count > 0 & 
+                methodParams[methodParams.count - 1].isVarArg
+        def type:MethodType
+        if m.genericParameters != null
+            type := m.type(self, getGenericTypes(target, m, params, returnType))
+        else
+            type := m.type(self)
+        return matchCost(type, isVarArg, params, returnType)
     }
 
     method getSymbolTable(cl:ClassStub):SymbolTable {
@@ -531,6 +546,107 @@ class Context {
     }
 
     @private
+    class Constraint {
+        def atLeast:Type?
+        def atMost:Type?
+
+        @override
+        function convert():String {
+            function format(t:Type?):String {
+                if t = null
+                    return "<null>"
+                return t.convert()
+            }
+            return "Constraint<\{format(atLeast)}, \{format(atMost)}>"
+        }        
+    }
+
+    @private
+    method updateConstraints(parameterType:Type, var valueType:Type,
+            constraints:Map<String, Constraint>):Bit {
+        valueType := valueType.unwrapNullable
+        if parameterType-?>GenericParameterType {
+            def g := parameterType->GenericParameterType
+            var result := constraints[g.name]
+            if result = null {
+                result := Constraint()
+                constraints[g.name] := result
+            }
+            if result.atMost != null
+                result.atMost := Type.union(self, result.atMost, valueType)
+            else
+                result.atMost := valueType
+        }
+        else if parameterType-?>MethodType {
+            def m1 := parameterType->MethodType
+            if valueType-!>MethodType
+                return false
+            def m2 := valueType->MethodType
+            if m1.methodParameters.count != m2.methodParameters.count
+                return false
+            for (i, t) in m1.methodParameters.enumeration
+                updateConstraints(t, m2.methodParameters[i], constraints)
+            updateConstraints(m1.returnType, m2.returnType, constraints)
+        }
+        return true
+    }
+
+    @private
+    method updateConstraints(var type:Type, value:Value, 
+            constraints:Map<String, Constraint>):Bit {
+        def resolved := irGenerator.resolve(value)
+        if resolved = null
+            return false
+        return updateConstraints(type.unwrapNullable, resolved.type, 
+                constraints)
+    }
+
+    @private
+    @pre(m.genericParameters != null)
+    method getGenericConstraints(owner:Type, m:MethodStub, 
+            params:ListView<Value>,
+            expectedReturn:Type?):Map<String, Constraint> {
+        def constraints := HashMap<String, Constraint>()
+        if owner-?>GenericType {
+            def stub := getStub(owner->GenericType.base)
+            def raw := stub.genericParameters
+            for (i, p) in owner->GenericType.parameters.enumeration {
+                def c := Constraint()
+                c.atLeast := p
+                c.atMost := p
+                constraints[m.owner.name + "." + raw[i][0]] := c
+            }
+        }
+        for (i, p) in m.parameters.enumeration
+            updateConstraints(p.type, params[i], constraints)
+        return constraints
+    }
+
+    @private
+    @pre(m.genericParameters != null)
+    method getGenericTypes(target:Value, m:MethodStub, params:ListView<Value>,
+            expectedReturn:Type?):ListView<Type> {
+        def owner:ClassType
+        if target-?>ClassLiteral
+            owner := target->ClassLiteral.value
+        else
+            owner := target.type.convert()->ClassType
+        def constraints := getGenericConstraints(owner, m, params, 
+                expectedReturn)
+        def result := Array<Type>()
+        for g in m.genericParameters {
+            def constraint := constraints[m.owner.name + "." + g[0]]
+            if constraint != null
+                result.add(constraint.atLeast)
+            else {
+                errors.error("no constraints on \{g}", m.position)
+                result.add(NullableType.ANY)
+            }
+        }
+        return result
+    }
+
+    @private
     method getMethodNotFoundMessage(target:Value, methodName:String, 
             params:ListView<Value>):String {
         def msg := MutableString("no match found for method ")
@@ -609,6 +725,11 @@ class Context {
             -- override)
             return Cast(position, target, m.returnType, CastType.CONVERT)
         }
+        def type:MethodType
+        if m.genericParameters != null
+            type := m.type(self, getGenericTypes(target, m, params, null))
+        else
+            type := m.type(self)
         def finalTarget := getEffectiveTarget(m, target)
         if finalTarget != null 
             target := finalTarget
@@ -631,9 +752,9 @@ class Context {
                     position)
             return null
         }
-        def methodParams := m.parameters
-        var isVarArg := methodParams.count > 0 &
-                methodParams[methodParams.count - 1].isVarArg
+        def rawParams := m.parameters
+        var isVarArg := rawParams.count > 0 & 
+                rawParams[rawParams.count - 1].isVarArg
         if params.count > 0 {
             def last := params[params.count - 1]
             if last-?>UnresolvedRange {
@@ -666,20 +787,23 @@ class Context {
             isVarArg := false
         def count:Int
         if isVarArg
-            count := methodParams.count - 1
+            count := rawParams.count - 1
         else
-            count := methodParams.count
+            count := rawParams.count
         def finalParams := Array<Value>()
         if params.count < count | (params.count > count & !isVarArg) {
             errors.error("\{m} requires \{count} parameters, but found " +
                     params.count, position)
             return null
         }
+        def actualParams := m.type(self).methodParameters
+        def effectiveParams := type.methodParameters
         for i in 0 .. count {
-            def targetType := m.parameters[i].type
+            def targetType := effectiveParams[i]
             if params[i].canImplicitCastTo(self, targetType) {
                 def cast := params[i].implicitCast(self, targetType)
-                finalParams.add(cast)
+                finalParams.add(cast.implicitCast(self, 
+                        actualParams[i].unwrapGenerics))
             }
             else {
                 params[i].reportCastError(self, targetType)
@@ -688,13 +812,21 @@ class Context {
         }
         if isVarArg {
             def values := Array<Value>()
-            def arrayType := methodParams[methodParams.count - 1].type->GenericType
-            def elementType := arrayType.parameters[0]
+            def actualArrayType := actualParams[actualParams.count - 
+                    1]->GenericType
+            def effectiveArrayType := actualParams[actualParams.count - 
+                    1]->GenericType
+            def actualElementType := 
+                    actualArrayType.parameters[0].unwrapGenerics
+            def effectiveElementType := effectiveArrayType.parameters[0]
             for i in count .. params.count {
-                def cast := params[i].implicitCast(self, elementType)
+                def cast := params[i].implicitCast(self, 
+                        effectiveElementType).implicitCast(self, 
+                            actualElementType)
                 values.add(cast)
             }
-            def varParams := createArrayLiteral(position, arrayType, values)
+            def varParams := createArrayLiteral(position, actualArrayType, 
+                    values)
             finalParams.add(varParams)
         }
         if target-!>ClassLiteral {
@@ -820,7 +952,11 @@ class Context {
         }
         if best.count = 1 {
             def finalTarget := getEffectiveTarget(best[0], target)
-            assert finalTarget != null
+            if finalTarget = null {
+                errors.error("internal error: null target in\{target}:\{best[0]}",
+                        position)
+                return null
+            }
             if reportErrors & inClosure & target-?>InstanceContext & 
                     !best[0].annotations.isClass {
                 errors.error("cannot implicitly reference 'self' within a " + 
@@ -865,7 +1001,7 @@ class Context {
         result.append(" is ambiguous. The following methods are " +
                 "equally good matches:")
         for m in methods
-            result.append("\n    \{m}")
+            result.append("\n    \{m} (\{m.position})")
         errors.error(result.convert(), position)
     }
 

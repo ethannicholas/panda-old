@@ -2,12 +2,14 @@ package org.pandalanguage.pandac.stubs
 
 uses org.pandalanguage.pandac.ast.ASTBlock
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.SymbolTable
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
@@ -30,18 +32,26 @@ class MethodStub : Immutable {
 
     def parameters:ImmutableArray<FormalParameter>
 
+    def genericParameters:ImmutableArray<(String, Type?)>?
+
     def returnType:Type
 
     init(position:Position, name:String, annotations:Annotations,
             methodType:MethodNodeType, parameters:ListView<FormalParameter>, 
-            returnType:Type, body:ASTBlock?, owner:ClassType) {
+            genericParameters:ListView<(String, Type?)>?, returnType:Type,
+            body:ASTBlock?, owner:ClassType) {
         self.position := position
         self.name := name
         self.annotations := annotations
         self.methodType := methodType
         self.body := body
-        self.parameters := ImmutableArray<FormalParameter>(
-                parameters)
+        self.parameters := ImmutableArray<FormalParameter>(parameters)
+        if genericParameters != null {
+            self.genericParameters := ImmutableArray<(String, Type?)>(
+                    genericParameters)
+        }
+        else
+            self.genericParameters := null
         self.returnType := returnType
         self.owner := owner
     }
@@ -88,6 +98,19 @@ class MethodStub : Immutable {
         for p in parameters
             types.add(p.type)
         def result := MethodType(types, returnType, 
+                methodType = MethodNodeType.FUNCTION, true)
+        return context.resolveType(result.name)->MethodType
+    }
+
+    method type(context:Context, genericTypes:ListView<Type>):MethodType {
+        def symbols := SymbolTable()
+        for (i, g) in genericParameters.enumeration
+            symbols.add(owner.name + "." + g[0], TypeSymbol(genericTypes[i]))
+        def types := Array<Type>()
+        for p in parameters
+            types.add(GenericType.getType(p.type, context, symbols))
+        def returnType := GenericType.getType(self.returnType, context, symbols)
+        def result := MethodType(types, returnType,
                 methodType = MethodNodeType.FUNCTION, true)
         return context.resolveType(result.name)->MethodType
     }

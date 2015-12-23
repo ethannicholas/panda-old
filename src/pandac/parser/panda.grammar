@@ -871,47 +871,32 @@ comparisonExpression:ASTExpression = comparisonExpression LTEQ rangeExpression
                 comparisonExpression, rangeExpression)
     }
 
+indexRangeExpression:ASTExpression = left:optionalBound rangeType 
+        right:optionalBound optionalBy
+    { 
+        result := ASTRangeExpression(Position(parserState.reference->File, 
+                parserState.position), left, right, optionalBy, rangeType) 
+    }
+optionalBound:ASTExpression? = additiveExpression
+    { result := additiveExpression }
+optionalBound:ASTExpression? =
+    { result := null }
+rangeType:Bit = DOTDOT
+    { result := false }
+rangeType:Bit = ELLIPSIS
+    { result := true }
+optionalBy:ASTExpression? = BY additiveExpression
+    { result := additiveExpression }
+optionalBy:ASTExpression? =
+    { result := null }
+rangeExpression:ASTExpression = left:additiveExpression rangeType 
+        right:additiveExpression optionalBy
+    { 
+        result := ASTRangeExpression(Position(parserState.reference->File, 
+                parserState.position), left, right, optionalBy, rangeType) 
+    }
 rangeExpression:ASTExpression = additiveExpression
     { result := additiveExpression }
-rangeExpression:ASTExpression = DOTDOT
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, null, null, false) }
-rangeExpression:ASTExpression = ELLIPSIS
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, null, null, true) }
-rangeExpression:ASTExpression = l:additiveExpression DOTDOT
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, null, null, false) }
-rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, null, null, true) }
-rangeExpression:ASTExpression = DOTDOT r:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, r, null, false) }
-rangeExpression:ASTExpression = ELLIPSIS r:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, r, null, true) }
-rangeExpression:ASTExpression = l:additiveExpression DOTDOT r:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, r, null, false) }
-rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS 
-        r:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, r, null, true) }
-rangeExpression:ASTExpression = DOTDOT BY s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, null, s, false) }
-rangeExpression:ASTExpression = ELLIPSIS BY s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, null, s, true) }
-rangeExpression:ASTExpression = l:additiveExpression DOTDOT BY 
-        s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, null, s, false) }
-rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS BY 
-        s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, null, s, true) }
-rangeExpression:ASTExpression = DOTDOT r:additiveExpression BY 
-        s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, r, s, false) }
-rangeExpression:ASTExpression = ELLIPSIS r:additiveExpression BY 
-        s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), null, r, s, true) }
-rangeExpression:ASTExpression = l:additiveExpression DOTDOT r:additiveExpression
-        BY s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, r, s, false) }
-rangeExpression:ASTExpression = l:additiveExpression ELLIPSIS 
-        r:additiveExpression BY s:additiveExpression
-    { result := ASTRangeExpression(Position(parserState.reference->File, parserState.position), l, r, s, true) }
 
 additiveExpression:ASTExpression = multiplicativeExpression
     { result := multiplicativeExpression }
@@ -1024,8 +1009,8 @@ callExpression:ASTExpression = term
     { result := term }
 callExpression:ASTExpression = methodCall
     { result := methodCall }
-callExpression:ASTExpression = callExpression LBRACKET expression RBRACKET
-    { result := ASTIndex(callExpression, expression) }
+callExpression:ASTExpression = callExpression LBRACKET indexExpression RBRACKET
+    { result := ASTIndex(callExpression, indexExpression) }
 callExpression:ASTExpression = callExpression LT typeList GT
     { 
         if callExpression-?>ASTDotExpression | callExpression-?>ASTIdentifier {
@@ -1059,15 +1044,30 @@ callExpression:ASTExpression = callExpression CAST typeExpression
         result := ASTArrowExpression(ASTArrowExpression.Kind.CAST,
                 callExpression, typeExpression) 
     }
+indexExpression:ASTExpression = expression
+    { result := expression }
+indexExpression:ASTExpression = indexRangeExpression
+    { result := indexRangeExpression}
 typeExpression:ASTType = type
     { result := type }
 typeExpression:ASTType = LPAREN type RPAREN
     { result := type }
 
-parameters:Array<ASTExpression> = LPAREN expressionList RPAREN
-    { result := expressionList }
+parameters:Array<ASTExpression> = LPAREN expressionList optionalEllipsis RPAREN
+    { 
+        result := expressionList 
+        if optionalEllipsis {
+            def last := result[result.count - 1]
+            result[result.count - 1] := ASTRangeExpression(last.position, last,
+                    null, null, true)
+        }
+    }
 parameters:Array<ASTExpression> = LPAREN RPAREN
     { result := [] }
+optionalEllipsis:Bit = ELLIPSIS
+    { result := true }
+optionalEllipsis:Bit =
+    { result := false }
 expressionList:Array<ASTExpression> = expressionList COMMA expression
     { 
         result := expressionList
