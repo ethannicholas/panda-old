@@ -171,11 +171,11 @@ class Value : Node {
                 def nonNull := implicitCast(position, context, base)
                 return nonNull.implicitCast(position, context, t)
             }
-            return Cast(position, self, t, CastType.IMPLICIT)
+            return Cast(position, self, t, Cast.Kind.IMPLICIT)
         }
         if !type.isNullable & t.isNullable {
             def first := implicitCast(position, context, t->NullableType.base)
-            def result := Cast(position, first, t, CastType.IMPLICIT)
+            def result := Cast(position, first, t, Cast.Kind.IMPLICIT)
             result.safe := true
             return result
         }
@@ -188,7 +188,7 @@ class Value : Node {
                     m1.returnType != m2.returnType
                 return shim(context, m2)
         }
-        def result := Cast(position, self, t, CastType.IMPLICIT)
+        def result := Cast(position, self, t, Cast.Kind.IMPLICIT)
         result.safe := true
         if implicitCastCost(context, t) != null
             return result
@@ -219,9 +219,12 @@ class Value : Node {
             return wrapped(context, t, true)
         if type.isWrapper & (t.isPrimitive | t.isWrapper)
             return unwrap(context).explicitCast(position, context, t)
-        if !type.isPrimitive & t.isPrimitive
-            t := t.convert()->WrapperType
-        def result := Cast(position, self, t, CastType.EXPLICIT)
+        if !type.isPrimitive & t.isPrimitive {
+            def wrapper := explicitCast(position, context, 
+                    t.convert()->WrapperType)
+            return wrapper.implicitCast(position, context, t)
+        }
+        def result := Cast(position, self, t, Cast.Kind.EXPLICIT)
         if !canExplicitCastTo(context, t) {
             context.errors.error("'\{type.displayName}' cannot possibly be " +
                     "instance of '\{t.displayName}'", position)

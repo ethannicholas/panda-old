@@ -1,6 +1,7 @@
 package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ASTAnnotation
+uses org.pandalanguage.pandac.ast.ASTArrowExpression
 uses org.pandalanguage.pandac.ast.ASTAssignment
 uses org.pandalanguage.pandac.ast.ASTBitLiteral
 uses org.pandalanguage.pandac.ast.ASTBlock
@@ -38,6 +39,7 @@ uses org.pandalanguage.pandac.ast.ASTTypedIdentifier
 uses org.pandalanguage.pandac.ast.ASTUnparsedClass
 uses org.pandalanguage.pandac.ast.ASTUnreachable
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
+uses org.pandalanguage.pandac.ast.ASTExpressionStatement
 uses org.pandalanguage.pandac.ast.ClassCategory
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
@@ -590,6 +592,8 @@ class StubGenerator {
             }
             result := TupleType(values)
         }
+        else if type-?>IRGenerator.ASTWrappedType
+            return (type->IRGenerator.ASTWrappedType.type, [])
         else
             unreachable
         if result = null
@@ -990,6 +994,86 @@ class StubGenerator {
             addNestedAliases(getStub(intf.name), symbols)
     }
 
+    @pre(child.name = parent.name)
+    function isOverride(child:MethodStub, parent:MethodStub, 
+            genericParameters:ListView<Type>):Bit {
+        if child.parameters.count != parent.parameters.count
+            return false
+        def type := parent.typeWithGenerics(genericParameters)
+        if type.returnType != child.returnType
+            return false
+        for i in 0 .. type.methodParameters.count {
+            if type.methodParameters[i] != child.parameters[i].type
+                return false
+        }
+        return true
+    }
+
+    @pre(type.methodParameters.count = m.parameters.count)
+    method createShim(m:MethodStub, type:MethodType):MethodStub {
+        def parameters := Array<FormalParameter>()
+        def args := Array<ASTExpression>()
+        Console.writeLine("reminder: broken generic varargs")
+        for i in 0 .. m.parameters.count {
+            def p := m.parameters[i]
+            def target := type.methodParameters[i]
+            parameters.add(FormalParameter(p.position, p.name, 
+                    target, p.isVar, p.isVarArg))
+            args.add(ASTArrowExpression(ASTArrowExpression.Kind.CAST,
+                    ASTIdentifier(m.position, p.name), 
+                    IRGenerator.toASTType(m.position, target)))
+        }
+        def body := Array<ASTStatement>()
+        def call := ASTCallExpression(ASTIdentifier(m.position, "$" + m.name), 
+                args)
+        if type.returnType = VoidType.VOID
+            body.add(ASTExpressionStatement(call))
+        else {
+            body.add(ASTReturn(m.position, ASTArrowExpression(
+                    ASTArrowExpression.Kind.FORCE_CAST, call, 
+                    IRGenerator.toASTType(m.position, type.returnType))))
+        }
+        def result := MethodStub(m.position, m.name, m.annotations, m.methodType, 
+                    m.parameters, m.genericParameters, type.returnType, 
+                    ASTBlock(m.position, body), m.owner)
+        return result
+    }
+
+    method createShimIfNeeded(m:MethodStub, parent:ClassType):MethodStub? {
+        def stub:ClassStub
+        if parent-?>GenericType
+            stub := getStub(parent->GenericType.base.name)
+        else
+            stub := getStub(parent.name)
+        assert stub != null : "null stub: \{parent}"
+        if stub.annotations.isUnspecialized {
+            def methods := stub.symbols[m.name]
+            if methods = null
+                return null
+            def genericParameters := parent->GenericType.parameters
+            for m2 in methods->Methods.methods {
+                if isOverride(m, m2, genericParameters)
+                    return createShim(m, m2.type)
+            }
+        }
+        return null
+    }
+
+    method createShimIfNeeded(m:MethodStub, superclass:ClassType?,
+            interfaces:ListView<ClassType>):MethodStub? {
+        if superclass != null {
+            def result := createShimIfNeeded(m, superclass)
+            if result != null
+                return result
+        }
+        for intf in interfaces {
+            def result := createShimIfNeeded(m, intf)
+            if result != null
+                return result
+        }
+        return null
+    }
+
     method convertClass(cl:ASTClass, currentPackage:String?,
             parentSymbolTable:SymbolTable, rawPackageUses:ListView<String>,
             rawClassAliases:Map<String, String>,
@@ -1008,9 +1092,37 @@ class StubGenerator {
             className := cl.name
             usePackage("", symbolTable, packageUses, cl.position)
         }
-        def classType := resolveType(ASTClassType(cl.position, className, 
-                null, false), symbolTable)->ClassType
+        var classType:ClassType
+        switch className {
+            case WrapperType.INT8_WRAPPER.name: 
+                classType := WrapperType.INT8_WRAPPER 
+            case WrapperType.INT16_WRAPPER.name: 
+                classType := WrapperType.INT16_WRAPPER 
+            case WrapperType.INT32_WRAPPER.name: 
+                classType := WrapperType.INT32_WRAPPER 
+            case WrapperType.INT64_WRAPPER.name: 
+                classType := WrapperType.INT64_WRAPPER 
+            case WrapperType.UINT8_WRAPPER.name: 
+                classType := WrapperType.UINT8_WRAPPER 
+            case WrapperType.UINT16_WRAPPER.name: 
+                classType := WrapperType.UINT16_WRAPPER 
+            case WrapperType.UINT32_WRAPPER.name: 
+                classType := WrapperType.UINT32_WRAPPER 
+            case WrapperType.UINT64_WRAPPER.name: 
+                classType := WrapperType.UINT64_WRAPPER 
+            case WrapperType.REAL32_WRAPPER.name: 
+                classType := WrapperType.REAL32_WRAPPER 
+            case WrapperType.REAL64_WRAPPER.name: 
+                classType := WrapperType.REAL64_WRAPPER 
+            case WrapperType.BIT_WRAPPER.name: 
+                classType := WrapperType.BIT_WRAPPER 
+            case WrapperType.CHAR_WRAPPER.name: 
+                classType := WrapperType.CHAR_WRAPPER 
+            default: classType := ClassType(className)
+        }
+        var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null {
+            def types := Array<Type>()
             for p in cl.genericParameters->ListView<ASTTypedIdentifier> {
                 def bound:Type
                 if p.type != null {
@@ -1025,6 +1137,7 @@ class StubGenerator {
                     bound := NullableType.ANY
                 def type := GenericParameterType("\{className}.\{p.identifier}", 
                         bound)
+                types.add(type)
                 symbolTable.add(TypeSymbol(type))
                 aliasType(p.identifier, type, symbolTable, classAliases)
             }
@@ -1107,10 +1220,21 @@ class StubGenerator {
         for node in cl.contents {
             if node-?>ASTMethod {
                 def m := node->ASTMethod
-                def converted := convertMethod(cl.isExternal, m, classType, 
+                var converted := convertMethod(cl.isExternal, m, classType, 
                         cl.genericParameters, symbols)
                 if converted != null {
                     checkMethodSignature(converted)
+                    def shim := createShimIfNeeded(converted, 
+                            superclass->ClassType?, interfaces)
+                    if shim != null {
+                        addSymbol(shim, symbols.mySymbols, errors)
+                        converted := MethodStub(converted.position, 
+                                "$" + converted.name, converted.annotations, 
+                                converted.methodType, converted.parameters, 
+                                converted.genericParameters, 
+                                converted.returnType, converted.body, 
+                                converted.owner)
+                    }
                     addSymbol(converted, symbols.mySymbols, errors)
                     foundInit |= converted.methodType = 
                             MethodNodeType.INIT
@@ -1135,7 +1259,6 @@ class StubGenerator {
                     classType)
             addSymbol(c, symbols.mySymbols, errors)
         }
-        var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null & !annotations.isUnspecialized
             annotations += Annotations.Kind.UNSPECIFIED
         if cl.isExternal

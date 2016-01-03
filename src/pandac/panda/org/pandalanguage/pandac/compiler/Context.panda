@@ -15,7 +15,6 @@ uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.ArrayLiteral
 uses org.pandalanguage.pandac.tree.Cast
-uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.Construct
 uses org.pandalanguage.pandac.tree.FieldNode
@@ -337,10 +336,14 @@ class Context {
         var isVarArg := methodParams.count > 0 & 
                 methodParams[methodParams.count - 1].isVarArg
         def type:MethodType
-        if m.genericParameters != null
-            type := m.type(self, getGenericTypes(target, m, params, returnType))
+        if m.genericParameters != null {
+            def generics := getGenericTypes(target, m, params, returnType)
+            if generics = null
+                return null
+            type := m.typeWithGenerics(generics)
+        }
         else
-            type := m.type(self)
+            type := m.type
         return matchCost(type, isVarArg, params, returnType)
     }
 
@@ -617,6 +620,19 @@ class Context {
                 constraints[m.owner.name + "." + raw[i][0]] := c
             }
         }
+        else if getStub(owner.convert()->ClassType).genericParameters != null {
+            def stub := getStub(owner.convert()->ClassType)
+            for p in stub.genericParameters {
+                def c := Constraint()
+                def key := m.owner.name + "." + p[0]
+                def bound := p[1]
+                if bound = null
+                    bound := NullableType.ANY
+                c.atLeast := GenericParameterType(key, bound)
+                c.atMost := c.atLeast
+                constraints[key] := c
+            }
+        }
         for (i, p) in m.parameters.enumeration
             updateConstraints(p.type, params[i], constraints)
         return constraints
@@ -625,21 +641,27 @@ class Context {
     @private
     @pre(m.genericParameters != null)
     method getGenericTypes(target:Value, m:MethodStub, params:ListView<Value>,
-            expectedReturn:Type?):ListView<Type> {
+            expectedReturn:Type?):ListView<Type>? {
+        if params.count != m.parameters.count
+            return null
+        def finalTarget := getEffectiveTarget(m, target)
+        if finalTarget = null 
+            return null
         def owner:ClassType
-        if target-?>ClassLiteral
-            owner := target->ClassLiteral.value
+        if finalTarget-?>ClassLiteral
+            owner := finalTarget->ClassLiteral.value
         else
-            owner := target.type.convert()->ClassType
+            owner := finalTarget.type.convert()->ClassType
         def constraints := getGenericConstraints(owner, m, params, 
                 expectedReturn)
         def result := Array<Type>()
         for g in m.genericParameters {
-            def constraint := constraints[m.owner.name + "." + g[0]]
+            def key := m.owner.name + "." + g[0]
+            def constraint := constraints[key]
             if constraint != null
                 result.add(constraint.atLeast)
             else {
-                errors.error("no constraints on \{g}", m.position)
+                errors.error("no constraints on \{key} (\{constraints})", m.position)
                 result.add(NullableType.ANY)
             }
         }
@@ -723,13 +745,17 @@ class Context {
             -- simple optimization, avoid calling non-wrapper function in this
             -- common case (can't be a wrapper function because it is an
             -- override)
-            return Cast(position, target, m.returnType, CastType.CONVERT)
+            return Cast(position, target, m.returnType, Cast.Kind.CONVERT)
         }
         def type:MethodType
-        if m.genericParameters != null
-            type := m.type(self, getGenericTypes(target, m, params, null))
+        if m.genericParameters != null {
+            def generics := getGenericTypes(target, m, params, null)
+            if generics = null
+                errors.error("invalid method call", position)
+            type := m.typeWithGenerics(generics)
+        }
         else
-            type := m.type(self)
+            type := m.type
         def finalTarget := getEffectiveTarget(m, target)
         if finalTarget != null 
             target := finalTarget
@@ -796,13 +822,13 @@ class Context {
                     params.count, position)
             return null
         }
-        def actualParams := m.type(self).methodParameters
+        def actualParams := m.type.methodParameters
         def effectiveParams := type.methodParameters
         for i in 0 .. count {
             def targetType := effectiveParams[i]
             if params[i].canImplicitCastTo(self, targetType) {
                 def cast := params[i].implicitCast(self, targetType)
-                finalParams.add(cast.implicitCast(self, 
+                finalParams.add(cast.explicitCast(self, 
                         actualParams[i].unwrapGenerics))
             }
             else {
@@ -842,10 +868,13 @@ class Context {
                 m.returnType.isNumeric {
             -- handle conversions between primitive types directly
             return Cast(position, target.unwrap(self), m.returnType, 
-                    CastType.CONVERT)
+                    Cast.Kind.CONVERT)
         }
         liveMethods.add(m)
-        return MethodCall(position, target, m, finalParams)
+        var result:Value := MethodCall(position, target, m, finalParams)
+        if result.type != type.returnType
+            result := result.explicitCast(self, type.returnType)
+        return result
     }
 
     @private
@@ -942,12 +971,11 @@ class Context {
             if finalTarget = null
                 continue
             def cost := matchCost(finalTarget, m, params, returnType)
-            if cost != null
             if cost != null & cost < bestCost {
                 bestCost := cost
                 best := [m]
             }
-            else if cost = bestCost
+            else if cost != null & cost = bestCost
                 best.add(m)
         }
         if best.count = 1 {

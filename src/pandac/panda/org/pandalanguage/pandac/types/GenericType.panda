@@ -72,9 +72,8 @@ class GenericType : ClassType {
         def stub := context.getStub(self)
         def baseStub := context.getStub(base)
         if stub = baseStub {
-            def baseCost := base.implicitCastCost(context, target)
-            if baseCost != null
-                return baseCost
+            Console.writeLine("broken generic cast check")
+            return 0
         }
         return super.implicitCastCost(context, target)
     }
@@ -86,35 +85,71 @@ class GenericType : ClassType {
     }
 
     @class
-    method getType(type:Type, context:Context, 
-            symbols:SymbolTable):Type {
-        if type-?>UnresolvedType
+    method getType(type:Type, symbols:SymbolTable):Type {
+        if type-?>PrimitiveType | type-?>WrapperType | type-?>UnresolvedType |
+                type = VoidType.VOID
             return type
-        if type = VoidType.VOID
-            return type
-        def result := context.stubGenerator.resolveType(
-                PandaParser(context.errors).parseType(type.name,
-                    context.currentClass.position), symbols)
-        if result != null
+        if type-?>NullableType {
+            var result := getType(type.unwrapNullable, symbols)
+            if !result.isNullable {
+                if result.isPrimitive
+                    result := NullableType(result.convert()->ClassType)
+                else
+                    result := NullableType(result)
+            }
             return result
-        throw CompilerException("unable to resolve type '\{type.name}'",
-                Position.INTERNAL)
+        }
+        if type-?>PrimitiveArrayType {
+            def arrayType:ClassType
+            if type.name.startsWith(ClassType.PRIMITIVE_ARRAY.name)
+                arrayType := ClassType.PRIMITIVE_ARRAY
+            else {
+                assert type.name.startsWith(
+                        ClassType.IMMUTABLE_PRIMITIVE_ARRAY.name)
+                arrayType := ClassType.IMMUTABLE_PRIMITIVE_ARRAY
+            }
+            return PrimitiveArrayType(arrayType,
+                    getType(type->PrimitiveArrayType.elementType, symbols))
+        }
+        if type-?>GenericType {
+            def types := Array<Type>()
+            for p in type->GenericType.parameters
+                types.add(getType(p, symbols))
+            return GenericType(
+                    getType(type->GenericType.base, symbols)->ClassType, types)
+        }
+        if type-?>MethodType {
+            def m := type->MethodType
+            def parameters := Array<Type>()
+            for p in m.methodParameters
+                parameters.add(getType(p, symbols))
+            def returnType := getType(m.returnType, symbols)
+            return MethodType(parameters, returnType, m.isFunction, 
+                    m.immutableMethod)
+        }
+        if type-?>TupleType {
+            def types := Array<Type>()
+            for t in type->TupleType.types
+                types.add(getType(t, symbols))
+            return TupleType(types)
+        }
+        def resolved := symbols[type.name]
+        if resolved-?>TypeSymbol
+            return resolved->TypeSymbol.type
+        return type
     }
 
     @private
-    method instantiateField(f:FieldNode, context:Context, 
-            symbols:SymbolTable):FieldNode {
+    method instantiateField(f:FieldNode, symbols:SymbolTable):FieldNode {
         return FieldNode(f.position, self, f.name, f.annotations, f.kind,
-                getType(f.type, context, symbols), f.initialValue, 
-                f.tuplePosition)
+                getType(f.type, symbols), f.initialValue, f.tuplePosition)
     }
 
     @private
-    method instantiateMethod(m:MethodStub, context:Context, 
-            symbols:SymbolTable):MethodStub {
+    method instantiateMethod(m:MethodStub, symbols:SymbolTable):MethodStub {
         def parameters := Array<FormalParameter>()
         for p in m.parameters {
-            def type := getType(p.type, context, symbols)
+            def type := getType(p.type, symbols)
             parameters.add(FormalParameter(p.position, p.name, type, 
                     p.isVar, p.isVarArg))
         }
@@ -122,8 +157,7 @@ class GenericType : ClassType {
         if m.body = null
             annotations += Annotations.Kind.ABSTRACT
         def result := MethodStub(m.position, m.name, annotations,
-                m.methodType, parameters, null, getType(m.returnType, context,
-                    symbols), 
+                m.methodType, parameters, null, getType(m.returnType, symbols), 
                 m.body, self)
         return result
     }
@@ -157,7 +191,7 @@ class GenericType : ClassType {
         var superclass := baseStub.superclass
         if superclass != null {
             def resolved:Type?
-            resolved := getType(superclass, context, symbols)
+            resolved := getType(superclass, symbols)
             superclass := resolved->ClassType
         }
         else
@@ -165,7 +199,7 @@ class GenericType : ClassType {
         def interfaces := Array<ClassType>()
         for intf in baseStub.interfaces {
             var type:Type?
-            type := getType(intf, context, symbols)
+            type := getType(intf, symbols)
             if type != null {
                 def intfClass := type.convert()->ClassType
                 interfaces.add(intfClass)
@@ -175,12 +209,12 @@ class GenericType : ClassType {
             if f.annotations.isClass | f.annotations.isThread
                 symbols.add(f)
             else {
-                def newField := instantiateField(f, context, symbols)
+                def newField := instantiateField(f, symbols)
                 symbols.add(newField)
             }
         }
         for m in baseStub.methods.filter(m => !m.annotations.isClass)
-            addMethod(instantiateMethod(m, context, symbols), symbols)
+            addMethod(instantiateMethod(m, symbols), symbols)
         var annotations := baseStub.annotations - Annotations.Kind.UNSPECIFIED
         for (i, p) in parameters.enumeration {
             var unspecified := p-?>GenericParameterType
@@ -192,7 +226,8 @@ class GenericType : ClassType {
             }
         }
         return ClassStub(position, self, baseStub.classCategory, annotations, 
-                superclass, interfaces, symbols.mySymbols, baseStub.lookupContext, 
-                baseStub.invariants, null, external, null)
+                superclass, interfaces, symbols.mySymbols, 
+                baseStub.lookupContext, baseStub.invariants, null, external, 
+                null)
     }
 }

@@ -14,7 +14,6 @@ uses org.pandalanguage.pandac.tree.BitLiteral
 uses org.pandalanguage.pandac.tree.Block
 uses org.pandalanguage.pandac.tree.Break
 uses org.pandalanguage.pandac.tree.Cast
-uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.Catch
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
@@ -269,7 +268,8 @@ class JavaCodeGenerator (CodeGenerator) {
 
     constant WORD := /\w+/
 
-    method determineJavaType(t:Type):String {
+    method determineJavaType(raw:Type):String {
+        def t := raw
         switch t {
             case IntType.INT8, IntType.UINT8:   return "byte"
             case IntType.INT16, IntType.UINT16: return "short"
@@ -295,7 +295,7 @@ class JavaCodeGenerator (CodeGenerator) {
             else
                 eName := getJavaType(eType)
             if eType.isNullable
-                eName += "$Z1"
+                eName += "$Z"
             if t.isImmutable(context)
                 result := ImmutablePrimitiveArray.name + "<" + eName + ">"
             else
@@ -310,7 +310,7 @@ class JavaCodeGenerator (CodeGenerator) {
                         stub.simpleName
             }
             else
-                result := t.name
+                result := stub.name
             result := result.replace(WORD, token => filterNameToken(token))
         }
         def lt := result.indexOf("<")
@@ -707,7 +707,7 @@ class JavaCodeGenerator (CodeGenerator) {
 
     method generateClosureCode(c:Closure) {
         generateCastCode(Cast(c.position, c.instance, c.type, 
-                CastType.IMPLICIT))
+                Cast.Kind.IMPLICIT))
     }
 
     method generateSkippedValueCode(s:SkippedValue) {
@@ -754,8 +754,12 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write(getJavaType(v.type))
             out.write(") null)")
         }
-        else if v-?>Cast
-            generateCastCode(v->Cast)
+        else if v-?>Cast {
+            if topLevel
+                generateValueCode(v->Cast.value, true)
+            else
+                generateCastCode(v->Cast)
+        }
         else if v-?>Construct
             generateConstructCode(v->Construct)
         else if v-?>NewPrimitiveArrayWithLength
@@ -1436,13 +1440,13 @@ class JavaCodeGenerator (CodeGenerator) {
             else if isMethodClass(cl.stub.type) {
                 def m := cl.stub.methods.filter(
                         m => m.name = MethodNode.CLOSURE_NAME).iterator.next()
-                def parameters := Array<ASTType>()
+                def parameters := Array<Type>()
                 for p in m.parameters
-                    parameters.add(IRGenerator.toASTType(cl.position, p.type))
+                    parameters.add(p.type)
                 def returnType := IRGenerator.toASTType(cl.position,
                         m.returnType)
-                def methodType := context.resolveType(ASTMethodType(
-                        cl.position, parameters, returnType, false, true, true))
+                def methodType := MethodType(parameters, m.returnType, false, 
+                        true)
                 out.write(" implements " + getJavaMethodType(
                         methodType->MethodType))
             }

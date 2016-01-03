@@ -68,7 +68,6 @@ uses org.pandalanguage.pandac.tree.BitLiteral
 uses org.pandalanguage.pandac.tree.Block
 uses org.pandalanguage.pandac.tree.Break
 uses org.pandalanguage.pandac.tree.Cast
-uses org.pandalanguage.pandac.tree.CastType
 uses org.pandalanguage.pandac.tree.Catch
 uses org.pandalanguage.pandac.tree.ClassLiteral
 uses org.pandalanguage.pandac.tree.ClassNode
@@ -181,7 +180,7 @@ class IRGenerator {
     function makeExplicit(v:Value):Value {
         if v-?>Cast {
             return Cast(v.position, v->Cast.value, v.type, 
-                    CastType.EXPLICIT)
+                    Cast.Kind.EXPLICIT)
         }
         return v
     }
@@ -214,7 +213,15 @@ class IRGenerator {
         if rawContextValue.type.unwrapNullable-?>GenericType {
             def g := rawContextValue.type.unwrapNullable->GenericType
             if context.getStub(g).annotations.isUnspecialized {
-                result := result.explicitCast(context, f.type.unwrapGenerics)
+                def symbols := SymbolTable()
+                def formalParameters := context.getStub(g).genericParameters
+                assert formalParameters.count = g.parameters.count
+                for i in 0 .. formalParameters.count {
+                    symbols.add(formalParameters[i][0], 
+                            TypeSymbol(g.parameters[i]))
+                }
+                result := result.explicitCast(context, 
+                        GenericType.getType(f.type, symbols))
             }
         }
         return result
@@ -277,8 +284,6 @@ class IRGenerator {
                     target->ClassLiteral.value), c.parameters)
             return convertNew(n)
         }
-        if c.parameters.count = 0 & target-?>MethodCall
-            return target
         def parameters := Array<Value>()
         for p in c.parameters {
             def converted := convertExpression(p)
@@ -301,7 +306,7 @@ class IRGenerator {
             }
             def methods := Array<MethodStub>()
             for m in u.methods {
-                if context.matchCost(target, m, parameters, null) != null
+                if context.matchCost(finalTarget, m, parameters, null) != null
                     methods.add(m)
             }
             if methods.count <= 1 {
@@ -666,6 +671,21 @@ class IRGenerator {
         switch a.kind {
             case ASTArrowExpression.Kind.CAST:
                 result := left.explicitCast(a.position, context, right)
+            case ASTArrowExpression.Kind.FORCE_CAST: {
+                if left.canExplicitCastTo(context, right)
+                    result := left.explicitCast(a.position, context, right)
+                else {
+                    def src:Value
+                    if left.type.isPrimitive & !right.isPrimitive {
+                        src := left.implicitCast(context, 
+                                left.type.convert()->ClassType)
+                    }
+                    else
+                        src := left
+                    result := Cast(a.position, src, right, Cast.Kind.EXPLICIT)
+                    result->Cast.safe := true
+                }
+            }
             case ASTArrowExpression.Kind.INSTANCE_OF:
                 result := convertInstanceOf(a.position, left, right)
             case ASTArrowExpression.Kind.NOT_INSTANCE_OF: {
@@ -1276,12 +1296,11 @@ class IRGenerator {
                         true))
             }
             if allTyped {
-                def types := Array<ASTType>()
+                def types := Array<Type>()
                 for local in locals
-                    types.add(toASTType(v.position, local.type))
+                    types.add(local.type)
                 initializer := initializer.implicitCast(context, 
-                        context.resolveType(ASTTupleType(v.position, types, 
-                            false)))
+                        TupleType(types))
             }
             else
                 initializer := resolve(initializer)
@@ -1516,10 +1535,10 @@ class IRGenerator {
         else
             breakTestType := BinaryOperationType.LESS_THAN_OR_EQUAL
         def sub1 := Cast(f.position, end.createReference(),
-                unsignedVersion(loopVar.type), CastType.CONVERT)
+                unsignedVersion(loopVar.type), Cast.Kind.CONVERT)
         def sub2 := Cast(f.position, VariableReference(f.position,
                 loopVar), unsignedVersion(loopVar.type),
-                CastType.CONVERT)
+                Cast.Kind.CONVERT)
         def left:Value
         def right:Value
         if step > 0 {
@@ -1564,7 +1583,7 @@ class IRGenerator {
     function getConvertCast(v:Value, t:Type):Value {
         if v.type = t
             return v
-        return Cast(v.position, v, t, CastType.CONVERT)
+        return Cast(v.position, v, t, Cast.Kind.CONVERT)
     }
 
     ============================================================================
@@ -2475,13 +2494,10 @@ class IRGenerator {
 
         if left.count > 1 {
             def result := Array<Statement>()
-            def types := Array<ASTType>()
+            def types := Array<Type>()
             for l in left
-                types.add(toASTType(l.position, l.preferredType(context)))
-            def type := context.resolveType(ASTTupleType(right.position, types,
-                    false))
-            if type = null
-                return null
+                types.add(l.preferredType(context))
+            def type := TupleType(types)
             right := right.implicitCast(context, type)
             def reused := ReusedValueDefinition(right)
             result.add(ValueStatement(reused))
@@ -2668,56 +2684,18 @@ class IRGenerator {
                 ClassType.ERROR))
     }
 
-    -- God, this needs to die. Ok, so what's going on is that Type instances
-    -- must be fully resolved and unique. ASTType instances don't have to be, 
-    -- they are eventually resolved to Types. This made sense at one point -- 
-    -- the parser produces these unresolved types, and we later resolve them.
-    -- We end up with two problems. First, sometimes we have a Type but need an
-    -- ASTType, as when making synthetic stubs from TupleType, 
-    -- PrimitiveArrayType, etc. Plus we sometimes have a type and need to derive
-    -- another type from it, as when we have T but want Array<T>. Since the
-    -- machinery was already in place to create ASTTypes from Types to solve the
-    -- first problem, I ended up just using it for the second problem as well.
-    -- We turn Type(T) into ASTType(T), then create ASTType(Array<T>), then
-    -- resolve that into Type(Array<T>). And that is so mind-bogglingly stupid
-    -- that I want to punch past me for ending up in this situation.
-    -- ASTType needs to die altogether. Type needs to lose its uniqueness
-    -- requirement.
+    class ASTWrappedType : ASTType {
+        def type:Type
+
+        init(position:Position, type:Type) {
+            super.init(position, false)
+            self.type := type
+        }
+    }
+
     @class
     function toASTType(position:Position, var t:Type):ASTType? {
-        if t = VoidType.VOID
-            return null
-        def nullable:Bit
-        if t-?>NullableType {
-            nullable := true
-            t := t->NullableType.base
-        }
-        else
-            nullable := false
-        if t-?>MethodType {
-            def m := t->MethodType
-            def parameters := Array<ASTType>()
-            for p in m.methodParameters
-                parameters.add(toASTType(position, p))
-            return ASTMethodType(position, parameters, 
-                    toASTType(position, m.returnType), nullable, m.isFunction, 
-                    m.immutableMethod)
-        }
-        else if t-?>TupleType {
-            def tuple := t->TupleType
-            def types := Array<ASTType>()
-            for type in tuple.types
-                types.add(toASTType(position, type))
-            return ASTTupleType(position, types, nullable)
-        }
-        else if t-?>GenericType {
-            def g := t->GenericType
-            def parameters := Array<ASTType>()
-            for p in g.parameters
-                parameters.add(toASTType(position, p))
-            return ASTClassType(position, g.base.name, parameters, nullable)
-        }
-        return ASTClassType(position, t.name, null, nullable)
+        return ASTWrappedType(position, t)
     }
 
     method convertLambda(l:ASTLambdaExpression):Value? {
@@ -2915,7 +2893,7 @@ class IRGenerator {
                 closureInit, initParameters))
         context.liveMethods.add(closureInit)
         context.captures.pop()
-        return Closure(m.position, closureInstance, stub.type(context))
+        return Closure(m.position, closureInstance, stub.type)
     }
 
     function callsOtherSelfInit(owner:ClassType,
@@ -2977,8 +2955,24 @@ class IRGenerator {
             def selfType:Type
             if m.annotations.isWrapperMethod
                 selfType := m.owner.convert()->PrimitiveType
-            else
-                selfType := m.owner
+            else {
+                if context.currentClass.annotations.isUnspecialized {
+                    def types := Array<Type>()
+                    for (name, bound) in 
+                            context.currentClass.genericParameters! {
+                        def finalBound:Type
+                        if bound != null
+                            finalBound := bound
+                        else
+                            finalBound := NullableType.ANY
+                        types.add(GenericParameterType(m.owner.name + "." + 
+                                name, finalBound))
+                    }
+                    selfType := GenericType(m.owner, types)
+                }
+                else
+                    selfType := m.owner
+            }
             def selfParam := Parameter(m.position, Parameter.SELF_NAME,
                     selfType, false, false, context.currentMethod)
             context.symbolTable.add(selfParam)
