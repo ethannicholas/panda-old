@@ -167,6 +167,16 @@ class Context {
         return stubGenerator.knownInstances.contains(type)
     }
 
+    method isUnspecified(t:Type):Bit {
+        if t.isPrimitive
+            return false
+        if t.unwrapNullable-?>GenericParameterType {
+            def stub := getStub(t.name[..t.name.lastIndexOf(".")!])
+            return !stub.annotations.isUnspecialized
+        }
+        return getStub(t.name).annotations.isUnspecified
+    }
+
     @private
     method createStub(name:String):ClassStub? {
         var type := stubGenerator.resolveType(
@@ -177,15 +187,7 @@ class Context {
         type := type.unwrapNullable
         if type-?>PrimitiveArrayType {
             def array := type->PrimitiveArrayType
-            def unspecified:Bit
-            if array.elementType.isPrimitive
-                unspecified := false
-            else if array.elementType.unwrapNullable-?>GenericParameterType
-                unspecified := true
-            else {
-                def elementStub := getStub(array.elementType.name)
-                unspecified := elementStub.annotations.isUnspecified
-            }
+            def unspecified := isUnspecified(array.elementType)
             def result := array.createStub(unspecified, isKnown(type), self)
             return result
         }
@@ -212,16 +214,9 @@ class Context {
             def stubs := Array<ClassStub?>()
             var unspecified := false
             for t in tuple.types {
-                if t-?>GenericParameterType {
+                if isUnspecified(t) {
                     unspecified := true
                     break
-                }
-                else if !t.isPrimitive {
-                    def stub := getStub(t.name)
-                    if stub.annotations.isUnspecified {
-                        unspecified := true
-                        break
-                    }
                 }
             }
             return tuple.createStub(unspecified, isKnown(type), self)

@@ -36,6 +36,9 @@ class GenericType : ClassType {
     init(base:ClassType, 
             parameters:ListView<Type>) {
         super.init(getName(base, parameters))
+        assert self-?>PrimitiveArrayType | 
+                (base != ClassType.PRIMITIVE_ARRAY &
+                base != ClassType.IMMUTABLE_PRIMITIVE_ARRAY)
         self.base := base
         self.parameters := ImmutableArray<Type>(parameters)
     }
@@ -82,6 +85,23 @@ class GenericType : ClassType {
     function parseType(name:String, context:Context):ASTType {
         return PandaParser(context.errors).parseType(name, 
                 Position(File(name), -1))
+    }
+
+
+    @override
+    function get_unwrapGenerics():Type {
+        def params := Array<Type>()
+        for p in parameters
+            params.add(p.unwrapGenerics)
+        return GenericType(base, params)
+    }
+
+    @override
+    function unwrapUnspecializedGenerics(context:Context):Type {
+        def params := Array<Type>()
+        for p in parameters
+            params.add(p.unwrapUnspecializedGenerics(context))
+        return GenericType(base, params)
     }
 
     @class
@@ -217,10 +237,7 @@ class GenericType : ClassType {
             addMethod(instantiateMethod(m, symbols), symbols)
         var annotations := baseStub.annotations - Annotations.Kind.UNSPECIFIED
         for (i, p) in parameters.enumeration {
-            var unspecified := p-?>GenericParameterType
-            def stub := parameterStubs[i]
-            unspecified |= stub != null & stub.annotations.isUnspecified
-            if unspecified {
+            if context.isUnspecified(p) {
                 annotations += Annotations.Kind.UNSPECIFIED
                 break
             }
