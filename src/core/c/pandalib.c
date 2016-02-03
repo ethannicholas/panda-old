@@ -520,9 +520,11 @@ panda$core$System$OperatingEnvironmentInfo* panda$core$System$operatingEnvironme
 
 void panda$core$System$execStream(
         String* program, String* dir, void* inHandleArg, void* outHandleArg, 
+        void* errHandleArg, 
         panda$collections$ListView$LTpanda$core$String$GT* pandaArgs) {
     FILE* inHandle = (FILE*) inHandleArg;
     FILE* outHandle = (FILE*) outHandleArg;
+    FILE* errHandle = (FILE*) errHandleArg;
     char* path = pandaGetString(program);
     panda$collections$CollectionView$LTpanda$core$String$GT$get_count_TYPE* count =
             pandaGetInterfaceMethod((panda$core$Object*) pandaArgs, 
@@ -543,7 +545,10 @@ void panda$core$System$execStream(
     if (!pid) {
         if (inHandle != NULL)
             dup2(fileno(inHandle), fileno(stdin));
-        dup2(fileno(outHandle), fileno(stdout));
+        if (outHandle != NULL)
+            dup2(fileno(outHandle), fileno(stdout));
+        if (errHandle != NULL)
+            dup2(fileno(errHandle), fileno(stderr));
         if (chdir(pandaGetString(dir))) {
             // FIXME: throw exception
             printf("error: could not chdir() to '%s'\n", pandaGetString(dir));
@@ -564,7 +569,7 @@ void panda$core$System$exec_File_File_ListView$LTString$GT(
         panda$io$File* program, 
         panda$io$File* dir, 
         panda$collections$ListView$LTpanda$core$String$GT* pandaArgs) {
-    panda$core$System$execStream(program->path, dir->path, NULL, stdout, 
+    panda$core$System$execStream(program->path, dir->path, NULL, stdout, stderr,
                 pandaArgs);
 }
 

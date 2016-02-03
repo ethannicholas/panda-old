@@ -230,7 +230,8 @@ class LLVMCodeGenerator (CodeGenerator) {
     getLLVMMethodType() method may be used to get the function pointer type
     corresponding to a method.
     ============================================================================
-    method getLLVMType(t:Type):String {
+    method getLLVMType(raw:Type):String {
+        def t := raw.unwrapUnspecializedGenerics(context)
         var result := typeCache[t]
         if result = null {
             if t.isNullable
@@ -259,13 +260,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                             else
                                 cl := ClassType.MUTABLE_METHOD
                         }
-                        def stub := context.classes[cl.name]
-                        if stub != null
-                            result := "%" + getName(stub) + "*"
-                        else {
-                            -- stub hasn't been created, just use a dummy type
-                            result := "%panda$core$Object*"
-                        }
+                        def stub := getStub(cl.name)
+                        result := "%" + getName(stub) + "*"
                     }
                 }
             }
@@ -450,24 +446,26 @@ class LLVMCodeGenerator (CodeGenerator) {
         if writtenTypes.contains(cl.name)
             return
         writtenTypes.add(cl.name)
+        def result := MutableString()
         if debug
-            header.writeLine("; " + cl.name)
-        header.write("%" + getName(cl) + " = type { ")
+            result.append("; " + cl.name + "\n")
+        result.append("%" + getName(cl) + " = type { ")
         def fields := cl.instanceFields(context)
         for (i, f) in fields.enumeration {
             if i != 0
-                header.write(", ")
+                result.append(", ")
             if f.name = FieldNode.ELEMENTS_NAME
-                header.write(getLLVMType(f.type) + "*")
+                result.append(getLLVMType(f.type) + "*")
             else
-                header.write(getLLVMType(f.type))
+                result.append(getLLVMType(f.type))
         }
         if cl.name = ClassType.CLASS.name {
             -- Class is special, write out the method tables the end of its 
             -- fields
-            header.write(", %$itable*, [0 x i8*]")
+            result.append(", %$itable*, [0 x i8*]")
         }
-        header.writeLine(" }")
+        result.append(" }")
+        header.writeLine(result)
     }
 
     @protected
@@ -738,8 +736,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             def name := "@" + getName(cl) + "$." + getName(intf)
             def type := "{ " + getLLVMType(ClassType.CLASS) + 
                     ", %$itable*, [" + methods.count + " x i8*] }"
-            header.write(name + " = " + SHARED_LINKAGE + " constant ")
-            header.write(type + " { " + 
+            def result := MutableString()
+            result.append(name + " = " + SHARED_LINKAGE + " constant ")
+            result.append(type + " { " + 
                     getLLVMType(ClassType.CLASS) + " bitcast(" + intfCC.type + 
                     "* @" + intfCC.name + " to " + 
                     getLLVMType(ClassType.CLASS) + "), " + previous + ", [" + 
@@ -747,15 +746,16 @@ class LLVMCodeGenerator (CodeGenerator) {
             for (i, m) in methods.enumeration {
                 program.liveMethods.add(m)
                 if i > 0
-                    header.write(", ")
+                    result.append(", ")
                 if m.annotations.isAbstract
-                    header.write("i8* null")
+                    result.append("i8* null")
                 else {
-                    header.write("i8* bitcast(" + getLLVMMethodType(m) + 
+                    result.append("i8* bitcast(" + getLLVMMethodType(m) + 
                             " @" + getName(m) + " to i8*)")
                 }
             }
-            header.writeLine("] }")
+            result.append("] }")
+            header.writeLine(result)
             previous := "%$itable* bitcast(" + type + "* " + name + 
                     " to %$itable*)"
         }
@@ -802,8 +802,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 return cc
             }
             def intf := getITable(cl)
-            header.write("@\{cc.name} = ")
-            header.write(SHARED_LINKAGE + " ")
+            def code := MutableString("@\{cc.name} = \{SHARED_LINKAGE} ")
             def superclassRef:String
             if superclassConstant != null
                 superclassRef := "bitcast(\{superclassConstant.type}* @\{superclassConstant.name} to \{getLLVMType(ClassType.CLASS)})"
@@ -820,17 +819,18 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             def classClass := getStub(ClassType.CLASS)
             def classClassConstant := getClassConstant(classClass)
-            header.write("constant \{cc.type} { \{getLLVMType(ClassType.CLASS)} bitcast(\{classClassConstant.type}* @\{classClassConstant.name} to \{getLLVMType(ClassType.CLASS)}), \{getLLVMType(ClassType.STRING)} \{nameRef}, \{getLLVMType(ClassType.CLASS)} \{superclassRef}, i1 1, i1 \{overridesFinalize}, \{intf}, [\{methods.count} x i8*] [ ")
+            code.append("constant \{cc.type} { \{getLLVMType(ClassType.CLASS)} bitcast(\{classClassConstant.type}* @\{classClassConstant.name} to \{getLLVMType(ClassType.CLASS)}), \{getLLVMType(ClassType.STRING)} \{nameRef}, \{getLLVMType(ClassType.CLASS)} \{superclassRef}, i1 1, i1 \{overridesFinalize}, \{intf}, [\{methods.count} x i8*] [ ")
             for (i, m) in methods.enumeration {
                 if i > 0
-                    header.write(", ")
+                    code.append(", ")
                 if m.annotations.isAbstract
-                    header.write("i8* null")
+                    code.append("i8* null")
                 else {
-                    header.write("i8* bitcast(\{getLLVMMethodType(m)} @\{getName(m)} to i8*)")
+                    code.append("i8* bitcast(\{getLLVMMethodType(m)} @\{getName(m)} to i8*)")
                 }
             }
-            header.writeLine(" ] }")
+            code.append(" ] }")
+            header.writeLine(code)
         }
         return cc
     }
@@ -2082,13 +2082,14 @@ class LLVMCodeGenerator (CodeGenerator) {
         def out := header
         if f.annotations.isClass {
             -- write class field
-            out.write("@" + getName(f) + " = ")
             def cl := getStub(f.owner)
+            def type := getLLVMType(f.type)
+            out.write("@" + getName(f) + " = ")
             if cl.isExternal
                 out.write("external ")
             else if f.owner.isPrimitiveArray
                 out.write(SHARED_LINKAGE + " ")
-            out.write("global " + getLLVMType(f.type))
+            out.write("global " + type)
             if !cl.isExternal
                 out.writeLine(" " + getDefaultValue(f))
             else
@@ -2138,26 +2139,27 @@ class LLVMCodeGenerator (CodeGenerator) {
         header.writeLine()
         if debug
             header.writeLine("; method: " + m.convert().replace("\n", "\n; (method cont) "))
-        header.write("declare ")
+        def result := MutableString()
+        result.append("declare ")
         if !external
-            header.write("fastcc ")
-        header.write(getLLVMType(m.returnType) + " @\{getName(m)}(")
+            result.append("fastcc ")
+        result.append(getLLVMType(m.returnType) + " @\{getName(m)}(")
         var first := true
         if !m.annotations.isClass {
-            header.write("\{getSelfType(m)} %self")
+            result.append("\{getSelfType(m)} %self")
             first := false
         }
         for (i, p) in m.parameters.enumeration {
             if first
                 first := false
             else
-                header.write(", ")
-            header.write(getLLVMType(p.type))
+                result.append(", ")
+            result.append(getLLVMType(p.type))
         }
-        header.write(")")
+        result.append(")")
         if m.methodType = MethodNodeType.FUNCTION & immutableReturn
-            header.write(" readonly")
-        header.writeLine()
+            result.append(" readonly")
+        header.writeLine(result)
     }
 
     @protected

@@ -72,7 +72,7 @@ class System_ExternalImpl implements panda.core.System_External {
 
     private void execStream(panda.core.String path, panda.core.String dir,
             java.lang.Object inHandle, java.lang.Object outHandle, 
-            java.lang.String[] args) {
+            java.lang.Object errHandle, java.lang.String[] args) {
         java.lang.String[] cmd = new java.lang.String[args.length + 1];
         cmd[0] = panda.core.PandaCore.toJavaString(path);
         java.lang.System.arraycopy(args, 0, cmd, 1, args.length);
@@ -145,12 +145,12 @@ class System_ExternalImpl implements panda.core.System_External {
     }
 
     @Override
-    public void execStream_class_panda$core$String_panda$core$String_panda$core$$NativePointer_panda$core$$NativePointer_panda$collections$ListView$LTpanda$core$String$GT(panda.core.String path, panda.core.String dir,
-            java.lang.Object inHandle, java.lang.Object outHandle,
+    public void execStream_class_panda$core$String_panda$core$String_panda$core$$NativePointer_panda$core$$NativePointer_panda$core$$NativePointer_panda$collections$ListView$LTpanda$core$String$GT(panda.core.String path, panda.core.String dir,
+            java.lang.Object inHandle, java.lang.Object outHandle, java.lang.Object errHandle,
             panda.collections.ListView$.$Lpanda$core$String$R args) {
         java.lang.String[] finalArgs = new java.lang.String[args.get_count_$Rpanda$core$Int32()];
         for (int i = 0; i < finalArgs.length; i++)
             finalArgs[i] = panda.core.PandaCore.toJavaString(args.$ARR_Int32_$Rpanda$core$String(i));
-        execStream(path, dir, inHandle, outHandle, finalArgs);
+        execStream(path, dir, inHandle, outHandle, errHandle, finalArgs);
     }
 }

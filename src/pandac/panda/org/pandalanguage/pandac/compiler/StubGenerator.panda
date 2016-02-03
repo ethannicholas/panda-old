@@ -285,11 +285,12 @@ class StubGenerator {
                                 symbolTable, packageUses, u.position)
                     }
                     else {
-                        if u.alias != null 
+                        if u.alias != null {
                             aliasType(u.alias->String, 
                                     resolveType(ASTClassType(u.position, 
                                     u.name, null, false), symbolTable), symbolTable, 
                                     classAliases)
+                        }
                         else {
                             var name := u.name
                             def index := name.lastIndexOf(".")
@@ -477,6 +478,18 @@ class StubGenerator {
         if result = null
             return null
         if result[1].count > 0 {
+            var symbol:Symbol? := getStub(result[0].name)
+            for name in result[1] {
+                if symbol-!>ClassStub
+                    break
+                symbol := symbol->ClassStub.symbols[name]
+                if symbol = null {
+                    errors.error("type '\{type}' not found", type.position)
+                    return null
+                }
+            }
+            if symbol-?>TypeSymbol
+                return symbol->TypeSymbol.type
             errors.error("type '\{type}' not found", type.position)
             return null
         }
@@ -514,10 +527,16 @@ class StubGenerator {
                     if gps = null {
                         def components := name.split(".")
                         for i in components.count - 2 ... 0 by -1 {
-                            def symbol := symbols[components[0 ... i].join(".")]
+                            def name := components[0 ... i].join(".")
+                            def symbol := symbols[name]
                             if symbol-?>TypeSymbol {
                                 return resolveExtraComponents(
                                         symbol->TypeSymbol.type, 
+                                        components[i + 1..], type.isNullable)
+                            }
+                            def resolved := types[name]
+                            if resolved != null {
+                                return resolveExtraComponents(resolved, 
                                         components[i + 1..], type.isNullable)
                             }
                         }
@@ -1120,10 +1139,11 @@ class StubGenerator {
                 classType := WrapperType.CHAR_WRAPPER 
             default: classType := ClassType(className)
         }
+        def symbols := SymbolTable(symbolTable)
         var annotations := convertAnnotations(cl.position, cl.annotations)
         if cl.genericParameters != null {
             def types := Array<Type>()
-            for p in cl.genericParameters->ListView<ASTTypedIdentifier> {
+            for p in cl.genericParameters! {
                 def bound:Type
                 if p.type != null {
                     def resolved := resolveType(p.type->ASTType, 
@@ -1138,11 +1158,11 @@ class StubGenerator {
                 def type := GenericParameterType("\{className}.\{p.identifier}", 
                         bound)
                 types.add(type)
-                symbolTable.add(TypeSymbol(type))
+                self.types[type.name] := type
+                symbols.add(p.identifier, TypeSymbol(type))
                 aliasType(p.identifier, type, symbolTable, classAliases)
             }
         }
-        def symbols := SymbolTable(symbolTable)
         def interfaces := Array<ClassType>()
         var superclass:Type?
         if cl.superclass != null {
