@@ -48,11 +48,11 @@ $PANDAC -XpreserveTempArtifacts -o $NATIVE_TARGET/pandac/bin/pandac `find src/pa
 
 PANDAC=$NATIVE_TARGET/pandac/bin/pandac
 
-echo building JavaScript libraries
-mkdir -p build/js
-JAVASCRIPT_TARGET="$TARGET/js"
-mkdir -p $JAVASCRIPT_TARGET/core
-cp src/core/js/*.js $JAVASCRIPT_TARGET/core
-$PANDAC -XnoCoreLib -O -f js -o $JAVASCRIPT_TARGET/core `find src/core/panda -name "*.panda"`
+#echo building JavaScript libraries
+#mkdir -p build/js
+#JAVASCRIPT_TARGET="$TARGET/js"
+#mkdir -p $JAVASCRIPT_TARGET/core
+#cp src/core/js/*.js $JAVASCRIPT_TARGET/core
+#$PANDAC -XnoCoreLib -O -f js -o $JAVASCRIPT_TARGET/core `find src/core/panda -name "*.panda"`
 
 scripts/build_ui.sh

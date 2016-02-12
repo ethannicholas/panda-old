@@ -325,8 +325,27 @@ and otherwise do things that could potentially break in the face of a dangerous
 unsafe function. It is your job to ensure that a function tagged 
 `@unsafeFunction` does not violate any of the compiler's assumptions by not 
 modifying anything that could be potentially visible to the calling code, and
-be ok with the fact that repeated calls to the function could be folded together
-into a single call.
+be ok with the fact that the compiler may eliminate some calls to the method.
+For example, in the following code:
+
+@SOURCE(
+    @unsafeFunction
+    function unsafe():Object {
+        Console.writeLine("calling unsafe!")
+        return "unsafe"
+    }
+
+    @class
+    method main() {
+        def result := unsafe()
+    }
+)
+
+The compiler is permitted to eliminate the call to `unsafe()` altogether, 
+because the return value of the function is unused, and thus it is not necessary
+to actually call the function at all. Whether or not you see the `"calling 
+unsafe!"` output may vary across compiler versions, settings, or the phase of 
+the moon.
 
 <a name="external"></a>
 @external
