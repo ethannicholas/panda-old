@@ -76,7 +76,7 @@ class Window_ExternalImpl implements panda.ui.Window_External {
                             panda.ui.events.EventType.$KEYDOWN,
                             getKey(e.getKeyCode()),
                             (short) 0);
-                self.$eventQueue.post_panda$ui$events$Event(event);
+                self.$eventQueue.post_panda$core$Immutable(event);
             }
 
             public void keyReleased(java.awt.event.KeyEvent e) {
@@ -85,7 +85,7 @@ class Window_ExternalImpl implements panda.ui.Window_External {
                             panda.ui.events.EventType.$KEYUP,
                             getKey(e.getKeyCode()),
                             (short) 0);
-                self.$eventQueue.post_panda$ui$events$Event(event);
+                self.$eventQueue.post_panda$core$Immutable(event);
             }
         });
 
@@ -95,7 +95,7 @@ class Window_ExternalImpl implements panda.ui.Window_External {
                         panda.ui.events.MouseMotionEvent.createnew$init_panda$ui$events$EventType_Int32_Int32(
                             panda.ui.events.EventType.$MOUSEMOTION, e.getX(),
                             e.getY());
-                self.$eventQueue.post_panda$ui$events$Event(event);
+                self.$eventQueue.post_panda$core$Immutable(event);
             }
 
             public void mouseDragged(java.awt.event.MouseEvent e) {
@@ -103,7 +103,7 @@ class Window_ExternalImpl implements panda.ui.Window_External {
                         panda.ui.events.MouseMotionEvent.createnew$init_panda$ui$events$EventType_Int32_Int32(
                             panda.ui.events.EventType.$MOUSEMOTION, e.getX(),
                             e.getY());
-                self.$eventQueue.post_panda$ui$events$Event(event);
+                self.$eventQueue.post_panda$core$Immutable(event);
             }
         });
 
@@ -113,7 +113,7 @@ class Window_ExternalImpl implements panda.ui.Window_External {
                         panda.ui.events.MouseEvent.createnew$init_panda$ui$events$EventType_Int8_Int32_Int32(
                             panda.ui.events.EventType.$MOUSEDOWN,
                             (byte) e.getButton(), e.getX(), e.getY());
-                self.$eventQueue.post_panda$ui$events$Event(event);
+                self.$eventQueue.post_panda$core$Immutable(event);
             }
 
             public void mouseReleased(java.awt.event.MouseEvent e) {
@@ -121,7 +121,7 @@ class Window_ExternalImpl implements panda.ui.Window_External {
                         panda.ui.events.MouseEvent.createnew$init_panda$ui$events$EventType_Int8_Int32_Int32(
                             panda.ui.events.EventType.$MOUSEUP,
                             (byte) e.getButton(), e.getX(), e.getY());
-                self.$eventQueue.post_panda$ui$events$Event(event);
+                self.$eventQueue.post_panda$core$Immutable(event);
             }
         });
 

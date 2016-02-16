@@ -636,6 +636,29 @@ class Context {
     }
 
     @private
+    function removeGenerics(cl:ClassType):ClassType {
+        if cl-?>GenericType
+            return cl->GenericType.base
+        return cl
+    }
+
+    @private
+    function findOwner(start:ClassType, m:MethodStub):ClassType {
+        if removeGenerics(start) = removeGenerics(m.owner)
+            return start
+        def stub := getStub(start)
+        def parent := findOwner(stub.superclass, m)
+        if parent != null
+            return parent
+        for intf in stub.interfaces {
+            def intfOwner := findOwner(intf, m)
+            if intfOwner != null
+                return intfOwner
+        }
+        unreachable
+    }
+
+    @private
     @pre(m.genericParameters != null)
     method getGenericTypes(target:Value, m:MethodStub, params:ListView<Value>,
             expectedReturn:Type?):ListView<Type>? {
@@ -646,9 +669,9 @@ class Context {
             return null
         def owner:ClassType
         if finalTarget-?>ClassLiteral
-            owner := finalTarget->ClassLiteral.value
+            owner := findOwner(finalTarget->ClassLiteral.value, m)
         else
-            owner := finalTarget.type.convert()->ClassType
+            owner := findOwner(finalTarget.type.convert()->ClassType, m)
         def constraints := getGenericConstraints(owner, m, params, 
                 expectedReturn)
         def result := Array<Type>()
@@ -658,7 +681,7 @@ class Context {
             if constraint != null
                 result.add(constraint.atLeast)
             else {
-                errors.error("no constraints on \{key} (\{constraints})", m.position)
+                errors.error("no constraints on \{key} in \{target.type}.\{m}(\{params}) at \{target.position}", m.position)
                 result.add(NullableType.ANY)
             }
         }

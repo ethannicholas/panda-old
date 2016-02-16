@@ -21,28 +21,28 @@ void pandaUIInit() {
 panda$ui$events$Event* pandaCreateEvent(SDL_Event* event);
 
 void panda$ui$UIMessageQueue$pumpEvents(panda$ui$UIMessageQueue* self) {
-    panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$post_TYPE* post =
-            (panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$post_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$post_INDEX);    
+    panda$threads$MessageQueue$post_TYPE* post =
+            (panda$threads$MessageQueue$post_TYPE*) 
+                *(&self->cl->vtable + panda$threads$MessageQueue$post_INDEX);    
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        post((panda$threads$MessageQueue$LTpanda$ui$events$Event$GT*) self, 
-                (panda$ui$events$Event*) pandaCreateEvent(&event));
+        post((panda$threads$MessageQueue*) self, 
+                (panda$core$Immutable*) pandaCreateEvent(&event));
     }
 }
 
 void panda$ui$UIMessageQueue$waitForEvent(panda$ui$UIMessageQueue* self) {
-    panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$hasMessage_TYPE* hasMessage =
-            (panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$hasMessage_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$hasMessage_INDEX);    
-    if (!hasMessage((panda$threads$MessageQueue$LTpanda$ui$events$Event$GT*) self)) {
-        panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$post_TYPE* post =
-                (panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$post_TYPE*) 
-                    *(&self->cl->vtable + panda$threads$MessageQueue$LTpanda$ui$events$Event$GT$post_INDEX);    
+    panda$threads$MessageQueue$hasMessage_TYPE* hasMessage =
+            (panda$threads$MessageQueue$hasMessage_TYPE*) 
+                *(&self->cl->vtable + panda$threads$MessageQueue$hasMessage_INDEX);    
+    if (!hasMessage((panda$threads$MessageQueue*) self)) {
+        panda$threads$MessageQueue$post_TYPE* post =
+                (panda$threads$MessageQueue$post_TYPE*) 
+                    *(&self->cl->vtable + panda$threads$MessageQueue$post_INDEX);    
         SDL_Event event;
         SDL_WaitEvent(&event);
-        post((panda$threads$MessageQueue$LTpanda$ui$events$Event$GT*) self, 
-                (panda$ui$events$Event*) pandaCreateEvent(&event));
+        post((panda$threads$MessageQueue*) self, 
+                (panda$core$Immutable*) pandaCreateEvent(&event));
     }
 }
 
