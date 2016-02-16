@@ -23,7 +23,7 @@ else
     SDL_INCLUDE=/usr/include/SDL2
     SDL_IMAGE_INCLUDE=/usr/include/SDL2
 fi
-gcc -c -g -I$SDL_INCLUDE -I$SDL_IMAGE_INCLUDE -Isrc/core/c -I/opt/local/include/cairo/ \
+gcc -c -g -I$SDL_INCLUDE -I$SDL_IMAGE_INCLUDE -Isrc/core/c \
     -o $NATIVE_TARGET/ui/lib/ui.o -Isrc/ui/c -I$NATIVE_TARGET/ui \
     -I$NATIVE_TARGET/core/c $INCLUDES -fPIC\
     src/ui/c/ui.c

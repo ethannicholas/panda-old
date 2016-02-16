@@ -19,7 +19,7 @@ cp -r src/ui/java/* $JAVA_TARGET/ui/src
 
 cd $JAVA_TARGET/ui/src
 
-javac -d ../build -cp .:$JAVA_TARGET/core/lib/PandaCoreClasses.jar panda/ui/*.java
+javac -d ../build -cp .:$JAVA_TARGET/core/lib/PandaCoreClasses.jar `find . -name "*.java"`
 
 cd ../build
 

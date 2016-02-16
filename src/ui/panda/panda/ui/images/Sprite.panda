@@ -7,16 +7,22 @@ uses panda.gl.Vector2
 ================================================================================
 A two-dimensional image that can be repeatedly stamped on the screen.
 ================================================================================
-class Sprite {
+class Sprite : Immutable {
+	choice Flip {
+		NONE,
+		HORIZONTAL,
+		VERTICAL,
+		BOTH
+	}
+
 	@private
-	@class
-	def uv:ImmutableArray<Real32> := [0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]
+	def uv:ImmutableArray<Real32>
 
 	@private
 	def texture:UInt32
 
 	============================================================================
-	The  width of the image, in pixels.
+	The "natural" width of the image, in pixels.
 	============================================================================
 	def width:Int
 
@@ -29,25 +35,27 @@ class Sprite {
 	The `x` position of the pixel within the image that serves as its anchor
 	point, with `0` being the left edge and `width` being the right	edge. All 
 	positioning and transformations are relative to the anchor point. The anchor 
-	point does not have to be inside the image. The default `anchorX` is
-	`width // 2`.
+	point does not have to be inside the image. The default `anchorX` is `0`.
 	============================================================================
-	var anchorX:Int
+	def anchorX:Int
 
 	============================================================================
 	The `y` position of the pixel within the image that serves as its anchor
 	point, with `0` being the top edge and `height` being the bottom edge. All 
 	positioning and transformations are relative to the anchor point. The anchor 
-	point does not have to be inside the image. The default `anchorY` is
-	`height // 2`.
+	point does not have to be inside the image. The default `anchorY` is `0`.
 	============================================================================
-	var anchorY:Int
+	def anchorY:Int
 
 	@private
 	def gl:GL
 
 	init(img:Image, gl:GL) {
-		init(img, gl, false)
+		init(img, gl, 0, 0, false)
+	}
+
+	init(img:Image, gl:GL, anchorX:Int, anchorY:Int) {
+		init(img, gl, anchorX, anchorY, false)
 	}
 
 	============================================================================
@@ -60,13 +68,8 @@ class Sprite {
 	@param smoothing `true` if the sprite should be interpolated when scaled,
 			`false` to use nearest-neighbor sampling
 	============================================================================
-	init(img:Image, gl:GL, smoothing:Bit) {
-		self.gl := gl
-		self.width := img.width
-		self.height := img.height
-		self.anchorX := img.width // 2
-		self.anchorY := img.height // 2
-		texture := gl.createTexture()
+	init(img:Image, gl:GL, anchorX:Int, anchorY:Int, smoothing:Bit) {
+		def texture := gl.createTexture()
 		gl.activeTexture(GL.TEXTURE0)
 		gl.bindTexture(GL.TEXTURE_2D, texture)
 		gl.texImage2D(GL.TEXTURE_2D, 0, GL.RGBA, img.width, img.height, 
@@ -78,6 +81,22 @@ class Sprite {
 			filter := GL.NEAREST
 		gl.texParameter(GL.TEXTURE_2D, GL.TEXTURE_MAG_FILTER, filter)
 		gl.texParameter(GL.TEXTURE_2D, GL.TEXTURE_MIN_FILTER, filter)
+
+		init(texture, gl, img.width, img.height, 0, 0, 1, 1, anchorX, anchorY)
+	}
+
+	--@package
+	@private
+	init(texture:UInt32, gl:GL, width:Int, height:Int, left:Real32, top:Real32, 
+			right:Real32, bottom:Real32, anchorX:Int, anchorY:Int) {
+		self.texture := texture
+		self.gl := gl
+		self.width := width
+		self.height := height
+		self.uv := [left, top, right, top, right, bottom, left, top, right, 
+				bottom, left, bottom]
+		self.anchorX := anchorX
+		self.anchorY := anchorY
 		gl.enableSprites()
 	}
 
@@ -88,13 +107,44 @@ class Sprite {
 	are set appropriately for your needs.
 	============================================================================
 	method draw(var x:Real32, var y:Real32) {
+		draw(x, y, width, height)
+	}
+
+	method draw(var x:Real32, var y:Real32, var width:Real32, 
+			var height:Real32) {
 		gl.useProgram(gl.simpleSpriteProgram)
 		gl.activeTexture(GL.TEXTURE0)
 		gl.bindTexture(GL.TEXTURE_2D, texture)
-        gl.uniform(gl.simpleSpriteScreenSize, Vector2(640, 480))
+        gl.uniform(gl.simpleSpriteScreenSize, Vector2(gl.width, gl.height))
 		gl.uniform(gl.simpleSpriteSampler, 0)
 		x -= anchorX
 		y -= anchorY
+		gl.vertexAttribPointer(gl.simpleSpritePosition, 2, GL.FLOAT, false, 0, 
+				[x, y, x + width, y, x + width, y + height, x, y, x + width, 
+					y + height, x, y + height], 0)
+		gl.enableVertexAttribArray(gl.simpleSpritePosition)
+		gl.vertexAttribPointer(gl.simpleSpriteUV, 2, GL.FLOAT, false, 0, uv, 0)
+		gl.enableVertexAttribArray(gl.simpleSpriteUV)
+		gl.drawArrays(GL.TRIANGLES, 0, 6)
+	}
+
+	method draw(var x:Real32, var y:Real32, var width:Real32, 
+			var height:Real32, flip:Flip) {
+		gl.useProgram(gl.simpleSpriteProgram)
+		gl.activeTexture(GL.TEXTURE0)
+		gl.bindTexture(GL.TEXTURE_2D, texture)
+        gl.uniform(gl.simpleSpriteScreenSize, Vector2(gl.width, gl.height))
+		gl.uniform(gl.simpleSpriteSampler, 0)
+		x -= anchorX
+		y -= anchorY
+		if flip = Flip.HORIZONTAL | flip = Flip.BOTH {
+			x += width
+			width := -width
+		}
+		if flip = Flip.VERTICAL | flip = Flip.BOTH {
+			y += height
+			height := -height
+		}
 		gl.vertexAttribPointer(gl.simpleSpritePosition, 2, GL.FLOAT, false, 0, 
 				[x, y, x + width, y, x + width, y + height, x, y, x + width, 
 					y + height, x, y + height], 0)
@@ -115,7 +165,7 @@ class Sprite {
 		gl.useProgram(gl.simpleSpriteProgram)
 		gl.activeTexture(GL.TEXTURE0)
 		gl.bindTexture(GL.TEXTURE_2D, texture)
-        gl.uniform(gl.simpleSpriteScreenSize, Vector2(640, 480))
+        gl.uniform(gl.simpleSpriteScreenSize, Vector2(gl.width, gl.height))
 		gl.uniform(gl.simpleSpriteSampler, 0)
 		def vertices := Array<Real32>(positions.count * 24)
 		for p in positions {
@@ -123,28 +173,28 @@ class Sprite {
 			def y := p.y - anchorY
 			vertices.add(x)
 			vertices.add(y)
-			vertices.add(0)
-			vertices.add(0)
+			vertices.add(uv[0])
+			vertices.add(uv[1])
 			vertices.add(x + width)
 			vertices.add(y)
-			vertices.add(1)
-			vertices.add(0)
+			vertices.add(uv[2])
+			vertices.add(uv[3])
 			vertices.add(x + width)
 			vertices.add(y + height)
-			vertices.add(1)
-			vertices.add(1)
+			vertices.add(uv[4])
+			vertices.add(uv[5])
 			vertices.add(x)
 			vertices.add(y)
-			vertices.add(0)
-			vertices.add(0)
+			vertices.add(uv[6])
+			vertices.add(uv[7])
 			vertices.add(x + width)
 			vertices.add(y + height)
-			vertices.add(1)
-			vertices.add(1)
+			vertices.add(uv[8])
+			vertices.add(uv[9])
 			vertices.add(x)
 			vertices.add(y + height)
-			vertices.add(0)
-			vertices.add(1)
+			vertices.add(uv[10])
+			vertices.add(uv[11])
 		}
 		gl.vertexAttribPointer(gl.simpleSpritePosition, 2, GL.FLOAT, false, 16, 
 				vertices, 0)

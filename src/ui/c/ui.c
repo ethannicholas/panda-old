@@ -69,6 +69,7 @@ void panda$ui$Window$initialize(panda$ui$Window* self, String* title, Int32 x,
     NativeGL* native = (NativeGL*) MALLOC(sizeof(NativeGL));
     native->context = SDL_GL_CreateContext(window);
     self->glContext = pandaNew(panda$gl$GL);
+    panda$gl$GL$init_Int32_Int32(self->glContext, width, height);
     self->glContext->window = self;
     self->glContext->native = native;
 }

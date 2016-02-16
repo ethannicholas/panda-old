@@ -668,6 +668,10 @@ Int32 panda$io$FileOutputStream$close_$NativePointer_$RInt32(void* handle) {
     return fclose((FILE*) handle);
 }
 
+void panda$io$FileOutputStream$flush(panda$io$FileOutputStream* self) {
+    fflush((FILE*) self->nativeFile);
+}
+
 void* panda$io$Console$stdIn() {
     return (void*) stdin;
 }

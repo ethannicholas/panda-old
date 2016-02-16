@@ -45,4 +45,14 @@ class FileOutputStream_ExternalImpl implements panda.io.FileOutputStream_Externa
             throw new RuntimeException(e);
         }
     }
+
+    @Override
+    public void flush(panda.io.FileOutputStream $this) {
+        try {
+            ((java.io.FileOutputStream) $this.$nativeFile).flush();
+        }
+        catch (java.io.IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 }
