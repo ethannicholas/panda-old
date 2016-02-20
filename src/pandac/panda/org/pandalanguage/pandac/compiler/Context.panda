@@ -642,16 +642,43 @@ class Context {
         return cl
     }
 
+    ============================================================================
+    Returns the effective type of `type` within the context of `owner`. For
+    instance, given:
+
+    @SOURCE(
+        class Example<T> {
+            def array := Array<T>()
+        }
+    )
+
+    The field `array` has type `Array<T>`. But within an instance of 
+    `Example<Int>`, it has an *effective* type of `Array<Int>`.
+    ============================================================================
+    function effectiveType(owner:ClassType, type:Type):Type {
+        if owner-!>GenericType | owner-?>PrimitiveArrayType
+            return type
+        def symbols := SymbolTable()
+        var stub := getStub(owner)
+        def genericType := owner->GenericType
+        if stub.genericParameters = null
+            stub := getStub(genericType.base)
+        for (i, p) in stub.genericParameters.enumeration
+            symbols.add(p[0], TypeSymbol(genericType.parameters[i]))
+        return GenericType.getType(type, symbols)->ClassType
+    }
+
     @private
     function findOwner(start:ClassType, m:MethodStub):ClassType {
         if removeGenerics(start) = removeGenerics(m.owner)
             return start
         def stub := getStub(start)
-        def parent := findOwner(stub.superclass, m)
+        def parent := findOwner(effectiveType(start, 
+                stub.superclass)->ClassType, m)
         if parent != null
             return parent
         for intf in stub.interfaces {
-            def intfOwner := findOwner(intf, m)
+            def intfOwner := findOwner(effectiveType(start, intf)->ClassType, m)
             if intfOwner != null
                 return intfOwner
         }
@@ -901,8 +928,7 @@ class Context {
     function isListView(value:Value?):Bit {
         if value = null
             return false
-        def cl := getStub(value.type.convert()->ClassType)
-        for intf in cl.allInterfaces(self) {
+        for intf in value.type.convert()->ClassType.allInterfaces(self) {
             if intf.name.startsWith("panda.collections.ListView<")
                 return true
         }
