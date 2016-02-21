@@ -501,7 +501,7 @@ class StubGenerator {
             nullable:Bit):(Type, ListView<String>) {
         var current := type
         for (i, name) in extras.enumeration {
-            def stub := getStub(current.convert()->ClassType.name)
+            def stub := getStub(current.convert()->ClassType)
             assert stub != null : "no stub for \{current.name}"
             def next := stub.symbols[name]
             if next = null | next-!>TypeSymbol
@@ -1008,9 +1008,9 @@ class StubGenerator {
     method addNestedAliases(stub:ClassStub, symbols:SymbolTable) {
         addNestedAliases(stub.name, symbols)
         if stub.superclass != null
-            addNestedAliases(getStub(stub.superclass.name), symbols)
+            addNestedAliases(getStub(stub.superclass), symbols)
         for intf in stub.interfaces
-            addNestedAliases(getStub(intf.name), symbols)
+            addNestedAliases(getStub(intf), symbols)
     }
 
     @pre(child.name = parent.name)
@@ -1059,11 +1059,7 @@ class StubGenerator {
     }
 
     method createShimIfNeeded(m:MethodStub, parent:ClassType):MethodStub? {
-        def stub:ClassStub
-        if parent-?>GenericType
-            stub := getStub(parent->GenericType.base.name)
-        else
-            stub := getStub(parent.name)
+        def stub := getStub(parent)
         assert stub != null : "null stub: \{parent}"
         if stub.isUnspecialized {
             def methods := stub.symbols[m.name]
@@ -1173,9 +1169,20 @@ class StubGenerator {
                 superclass := null
             }
             if superclass != null {
-                def stub := getStub(superclass.name)
-                if stub != null
+                def stub := getStub(superclass->ClassType)
+                if stub != null {
+                    if cl.classCategory = ClassCategory.CLASS &
+                            stub.classCategory = ClassCategory.INTERFACE {
+                        errors.error("classes cannot subclass interfaces",
+                                cl.superclass.position)
+                    }
+                    if cl.classCategory = ClassCategory.INTERFACE &
+                            stub.classCategory = ClassCategory.CLASS {
+                        errors.error("interfaces cannot subclass classes",
+                                cl.superclass.position)
+                    }
                     addNestedAliases(stub, symbols)
+                }
             }
         }
         else {
@@ -1185,13 +1192,17 @@ class StubGenerator {
                 superclass := ClassType.OBJECT
         }
         if containingClass != null
-            addNestedAliases(getStub(containingClass.name), symbols)
+            addNestedAliases(getStub(containingClass), symbols)
         if cl.interfaces != null {
             for t in cl.interfaces->ListView<ASTType> {
                 def type := resolveType(t, symbolTable)
                 if type-?>ClassType {
                     interfaces.add(type->ClassType)
-                    def stub := getStub(type.name)
+                    def stub := getStub(type->ClassType)
+                    if stub.classCategory != ClassCategory.INTERFACE {
+                        errors.error("'\{stub.name}' is not an interface",
+                                t.position)
+                    }
                     if stub != null
                         addNestedAliases(stub, symbols)
                 }
@@ -1569,7 +1580,14 @@ class StubGenerator {
             return null
         return name[0 .. index]
     }
- 
+
+    method getStub(type:ClassType):ClassStub? {
+        if type-?>GenericType
+            return getStub(type->GenericType.base.name)
+        else
+            return getStub(type.name)
+    }
+
     method getStub(name:String):ClassStub? {
         var result := stubs[name]
         if result = null {
