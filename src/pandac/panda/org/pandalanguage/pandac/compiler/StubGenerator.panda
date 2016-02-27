@@ -1016,6 +1016,8 @@ class StubGenerator {
     @pre(child.name = parent.name)
     function isOverride(child:MethodStub, parent:MethodStub, 
             genericParameters:ListView<Type>):Bit {
+        if child.annotations.isClass != parent.annotations.isClass
+            return false
         if child.parameters.count != parent.parameters.count
             return false
         def type := parent.typeWithGenerics(genericParameters)
@@ -1067,8 +1069,8 @@ class StubGenerator {
                 return null
             def genericParameters := parent->GenericType.parameters
             for m2 in methods->Methods.methods {
-                if isOverride(m, m2, genericParameters)
-                    return createShim(m, m2.type)
+                if isOverride(m, m2.stub, genericParameters)
+                    return createShim(m, m2.effectiveType)
             }
         }
         return null
@@ -1481,13 +1483,10 @@ class StubGenerator {
     method addSymbol(m:MethodStub, map:Map<String, Symbol>, 
             errors:ErrorReporter) {
         def methods := map[m.name]
-        if methods = null {
-            def list := Array<MethodStub>()
-            list.add(m)
-            map[m.name] := Methods(list)
-        }
+        if methods = null
+            map[m.name] := Methods(m, m.type)
         else if methods-?>Methods
-            map[m.name] := methods->Methods + m
+            map[m.name] := methods->Methods + Methods.MethodEntry(m, m.type)
         else {
             errors.error("invalid redefinition of symbol '\{m.name}'",
                     m.position)

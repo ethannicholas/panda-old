@@ -1,57 +1,86 @@
 package org.pandalanguage.pandac.stubs
 
+uses org.pandalanguage.pandac.types.MethodType
+
 ================================================================================
 Represents a group of same-named method overloads.
 ================================================================================
 class Methods : Immutable (Symbol) {
-	@private
-	var _name:String
+    class MethodEntry {
+        def stub:MethodStub
 
-	def methods:ImmutableArray<MethodStub>
+        def effectiveType:MethodType
 
-	init(m:MethodStub) {
-		self._name := m.name
-		def a := Array<MethodStub>()
-		a.add(m)
-		self.methods := ImmutableArray<MethodStub>(a)
-	}
+        init(stub:MethodStub, effectiveType:MethodType) {
+            self.stub := stub
+            self.effectiveType := effectiveType
+        }
 
-	init(methods:ListView<MethodStub>) {
-		self._name := methods[0].name
-		self.methods := ImmutableArray<MethodStub>(methods)
-	}
+        ========================================================================
+        Returns true if this method overrides `parent`.
+        ========================================================================
+        function isOverrideOf(parent:MethodEntry):Bit {
+            if parent.stub.name != stub.name
+                return false
+            if parent.stub.annotations.isClass != stub.annotations.isClass
+                return false
+            return parent.effectiveType.methodParameters = 
+                    effectiveType.methodParameters &
+                    parent.effectiveType.returnType = effectiveType.returnType
+        }
+    }
 
-	@override
-	function get_name():String {
-		return _name
-	}
+    @private
+    var _name:String
 
-	function +(m:MethodStub):Methods {
-		def result := Array<MethodStub>()
-		for old in methods {
-			if !m.isOverrideOf(old)
-				result.add(old)
-		}
-		result.add(m)
-		return Methods(result)
-	}
+    def methods:ImmutableArray<MethodEntry>
 
-	function +(m:Methods):Methods {
-		-- FIXME brain-dead O(N^2) approach
-		def result := Array<MethodStub>()
-		outer: for oldMethod in methods {
-			for newMethod in m.methods {
-				if newMethod.isOverrideOf(oldMethod)
-					continue outer
-			}
-			result.add(oldMethod)
-		}
-		result.addAll(m.methods)
-		return Methods(result)
-	}
+    init(stub:MethodStub, effectiveType:MethodType) {
+        self._name := stub.name
+        self.methods := [MethodEntry(stub, effectiveType)]
+    }
 
-	@override
-	function convert():String {
-		return methods.convert()
-	}
+    init(methods:ListView<MethodEntry>) {
+        self._name := methods[0].stub.name
+        self.methods := ImmutableArray<MethodEntry>(methods)
+    }
+
+    @override
+    function get_name():String {
+        return _name
+    }
+
+    function +(m:MethodEntry):Methods {
+        def result := Array<MethodEntry>()
+        for old in methods {
+            if !m.isOverrideOf(old)
+                result.add(old)
+        }
+        assert !result.contains(m) : "already have \{m.stub}"
+        result.add(m)
+        return Methods(result)
+    }
+
+    function +(m:Methods):Methods {
+        -- FIXME brain-dead O(N^2) approach
+        def result := Array<MethodEntry>()
+        outer: for oldMethod in methods {
+            for newMethod in m.methods {
+                assert newMethod.stub.name = oldMethod.stub.name
+                if newMethod.isOverrideOf(oldMethod)
+                    continue outer
+            }
+            result.add(oldMethod)
+        }
+        for newMethod in m.methods {
+            assert !result.contains(newMethod) : "already have \{newMethod.stub}"
+            result.add(newMethod)
+        }
+        return Methods(result)
+    }
+
+    @override
+    function convert():String {
+        return methods.convert()
+    }
 }

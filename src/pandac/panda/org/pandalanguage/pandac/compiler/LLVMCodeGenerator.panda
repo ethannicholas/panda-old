@@ -744,7 +744,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                     "* @" + intfCC.name + " to " + 
                     getLLVMType(ClassType.CLASS) + "), " + previous + ", [" + 
                     methods.count + " x i8*][")
-            for (i, m) in methods.enumeration {
+            for (i, entry) in methods.enumeration {
+                def m := entry.stub
                 program.liveMethods.add(m)
                 if i > 0
                     result.append(", ")
@@ -770,7 +771,9 @@ class LLVMCodeGenerator (CodeGenerator) {
         if cc = null {
             getStub(ClassType.CLASS)
             getStub(ClassType.STRING)
-            def methods := cl.virtualMethods(context)
+            def methods := Array<MethodStub>()
+            for m in cl.virtualMethods(context)
+                methods.add(m.stub)
             def className := getName(cl)
             cc := ClassConstant(
                     className + "_class",
@@ -812,7 +815,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             -- class constant includes vtable. Doesn't include statics, as 
             -- those are just globals.
             var overridesFinalize := false
-            for m in cl.methods {
+            for entry in cl.methods {
+                def m := entry.stub
                 if m.name = MethodNode.FINALIZE_NAME & 
                         !m.annotations.isClass & 
                         m.parameters.count = 1
@@ -1247,11 +1251,11 @@ class LLVMCodeGenerator (CodeGenerator) {
                 currentMethod->MethodNode.stub.owner = cl.type
             return
         def classInit := cl.methods.filter(
-                m => m.name = MethodNode.CLASS_INIT_NAME)
+                m => m.stub.name = MethodNode.CLASS_INIT_NAME)
         assert classInit.count = 1 : "expected exactly one method named " +
                 "'\{MethodNode.CLASS_INIT_NAME} in \{cl}, found " +
                 classInit.count
-        def stub := classInit.iterator.next()
+        def stub := classInit.iterator.next().stub
         call("fastcc void @\{getName(stub)}()")
         program.liveMethods.add(stub)
     }
@@ -1302,7 +1306,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     " @panda$core$Panda$getThreadLocal" + suffix + 
                     "(i32 " + threadLocalId + ", ")
             def stub := getStub(Panda.name).symbols["getThreadLocal" + 
-                    suffix]->Methods.methods[0]
+                    suffix]->Methods.methods[0].stub
             program.liveMethods.add(stub)
             def initializer := symbolTable[
                         IRGenerator.getThreadLocalInitializerName(fr.field)
@@ -1311,9 +1315,9 @@ class LLVMCodeGenerator (CodeGenerator) {
                 callString.append(
                         getLLVMType(NativePointerType.NATIVE_POINTER) + 
                         " bitcast(" + getLLVMType(fr.type) + "()* @" + 
-                        getName(initializer.methods[0]) + " to " + 
+                        getName(initializer.methods[0].stub) + " to " + 
                         getLLVMType(NativePointerType.NATIVE_POINTER) + "))")
-                program.liveMethods.add(initializer.methods[0])
+                program.liveMethods.add(initializer.methods[0].stub)
             }
             else
                 callString.append("i8* null)") -- no initializer function
@@ -1708,7 +1712,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             call("fastcc void @panda$core$Panda$setThreadLocal" + 
                     suffix + "(i32 " + threadLocalId + ", " + ref + ")")
             def stub := getStub(Panda.name).symbols["setThreadLocal" + 
-                    suffix]->Methods.methods[0]
+                    suffix]->Methods.methods[0].stub
             program.liveMethods.add(stub)
         }
     }
@@ -1878,7 +1882,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         writeBody("br \{getTypedReference(a.test)}, label %\{succeedLabel}, " +
                 "label %\{failLabel}", "assert test")
         body.writeLine()
-        program.liveMethods.add(getStub(Panda.name).symbols["failAssert"]->Methods.methods[0])
+        program.liveMethods.add(getStub(Panda.name).symbols["failAssert"]->Methods.methods[0].stub)
         createBlock(failLabel, "assert fail")
         var error := a.error
         if error != null {
@@ -1981,7 +1985,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                         catchClassConstant.name + " to " + classType + 
                         "), i1 0)")
                 program.liveMethods.add(getStub(ClassType.PANDA).symbols[
-                        "instanceOf"]->Methods.methods[0])
+                        "instanceOf"]->Methods.methods[0].stub)
                 def nextLabel:String
                 if i < t.catches.count - 1
                     nextLabel := catchTestLabels[t.catches[i + 1]]
@@ -2167,7 +2171,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method writeClassInitializers() {
 -*        for (_, cl) in context.classes {
             def classInit := cl.methods.filter(
-                    m => m.name = MethodNode.CLASS_INIT_NAME)
+                    m => m.stub.name = MethodNode.CLASS_INIT_NAME)
             if classInit.count = 0
                 continue
             def stub := classInit.iterator.next()
@@ -2264,7 +2268,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                     !f.annotations.isThread
                 writeFieldDeclaration(f)
         }
-        for m in cl.stub.methods {
+        for entry in cl.stub.methods {
+            def m := entry.stub
             if m.annotations.isExternal
                 writeMethodDeclaration(m)
         }
@@ -2275,7 +2280,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         do {
             progress := false
             for stub in context.classes.values.filter(stub => stub.isExternal) {
-                for m in stub.methods {
+                for entry in stub.methods {
+                    def m := entry.stub
                     if (!stub.annotations.isUnspecified | m.annotations.isClass) &
                             program.liveMethods.contains(m) & 
                             !writtenMethods.contains(m) {
