@@ -2,7 +2,6 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.ast.ASTType
 uses org.pandalanguage.pandac.ast.ASTMethodType
-uses org.pandalanguage.pandac.ast.ClassCategory
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.tree.AbstractLoop
@@ -31,7 +30,6 @@ uses org.pandalanguage.pandac.tree.Loop
 uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
 uses org.pandalanguage.pandac.tree.Node
@@ -181,7 +179,7 @@ class JavaCodeGenerator (CodeGenerator) {
     method getName(v:Variable):String {
         if v-?>Parameter & v.name = Parameter.SELF_NAME {
             def currentMethod := self.currentMethod->MethodNode
-            if (currentMethod.stub.methodType = MethodNodeType.INIT |
+            if (currentMethod.stub.kind = MethodStub.Kind.INIT |
                     currentMethod.stub.annotations.isWrapperMethod)
                 return "$this"
             else
@@ -198,7 +196,7 @@ class JavaCodeGenerator (CodeGenerator) {
     
     function isClass(m:MethodStub):Bit {
         return m.annotations.isClass | 
-                m.methodType = MethodNodeType.INIT |
+                m.kind = MethodStub.Kind.INIT |
                 m.annotations.isWrapperMethod
     }
 
@@ -377,7 +375,7 @@ class JavaCodeGenerator (CodeGenerator) {
     method generateMethodCallCode(mc:MethodCall) {
         def m := mc.methodStub
         if IRGenerator.unwrapCast(mc.target)-?>Super {
-            if m.methodType = MethodNodeType.INIT {
+            if m.kind = MethodStub.Kind.INIT {
                 def stub := context.getStub(m.owner.convert()->ClassType)
                 out.write(getName(stub))
             }
@@ -391,7 +389,7 @@ class JavaCodeGenerator (CodeGenerator) {
         out.write(".")
         out.write(getName(m))
         out.write("(")
-        if m.methodType = MethodNodeType.INIT {
+        if m.kind = MethodStub.Kind.INIT {
             out.write("$this")
             if mc.parameters.count > 0
                 out.write(", ")
@@ -1145,7 +1143,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write("static ")
         if m.annotations.isAbstract
             out.write("abstract ")
-        else if context.getStub(m.owner).classCategory = ClassCategory.INTERFACE & 
+        else if context.getStub(m.owner).kind = ClassStub.Kind.INTERFACE & 
                 !isClass(m)
             out.write("default ")
         def returnType:String
@@ -1158,7 +1156,7 @@ class JavaCodeGenerator (CodeGenerator) {
         else
             returnType := getJavaType(m.returnType)
         out.write("\{returnType} \{getName(m)}(")
-        if m.methodType = MethodNodeType.INIT {
+        if m.kind = MethodStub.Kind.INIT {
             out.write("\{getJavaType(m.owner)} $this")
             if m.parameters.count > 0
                 out.write(", ")
@@ -1192,7 +1190,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write("static ")
         if m.stub.annotations.isAbstract
             out.write("abstract ")
-        else if context.getStub(m.stub.owner).classCategory = ClassCategory.INTERFACE &
+        else if context.getStub(m.stub.owner).kind = ClassStub.Kind.INTERFACE &
                 !isClass(m.stub)
             out.write("default ")
         def returnType:String
@@ -1208,7 +1206,7 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write("\{returnType} \{MethodNode.CLOSURE_NAME}(")
         else
             out.write("\{returnType} \{getName(m.stub)}(")
-        if m.stub.methodType = MethodNodeType.INIT {
+        if m.stub.kind = MethodStub.Kind.INIT {
             out.write("\{getJavaType(m.stub.owner)} $this")
             if m.stub.parameters.count > 0
                 out.write(", ")
@@ -1261,7 +1259,7 @@ class JavaCodeGenerator (CodeGenerator) {
             }
         }
         
-        if m.stub.methodType = MethodNodeType.INIT & 
+        if m.stub.kind = MethodStub.Kind.INIT & 
                 !context.getStub(m.stub.owner).annotations.isAbstract {
             def type := getJavaType(m.stub.owner)
             out.write("public static \{type} create\{getName(m.stub)}(")
@@ -1305,7 +1303,7 @@ class JavaCodeGenerator (CodeGenerator) {
         out.write("public ")
         if isClass(m)
             out.write("static ")
-        else if context.getStub(m.owner).classCategory = ClassCategory.INTERFACE & 
+        else if context.getStub(m.owner).kind = ClassStub.Kind.INTERFACE & 
                 !isClass(m)
             out.write("default ")
         out.write("\{getJavaType(m.returnType)} \{getName(m)}(")
@@ -1418,14 +1416,14 @@ class JavaCodeGenerator (CodeGenerator) {
             out.write("abstract ")
         if cl.stub.annotations.isUnspecified
             out.write("/* \{cl.stub.name} is unspecified! */")
-        if cl.stub.classCategory = ClassCategory.INTERFACE
+        if cl.stub.kind = ClassStub.Kind.INTERFACE
             out.write("interface ")
         else 
             out.write("class ")
         def simpleName := getSimpleName(cl.stub)
         out.write(simpleName)
         def superclass := cl.stub.superclass
-        if cl.stub.classCategory = ClassCategory.INTERFACE {
+        if cl.stub.kind = ClassStub.Kind.INTERFACE {
             for (i, intf) in cl.stub.interfaces.enumeration {
                 if i = 0
                     out.write(" extends ")
@@ -1475,7 +1473,7 @@ class JavaCodeGenerator (CodeGenerator) {
             }
         }
 
-        if cl.stub.classCategory != ClassCategory.INTERFACE
+        if cl.stub.kind != ClassStub.Kind.INTERFACE
             writeClassInitializer(cl.stub)
         else {
             def initializerName := "$CLINIT"

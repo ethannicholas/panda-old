@@ -3,9 +3,9 @@ package org.pandalanguage.pandac.stubs
 uses org.pandalanguage.pandac.ast.ASTBlock
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.SymbolTable
+uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
@@ -18,13 +18,19 @@ uses org.pandalanguage.pandac.types.VoidType
 Represents a parsed but not-yet-compiled method.
 ================================================================================
 class MethodStub : Immutable {
+    choice Kind {
+        METHOD,
+        FUNCTION,
+        INIT
+    }
+
     def position:Position
 
     def name:String
 
     def annotations:Annotations
 
-    def methodType:MethodNodeType
+    def kind:Kind
 
     def body:ASTBlock?
 
@@ -39,13 +45,13 @@ class MethodStub : Immutable {
     property type:MethodType
 
     init(position:Position, name:String, annotations:Annotations,
-            methodType:MethodNodeType, parameters:ListView<FormalParameter>, 
+            kind:Kind, parameters:ListView<FormalParameter>, 
             genericParameters:ListView<(String, Type?)>?, returnType:Type,
             body:ASTBlock?, owner:ClassType) {
         self.position := position
         self.name := name
         self.annotations := annotations
-        self.methodType := methodType
+        self.kind := kind
         self.body := body
         self.parameters := ImmutableArray<FormalParameter>(parameters)
         if genericParameters != null {
@@ -70,7 +76,7 @@ class MethodStub : Immutable {
         return !annotations.isClass & 
                 !annotations.isFinal & 
                 !annotations.isPrivate & 
-                methodType != MethodNodeType.INIT
+                kind != Kind.INIT
     }
 
     @private
@@ -78,8 +84,7 @@ class MethodStub : Immutable {
         def types := Array<Type>()
         for p in parameters
             types.add(p.type)
-        return MethodType(types, returnType, 
-                methodType = MethodNodeType.FUNCTION, true)
+        return MethodType(types, returnType, kind = Kind.FUNCTION, true)
     }
 
     function typeWithGenerics(genericTypes:ListView<Type>):MethodType {
@@ -93,16 +98,16 @@ class MethodStub : Immutable {
             types.add(GenericType.getType(p.type, symbols))
         def returnType := GenericType.getType(self.returnType, symbols)
         return MethodType(types, returnType,
-                methodType = MethodNodeType.FUNCTION, true)
+                kind = Kind.FUNCTION, true)
     }
 
     @override
     function convert():String {
         def result := MutableString()
-        switch methodType {
-            case MethodNodeType.METHOD: result.append("method ")
-            case MethodNodeType.FUNCTION: result.append("function ")
-            case MethodNodeType.INIT: { -* do nothing *- }
+        switch kind {
+            case Kind.METHOD: result.append("method ")
+            case Kind.FUNCTION: result.append("function ")
+            case Kind.INIT: { -* do nothing *- }
             default: unreachable
         }
         result.append(name)

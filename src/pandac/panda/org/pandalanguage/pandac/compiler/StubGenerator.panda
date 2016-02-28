@@ -40,7 +40,6 @@ uses org.pandalanguage.pandac.ast.ASTUnparsedClass
 uses org.pandalanguage.pandac.ast.ASTUnreachable
 uses org.pandalanguage.pandac.ast.ASTUsesDeclaration
 uses org.pandalanguage.pandac.ast.ASTExpressionStatement
-uses org.pandalanguage.pandac.ast.ClassCategory
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
@@ -52,7 +51,6 @@ uses org.pandalanguage.pandac.stubs.TypeSymbol
 uses org.pandalanguage.pandac.tree.Annotations
 uses org.pandalanguage.pandac.tree.FieldNode
 uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.tree.Variable
@@ -343,7 +341,7 @@ class StubGenerator {
                     if m != null {
                         m := MethodStub(m.position, m.name, 
                                 m.annotations + Annotations.Kind.CLASS,
-                                m.methodType, m.parameters, null, m.returnType, 
+                                m.kind, m.parameters, null, m.returnType, 
                                 m.body, m.owner)
                         checkMethodSignature(m)
                         addSymbol(m, implicitClassSymbols.mySymbols, errors)
@@ -365,7 +363,7 @@ class StubGenerator {
                 def position := Position(f.path, 0)
                 def main := MethodStub(position, MethodNode.MAIN_NAME, 
                         Annotations(position, [Annotations.Kind.CLASS]),
-                        MethodNodeType.METHOD, Array<FormalParameter>(), null,
+                        MethodStub.Kind.METHOD, Array<FormalParameter>(), null,
                         VoidType.VOID, ASTBlock(Position.INTERNAL, 
                         mainStatements), implicitType)
                 addSymbol(main, implicitClassSymbols.mySymbols, errors)
@@ -373,7 +371,7 @@ class StubGenerator {
             }
             if needImplicit {
                 def implicitClass := ClassStub(Position.INTERNAL, 
-                        implicitType, ClassCategory.CLASS, 
+                        implicitType, ClassStub.Kind.CLASS, 
                         Annotations(Position.INTERNAL), 
                         null, Array<ClassType>(), 
                         implicitClassSymbols.mySymbols, 
@@ -381,7 +379,7 @@ class StubGenerator {
                         Array<ASTInvariant>(), null, false, null)
                 astClasses[implicitClass.name] := (ASTClass(
                         Position.INTERNAL, implicitClass.name, 
-                        ClassCategory.CLASS, null, null, null, null, null, [], 
+                        ClassStub.Kind.CLASS, null, null, null, null, null, [], 
                         false), ClassContext(currentPackage, 
                             LookupContext(packageUses, classAliases)), 
                         null)
@@ -672,7 +670,7 @@ class StubGenerator {
                                 "have exactly one parameter", m.position)
                     }
                 }
-                if m.methodType != MethodNodeType.FUNCTION {
+                if m.kind != MethodStub.Kind.FUNCTION {
                     errors.error("expected \{name} to be a " +
                             "function", m.position)
                 }
@@ -688,7 +686,7 @@ class StubGenerator {
                             "exactly one parameter of type 'panda.core.Object'",
                             m.position)
                 }
-                if m.methodType != MethodNodeType.FUNCTION {
+                if m.kind != MethodStub.Kind.FUNCTION {
                     errors.error("expected operator '=' to " +
                             "be a function", m.position)
                 }
@@ -703,7 +701,7 @@ class StubGenerator {
                     errors.error("expected \{name} to have " +
                             "exactly one parameter", m.position)
                 }
-                if m.methodType != MethodNodeType.FUNCTION {
+                if m.kind != MethodStub.Kind.FUNCTION {
                     errors.error("expected \{name} to be a " +
                             "function", m.position)
                 }
@@ -721,7 +719,7 @@ class StubGenerator {
                     errors.error("expected \{name} to have " +
                             "exactly two parameters", m.position)
                 }
-                if m.methodType = MethodNodeType.FUNCTION {
+                if m.kind = MethodStub.Kind.FUNCTION {
                     errors.error("\{name} may not be a function", m.position)
                 }
                 if m.returnType != VoidType.VOID {
@@ -745,7 +743,7 @@ class StubGenerator {
                             "'\{m.parameters[2].name}' of \{name} " + 
                             "to be non-nullable", m.position)
                 }
-                if m.methodType != MethodNodeType.FUNCTION {
+                if m.kind != MethodStub.Kind.FUNCTION {
                     errors.error("expected \{name} to be a function", 
                             m.position)
                 }
@@ -771,7 +769,7 @@ class StubGenerator {
                             "'\{m.parameters[2].name}' of \{name} " +
                             "to be non-nullable", m.position)
                 }
-                if m.methodType = MethodNodeType.FUNCTION {
+                if m.kind = MethodStub.Kind.FUNCTION {
                     errors.error("\{name} may not be a function", m.position)
                 }
                 if m.returnType != VoidType.VOID {
@@ -805,7 +803,7 @@ class StubGenerator {
                         errors.error("expected \{name} to " +
                                 "have exactly one parameter", m.position)
                     }
-                    if m.methodType = MethodNodeType.FUNCTION {
+                    if m.kind = MethodStub.Kind.FUNCTION {
                         errors.error("\{name} may not be a " +
                                 "function", m.position)
                     }
@@ -877,7 +875,7 @@ class StubGenerator {
         else
             original := m.annotations->Object.convert()
         return MethodStub(m.position, m.name, 
-                annotations, m.methodType, parameters, genericParameters, 
+                annotations, m.kind, parameters, genericParameters, 
                 returnType, m.body, owner)
     }
 
@@ -972,7 +970,7 @@ class StubGenerator {
             def classInit := MethodStub(position, 
                     MethodNode.CLASS_INIT_NAME, Annotations(position, 
                         classAnnotations),
-                    MethodNodeType.METHOD, Array<FormalParameter>(), null,
+                    MethodStub.Kind.METHOD, Array<FormalParameter>(), null,
                     VoidType.VOID, ASTBlock(position, body), 
                     owner->ClassType)
 
@@ -982,7 +980,7 @@ class StubGenerator {
     }
 
     function isAbstract(cl:ASTClass):Bit {
-        if cl.classCategory = ClassCategory.INTERFACE
+        if cl.kind = ClassStub.Kind.INTERFACE
             return true
         def annotations := cl.annotations
         if annotations != null {
@@ -1054,7 +1052,7 @@ class StubGenerator {
                     ASTArrowExpression.Kind.FORCE_CAST, call, 
                     IRGenerator.toASTType(m.position, type.returnType))))
         }
-        def result := MethodStub(m.position, m.name, m.annotations, m.methodType, 
+        def result := MethodStub(m.position, m.name, m.annotations, m.kind, 
                     m.parameters, m.genericParameters, type.returnType, 
                     ASTBlock(m.position, body), m.owner)
         return result
@@ -1173,13 +1171,13 @@ class StubGenerator {
             if superclass != null {
                 def stub := getStub(superclass->ClassType)
                 if stub != null {
-                    if cl.classCategory = ClassCategory.CLASS &
-                            stub.classCategory = ClassCategory.INTERFACE {
+                    if cl.kind = ClassStub.Kind.CLASS &
+                            stub.kind = ClassStub.Kind.INTERFACE {
                         errors.error("classes cannot subclass interfaces",
                                 cl.superclass.position)
                     }
-                    if cl.classCategory = ClassCategory.INTERFACE &
-                            stub.classCategory = ClassCategory.CLASS {
+                    if cl.kind = ClassStub.Kind.INTERFACE &
+                            stub.kind = ClassStub.Kind.CLASS {
                         errors.error("interfaces cannot subclass classes",
                                 cl.superclass.position)
                     }
@@ -1201,7 +1199,7 @@ class StubGenerator {
                 if type-?>ClassType {
                     interfaces.add(type->ClassType)
                     def stub := getStub(type->ClassType)
-                    if stub.classCategory != ClassCategory.INTERFACE {
+                    if stub.kind != ClassStub.Kind.INTERFACE {
                         errors.error("'\{stub.name}' is not an interface",
                                 t.position)
                     }
@@ -1263,14 +1261,14 @@ class StubGenerator {
                         addSymbol(shim, symbols.mySymbols, errors)
                         converted := MethodStub(converted.position, 
                                 "$" + converted.name, converted.annotations, 
-                                converted.methodType, converted.parameters, 
+                                converted.kind, converted.parameters, 
                                 converted.genericParameters, 
                                 converted.returnType, converted.body, 
                                 converted.owner)
                     }
                     addSymbol(converted, symbols.mySymbols, errors)
-                    foundInit |= converted.methodType = 
-                            MethodNodeType.INIT
+                    foundInit |= converted.kind = 
+                            MethodStub.Kind.INIT
                 }
             }
             else if node-?>ASTField
@@ -1278,7 +1276,7 @@ class StubGenerator {
             else if node-?>ASTInvariant
                 invariants.add(node->ASTInvariant)
         }
-        if cl.classCategory != ClassCategory.INTERFACE & !foundInit {
+        if cl.kind != ClassStub.Kind.INTERFACE & !foundInit {
             -- create implicit no-arg init
             def statements := Array<ASTStatement>()
             def superInit := ASTDotExpression(
@@ -1287,7 +1285,7 @@ class StubGenerator {
                     superInit, Array<ASTExpression>())))
             def block := ASTBlock(cl.position, statements)
             def c := MethodStub(cl.position, MethodNode.INIT_NAME, 
-                    Annotations(cl.position), MethodNodeType.INIT, 
+                    Annotations(cl.position), MethodStub.Kind.INIT, 
                     Array<FormalParameter>(), null, VoidType.VOID, block, 
                     classType)
             addSymbol(c, symbols.mySymbols, errors)
@@ -1321,9 +1319,8 @@ class StubGenerator {
         else
             genericParameters := null
         return ClassStub(cl.position, classType, 
-                cl.classCategory, annotations, superclass->ClassType?, 
-                interfaces, symbols.mySymbols, LookupContext(packageUses, 
-                        classAliases), 
+                cl.kind, annotations, superclass->ClassType?, interfaces, 
+                symbols.mySymbols, LookupContext(packageUses, classAliases), 
                 invariants, genericParameters, cl.isExternal, 
                 containingClass)
     }
@@ -1338,7 +1335,7 @@ class StubGenerator {
         def initAnnotations := Array<Annotations.Kind>()
         initAnnotations.add(Annotations.Kind.PRIVATE)
         return MethodStub(c.position, MethodNode.INIT_NAME, 
-                Annotations(c.position, initAnnotations), MethodNodeType.INIT, 
+                Annotations(c.position, initAnnotations), MethodStub.Kind.INIT, 
                 Array<FormalParameter>(), null, VoidType.VOID, block, classType)
     }
 
@@ -1358,7 +1355,7 @@ class StubGenerator {
         return MethodStub(c.position, 
                 MethodNode.CONVERT_NAME, 
                 Annotations(c.position, Array<Annotations.Kind>()), 
-                MethodNodeType.FUNCTION, Array<FormalParameter>(), null,
+                MethodStub.Kind.FUNCTION, Array<FormalParameter>(), null,
                 IntType.INT32, block, classType)
     }
 
@@ -1378,7 +1375,7 @@ class StubGenerator {
         return MethodStub(c.position, 
                 MethodNode.CONVERT_NAME, 
                 Annotations(c.position, Array<Annotations.Kind>()), 
-                MethodNodeType.FUNCTION, Array<FormalParameter>(), null,
+                MethodStub.Kind.FUNCTION, Array<FormalParameter>(), null,
                 ClassType.STRING, block, classType)
     }
 
@@ -1402,7 +1399,7 @@ class StubGenerator {
                 IntType.INT32, false, false))
         return MethodStub(c.position, "fromInt", 
                 Annotations(c.position, cvtAnnotations), 
-                MethodNodeType.FUNCTION, convertParameters, null, classType, 
+                MethodStub.Kind.FUNCTION, convertParameters, null, classType, 
                 block, classType)
     }
 
@@ -1426,7 +1423,7 @@ class StubGenerator {
                 ClassType.STRING, false, false))
         return MethodStub(c.position, "fromString", 
                 Annotations(c.position, cvtAnnotations), 
-                MethodNodeType.FUNCTION, convertParameters,  null, classType, 
+                MethodStub.Kind.FUNCTION, convertParameters,  null, classType, 
                 block, classType)
     }
 
@@ -1473,7 +1470,7 @@ class StubGenerator {
                 errors)
 
         def annotations := convertAnnotations(c.position, c.annotations)
-        return ClassStub(c.position, classType, ClassCategory.CLASS,
+        return ClassStub(c.position, classType, ClassStub.Kind.CLASS,
                 annotations, ClassType.CHOICE, Array<ClassType>(), 
                 symbols.mySymbols, LookupContext(), Array<ASTInvariant>(), null, 
                 c.isExternal, containingClass)

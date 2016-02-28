@@ -51,7 +51,6 @@ uses org.pandalanguage.pandac.ast.ASTUnreachable
 uses org.pandalanguage.pandac.ast.ASTValueWrapper
 uses org.pandalanguage.pandac.ast.ASTVarDeclaration
 uses org.pandalanguage.pandac.ast.ASTWhile
-uses org.pandalanguage.pandac.ast.ClassCategory
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.FormalParameter
@@ -87,7 +86,6 @@ uses org.pandalanguage.pandac.tree.Loop
 uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
 uses org.pandalanguage.pandac.tree.MethodCall
 uses org.pandalanguage.pandac.tree.MethodNode
-uses org.pandalanguage.pandac.tree.MethodNodeType
 uses org.pandalanguage.pandac.tree.MethodReference
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
 uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
@@ -912,7 +910,7 @@ class IRGenerator {
             statement := ASTReturn(ref.position, call)
         else
             statement := ASTExpressionStatement(call)
-        def value := ASTMethodValue(ref.position, ref.methodStub.methodType, 
+        def value := ASTMethodValue(ref.position, ref.methodStub.kind, 
                 parameters, toASTType(ref.position, ref.methodStub.returnType), 
                 ASTBlock(ref.position, [statement]))
         def resolved := resolve(value)
@@ -993,7 +991,7 @@ class IRGenerator {
         }
         def cl := type.convert()->ClassType
         def stub := context.getStub(cl)
-        if stub.classCategory = ClassCategory.INTERFACE {
+        if stub.kind = ClassStub.Kind.INTERFACE {
             context.errors.error("interfaces may not be instantiated",
                     n.position)
             return null
@@ -2743,7 +2741,7 @@ class IRGenerator {
             statements.add(ASTReturn(l.position, l.value))
             def body := ASTBlock(l.position, statements)
             def methodValue := ASTMethodValue(l.position, 
-                    MethodNodeType.FUNCTION, parameters, 
+                    MethodStub.Kind.FUNCTION, parameters, 
                     toASTType(l.position, returnType), body)
             value := convertMethodValue(methodValue)
         }
@@ -2794,7 +2792,7 @@ class IRGenerator {
                     ASTIdentifier(position, field.name)))
         }
         def stub := MethodStub(position, MethodNode.INIT_NAME, 
-                Annotations(position), MethodNodeType.INIT, parameters, null, 
+                Annotations(position), MethodStub.Kind.INIT, parameters, null, 
                 VoidType.VOID, ASTBlock(position, body), owner)
         return (stub, fields)
     }
@@ -2823,7 +2821,7 @@ class IRGenerator {
         else
             returnType := VoidType.VOID
         def stub := MethodStub(m.position, MethodNode.CLOSURE_NAME, 
-                Annotations(m.position), m.methodType, formalParameters, null,
+                Annotations(m.position), m.kind, formalParameters, null,
                 returnType, m.body, closureType)
         context.currentMethod := stub
         context.pushSymbolTable()
@@ -2869,7 +2867,7 @@ class IRGenerator {
         def lookupContext := context.currentClass.lookupContext
         def superclass := ClassType.METHOD
         def closureStub := ClassStub(m.position, closureType, 
-                ClassCategory.CLASS, Annotations(m.position, 
+                ClassStub.Kind.CLASS, Annotations(m.position, 
                     [Annotations.Kind.SYNTHETIC]), 
                 superclass, Array<ClassType>(), closureSymbols, lookupContext,
                 Array<ASTInvariant>(), null, false, 
@@ -2909,7 +2907,7 @@ class IRGenerator {
                 var value := statements[0]->ValueStatement.value
                 if value-?>MethodCall {
                     var call := value->MethodCall
-                    if call.methodStub.methodType = MethodNodeType.INIT
+                    if call.methodStub.kind = MethodStub.Kind.INIT
                         return call.methodStub.owner = owner
                 }
             }
@@ -2924,7 +2922,7 @@ class IRGenerator {
                 var value := statements[0]->ValueStatement.value
                 if value-?>MethodCall {
                     var call := value->MethodCall
-                    if call.methodStub.methodType = MethodNodeType.INIT
+                    if call.methodStub.kind = MethodStub.Kind.INIT
                         return call.target.type != owner
                 }
             }
@@ -2933,7 +2931,7 @@ class IRGenerator {
     }   
 
     function isClosureMethod(m:MethodStub):Bit {
-        return m.methodType != MethodNodeType.INIT & 
+        return m.kind != MethodStub.Kind.INIT & 
                 m.owner.name.contains("$closure")
     }
 
@@ -2983,7 +2981,7 @@ class IRGenerator {
             context.symbolTable.add(selfParam)
         }
         var body := convertBlock(m.body->ASTBlock)
-        if m.methodType = MethodNodeType.INIT {
+        if m.kind = MethodStub.Kind.INIT {
             def callsOther := callsOtherSelfInit(m.owner, 
                     body.statements)
             def callsSuper := callsSuperInit(m.owner, body.statements)
@@ -3070,7 +3068,7 @@ class IRGenerator {
             }
             if getters.count = 1 {
                 def getter := getters.iterator.next().stub
-                if getter.methodType != MethodNodeType.FUNCTION {
+                if getter.kind != MethodStub.Kind.FUNCTION {
                     context.errors.error("property getters must be functions",
                             getter.position)
                 }
@@ -3134,7 +3132,7 @@ class IRGenerator {
             context.methods.add(convertMethod(m.stub))
         }
         context.popSymbolTable()
-        if cl.classCategory != ClassCategory.INTERFACE & 
+        if cl.kind != ClassStub.Kind.INTERFACE & 
                 !cl.annotations.isAbstract {
             for entry in cl.type.virtualMethods(context) {
                 def m := entry.stub
@@ -3310,7 +3308,7 @@ class IRGenerator {
                 def m := MethodStub(f.position, 
                         name, Annotations(f.position, [Annotations.Kind.CLASS,
                             Annotations.Kind.SYNTHETIC]),
-                        MethodNodeType.METHOD, Array<FormalParameter>(), null,
+                        MethodStub.Kind.METHOD, Array<FormalParameter>(), null,
                         f.type, ASTBlock(f.position, body), f.owner)
                 StubGenerator.addSymbol(m, cl.symbols, context.errors)
             }
