@@ -21,19 +21,19 @@ class WindowImpl {
 }
 
 class Window_ExternalImpl implements panda.ui.Window_External {
-    private panda.ui.events.Key getKey(int keyCode) {
+    private panda.ui.events.KeyEvent$Key getKey(int keyCode) {
         switch (keyCode) {
-            case VK_A: return panda.ui.events.Key.$A;
-            case VK_D: return panda.ui.events.Key.$D;
-            case VK_X: return panda.ui.events.Key.$X;
-            case VK_Z: return panda.ui.events.Key.$Z;
-            case VK_ESCAPE: return panda.ui.events.Key.$ESCAPE;
-            case VK_SPACE: return panda.ui.events.Key.$SPACE;
-            case VK_DOWN: return panda.ui.events.Key.$DOWN;
-            case VK_LEFT: return panda.ui.events.Key.$LEFT;
-            case VK_RIGHT: return panda.ui.events.Key.$RIGHT;
-            case VK_UP: return panda.ui.events.Key.$UP;
-            default: return panda.ui.events.Key.$UNKNOWN;
+            case VK_A: return panda.ui.events.KeyEvent$Key.$A;
+            case VK_D: return panda.ui.events.KeyEvent$Key.$D;
+            case VK_X: return panda.ui.events.KeyEvent$Key.$X;
+            case VK_Z: return panda.ui.events.KeyEvent$Key.$Z;
+            case VK_ESCAPE: return panda.ui.events.KeyEvent$Key.$ESCAPE;
+            case VK_SPACE: return panda.ui.events.KeyEvent$Key.$SPACE;
+            case VK_DOWN: return panda.ui.events.KeyEvent$Key.$DOWN;
+            case VK_LEFT: return panda.ui.events.KeyEvent$Key.$LEFT;
+            case VK_RIGHT: return panda.ui.events.KeyEvent$Key.$RIGHT;
+            case VK_UP: return panda.ui.events.KeyEvent$Key.$UP;
+            default: return panda.ui.events.KeyEvent$Key.$UNKNOWN;
         }
     }
 
@@ -72,8 +72,8 @@ class Window_ExternalImpl implements panda.ui.Window_External {
         frame.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyPressed(java.awt.event.KeyEvent e) {
                 panda.ui.events.KeyEvent event = 
-                        panda.ui.events.KeyEvent.createnew$init_panda$ui$events$EventType_panda$ui$events$Key_Int16(
-                            panda.ui.events.EventType.$KEYDOWN,
+                        panda.ui.events.KeyEvent.createnew$init_panda$ui$events$Event$Type_panda$ui$events$KeyEvent$Key_Int16(
+                            panda.ui.events.Event$Type.$KEYDOWN,
                             getKey(e.getKeyCode()),
                             (short) 0);
                 self.$eventQueue.post_panda$core$Immutable(event);
@@ -81,8 +81,8 @@ class Window_ExternalImpl implements panda.ui.Window_External {
 
             public void keyReleased(java.awt.event.KeyEvent e) {
                 panda.ui.events.KeyEvent event = 
-                        panda.ui.events.KeyEvent.createnew$init_panda$ui$events$EventType_panda$ui$events$Key_Int16(
-                            panda.ui.events.EventType.$KEYUP,
+                        panda.ui.events.KeyEvent.createnew$init_panda$ui$events$Event$Type_panda$ui$events$KeyEvent$Key_Int16(
+                            panda.ui.events.Event$Type.$KEYUP,
                             getKey(e.getKeyCode()),
                             (short) 0);
                 self.$eventQueue.post_panda$core$Immutable(event);
@@ -92,16 +92,16 @@ class Window_ExternalImpl implements panda.ui.Window_External {
         frame.addMouseMotionListener(new java.awt.event.MouseMotionListener() {
             public void mouseMoved(java.awt.event.MouseEvent e) {
                 panda.ui.events.MouseMotionEvent event = 
-                        panda.ui.events.MouseMotionEvent.createnew$init_panda$ui$events$EventType_Int32_Int32(
-                            panda.ui.events.EventType.$MOUSEMOTION, e.getX(),
+                        panda.ui.events.MouseMotionEvent.createnew$init_panda$ui$events$Event$Type_Int32_Int32(
+                            panda.ui.events.Event$Type.$MOUSEMOTION, e.getX(),
                             e.getY());
                 self.$eventQueue.post_panda$core$Immutable(event);
             }
 
             public void mouseDragged(java.awt.event.MouseEvent e) {
                 panda.ui.events.MouseMotionEvent event = 
-                        panda.ui.events.MouseMotionEvent.createnew$init_panda$ui$events$EventType_Int32_Int32(
-                            panda.ui.events.EventType.$MOUSEMOTION, e.getX(),
+                        panda.ui.events.MouseMotionEvent.createnew$init_panda$ui$events$Event$Type_Int32_Int32(
+                            panda.ui.events.Event$Type.$MOUSEMOTION, e.getX(),
                             e.getY());
                 self.$eventQueue.post_panda$core$Immutable(event);
             }
@@ -110,16 +110,16 @@ class Window_ExternalImpl implements panda.ui.Window_External {
         frame.addMouseListener(new java.awt.event.MouseAdapter() {
             public void mousePressed(java.awt.event.MouseEvent e) {
                 panda.ui.events.MouseEvent event = 
-                        panda.ui.events.MouseEvent.createnew$init_panda$ui$events$EventType_Int8_Int32_Int32(
-                            panda.ui.events.EventType.$MOUSEDOWN,
+                        panda.ui.events.MouseEvent.createnew$init_panda$ui$events$Event$Type_Int8_Int32_Int32(
+                            panda.ui.events.Event$Type.$MOUSEDOWN,
                             (byte) e.getButton(), e.getX(), e.getY());
                 self.$eventQueue.post_panda$core$Immutable(event);
             }
 
             public void mouseReleased(java.awt.event.MouseEvent e) {
                 panda.ui.events.MouseEvent event = 
-                        panda.ui.events.MouseEvent.createnew$init_panda$ui$events$EventType_Int8_Int32_Int32(
-                            panda.ui.events.EventType.$MOUSEUP,
+                        panda.ui.events.MouseEvent.createnew$init_panda$ui$events$Event$Type_Int8_Int32_Int32(
+                            panda.ui.events.Event$Type.$MOUSEUP,
                             (byte) e.getButton(), e.getX(), e.getY());
                 self.$eventQueue.post_panda$core$Immutable(event);
             }
@@ -129,8 +129,8 @@ class Window_ExternalImpl implements panda.ui.Window_External {
     }
 
     void init() {
-        panda.ui.events.EventType.$classInit_class();
-        panda.ui.events.Key.$classInit_class();
+        panda.ui.events.Event$Type.$classInit_class();
+        panda.ui.events.KeyEvent$Key.$classInit_class();
     }
 
     @Override

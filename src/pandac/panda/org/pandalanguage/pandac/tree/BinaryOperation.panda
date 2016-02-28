@@ -13,34 +13,34 @@ uses org.pandalanguage.pandac.types.RealType
 uses org.pandalanguage.pandac.types.StringOrCharType
 uses org.pandalanguage.pandac.types.Type
 
-choice BinaryOperationType {
-    ADD,
-    SUBTRACT,
-    MULTIPLY,
-    DIVIDE,
-    INT_DIVIDE,
-    REMAINDER,
-    POWER,
-    AND,
-    OR,
-    XOR,
-    BITWISE_AND,
-    BITWISE_OR,
-    BITWISE_XOR,
-    SHIFT_LEFT,
-    SHIFT_RIGHT,
-    EQUAL,
-    NOT_EQUAL,
-    IDENTITY,
-    NOT_IDENTITY,
-    GREATER_THAN,
-    GREATER_THAN_OR_EQUAL,
-    LESS_THAN,
-    LESS_THAN_OR_EQUAL
-}
-
 class BinaryOperation : Value {
-    def kind:BinaryOperationType
+    choice Kind {
+        ADD,
+        SUBTRACT,
+        MULTIPLY,
+        DIVIDE,
+        INT_DIVIDE,
+        REMAINDER,
+        POWER,
+        AND,
+        OR,
+        XOR,
+        BITWISE_AND,
+        BITWISE_OR,
+        BITWISE_XOR,
+        SHIFT_LEFT,
+        SHIFT_RIGHT,
+        EQUAL,
+        NOT_EQUAL,
+        IDENTITY,
+        NOT_IDENTITY,
+        GREATER_THAN,
+        GREATER_THAN_OR_EQUAL,
+        LESS_THAN,
+        LESS_THAN_OR_EQUAL
+    }
+
+    def kind:Kind
 
     def left:Value
 
@@ -49,8 +49,7 @@ class BinaryOperation : Value {
     def permitOverflow:Bit
 
     @pre(left.type = right.type)
-    init(position:Position, kind:BinaryOperationType, left:Value,
-            right:Value) {
+    init(position:Position, kind:Kind, left:Value, right:Value) {
         super.init(position, getType(kind, left.type))
         self.kind := kind
         self.left := left
@@ -61,10 +60,8 @@ class BinaryOperation : Value {
     method implicitCast(position:Position, context:Context, t:Type):Value {
         if type = t
             return self
-        if (kind = BinaryOperationType.ADD |
-                kind = BinaryOperationType.SUBTRACT |
-                kind = BinaryOperationType.MULTIPLY |
-                kind = BinaryOperationType.DIVIDE) &
+        if (kind = Kind.ADD | kind = Kind.SUBTRACT | kind = Kind.MULTIPLY |
+                kind = Kind.DIVIDE) &
                 (t.unwrapNullable.isPrimitive | t.unwrapNullable.isWrapper) {
             def prim := t.convert()->PrimitiveType
             if left.canImplicitCastTo(context, prim) & 
@@ -83,15 +80,11 @@ class BinaryOperation : Value {
 
     @private
     @class
-    function getType(kind:BinaryOperationType, operandType:Type):Type {
+    function getType(kind:Kind, operandType:Type):Type {
         switch kind {
-            case BinaryOperationType.EQUAL, BinaryOperationType.NOT_EQUAL,
-                    BinaryOperationType.IDENTITY, 
-                    BinaryOperationType.NOT_IDENTITY,
-                    BinaryOperationType.GREATER_THAN,
-                    BinaryOperationType.GREATER_THAN_OR_EQUAL,
-                    BinaryOperationType.LESS_THAN,
-                    BinaryOperationType.LESS_THAN_OR_EQUAL:
+            case Kind.EQUAL, Kind.NOT_EQUAL, Kind.IDENTITY, Kind.NOT_IDENTITY,
+                    Kind.GREATER_THAN, Kind.GREATER_THAN_OR_EQUAL,
+                    Kind.LESS_THAN, Kind.LESS_THAN_OR_EQUAL:
                 return BitType.BIT
             default:
                 return operandType
@@ -273,35 +266,35 @@ class BinaryOperation : Value {
     }
 
     @class
-    method operandType(context:Context, kind:BinaryOperationType, 
+    method operandType(context:Context, kind:Kind, 
             left:Value, right:Value):Type? {
         switch kind {
-            case BinaryOperationType.ADD, BinaryOperationType.SUBTRACT, 
-                    BinaryOperationType.MULTIPLY,
-                    BinaryOperationType.INT_DIVIDE, 
-                    BinaryOperationType.REMAINDER,
-                    BinaryOperationType.POWER:
+            case Kind.ADD, Kind.SUBTRACT, 
+                    Kind.MULTIPLY,
+                    Kind.INT_DIVIDE, 
+                    Kind.REMAINDER,
+                    Kind.POWER:
                 return mathOperandType(context, left, right, true)
-            case BinaryOperationType.DIVIDE:
+            case Kind.DIVIDE:
                 return divideOperandType(context, left, right)
-            case BinaryOperationType.SHIFT_LEFT,
-                    BinaryOperationType.SHIFT_RIGHT:
+            case Kind.SHIFT_LEFT,
+                    Kind.SHIFT_RIGHT:
                 return shiftOperandType(context, left, right)
-            case BinaryOperationType.BITWISE_AND,
-                    BinaryOperationType.BITWISE_OR,
-                    BinaryOperationType.BITWISE_XOR:
+            case Kind.BITWISE_AND,
+                    Kind.BITWISE_OR,
+                    Kind.BITWISE_XOR:
                 return mathOperandType(context, left, right, false)
-            case BinaryOperationType.AND, BinaryOperationType.OR,
-                    BinaryOperationType.XOR:
+            case Kind.AND, Kind.OR,
+                    Kind.XOR:
                 return BitType.BIT
-            case BinaryOperationType.EQUAL, BinaryOperationType.NOT_EQUAL,
-                    BinaryOperationType.GREATER_THAN,
-                    BinaryOperationType.GREATER_THAN_OR_EQUAL,
-                    BinaryOperationType.LESS_THAN,
-                    BinaryOperationType.LESS_THAN_OR_EQUAL:
+            case Kind.EQUAL, Kind.NOT_EQUAL,
+                    Kind.GREATER_THAN,
+                    Kind.GREATER_THAN_OR_EQUAL,
+                    Kind.LESS_THAN,
+                    Kind.LESS_THAN_OR_EQUAL:
                 return logicalOperandType(context, left, right)
-            case BinaryOperationType.IDENTITY, 
-                    BinaryOperationType.NOT_IDENTITY:
+            case Kind.IDENTITY, 
+                    Kind.NOT_IDENTITY:
                 return Type.union(context, left.type, right.type)
             default: {
                 Console.writeLine("unsupported binary operation: \{kind}")
@@ -311,43 +304,41 @@ class BinaryOperation : Value {
     }
 
     @class
-    function operatorSymbol(kind:BinaryOperationType):String {
+    function operatorSymbol(kind:Kind):String {
         switch kind {
-            case BinaryOperationType.ADD:                   return "+"
-            case BinaryOperationType.SUBTRACT:              return "-"
-            case BinaryOperationType.MULTIPLY:              return "*"
-            case BinaryOperationType.DIVIDE:                return "/"
-            case BinaryOperationType.INT_DIVIDE:            return "//"
-            case BinaryOperationType.REMAINDER:             return "%"
-            case BinaryOperationType.POWER:                 return "^"
-            case BinaryOperationType.AND:                   return "&"
-            case BinaryOperationType.OR:                    return "|"
-            case BinaryOperationType.XOR:                   return "~"
-            case BinaryOperationType.BITWISE_AND:           return "&&"
-            case BinaryOperationType.BITWISE_OR:            return "||"
-            case BinaryOperationType.BITWISE_XOR:           return "~~"
-            case BinaryOperationType.SHIFT_LEFT:            return "<<"
-            case BinaryOperationType.SHIFT_RIGHT:           return ">>"
-            case BinaryOperationType.EQUAL:                 return "="
-            case BinaryOperationType.NOT_EQUAL:             return "!="
-            case BinaryOperationType.IDENTITY:              return "=="
-            case BinaryOperationType.NOT_IDENTITY:          return "!=="
-            case BinaryOperationType.GREATER_THAN:          return ">"
-            case BinaryOperationType.GREATER_THAN_OR_EQUAL: return ">="
-            case BinaryOperationType.LESS_THAN:             return "<"
-            case BinaryOperationType.LESS_THAN_OR_EQUAL:    return "<="
+            case Kind.ADD:                   return "+"
+            case Kind.SUBTRACT:              return "-"
+            case Kind.MULTIPLY:              return "*"
+            case Kind.DIVIDE:                return "/"
+            case Kind.INT_DIVIDE:            return "//"
+            case Kind.REMAINDER:             return "%"
+            case Kind.POWER:                 return "^"
+            case Kind.AND:                   return "&"
+            case Kind.OR:                    return "|"
+            case Kind.XOR:                   return "~"
+            case Kind.BITWISE_AND:           return "&&"
+            case Kind.BITWISE_OR:            return "||"
+            case Kind.BITWISE_XOR:           return "~~"
+            case Kind.SHIFT_LEFT:            return "<<"
+            case Kind.SHIFT_RIGHT:           return ">>"
+            case Kind.EQUAL:                 return "="
+            case Kind.NOT_EQUAL:             return "!="
+            case Kind.IDENTITY:              return "=="
+            case Kind.NOT_IDENTITY:          return "!=="
+            case Kind.GREATER_THAN:          return ">"
+            case Kind.GREATER_THAN_OR_EQUAL: return ">="
+            case Kind.LESS_THAN:             return "<"
+            case Kind.LESS_THAN_OR_EQUAL:    return "<="
             default: throw InternalCompilerException(
                     "unsupported binary operator")
         }
     }
 
     @class
-    function signMatters(kind:BinaryOperationType):Bit {
-        return kind != BinaryOperationType.SHIFT_LEFT &
-                kind != BinaryOperationType.SHIFT_RIGHT &
-                kind != BinaryOperationType.BITWISE_AND &
-                kind != BinaryOperationType.BITWISE_OR &
-                kind != BinaryOperationType.BITWISE_XOR
+    function signMatters(kind:Kind):Bit {
+        return kind != Kind.SHIFT_LEFT & kind != Kind.SHIFT_RIGHT &
+                kind != Kind.BITWISE_AND & kind != Kind.BITWISE_OR &
+                kind != Kind.BITWISE_XOR
     }
 
     @override

@@ -12,8 +12,8 @@ void pandaUIInit() {
     static Bit initialized = false;
     if (!initialized) {
         SDL_Init(SDL_INIT_VIDEO);
-        panda$ui$events$EventType$$classInit();
-        panda$ui$events$Key$$classInit();
+        panda$ui$events$Event$Type$$classInit();
+        panda$ui$events$KeyEvent$Key$$classInit();
         initialized = true;
     }
 }
@@ -324,115 +324,115 @@ void pandaInitializeKeyEvent(panda$ui$events$KeyEvent* result,
         SDL_KeyboardEvent* event) {
     switch (event->keysym.sym) {
         case SDLK_a:
-            result->key = class_panda$ui$events$Key$A; 
+            result->key = class_panda$ui$events$KeyEvent$Key$A; 
             break;
         case SDLK_b:
-            result->key = class_panda$ui$events$Key$B;
+            result->key = class_panda$ui$events$KeyEvent$Key$B;
             break;
         case SDLK_c:
-            result->key = class_panda$ui$events$Key$C;
+            result->key = class_panda$ui$events$KeyEvent$Key$C;
             break;
         case SDLK_d:
-            result->key = class_panda$ui$events$Key$D;
+            result->key = class_panda$ui$events$KeyEvent$Key$D;
             break;
         case SDLK_e:
-            result->key = class_panda$ui$events$Key$E;
+            result->key = class_panda$ui$events$KeyEvent$Key$E;
             break;
         case SDLK_f:
-            result->key = class_panda$ui$events$Key$F;
+            result->key = class_panda$ui$events$KeyEvent$Key$F;
             break;
         case SDLK_g:
-            result->key = class_panda$ui$events$Key$G;
+            result->key = class_panda$ui$events$KeyEvent$Key$G;
             break;
         case SDLK_h:
-            result->key = class_panda$ui$events$Key$H;
+            result->key = class_panda$ui$events$KeyEvent$Key$H;
             break;
         case SDLK_i:
-            result->key = class_panda$ui$events$Key$I;
+            result->key = class_panda$ui$events$KeyEvent$Key$I;
             break;
         case SDLK_j:
-            result->key = class_panda$ui$events$Key$J;
+            result->key = class_panda$ui$events$KeyEvent$Key$J;
             break;
         case SDLK_k:
-            result->key = class_panda$ui$events$Key$K;
+            result->key = class_panda$ui$events$KeyEvent$Key$K;
             break;
         case SDLK_l:
-            result->key = class_panda$ui$events$Key$L;
+            result->key = class_panda$ui$events$KeyEvent$Key$L;
             break;
         case SDLK_o:
-            result->key = class_panda$ui$events$Key$O;
+            result->key = class_panda$ui$events$KeyEvent$Key$O;
             break;
         case SDLK_p:
-            result->key = class_panda$ui$events$Key$P;
+            result->key = class_panda$ui$events$KeyEvent$Key$P;
             break;
         case SDLK_q:
-            result->key = class_panda$ui$events$Key$Q;
+            result->key = class_panda$ui$events$KeyEvent$Key$Q;
             break;
         case SDLK_r:
-            result->key = class_panda$ui$events$Key$R;
+            result->key = class_panda$ui$events$KeyEvent$Key$R;
             break;
         case SDLK_s:
-            result->key = class_panda$ui$events$Key$S;
+            result->key = class_panda$ui$events$KeyEvent$Key$S;
             break;
         case SDLK_t:
-            result->key = class_panda$ui$events$Key$T;
+            result->key = class_panda$ui$events$KeyEvent$Key$T;
             break;
         case SDLK_u:
-            result->key = class_panda$ui$events$Key$U;
+            result->key = class_panda$ui$events$KeyEvent$Key$U;
             break;
         case SDLK_v:
-            result->key = class_panda$ui$events$Key$V;
+            result->key = class_panda$ui$events$KeyEvent$Key$V;
             break;
         case SDLK_w:
-            result->key = class_panda$ui$events$Key$W;
+            result->key = class_panda$ui$events$KeyEvent$Key$W;
             break;
         case SDLK_x:
-            result->key = class_panda$ui$events$Key$X;
+            result->key = class_panda$ui$events$KeyEvent$Key$X;
             break;
         case SDLK_y:
-            result->key = class_panda$ui$events$Key$Y;
+            result->key = class_panda$ui$events$KeyEvent$Key$Y;
             break;
         case SDLK_z:
-            result->key = class_panda$ui$events$Key$Z;
+            result->key = class_panda$ui$events$KeyEvent$Key$Z;
             break;
         case SDLK_LEFTBRACKET:
-            result->key = class_panda$ui$events$Key$LEFT_BRACKET;
+            result->key = class_panda$ui$events$KeyEvent$Key$LEFT_BRACKET;
             break;
         case SDLK_RIGHTBRACKET:
-            result->key = class_panda$ui$events$Key$RIGHT_BRACKET;
+            result->key = class_panda$ui$events$KeyEvent$Key$RIGHT_BRACKET;
             break;
         case SDLK_BACKSPACE: 
-            result->key = class_panda$ui$events$Key$BACKSPACE; 
+            result->key = class_panda$ui$events$KeyEvent$Key$BACKSPACE; 
             break;
         case SDLK_TAB: 
-            result->key = class_panda$ui$events$Key$TAB; 
+            result->key = class_panda$ui$events$KeyEvent$Key$TAB; 
             break;
         case SDLK_LEFT: 
-            result->key = class_panda$ui$events$Key$LEFT; 
+            result->key = class_panda$ui$events$KeyEvent$Key$LEFT; 
             break;
         case SDLK_RIGHT: 
-            result->key = class_panda$ui$events$Key$RIGHT; 
+            result->key = class_panda$ui$events$KeyEvent$Key$RIGHT; 
             break;
         case SDLK_UP: 
-            result->key = class_panda$ui$events$Key$UP; 
+            result->key = class_panda$ui$events$KeyEvent$Key$UP; 
             break;
         case SDLK_DOWN: 
-            result->key = class_panda$ui$events$Key$DOWN; 
+            result->key = class_panda$ui$events$KeyEvent$Key$DOWN; 
             break;
         case SDLK_SPACE: 
-            result->key = class_panda$ui$events$Key$SPACE; 
+            result->key = class_panda$ui$events$KeyEvent$Key$SPACE; 
             break;
         case SDLK_ESCAPE: 
-            result->key = class_panda$ui$events$Key$ESCAPE; 
+            result->key = class_panda$ui$events$KeyEvent$Key$ESCAPE; 
             break;
         case SDLK_LSHIFT:
-            result->key = class_panda$ui$events$Key$LEFT_SHIFT;
+            result->key = class_panda$ui$events$KeyEvent$Key$LEFT_SHIFT;
             break;
         case SDLK_RSHIFT:
-            result->key = class_panda$ui$events$Key$RIGHT_SHIFT;
+            result->key = class_panda$ui$events$KeyEvent$Key$RIGHT_SHIFT;
             break;
         default: 
-            result->key = class_panda$ui$events$Key$UNKNOWN; 
+            result->key = class_panda$ui$events$KeyEvent$Key$UNKNOWN; 
     }
     result->modifiers = event->keysym.mod;
 }
@@ -457,22 +457,22 @@ panda$ui$events$Event* pandaCreateEvent(SDL_Event* event) {
                     panda$ui$events$KeyEvent);
             SDL_KeyboardEvent* keyEvent = (SDL_KeyboardEvent*) event;
             result->type = keyEvent->repeat ? 
-                class_panda$ui$events$EventType$KEYREPEAT : 
-                class_panda$ui$events$EventType$KEYDOWN;
+                class_panda$ui$events$Event$Type$KEYREPEAT : 
+                class_panda$ui$events$Event$Type$KEYDOWN;
             pandaInitializeKeyEvent(result, keyEvent);
             return (panda$ui$events$Event*) result;
         }
         case SDL_KEYUP: {
             panda$ui$events$KeyEvent* result = pandaNew(
                     panda$ui$events$KeyEvent);
-            result->type = class_panda$ui$events$EventType$KEYUP;
+            result->type = class_panda$ui$events$Event$Type$KEYUP;
             pandaInitializeKeyEvent(result, (SDL_KeyboardEvent*) event);
             return (panda$ui$events$Event*) result;
         }
         case SDL_MOUSEMOTION: {
             panda$ui$events$MouseMotionEvent* result = pandaNew(
                     panda$ui$events$MouseMotionEvent);
-            result->type = class_panda$ui$events$EventType$MOUSEMOTION;
+            result->type = class_panda$ui$events$Event$Type$MOUSEMOTION;
             pandaInitializeMouseMotionEvent(result, 
                     (SDL_MouseMotionEvent*) event);
             return (panda$ui$events$Event*) result;
@@ -480,7 +480,7 @@ panda$ui$events$Event* pandaCreateEvent(SDL_Event* event) {
         case SDL_MOUSEBUTTONDOWN: {
             panda$ui$events$MouseEvent* result = pandaNew(
                     panda$ui$events$MouseEvent);
-            result->type = class_panda$ui$events$EventType$MOUSEDOWN;
+            result->type = class_panda$ui$events$Event$Type$MOUSEDOWN;
             pandaInitializeMouseEvent(result, 
                     (SDL_MouseButtonEvent*) event);
             return (panda$ui$events$Event*) result;
@@ -488,7 +488,7 @@ panda$ui$events$Event* pandaCreateEvent(SDL_Event* event) {
         case SDL_MOUSEBUTTONUP: {
             panda$ui$events$MouseEvent* result = pandaNew(
                     panda$ui$events$MouseEvent);
-            result->type = class_panda$ui$events$EventType$MOUSEUP;
+            result->type = class_panda$ui$events$Event$Type$MOUSEUP;
             pandaInitializeMouseEvent(result, 
                     (SDL_MouseButtonEvent*) event);
             return (panda$ui$events$Event*) result;
@@ -496,7 +496,7 @@ panda$ui$events$Event* pandaCreateEvent(SDL_Event* event) {
         default: {
             panda$ui$events$Event* result = pandaNew(
                     panda$ui$events$Event);
-            result->type = class_panda$ui$events$EventType$UNKNOWN;
+            result->type = class_panda$ui$events$Event$Type$UNKNOWN;
             return result;
         };
     }
