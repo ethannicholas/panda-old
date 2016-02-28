@@ -88,7 +88,7 @@ class Context {
 
     def localVariables := Array<LocalVariable>()
 
-    def symbolTables := HashMap<ClassStub, SymbolTable>()
+    def symbolTables := HashMap<ClassType, SymbolTable>()
 
     init(irGenerator:IRGenerator, stubGenerator:StubGenerator, 
             root:Package, classes:MapView<String, ClassStub>, 
@@ -342,20 +342,21 @@ class Context {
         return matchCost(type, isVarArg, params, returnType)
     }
 
-    method getSymbolTable(cl:ClassStub):SymbolTable {
+    method getSymbolTable(cl:ClassType):SymbolTable {
         var result := symbolTables[cl]
         if result = null {
+            def stub := getStub(cl)
             def parents := Array<SymbolTable>()
-            def superclass := cl.superclass
+            def superclass := stub.superclass
             if superclass != null
-                parents.add(getSymbolTable(getStub(superclass)))
+                parents.add(getSymbolTable(superclass))
             else
                 parents.add(stubGenerator.masterSymbolTable)
-            for intf in cl.interfaces
-                parents.add(getSymbolTable(getStub(intf)))
-            def containingClass := cl.containingClass
+            for intf in stub.interfaces
+                parents.add(getSymbolTable(intf))
+            def containingClass := stub.containingClass
             if containingClass != null
-                parents.add(getSymbolTable(getStub(containingClass)))
+                parents.add(getSymbolTable(containingClass))
             result := SymbolTable(parents)
             stubGenerator.usePackage("panda.collections", result, 
                     Position.INTERNAL)
@@ -367,15 +368,24 @@ class Context {
                     Position.INTERNAL)
             stubGenerator.usePackage("panda.threads", result, 
                     Position.INTERNAL)
-            for p in cl.lookupContext.packageUses
-                stubGenerator.usePackage(p, result, cl.position)
-            for (alias, target) in cl.lookupContext.classAliases {
+            for p in stub.lookupContext.packageUses
+                stubGenerator.usePackage(p, result, stub.position)
+            for (alias, target) in stub.lookupContext.classAliases {
                 def resolved := resolveType(ASTClassType(
-                        cl.position, target, null, false))
+                        stub.position, target, null, false))
                 assert resolved != null
                 stubGenerator.aliasType(alias, resolved, result)
             }
-            result.addAll(cl.symbols)
+            result.addAll(stub.symbols)
+            if stub.isUnspecialized & cl-?>GenericType {
+                def parameters := cl->GenericType.parameters
+                for symbol in result.mySymbols.values {
+                    if symbol-?>Methods {
+                        result.mySymbols[symbol.name] := 
+                                symbol->Methods.withGenerics(parameters)
+                    }
+                }
+            }
             symbolTables[cl] := result
         }
         return result
@@ -383,7 +393,7 @@ class Context {
 
     method getMethodsNamed(name:String, searchClass:ClassStub):
             CollectionView<MethodStub> {
-        def symbol := getSymbolTable(searchClass)[name]
+        def symbol := getSymbolTable(searchClass.type)[name]
         if symbol-?>Methods {
             def result := Array<MethodStub>()
             for m in symbol->Methods.methods
@@ -975,7 +985,7 @@ class Context {
         }
         else
             stub := getStub(target.type.convert()->ClassType)
-        def symbolTable := getSymbolTable(stub)
+        def symbolTable := getSymbolTable(stub.type)
         def methods := symbolTable[methodName]
         if methods-?>Methods {
             def stubs := Array<MethodStub>()

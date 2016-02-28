@@ -237,13 +237,13 @@ class IRGenerator {
             name := "$class"
         if contextValue-?>ClassLiteral {
             def type := contextValue->ClassLiteral.value.convert()->ClassType
-            def member := context.getSymbolTable(context.getStub(type))[name]
+            def member := context.getSymbolTable(type)[name]
             if member != null
                 return symbolReference(position, contextValue, member)
         }
         if contextValue-?>Super {
             def type := context.getStub(implicitSelf(position).type->ClassType).superclass->ClassType
-            def member := context.getSymbolTable(context.getStub(type))[name]
+            def member := context.getSymbolTable(type)[name]
             if member != null
                 return symbolReference(position, contextValue, member)
         }
@@ -258,7 +258,7 @@ class IRGenerator {
             return null
         }
         def type := contextValue.type.convert()->ClassType
-        def member := context.getSymbolTable(context.getStub(type))[name]
+        def member := context.getSymbolTable(type)[name]
         if member != null {
             return symbolReference(position, contextValue.implicitCast(context,
                     type), member)
@@ -991,13 +991,14 @@ class IRGenerator {
                     "instantiated", n.position)
             return null
         }
-        def stub := context.getStub(type.convert()->ClassType)
+        def cl := type.convert()->ClassType
+        def stub := context.getStub(cl)
         if stub.classCategory = ClassCategory.INTERFACE {
             context.errors.error("interfaces may not be instantiated",
                     n.position)
             return null
         }
-        def symbolTable := context.getSymbolTable(stub)
+        def symbolTable := context.getSymbolTable(cl)
         def inits := symbolTable[MethodNode.INIT_NAME]
         assert inits != null
         def methods := Array<MethodStub>()
@@ -2937,7 +2938,6 @@ class IRGenerator {
     }
 
     method convertMethod(m:MethodStub):MethodNode {
-        assert context.getSymbolTable(context.currentClass)["self"] = null
         if m.name = MethodNode.MAIN_NAME | (context.compilerSettings.isLibrary &
                 !m.annotations.isPrivate)
             context.liveMethods.add(m)
@@ -3049,8 +3049,8 @@ class IRGenerator {
         return result
     }
 
-    method pushSymbols(cl:ClassStub) {
-        context.currentClass := cl
+    method pushSymbols(cl:ClassType) {
+        context.currentClass := context.getStub(cl)
         context.pushSymbolTable(context.getSymbolTable(cl))
     }
 
@@ -3125,7 +3125,7 @@ class IRGenerator {
 
     method convertClass(cl:ClassStub):ClassNode {
         context.methods.clear()
-        pushSymbols(cl)
+        pushSymbols(cl.type)
         checkProperties(cl)
         cl.fields.apply(inferFieldType)
         for m in cl.methods.filter(m => m.stub.body != null) {
@@ -3136,7 +3136,7 @@ class IRGenerator {
         context.popSymbolTable()
         if cl.classCategory != ClassCategory.INTERFACE & 
                 !cl.annotations.isAbstract {
-            for entry in cl.virtualMethods(context) {
+            for entry in cl.type.virtualMethods(context) {
                 def m := entry.stub
                 if m.annotations.isAbstract {
                     context.errors.error("non-abstract class '\{cl.name}' " +
@@ -3167,7 +3167,7 @@ class IRGenerator {
         }
         currentlyInferring.add(f)
         def old := context.currentClass
-        pushSymbols(context.getStub(f.owner))
+        pushSymbols(f.owner)
         context.pushSymbolTable()
         if !f.annotations.isClass & !f.annotations.isThread {
             def selfParam := Parameter(f.position, Parameter.SELF_NAME,
@@ -3304,7 +3304,7 @@ class IRGenerator {
                 def name := getThreadLocalInitializerName(f)
                 if cl.symbols[name] != null
                     continue
-                context.symbolTables.remove(cl)
+                context.symbolTables.remove(cl.type)
                 def body := Array<ASTStatement>()
                 body.add(ASTReturn(f.position, f.initialValue))
                 def m := MethodStub(f.position, 
