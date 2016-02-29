@@ -24,25 +24,33 @@ class PandaParser : Immutable {
         self.errors := errors
     }
 
-    method reportErrors(errorList:ListView<GLRParser.ParseError>, offset:Position, 
-            text:String) {
+    method reportErrors(errorList:ListView<GLRParser.ParseError>, 
+            offset:Position, text:String) {
         for e in errorList {
-            if offset.file = Position.INTERNAL.file {
-                errors.error("\{e.error} while parsing '\{text}'", 
-                        Position(offset.file, e.offset + offset.offset))
+            def position:Position
+            if e.row = 1 {
+                position := Position(offset.file, offset.row, 
+                        offset.column + e.column)
             }
             else {
-                errors.error(e.error, Position(offset.file, 
-                        e.offset + offset.offset))
+                position := Position(offset.file, offset.row + e.row - 1, 
+                        e.column)
+            }
+            if offset.file = Position.INTERNAL.file {
+                errors.error("\{e.error} while parsing '\{text}'", position)
+            }
+            else {
+                errors.error(e.error, position)
             }
         }
     }
 
     method parseFile(file:File, text:String):ASTFile? {
         def result := lrParser.file(text, file)
-        reportErrors(result[1], Position(file, 0), text)
-        if result[0] != null
+        reportErrors(result[1], Position(file, 1, 1), text)
+        if result[0] != null {
             return ASTFile(file, result[0])
+        }
         return null
     }
 

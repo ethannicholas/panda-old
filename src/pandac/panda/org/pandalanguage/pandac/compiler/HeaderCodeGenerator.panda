@@ -50,8 +50,9 @@ class HeaderCodeGenerator (CodeGenerator) {
     }
 
     function getName(f:FieldNode):String {
-        if f.name = FieldNode.ELEMENTS_NAME
+        if f.name = FieldNode.ELEMENTS_NAME {
             return "contents"
+        }
         return f.name
     }
     
@@ -77,22 +78,26 @@ class HeaderCodeGenerator (CodeGenerator) {
     
     method getName(raw:Type):String {
         def t := raw.unwrapUnspecializedGenerics(context)
-        if t.isNullable
+        if t.isNullable {
             return getName(t.unwrapNullable)
+        }
         if t.isMethod {
             return "void*" -- FIXME implement this
         }
-        if t = NativePointerType.NATIVE_POINTER
+        if t = NativePointerType.NATIVE_POINTER {
             return "void*"
-        if t = VoidType.VOID
+        }
+        if t = VoidType.VOID {
             return "void"
+        }
         if t.isPrimitive {
             constant CORE := "panda.core."
             assert t.name.startsWith(CORE)
             return t.name[CORE.length..]
         }
-        if t-?>GenericParameterType
+        if t-?>GenericParameterType {
             return getName(t->GenericParameterType.bound)
+        }
         return MethodNamer.escapeTypeName(
                 context.getStub(t.convert()->ClassType).name)
     }
@@ -100,21 +105,24 @@ class HeaderCodeGenerator (CodeGenerator) {
     method getCType(t:Type):String {
         var name := getName(t)
         if !t.isPrimitive & t != VoidType.VOID & 
-                t != NativePointerType.NATIVE_POINTER
+                t != NativePointerType.NATIVE_POINTER {
             name += "*"
+        }
         return name
     }
 
     method writeFields(cl:ClassStub, out:OutputStream) {
         def superclass := cl.superclass
-        if superclass != null
+        if superclass != null {
             writeFields(context.getStub(superclass), out)
+        }
         for f in cl.fields {
             if !f.annotations.isClass & !f.annotations.isThread & 
                     f.kind != Variable.Kind.PROPERTY {
                 out.write("    " + getCType(f.type))
-                if f.name = FieldNode.ELEMENTS_NAME
+                if f.name = FieldNode.ELEMENTS_NAME {
                     out.write("*")
+                }
                 out.writeLine(" " + getName(f) + ";")
             }
         }
@@ -122,8 +130,9 @@ class HeaderCodeGenerator (CodeGenerator) {
     
     method writeMethods(cl:ClassStub, out:OutputStream) {
         def methods := Array<MethodStub>()
-        for m in cl.type.virtualMethods(context)
+        for m in cl.type.virtualMethods(context) {
             methods.add(m.stub)
+        }
         for (i, m) in methods.enumeration {
             if m.owner = cl.type {
                 def name := getName(m)
@@ -134,17 +143,21 @@ class HeaderCodeGenerator (CodeGenerator) {
                 out.write("(")
                 var first := true
                 if !m.annotations.isClass {
-                    if m.annotations.isWrapperMethod
+                    if m.annotations.isWrapperMethod {
                         out.write("\{getCType(m.owner.convert()->PrimitiveType)} self")
-                    else
+                    }
+                    else {
                         out.write("\{getCType(m.owner)} self")
+                    }
                     first := false
                 }
                 for (j, p) in m.parameters.enumeration {
-                    if first
+                    if first {
                         first := false
-                    else
+                    }
+                    else {
                         out.write(", ")
+                    }
                     out.write(getCType(p.type))
                 }
                 out.writeLine(");")
@@ -158,17 +171,21 @@ class HeaderCodeGenerator (CodeGenerator) {
                 out.write(" " + getName(m) + "(")
                 var first := true
                 if !m.annotations.isClass {
-                    if m.annotations.isWrapperMethod
+                    if m.annotations.isWrapperMethod {
                         out.write("\{getCType(m.owner.convert()->PrimitiveType)} self")
-                    else
+                    }
+                    else {
                         out.write("\{getCType(m.owner)} self")
+                    }
                     first := false
                 }
                 for (i, p) in m.parameters.enumeration {
-                    if first
+                    if first {
                         first := false
-                    else
+                    }
+                    else {
                         out.write(", ")
+                    }
                     out.write(getCType(p.type))
                 }
                 out.writeLine(");")
@@ -216,8 +233,9 @@ class HeaderCodeGenerator (CodeGenerator) {
     method generateCode(target:File) {
         def out := BufferedOutputStream(target.openOutputStream())
         out.writeLine(HEADER)
-        if target.name = "panda.h"
+        if target.name = "panda.h" {
             out.writeLine('#include "panda_base.h"')
+        }
         for cl in program.stubs.values {
             if !cl.isExternal & !cl.annotations.isUnspecified {
                 out.writeLine("#ifndef " + getName(cl) + "_TYPEDEF")

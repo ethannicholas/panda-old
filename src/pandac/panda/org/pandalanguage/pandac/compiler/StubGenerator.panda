@@ -103,10 +103,12 @@ class MutablePackage (Symbol) {
     function convert():Package {
         def children := HashMap<String, Symbol>()
         for (name, symbol) in symbols {
-            if symbol-?>MutablePackage
+            if symbol-?>MutablePackage {
                 children[name] := symbol->MutablePackage.convert()->Package
-            else
+            }
+            else {
                 children[name] := symbol
+            }
         }
         return Package(self.name, children)
     }
@@ -179,19 +181,23 @@ class StubGenerator {
     @private
     method addNestedClass(parent:String, child:String) {
         var list := nestedClasses[parent]
-        if list != null 
+        if list != null {
             list.add(child)
-        else
+        }
+        else {
             nestedClasses[parent] := [child]
+        }
     }
 
     @private
     method findClassNames(prefix:String?, cl:ASTClass, nested:Bit) {
         var name := cl.name
-        if nested
+        if nested {
             addNestedClass(prefix, name)
-        if prefix != null
+        }
+        if prefix != null {
             name := prefix + "." + name
+        }
         def type:ClassType
         if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
             def symbolTable := SymbolTable()
@@ -202,11 +208,13 @@ class StubGenerator {
                         "Wrapper".length], null, false), 
                     symbolTable)->PrimitiveType)
         }
-        else
+        else {
             type := ClassType(name)
+        }
         addType(type, cl.position, nested)
-        for nestedClass in cl.contents.filter(n => n-?>ASTClass)
+        for nestedClass in cl.contents.filter(n => n-?>ASTClass) {
             findClassNames(name, nestedClass->ASTClass, true)
+        }
         for nestedChoice in cl.contents.filter(n => n-?>ASTChoice) {
             def nestedName := nestedChoice->ASTChoice.name
             def choiceType := ClassType(name + "." + nestedName)
@@ -221,12 +229,14 @@ class StubGenerator {
         for f in files {
             currentPackage := null
             for decl in f.entries {
-                if decl-?>ASTClass
+                if decl-?>ASTClass {
                     findClassNames(currentPackage, decl->ASTClass, false)
+                }
                 else if decl-?>ASTChoice {
                     var name := decl->ASTChoice.name
-                    if currentPackage != null
+                    if currentPackage != null {
                         name := currentPackage + "." + name
+                    }
                     addType(ClassType(name), decl.position)
                 }
                 else if decl-?>ASTUnparsedClass {
@@ -242,12 +252,14 @@ class StubGenerator {
                                     "Wrapper".length], null, false), 
                                 symbolTable)->PrimitiveType)
                     }
-                    else
+                    else {
                         type := ClassType(name)
+                    }
                     addType(type, decl.position, up.containingClass != null)
                 }
-                else if decl-?>ASTPackageDeclaration
+                else if decl-?>ASTPackageDeclaration {
                     currentPackage := decl->ASTPackageDeclaration.name
+                }
             }
         }
     }
@@ -265,8 +277,9 @@ class StubGenerator {
             def packageUses := Array<String>()
             def classAliases := HashMap<String, String>()
             def symbolTable := SymbolTable(masterSymbolTable)
-            for p in defaultPackages
+            for p in defaultPackages {
                 usePackage(p, symbolTable, packageUses, Position.INTERNAL)
+            }
             def implicitClassSymbols := SymbolTable(masterSymbolTable)
             def implicitType := ClassType("$Implicit")
             var needImplicit := false
@@ -292,8 +305,9 @@ class StubGenerator {
                         else {
                             var name := u.name
                             def index := name.lastIndexOf(".")
-                            if index != null
+                            if index != null {
                                 name := name[index + 1..]
+                            }
                             aliasType(name, 
                                     resolveType(ASTClassType(u.position, 
                                     u.name, null, false), symbolTable), symbolTable,
@@ -303,8 +317,9 @@ class StubGenerator {
                 }
                 else if decl-?>ASTClass {
                     var name := decl->ASTClass.name
-                    if currentPackage != null
+                    if currentPackage != null {
                         name := currentPackage + "." + name
+                    }
                     def type:Type
                     if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
                         def symbolTable := SymbolTable()
@@ -315,8 +330,9 @@ class StubGenerator {
                                     "Wrapper".length], null, false), 
                                 symbolTable)->PrimitiveType)
                     }
-                    else
+                    else {
                         type := ClassType(name)
+                    }
                     astClasses[name] := (decl->ASTClass, ClassContext(
                             currentPackage, LookupContext(packageUses,
                                 classAliases)), null)
@@ -327,14 +343,16 @@ class StubGenerator {
                 }
                 else if decl-?>ASTChoice {
                     var name := decl->ASTChoice.name
-                    if currentPackage != null
+                    if currentPackage != null {
                         name := currentPackage + "." + name
+                    }
                     astChoices[name] := (decl->ASTChoice, ClassContext(
                             currentPackage, LookupContext(packageUses,
                                 classAliases)), null)
                 }
-                else if decl-?>ASTPackageDeclaration
+                else if decl-?>ASTPackageDeclaration {
                     currentPackage := decl->ASTPackageDeclaration.name
+                }
                 else if decl-?>ASTMethod {
                     var m := convertMethod(false, decl->ASTMethod, 
                             implicitType, null, symbolTable)
@@ -348,8 +366,9 @@ class StubGenerator {
                         needImplicit := true
                     }
                 }
-                else if decl-?>ASTStatement
+                else if decl-?>ASTStatement {
                     mainStatements.add(decl->ASTStatement)
+                }
                 else if decl-?>ASTInstanceDeclaration {
                     def type := decl->ASTInstanceDeclaration.type
                     knownInstances.add(resolveType(type, masterSymbolTable))
@@ -360,7 +379,7 @@ class StubGenerator {
                 }
             }
             if mainStatements.count > 0 {
-                def position := Position(f.path, 0)
+                def position := Position(f.path, 1, 1)
                 def main := MethodStub(position, MethodNode.MAIN_NAME, 
                         Annotations(position, [Annotations.Kind.CLASS]),
                         MethodStub.Kind.METHOD, Array<FormalParameter>(), null,
@@ -402,8 +421,9 @@ class StubGenerator {
         def components := type.name.split(".")
         def currentName := MutableString()
         for (i, c) in components.enumeration {
-            if i > 0
+            if i > 0 {
                 currentName.append(".")
+            }
             currentName.append(c)
             if i < components.count - 1 {
                 var next := currentPackage[c]
@@ -465,29 +485,33 @@ class StubGenerator {
     }
 
     method resolveType(s:String?):ClassType? {
-        if s = null
+        if s = null {
             return null
+        }
         return resolveType(ASTClassType(Position.INTERNAL, s, null, 
                 false), masterSymbolTable)->ClassType
     }
 
     method resolveType(type:ASTType, symbols:SymbolTable):Type? {
         def result := resolveTypeWithExtras(type, symbols)
-        if result = null
+        if result = null {
             return null
+        }
         if result[1].count > 0 {
             var symbol:Symbol? := getStub(result[0].name)
             for name in result[1] {
-                if symbol-!>ClassStub
+                if symbol-!>ClassStub {
                     break
+                }
                 symbol := symbol->ClassStub.symbols[name]
                 if symbol = null {
                     errors.error("type '\{type}' not found", type.position)
                     return null
                 }
             }
-            if symbol-?>TypeSymbol
+            if symbol-?>TypeSymbol {
                 return symbol->TypeSymbol.type
+            }
             errors.error("type '\{type}' not found", type.position)
             return null
         }
@@ -502,12 +526,14 @@ class StubGenerator {
             def stub := getStub(current.convert()->ClassType)
             assert stub != null : "no stub for \{current.name}"
             def next := stub.symbols[name]
-            if next = null | next-!>TypeSymbol
+            if next = null | next-!>TypeSymbol {
                 return (current, extras[i..])
+            }
             current := next->TypeSymbol.type
         }
-        if nullable
+        if nullable {
             current := NullableType(current)
+        }
         return (current, [])
     }
 
@@ -543,8 +569,9 @@ class StubGenerator {
                     return null
                 }
             }
-            else
+            else {
                 base := baseSymbol->TypeSymbol.type
+            }
             if gps != null {
                 if base-!>ClassType {
                     errors.error("type '\{base.name}' does not take generic " +
@@ -559,8 +586,9 @@ class StubGenerator {
                         return null
                     }
                     def parameter := resolveType(gps[0], symbols)
-                    if parameter = null
+                    if parameter = null {
                         return null
+                    }
                     result := PrimitiveArrayType(base->ClassType, 
                             parameter)
                 }
@@ -568,33 +596,38 @@ class StubGenerator {
                     def parameters := Array<Type>()
                     for gp in gps {
                         def p := resolveType(gp, symbols)
-                        if p = null
+                        if p = null {
                             return null
+                        }
                         parameters.add(p)
                     }
                     result := GenericType(base->ClassType, parameters)
                 }
             }
-            else
+            else {
                 result := base
+            }
         }
         else if type-?>ASTMethodType {
             def m := type->ASTMethodType
             def parameters := Array<Type>()
             for p in m.parameters {
                 def resolved := resolveType(p, symbols)
-                if resolved = null
+                if resolved = null {
                     return null
+                }
                 parameters.add(resolved)
             }
             def returnType:Type?
             if m.returnType != null {
                 returnType := resolveType(m.returnType->ASTType, symbols)
-                if returnType = null
+                if returnType = null {
                     return null
+                }
             }
-            else
+            else {
                 returnType := VoidType.VOID
+            }
             result := MethodType(parameters, returnType, m.isFunction,
                     m.isImmutable)
         }
@@ -603,26 +636,32 @@ class StubGenerator {
             def values := Array<Type>()
             for t in tuple.types {
                 def resolved := resolveType(t, symbols)
-                if resolved = null
+                if resolved = null {
                     return null
+                }
                 values.add(resolved)
             }
             result := TupleType(values)
         }
-        else if type-?>IRGenerator.ASTWrappedType
+        else if type-?>IRGenerator.ASTWrappedType {
             return (type->IRGenerator.ASTWrappedType.type, [])
-        else
+        }
+        else {
             unreachable
-        if result = null
+        }
+        if result = null {
             return null
+        }
         if type.isNullable & !result.isNullable {
-            if result.isPrimitive
+            if result.isPrimitive {
                 result := result.convert()->ClassType
+            }
             result := NullableType(result)
         }
         def cached := types[result.name]
-        if cached != null
+        if cached != null {
             return (cached, [])
+        }
         types[result.name] := result
         return (result, [])
     }
@@ -630,8 +669,9 @@ class StubGenerator {
     @private
     function getBaseType(var t:Type):Type {
         t := t.unwrapNullable
-        if t-?>GenericType
+        if t-?>GenericType {
             return t->GenericType.base
+        }
         return t
     }
 
@@ -644,11 +684,12 @@ class StubGenerator {
     method checkMethodSignature(m:MethodStub) {
         -- wrappers are allowed to have overloads applying to their primitive
         -- equivalents, so don't bother checking them
-        if m.owner.isWrapper
+        if m.owner.isWrapper {
             return
+        }
         switch m.name {
             case "+", "-", "*", "/", "//", "^", ">", "<", ">=", "<=", "%",
-                    "&", "&&", "|", "||", "~", "~~", "<<", ">>": {
+                    "&", "&&", "|", "||", "~", "~~", "<<", ">>":
                 var name:String
                 if m.annotations.isClass {
                     name := "@class operator '\{m.name}'"
@@ -674,8 +715,7 @@ class StubGenerator {
                     errors.error("expected \{name} to be a " +
                             "function", m.position)
                 }
-            }
-            case "=": {
+            case "=":
                 if m.annotations.isClass {
                     errors.error("operator '=' cannot be " +
                             "declared '@class'", m.position)
@@ -690,13 +730,14 @@ class StubGenerator {
                     errors.error("expected operator '=' to " +
                             "be a function", m.position)
                 }
-            }
-            case "[]": {
+            case "[]":
                 var name:String
-                if m.annotations.isClass
+                if m.annotations.isClass {
                     name := "@class operator '\{m.name}'"
-                else
+                }
+                else {
                     name := "operator '\{m.name}'"
+                }
                 if m.parameters.count != 1 {
                     errors.error("expected \{name} to have " +
                             "exactly one parameter", m.position)
@@ -705,16 +746,16 @@ class StubGenerator {
                     errors.error("expected \{name} to be a " +
                             "function", m.position)
                 }
-            }
-            case "[]:=": {
+            case "[]:=":
                 var name:String
                 if m.annotations.isClass {
                     errors.error("indexed assignment is not " + 
                             "permitted on classes", m.position)
                     return
                 }
-                else
+                else {
                     name := "operator '\{m.name}'"
+                }
                 if m.parameters.count != 2 {
                     errors.error("expected \{name} to have " +
                             "exactly two parameters", m.position)
@@ -725,13 +766,14 @@ class StubGenerator {
                 if m.returnType != VoidType.VOID {
                     errors.error("\{name} may not return a value", m.position)
                 }
-            }
-            case "[..]", "[...]": {
+            case "[..]", "[...]":
                 var name:String
-                if m.annotations.isClass
+                if m.annotations.isClass {
                     name := "@class operator '\{m.name}'"
-                else
+                }
+                else {
                     name := "operator '\{m.name}'"
+                }
                 if m.parameters.count > 3 {
                     errors.error("expected \{name} to have " +
                             "zero to three parameters", m.position)
@@ -747,16 +789,16 @@ class StubGenerator {
                     errors.error("expected \{name} to be a function", 
                             m.position)
                 }
-            }
-            case "[..]:=", "[...]:=": {
+            case "[..]:=", "[...]:=":
                 var name:String
                 if m.annotations.isClass {
                     errors.error("slice assignment is not permitted on classes",
                             m.position)
                     return
                 }
-                else
+                else {
                     name := "operator '\{m.name}'"
+                }
                 if m.parameters.count < 1 | 
                         m.parameters.count > 4 {
                     errors.error("expected \{name} to have one to four " +
@@ -775,8 +817,7 @@ class StubGenerator {
                 if m.returnType != VoidType.VOID {
                     errors.error("\{name} may not return a value", m.position)
                 }
-            }
-            case "main": {
+            case "main":
                 if m.returnType != VoidType.VOID {
                     errors.error("method 'main' may not return a value", 
                             m.position)
@@ -791,14 +832,15 @@ class StubGenerator {
                             "either no parameters or one parameter of type " +
                             "'\{PrimitiveArray<String>.name}'", m.position)
                 }*-
-            }
-            default: {
+            default:
                 if m.name.endsWith(":=") {
                     var name:String
-                    if m.annotations.isClass
+                    if m.annotations.isClass {
                         name := "@class operator '\{m.name}'"
-                    else
+                    }
+                    else {
                         name := "operator '\{m.name}'"
+                    }
                     if m.parameters.count != 1 {
                         errors.error("expected \{name} to " +
                                 "have exactly one parameter", m.position)
@@ -816,7 +858,6 @@ class StubGenerator {
                                 "declared '@self'", m.position)
                     }
                 }
-            }
         }
     }
 
@@ -825,8 +866,9 @@ class StubGenerator {
             symbolTable:SymbolTable):MethodStub? {
         def parameters := Array<FormalParameter>()
         var annotations := convertAnnotations(m.position, m.annotations)
-        if m.body = null & !isExternal & !annotations.isExternal
+        if m.body = null & !isExternal & !annotations.isExternal {
             annotations += Annotations.Kind.ABSTRACT
+        }
         for (i, p) in m.parameters.enumeration {
             var type := resolveType(p.type, symbolTable)
             if type != null {
@@ -843,37 +885,45 @@ class StubGenerator {
                 parameters.add(FormalParameter(p.position, p.name, type, 
                         p.isVar, p.isVarArg))
             }
-            else
+            else {
                 return null
+            }
         }
         def returnType:Type?
         if m.returnType != null {
             returnType := resolveType(m.returnType->ASTType, symbolTable)
-            if returnType = null
+            if returnType = null {
                 return null
+            }
         }
-        else
+        else {
             returnType := VoidType.VOID
+        }
         def genericParameters:Array<(String, Type?)>?
         if classGenerics != null {
             genericParameters := Array<(String, Type?)>()
             for g in classGenerics {
                 def type:Type?
-                if g.type != null
+                if g.type != null {
                     type := resolveType(g.type!, symbolTable)
-                else
+                }
+                else {
                     type := null
+                }
                 genericParameters.add((g.identifier, type))
             }
         }
-        else
+        else {
             genericParameters := null
+        }
 
         var original:String
-        if m.annotations = null
+        if m.annotations = null {
             original := "<none>"
-        else
+        }
+        else {
             original := m.annotations->Object.convert()
+        }
         return MethodStub(m.position, m.name, 
                 annotations, m.kind, parameters, genericParameters, 
                 returnType, m.body, owner)
@@ -882,12 +932,14 @@ class StubGenerator {
     method convertFields(f:ASTField, owner:ClassType, symbolTable:SymbolTable) {
         def result := Array<FieldNode>()
         var annotations := convertAnnotations(f.position, f.annotations)
-        if f.decl.kind = Variable.Kind.CONSTANT
+        if f.decl.kind = Variable.Kind.CONSTANT {
             annotations += Annotations.Kind.CLASS
+        }
         for (i, v) in f.decl.vars.enumeration {
             var type:Type? := null
-            if v.type != null
+            if v.type != null {
                 type := resolveType(v.type!, symbolTable)
+            }
             if type = null {
                 type := UnresolvedType("<field:\{v.identifier}>", 
                         v.position)
@@ -901,10 +953,12 @@ class StubGenerator {
                 continue
             }
             def tuplePosition:Int?
-            if f.decl.vars.count = 1
+            if f.decl.vars.count = 1 {
                 tuplePosition := null
-            else
+            }
+            else {
                 tuplePosition := i
+            }
             def field := FieldNode(f.position, owner, name, 
                     annotations, f.decl.kind, type, f.decl.initializer, 
                     tuplePosition)
@@ -980,14 +1034,16 @@ class StubGenerator {
     }
 
     function isAbstract(cl:ASTClass):Bit {
-        if cl.kind = ClassStub.Kind.INTERFACE
+        if cl.kind = ClassStub.Kind.INTERFACE {
             return true
+        }
         def annotations := cl.annotations
         if annotations != null {
             for a in annotations {
                 if a-?>ASTSimpleAnnotation & 
-                        a->ASTSimpleAnnotation.name = "abstract"
+                        a->ASTSimpleAnnotation.name = "abstract" {
                     return true
+                }
             }
         }
         return false
@@ -997,33 +1053,40 @@ class StubGenerator {
     method addNestedAliases(name:String, symbols:SymbolTable) {
         def nested := nestedClasses[name]
         if nested != null {
-            for n in nested
+            for n in nested {
                 symbols.add(n, TypeSymbol(types[name + "." + n]))
+            }
         }
     }
 
     @private
     method addNestedAliases(stub:ClassStub, symbols:SymbolTable) {
         addNestedAliases(stub.name, symbols)
-        if stub.superclass != null
+        if stub.superclass != null {
             addNestedAliases(getStub(stub.superclass), symbols)
-        for intf in stub.interfaces
+        }
+        for intf in stub.interfaces {
             addNestedAliases(getStub(intf), symbols)
+        }
     }
 
     @pre(child.name = parent.name)
     function isOverride(child:MethodStub, parent:MethodStub, 
             genericParameters:ListView<Type>):Bit {
-        if child.annotations.isClass != parent.annotations.isClass
+        if child.annotations.isClass != parent.annotations.isClass {
             return false
-        if child.parameters.count != parent.parameters.count
+        }
+        if child.parameters.count != parent.parameters.count {
             return false
+        }
         def type := parent.typeWithGenerics(genericParameters)
-        if type.returnType != child.returnType
+        if type.returnType != child.returnType {
             return false
+        }
         for i in 0 .. type.methodParameters.count {
-            if type.methodParameters[i] != child.parameters[i].type
+            if type.methodParameters[i] != child.parameters[i].type {
                 return false
+            }
         }
         return true
     }
@@ -1045,8 +1108,9 @@ class StubGenerator {
         def body := Array<ASTStatement>()
         def call := ASTCallExpression(ASTIdentifier(m.position, "$" + m.name), 
                 args)
-        if type.returnType = VoidType.VOID
+        if type.returnType = VoidType.VOID {
             body.add(ASTExpressionStatement(call))
+        }
         else {
             body.add(ASTReturn(m.position, ASTArrowExpression(
                     ASTArrowExpression.Kind.FORCE_CAST, call, 
@@ -1063,12 +1127,14 @@ class StubGenerator {
         assert stub != null : "null stub: \{parent}"
         if stub.isUnspecialized {
             def methods := stub.symbols[m.name]
-            if methods = null
+            if methods = null {
                 return null
+            }
             def genericParameters := parent->GenericType.parameters
             for m2 in methods->Methods.methods {
-                if isOverride(m, m2.stub, genericParameters)
+                if isOverride(m, m2.stub, genericParameters) {
                     return createShim(m, m2.effectiveType)
+                }
             }
         }
         return null
@@ -1078,13 +1144,15 @@ class StubGenerator {
             interfaces:ListView<ClassType>):MethodStub? {
         if superclass != null {
             def result := createShimIfNeeded(m, superclass)
-            if result != null
+            if result != null {
                 return result
+            }
         }
         for intf in interfaces {
             def result := createShimIfNeeded(m, intf)
-            if result != null
+            if result != null {
                 return result
+            }
         }
         return null
     }
@@ -1097,8 +1165,9 @@ class StubGenerator {
         def classAliases := HashMap<String, String>(rawClassAliases)
         def symbolTable := SymbolTable(parentSymbolTable)
         def className:String
-        if containingClass != null
+        if containingClass != null {
             className := containingClass.name + "." + cl.name
+        }
         else if currentPackage != null {
             className := currentPackage + "." + cl.name
             usePackage(currentPackage, symbolTable, packageUses, cl.position)
@@ -1144,13 +1213,16 @@ class StubGenerator {
                 if p.type != null {
                     def resolved := resolveType(p.type->ASTType, 
                             symbolTable)
-                    if resolved != null
+                    if resolved != null {
                         bound := resolved
-                    else
+                    }
+                    else {
                         bound := NullableType.ANY
+                    }
                 }
-                else
+                else {
                     bound := NullableType.ANY
+                }
                 def type := GenericParameterType("\{className}.\{p.identifier}", 
                         bound)
                 types.add(type)
@@ -1186,13 +1258,16 @@ class StubGenerator {
             }
         }
         else {
-            if className = Object.name
+            if className = Object.name {
                 superclass := null
-            else
+            }
+            else {
                 superclass := ClassType.OBJECT
+            }
         }
-        if containingClass != null
+        if containingClass != null {
             addNestedAliases(getStub(containingClass), symbols)
+        }
         if cl.interfaces != null {
             for t in cl.interfaces->ListView<ASTType> {
                 def type := resolveType(t, symbolTable)
@@ -1203,8 +1278,9 @@ class StubGenerator {
                         errors.error("'\{stub.name}' is not an interface",
                                 t.position)
                     }
-                    if stub != null
+                    if stub != null {
                         addNestedAliases(stub, symbols)
+                    }
                 }
                 else if type != null {
                     errors.error("\{type.displayName} is not an interface",
@@ -1271,10 +1347,12 @@ class StubGenerator {
                             MethodStub.Kind.INIT
                 }
             }
-            else if node-?>ASTField
+            else if node-?>ASTField {
                 convertFields(node->ASTField, classType, symbols)
-            else if node-?>ASTInvariant
+            }
+            else if node-?>ASTInvariant {
                 invariants.add(node->ASTInvariant)
+            }
         }
         if cl.kind != ClassStub.Kind.INTERFACE & !foundInit {
             -- create implicit no-arg init
@@ -1290,10 +1368,12 @@ class StubGenerator {
                     classType)
             addSymbol(c, symbols.mySymbols, errors)
         }
-        if cl.genericParameters != null & annotations.isSpecialize
+        if cl.genericParameters != null & annotations.isSpecialize {
             annotations += Annotations.Kind.UNSPECIFIED
-        if cl.isExternal
+        }
+        if cl.isExternal {
             annotations += Annotations.Kind.EXTERNAL
+        }
         else {
             def initMethod := createClassInit(cl.position, classType, symbols)
             if initMethod != null {
@@ -1309,15 +1389,18 @@ class StubGenerator {
             genericParameters := Array<(String, Type?)>()
             for gp in cl.genericParameters {
                 def type:Type?
-                if gp.type != null
+                if gp.type != null {
                     type := resolveType(gp.type, symbolTable)
-                else
+                }
+                else {
                     type := null
+                }
                 genericParameters.add((gp.identifier, type))
             }
         }
-        else
+        else {
             genericParameters := null
+        }
         return ClassStub(cl.position, classType, 
                 cl.kind, annotations, superclass->ClassType?, interfaces, 
                 symbols.mySymbols, LookupContext(packageUses, classAliases), 
@@ -1430,14 +1513,16 @@ class StubGenerator {
     method convertChoice(c:ASTChoice, currentPackage:String?,
             symbolTable:SymbolTable, containingClass:ClassType?):ClassStub {
         def className:String
-        if containingClass != null
+        if containingClass != null {
             className := containingClass.name + "." + c.name
+        }
         else if currentPackage != null {
             className := currentPackage + "." + c.name
             usePackage(currentPackage, symbolTable, [], c.position)
         }
-        else
+        else {
             className := c.name
+        }
         def classType := resolveType(ASTClassType(c.position, className, 
                 null, false), symbolTable)->ClassType
         def symbols := SymbolTable(masterSymbolTable)
@@ -1480,10 +1565,12 @@ class StubGenerator {
     method addSymbol(m:MethodStub, map:Map<String, Symbol>, 
             errors:ErrorReporter) {
         def methods := map[m.name]
-        if methods = null
+        if methods = null {
             map[m.name] := Methods(m, m.type)
-        else if methods-?>Methods
+        }
+        else if methods-?>Methods {
             map[m.name] := methods->Methods + Methods.MethodEntry(m, m.type)
+        }
         else {
             errors.error("invalid redefinition of symbol '\{m.name}'",
                     m.position)
@@ -1503,8 +1590,9 @@ class StubGenerator {
             errors.error("invalid redefinition of symbol '\{name}'",
                     position)
         }
-        else
+        else {
             map[name] := s
+        }
     }
 
     method getPackage(name:String, position:Position):MutablePackage? {
@@ -1512,8 +1600,9 @@ class StubGenerator {
         if name.length > 0 {
             for component in name.split(".") {
                 def s := current[component]
-                if s-?>MutablePackage
+                if s-?>MutablePackage {
                     current := s->MutablePackage
+                }
                 else {
                     errors.error("no package named '\{name}'", position)
                     return null
@@ -1530,14 +1619,16 @@ class StubGenerator {
                 if s-?>TypeSymbol {
                     var cl := s.name
                     def dot := cl.lastIndexOf(".")
-                    if dot != null
+                    if dot != null {
                         cl := cl[dot + 1..]
+                    }
                     symbolTable.add(cl, s)
                 }
             }
         }
-        else
+        else {
             errors.error("no package named '\{name}'", position)
+        }
     }
 
     method usePackage(name:String, symbolTable:SymbolTable, 
@@ -1560,8 +1651,9 @@ class StubGenerator {
 
     function getSymbolTable(lookupContext:LookupContext):SymbolTable {
         def symbolTable := SymbolTable(masterSymbolTable)
-        for p in lookupContext.packageUses
+        for p in lookupContext.packageUses {
             usePackage(p, symbolTable, Position.INTERNAL)
+        }
         for (alias, type) in lookupContext.classAliases {
             aliasType(alias, resolveType(ASTClassType(Position.INTERNAL, 
                     type, null, false), symbolTable), symbolTable)
@@ -1572,16 +1664,19 @@ class StubGenerator {
     @class
     function getPackage(name:String):String? {
         def index := name.lastIndexOf(".")
-        if index = null
+        if index = null {
             return null
+        }
         return name[0 .. index]
     }
 
     method getStub(type:ClassType):ClassStub? {
-        if type-?>GenericType
+        if type-?>GenericType {
             return getStub(type->GenericType.base.name)
-        else
+        }
+        else {
             return getStub(type.name)
+        }
     }
 
     method getStub(name:String):ClassStub? {
@@ -1590,7 +1685,8 @@ class StubGenerator {
             def unparsedClass := astUnparsedClasses[name]
             if unparsedClass != null {
                 def parsed := PandaParser(errors).parseBodyEntry(
-                        unparsedClass.text, Position(File("<internal>.plink"), 0))
+                        unparsedClass.text, Position(File("<internal>.plink"), 
+                        1, 1))
                 if parsed-?>ASTClass {
                     def cl := parsed->ASTClass
                     def symbolTable := SymbolTable(masterSymbolTable)

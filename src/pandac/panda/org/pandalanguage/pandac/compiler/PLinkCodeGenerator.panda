@@ -43,8 +43,9 @@ class PLinkCodeGenerator (CodeGenerator) {
     }
     
     method generateFieldCode(f:FieldNode, owner:ClassStub) {
-        if f.annotations.isSynthetic
+        if f.annotations.isSynthetic {
             return
+        }
         out.writeLine(f.annotations)
         switch f.kind {
             case Variable.Kind.DEF: out.write("def")
@@ -54,10 +55,12 @@ class PLinkCodeGenerator (CodeGenerator) {
             default: unreachable
         }
         out.write(" \{f.name}")
-        if f.type-!>UnresolvedType
+        if f.type-!>UnresolvedType {
             out.write(":\{f.type.name}")
-        if owner.annotations.isUnspecified & f.initialValue != null
+        }
+        if owner.annotations.isUnspecified & f.initialValue != null {
             out.write(" := \{f.initialValue->Object}")
+        }
         out.writeLine()
     }
 
@@ -69,31 +72,37 @@ class PLinkCodeGenerator (CodeGenerator) {
             case MethodStub.Kind.INIT: out.write("init")
             default: unreachable
         }
-        if m.kind != MethodStub.Kind.INIT
+        if m.kind != MethodStub.Kind.INIT {
             out.write(" \{m.name}")
+        }
         out.write("(")
         var first := true
         for (i, p) in m.parameters.enumeration {
-            if i > 0
+            if i > 0 {
                 out.write(", ")
-            if p.isVar
+            }
+            if p.isVar {
                 out.write("var ")
+            }
             out.write(p.name)
             out.write(":")
             if p.isVarArg {
                 out.write(p.type->GenericType.parameters[0].name)
                 out.write("...")
             }
-            else
+            else {
                 out.write(p.type.name)
+            }
         }
         out.write(")")
-        if m.returnType != VoidType.VOID
+        if m.returnType != VoidType.VOID {
             out.write(":\{m.returnType.name}")
+        }
         out.writeLine()
         if owner.annotations.isUnspecified & 
-                !m.annotations.isClass & m.body != null
+                !m.annotations.isClass & m.body != null {
             m.body->ASTNode.write(out)
+        }
 -*        for p in m.annotations.post {
             if m.annotations.isOverride
                 out.writeLine("@postAnd(\{p})")
@@ -121,8 +130,9 @@ class PLinkCodeGenerator (CodeGenerator) {
         out := IndentedOutputStream(buffer)
 
         def annotationString := cl.annotations.convert()->String
-        if annotationString.length> 0
+        if annotationString.length> 0 {
             out.writeLine(cl.annotations)
+        }
         if cl.kind = ClassStub.Kind.INTERFACE {
             out.write("interface")
             out.write(" \{cl.simpleName}")
@@ -130,20 +140,23 @@ class PLinkCodeGenerator (CodeGenerator) {
             if parameters != null {
                 out.write("<")
                 for (i, p) in parameters.enumeration {
-                    if i > 0
+                    if i > 0 {
                         out.write(", ")
+                    }
                     out.write("\{p[0]}")
                     def type := p[1]
-                    if type != null
+                    if type != null {
                         out.write(":\{type}")
+                    }
                 }
                 out.write(">")
             }
             if cl.interfaces.count > 0 {
                 out.write(" : ")
                 for (i, intf) in cl.interfaces.enumeration {
-                    if i > 0
+                    if i > 0 {
                         out.write(", ")
+                    }
                     out.write(intf.name)
                 }
             }
@@ -155,23 +168,28 @@ class PLinkCodeGenerator (CodeGenerator) {
             if parameters != null {
                 out.write("<")
                 for (i, p) in parameters.enumeration {
-                    if i > 0
+                    if i > 0 {
                         out.write(", ")
-                    if p[1] != null
+                    }
+                    if p[1] != null {
                         out.write("\{p[0]}:\{p[1].name}")
-                    else
+                    }
+                    else {
                         out.write(p[0])
+                    }
                 }
                 out.write(">")
             }
             def superclass := cl.superclass
-            if superclass != null
+            if superclass != null {
                 out.write(":\{superclass.name}")
+            }
             if cl.interfaces.count > 0 {
                 out.write(" (")
                 for (i, intf) in cl.interfaces.enumeration {
-                    if i > 0
+                    if i > 0 {
                         out.write(", ")
+                    }
                     out.write(intf.name)
                 }
                 out.write(")")
@@ -181,22 +199,28 @@ class PLinkCodeGenerator (CodeGenerator) {
         out.level += 1
         var first := true
         for s in cl.symbols.values {
-            if first
+            if first {
                 first := false
-            else
+            }
+            else {
                 out.writeLine()
-            if s-?>FieldNode
+            }
+            if s-?>FieldNode {
                 generateFieldCode(s->FieldNode, cl)
+            }
             else if s-?>Methods {
-                for m in s->Methods.methods
+                for m in s->Methods.methods {
                     generateMethodCode(m.stub, cl)
+                }
             }
             else if s-?>TypeSymbol {
-                if s->TypeSymbol.type-!>GenericParameterType
+                if s->TypeSymbol.type-!>GenericParameterType {
                     out.writeLine("@$nested \{s.name}")
+                }
             }
-            else
+            else {
                 unreachable
+            }
         }
         out.level -= 1
         out.writeLine("}")
@@ -212,15 +236,17 @@ class PLinkCodeGenerator (CodeGenerator) {
         out.writeInt16(VERSION)
         for cl in program.classes.values {
             def type := cl.stub.type
-            if type.isPrimitiveArray | type.isTuple | type-?>GenericType
+            if type.isPrimitiveArray | type.isTuple | type-?>GenericType {
                 continue
+            }
             generateClassCode(cl.stub)
         }
         for cl in program.stubs.values {
             def type := cl.type
             if (!type.isPrimitiveArray & !type.isTuple & !type-?>GenericType) | 
-                    cl.annotations.isUnspecified
+                    cl.annotations.isUnspecified {
                 continue
+            }
             def name := type.name.convert()->Array<UInt8>
             out.writeInt16(name.count->Int16)
             out.write(name)

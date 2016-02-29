@@ -9,29 +9,40 @@ class GLRParser : Immutable {
 	class State {
 		def reference:Object?
 
-		def position:Int
+		def offset:Int
+
+		def row:Int
+
+		def column:Int
 
 		def state:StateNode
 
-		init(reference:Object?, position:Int, state:StateNode) {
+		init(reference:Object?, offset:Int, row:Int, column:Int, 
+				state:StateNode) {
 			self.reference := reference
-			self.position := position
+			self.offset := offset
+			self.row := row
+			self.column := column
 			self.state := state
 		}
 	}
 
 	class ParseError : Immutable {
-		def offset:Int
+		def row:Int
+
+		def column:Int
+
 		def error:String
 
-		init(offset:Int, error:String) {
-			self.offset := offset
+		init(row:Int, column:Int, error:String) {
+			self.row := row
+			self.column := column
 			self.error := error
 		}
 
 		@override
 		function convert():String {
-			return "\{offset}:\{error}"
+			return "\{row}:\{column}:\{error}"
 		}
 	}
 
@@ -52,8 +63,9 @@ class GLRParser : Immutable {
 
 		@override
 		function convert():String {
-			if next != null
+			if next != null {
 				return state + ", " + next
+			}
 			return state.convert()
 		}
 	}
@@ -87,14 +99,17 @@ class GLRParser : Immutable {
 		function =(o:Object):Bit {
 			if o-?>Action {
 				def a := o->Action
-				if type != a.type | target != a.target
+				if type != a.type | target != a.target {
 					return false
+				}
 				if subactions != null {
-					if subactions.count != a.subactions.count
+					if subactions.count != a.subactions.count {
 						return false
+					}
 					for (i, v) in subactions.enumeration {
-						if v != a.subactions[i]
+						if v != a.subactions[i] {
 							return false
+						}
 					}
 				}
 				return true
@@ -121,7 +136,7 @@ class GLRParser : Immutable {
 	}
 
 	constant EOF := 3.convert()->Char
-	constant DIE := ParseError(-1, "die")
+	constant DIE := ParseError(-1, -1, "die")
 
 	def productionIds:ImmutableArray<Int>
 
@@ -151,14 +166,6 @@ class GLRParser : Immutable {
 		self.reducer := reducer
 	}
 
-	@class
-	function getPosition(pos:Int, text:String):(Int, Int) {
-	    def stream := LineNumberInputStream(MemoryInputStream(text))
-	    for i in 0 .. pos
-	        stream.read()
-	    return (stream.line, stream.column)
-	}
-
 	function errorText(state:State):String {
 		return "parse error"
 	}
@@ -168,39 +175,45 @@ class GLRParser : Immutable {
 		def text := rawText + EOF
 		def parsers := Stack<State>()
 		def start := StateNode(startState, "<START>", null)
-		var farthest:State := State(reference, 0, start)
+		var farthest:State := State(reference, 0, 1, 1, start)
 		parsers.push(farthest)
 
 		loop {
 			if parsers.count = 0 {
-				return (null, [ParseError(farthest.position, 
+				return (null, [ParseError(farthest.row, farthest.column,
 							errorText(farthest))])
 			}
 			def top := parsers.peek()
-			if top.position = text.length
+			if top.offset = text.length {
 				return (top.state.next.output, [])
+			}
 			if top.state.state < 0 {
-				if top.position > farthest.position
+				if top.offset > farthest.offset {
 					farthest := top
+				}
 				parsers.pop()
 				continue
 			}
 			def row := actions[top.state.state]
-			def index := text[top.position].convert()->Int
+			def index := text[top.offset].convert()->Int
 			def a:Action?
-			if index < row.count
+			if index < row.count {
 				a := row[index]
-			else
+			}
+			else {
 				a := null
+			}
 			if a = null {
 				def expected := Array<Char>()
 				for (i, v) in row.enumeration {
-					if v != null
+					if v != null {
 						expected.add(i.convert())
+					}
 				}
 				parsers.pop()
-				if top.position > farthest.position
+				if top.offset > farthest.offset {
 					farthest := top
+				}
 				continue
 			}
 			action(a, text, top, parsers)
@@ -209,38 +222,45 @@ class GLRParser : Immutable {
 
 	function partialParse(text:String, startState:Int):Int {
 		def parsers := Stack<State>()
-		var farthest:State := State(null, 0, StateNode(startState, "<START>", 
-				null))
+		var farthest:State := State(null, 0, 1, 1, StateNode(startState, 
+				"<START>", null))
 		parsers.push(farthest)
 
 		loop {
-			if parsers.count = 0
-				assert false : "parse failure: \{farthest.position}: \{errorText(farthest)}"
+			if parsers.count = 0 {
+				assert false : "parse failure: \{farthest.row}:\{farthest.column}: \{errorText(farthest)}"
+            }
 			def top := parsers.peek()
-			if top.position = text.length
+			if top.offset = text.length {
 				return top.state.state
+			}
 			if top.state.state < 0 {
-				if top.position > farthest.position
+				if top.offset > farthest.offset {
 					farthest := top
+				}
 				parsers.pop()
 				continue
 			}
 			def row := actions[top.state.state]
-			def index := text[top.position].convert()->Int
+			def index := text[top.offset].convert()->Int
 			def a:Action?
-			if index < row.count
+			if index < row.count {
 				a := row[index]
-			else
+            }
+			else {
 				a := null
+            }
 			if a = null {
 				def expected := Array<Char>()
 				for (i, v) in row.enumeration {
-					if v != null
+					if v != null {
 						expected.add(i.convert())
+					}
 				}
 				parsers.pop()
-				if top.position > farthest.position
+				if top.offset > farthest.offset {
 					farthest := top
+				}
 				continue
 			}
 			action(a, text, top, parsers)
@@ -250,13 +270,22 @@ class GLRParser : Immutable {
 	method action(a:Action, text:String, parserState:State, 
 			parsers:Stack<State>) {
 		switch a.type {
-			case Action.Type.SHIFT: {
-				parserState.state := StateNode(a.target,
-						text[parserState.position].convert(),
+			case Action.Type.SHIFT:
+				def char := text[parserState.offset]
+				parserState.state := StateNode(a.target, char.convert(),
 						parserState.state)
-				parserState.position += 1
-			}
-			case Action.Type.REDUCE: {
+				parserState.offset += 1
+				if char = "\n" {
+					parserState.row += 1
+					parserState.column := 1
+				}
+				else if char = "\t" {
+					parserState.column += 4 - parserState.column % 4
+				}
+				else {
+					parserState.column += 1
+				}
+			case Action.Type.REDUCE:
 				def output := reducer.reduce(a.target, parserState)
 				if output = DIE {
 					parserState.state := StateNode(-1, output, 
@@ -269,26 +298,25 @@ class GLRParser : Immutable {
 						"->\{productionIds[a.target]}"
 				parserState.state := StateNode(next, output, 
 						parserState.state)
-			}
-			case Action.Type.MULTIPLE: {
+			case Action.Type.MULTIPLE:
 				def i := a.subactions.iterator
 				assert !i.done : "empty multiple action"
 				def oldState := parserState.state
-				def oldPosition := parserState.position
+				def oldOffset := parserState.offset
+				def oldRow := parserState.row
+				def oldColumn := parserState.column
 				action(i.next(), text, parserState, parsers)
 				while !i.done {
-					def sub := State(parserState.reference, oldPosition, 
-							oldState)
+					def sub := State(parserState.reference, oldOffset, oldRow, 
+							oldColumn, oldState)
 					action(i.next(), text, sub, parsers)
 					parsers.push(sub)
 				}
-			}
-			case Action.Type.CUT: {
+			case Action.Type.CUT:
 				parserState.state := StateNode(a.target, "<CUT>",
 						parserState.state)
 				parsers.clear()
 				parsers.push(parserState)
-			}
 			default: unreachable
 		}
 	}

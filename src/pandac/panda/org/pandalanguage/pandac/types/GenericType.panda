@@ -48,8 +48,9 @@ class GenericType : ClassType {
         def result := MutableString(base.name)
         result.append("<")
         for (i, p) in parameters.enumeration {
-            if i > 0
+            if i > 0 {
                 result.append(",")
+            }
             result.append(p.name)
         }
         result.append(">")
@@ -61,8 +62,9 @@ class GenericType : ClassType {
         def result := MutableString(base.simpleName)
         result.append("<")
         for (i, p) in parameters.enumeration {
-            if i > 0
+            if i > 0 {
                 result.append(",")
+            }
             result.append(p.simpleName)
         }
         result.append(">")
@@ -83,45 +85,51 @@ class GenericType : ClassType {
     @private
     function parseType(name:String, context:Context):ASTType {
         return PandaParser(context.errors).parseType(name, 
-                Position(File(name), -1))
+                Position(File(name), -1, -1))
     }
 
 
     @override
     function get_unwrapGenerics():Type {
         def params := Array<Type>()
-        for p in parameters
+        for p in parameters {
             params.add(p.unwrapGenerics)
+        }
         return GenericType(base, params)
     }
 
     @override
     function unwrapUnspecializedGenerics(context:Context):Type {
         def params := Array<Type>()
-        for p in parameters
+        for p in parameters {
             params.add(p.unwrapUnspecializedGenerics(context))
+        }
         return GenericType(base, params)
     }
 
     @class
     method getType(type:Type, symbols:SymbolTable):Type {
         if type-?>PrimitiveType | type-?>WrapperType | type-?>UnresolvedType |
-                type = VoidType.VOID
+                type = VoidType.VOID {
             return type
+        }
         if type-?>NullableType {
             var result := getType(type.unwrapNullable, symbols)
             if !result.isNullable {
-                if result.isPrimitive
+                if result.isPrimitive {
                     result := NullableType(result.convert()->ClassType)
-                else
+                }
+                else {
                     result := NullableType(result)
+                }
             }
             return result
         }
         if type-?>PrimitiveArrayType {
             def arrayType:ClassType
-            if type.name.startsWith(ClassType.PRIMITIVE_ARRAY.name)
+            if type.name.startsWith(ClassType.PRIMITIVE_ARRAY.name) {
                 arrayType := ClassType.PRIMITIVE_ARRAY
+            }
             else {
                 assert type.name.startsWith(
                         ClassType.IMMUTABLE_PRIMITIVE_ARRAY.name)
@@ -132,29 +140,33 @@ class GenericType : ClassType {
         }
         if type-?>GenericType {
             def types := Array<Type>()
-            for p in type->GenericType.parameters
+            for p in type->GenericType.parameters {
                 types.add(getType(p, symbols))
+            }
             return GenericType(
                     getType(type->GenericType.base, symbols)->ClassType, types)
         }
         if type-?>MethodType {
             def m := type->MethodType
             def parameters := Array<Type>()
-            for p in m.methodParameters
+            for p in m.methodParameters {
                 parameters.add(getType(p, symbols))
+            }
             def returnType := getType(m.returnType, symbols)
             return MethodType(parameters, returnType, m.isFunction, 
                     m.immutableMethod)
         }
         if type-?>TupleType {
             def types := Array<Type>()
-            for t in type->TupleType.types
+            for t in type->TupleType.types {
                 types.add(getType(t, symbols))
+            }
             return TupleType(types)
         }
         def resolved := symbols[type.name]
-        if resolved-?>TypeSymbol
+        if resolved-?>TypeSymbol {
             return resolved->TypeSymbol.type
+        }
         return type
     }
 
@@ -173,8 +185,9 @@ class GenericType : ClassType {
                     p.isVar, p.isVarArg))
         }
         var annotations := m.annotations
-        if m.body = null
+        if m.body = null {
             annotations += Annotations.Kind.ABSTRACT
+        }
         def result := MethodStub(m.position, m.name, annotations,
                 m.kind, parameters, null, getType(m.returnType, symbols), 
                 m.body, self)
@@ -184,14 +197,16 @@ class GenericType : ClassType {
     @protected
     method addMethod(m:MethodStub, symbols:SymbolTable) {
         def methods := symbols.mySymbols[m.name]
-        if methods = null
+        if methods = null {
             symbols.add(Methods(m, m.type))
+        }
         else if methods-?>Methods {
             symbols.mySymbols[m.name] := methods->Methods + Methods.MethodEntry(
                     m, m.type)
         }
-        else
+        else {
             unreachable
+        }
     }
 
     method createStub(baseStub:ClassStub, parameterStubs:ListView<ClassStub?>, 
@@ -201,7 +216,7 @@ class GenericType : ClassType {
                 "base class (\{baseStub.name}) is not generic"
         assert baseParameters.count = parameters.count : 
                 "parameter mismatch (\{baseParameters} vs. \{parameters})"
-        def position := Position(File(name), -1)
+        def position := Position(File(name), -1, -1)
         def symbols := SymbolTable()
         for (i, p) in parameters.enumeration {
             def symbol := TypeSymbol(p)
@@ -215,8 +230,9 @@ class GenericType : ClassType {
             resolved := getType(superclass, symbols)
             superclass := resolved->ClassType
         }
-        else
+        else {
             superclass := null
+        }
         def interfaces := Array<ClassType>()
         for intf in baseStub.interfaces {
             var type:Type?
@@ -227,15 +243,17 @@ class GenericType : ClassType {
             }
         }
         for f in baseStub.fields {
-            if f.annotations.isClass | f.annotations.isThread
+            if f.annotations.isClass | f.annotations.isThread {
                 symbols.add(f)
+            }
             else {
                 def newField := instantiateField(f, symbols)
                 symbols.add(newField)
             }
         }
-        for m in baseStub.methods.filter(m => !m.stub.annotations.isClass)
+        for m in baseStub.methods.filter(m => !m.stub.annotations.isClass) {
             addMethod(instantiateMethod(m.stub, symbols), symbols)
+        }
         var annotations := baseStub.annotations - Annotations.Kind.UNSPECIFIED
         for (i, p) in parameters.enumeration {
             if context.isUnspecified(p) {

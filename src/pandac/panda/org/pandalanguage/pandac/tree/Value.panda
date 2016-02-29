@@ -131,15 +131,19 @@ class Value : Node {
         def call := ASTCallExpression(ASTIdentifier(position, captureName), 
                 callParams)
         def kind:MethodStub.Kind
-        if t.isFunction
+        if t.isFunction {
             kind := MethodStub.Kind.FUNCTION
-        else
+        }
+        else {
             kind := MethodStub.Kind.METHOD
+        }
         def statement:ASTStatement
-        if t.returnType != VoidType.VOID
+        if t.returnType != VoidType.VOID {
             statement := ASTReturn(position, call)
-        else
+        }
+        else {
             statement := ASTExpressionStatement(call)
+        }
         def closure := ASTMethodValue(position, kind, shimParams, 
                 IRGenerator.toASTType(position, t.returnType), 
                 ASTBlock(position, [statement]))
@@ -161,10 +165,12 @@ class Value : Node {
         if !checkValid(context) {
             return Dummy(position, t)
         }
-        if t = type
+        if t = type {
             return self
-        if type.isPrimitive & !t.isPrimitive
+        }
+        if type.isPrimitive & !t.isPrimitive {
             return wrapped(context, t, false)
+        }
         if type.isNullable & !t.isNullable {
             def base := type->NullableType.base
             if base != t {
@@ -179,19 +185,22 @@ class Value : Node {
             result.safe := true
             return result
         }
-        if type.isWrapper & (t.isPrimitive | t.isWrapper)
+        if type.isWrapper & (t.isPrimitive | t.isWrapper) {
             return unwrap(context).implicitCast(position, context, t)
+        }
         if type.isMethod & t.isMethod {
             def m1 := type.convert()->MethodType
             def m2 := t.convert()->MethodType
             if m1.methodParameters != m2.methodParameters | 
-                    m1.returnType != m2.returnType
+                    m1.returnType != m2.returnType {
                 return shim(context, m2)
+            }
         }
         def result := Cast(position, self, t, Cast.Kind.IMPLICIT)
         result.safe := true
-        if implicitCastCost(context, t) != null
+        if implicitCastCost(context, t) != null {
             return result
+        }
         else {
             reportCastError(context, t)
             return result
@@ -209,16 +218,19 @@ class Value : Node {
     }
 
     method explicitCast(position:Position, context:Context, var t:Type):Value {
-        if t = type
+        if t = type {
             return self
+        }
         if canImplicitCastTo(context, t) {
             def cast := implicitCast(position, context, t)
             return IRGenerator.makeExplicit(cast)
         }
-        if type.isPrimitive & !t.isPrimitive
+        if type.isPrimitive & !t.isPrimitive {
             return wrapped(context, t, true)
-        if type.isWrapper & (t.isPrimitive | t.isWrapper)
+        }
+        if type.isWrapper & (t.isPrimitive | t.isWrapper) {
             return unwrap(context).explicitCast(position, context, t)
+        }
         if !type.isPrimitive & t.isPrimitive {
             def wrapper := explicitCast(position, context, 
                     t.convert()->WrapperType)
@@ -238,16 +250,20 @@ class Value : Node {
     @pre(type.isPrimitive)
     method wrapped(context:Context, t:Type, explicit:Bit):Value {
         def wrapper:WrapperType
-        if t.isWrapper
+        if t.isWrapper {
             wrapper := t.convert()->WrapperType
-        else
+        }
+        else {
             wrapper := type.convert()->WrapperType
+        }
         def params := Array<Value>()
         def cast:Value
-        if explicit
+        if explicit {
             cast := explicitCast(context, wrapper.convert()->PrimitiveType)
-        else
+        }
+        else {
             cast := implicitCast(context, wrapper.convert()->PrimitiveType)
+        }
         params.add(cast)
         def initStub := context.getMethod(ClassLiteral(position, 
                 wrapper), MethodNode.INIT_NAME, params, null)
@@ -256,10 +272,12 @@ class Value : Node {
         context.liveMethods.add(initStub)
         def wrapperObject := Construct(MethodCall(position, 
                 ClassLiteral(position, wrapper), initStub, params))
-        if explicit
+        if explicit {
             return wrapperObject.explicitCast(position, context, t)
-        else
+        }
+        else {
             return wrapperObject.implicitCast(position, context, t)
+        }
     }
 
     @pre(type.isWrapper)

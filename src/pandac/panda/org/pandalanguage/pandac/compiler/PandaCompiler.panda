@@ -40,29 +40,16 @@ class CompilerErrorReporter : ErrorReporter {
         return result
     }
 
-    method format(position:Position):String {
-        def text := getText(position.file)
-        if text != null {
-            def stream := LineNumberInputStream(MemoryInputStream(text))
-            for i in 0 .. position.offset
-                stream.read()
-            return position.file.name + ":" + stream.line + ":" + stream.column
-        }
-        else
-            return position.file.name + ":(internal error)"
-    }
-
     @override
     method error(message:String, position:Position) {
-        Console.writeLine("error: \{format(position)}: " + 
+        Console.writeLine("error: \{position}: " + 
                 message)
         compiler.errorQueue.post(ERROR_MESSAGE)
-        Panda.dumpStack()
     }
 
     @override
     method warning(message:String, position:Position) {
-        Console.writeLine("warning: \{format(position)}: " +
+        Console.writeLine("warning: \{position}: " +
                 message)
         compiler.errorQueue.post(WARNING_MESSAGE)
     }
@@ -86,17 +73,19 @@ class PandaCompiler {
     @class
     function determinePandaHome():File {
         var home := System.environment["PANDA_HOME"]
-        if home != null
+        if home != null {
             return File(home)
-        else
+        }
+        else {
             throw CompilerException("PANDA_HOME is not set")
+        }
     }
 
     @class
     method getLLVMHome():File {
         def os := System.operatingEnvironment().operatingSystem
         switch os {
-            case OperatingSystem.MACOSX: {
+            case OperatingSystem.MACOSX:
                 def libexec := File("/opt/local/libexec")
                 if !libexec.exists() {
                     throw CompilerException("path '" + libexec + 
@@ -127,7 +116,6 @@ class PandaCompiler {
                 }
                 return verifyExists(File("/opt/local/libexec/llvm-" +
                         "\{maxMajor}.\{maxMinor}/bin"))
-            }
             case OperatingSystem.LINUX, OperatingSystem.OTHER_UNIX:
                 return verifyExists(File("/usr/bin"))
             default:
@@ -188,7 +176,7 @@ class PandaCompiler {
     @protected
     @class
     method parsePLink(f:File, parser:PandaParser):ASTFile {
-        def position := Position(f, 0)
+        def position := Position(f, 1, 1)
         method reportError() {
             throw CompilerException("error reading PLink file",
                     position)
@@ -200,12 +188,14 @@ class PandaCompiler {
         loop {
             def nameLength := input.readInt16()
             first := false
-            if nameLength = null 
+            if nameLength = null  {
                 break
+            }
             def name := Array<UInt8>(nameLength)
             while name.count < nameLength {
-                if input.read(name, nameLength - name.count) = null
+                if input.read(name, nameLength - name.count) = null {
                     reportError()
+                }
             }
             assert name.count = nameLength
             def containingClass:String?
@@ -213,21 +203,25 @@ class PandaCompiler {
             if containingClassLength != 0 {
                 def cc := Array<UInt8>(containingClassLength)
                 while cc.count < containingClassLength {
-                    if input.read(cc, containingClassLength - cc.count) = null
+                    if input.read(cc, containingClassLength - cc.count) = null {
                         reportError()
+                    }
                 }
                 containingClass := String(cc)
             }
-            else
+            else {
                 containingClass := null
+            }
             def codeLength := input.readInt32()
-            if codeLength = null
+            if codeLength = null {
                 reportError()
+            }
             if codeLength > 0 {
                 def code := Array<UInt8>(codeLength)
                 while code.count < codeLength {
-                    if input.read(code, codeLength - code.count) = null
+                    if input.read(code, codeLength - code.count) = null {
                         reportError()
+                    }
                 }
                 assert code.count = codeLength
                 entries.add(ASTUnparsedClass(position, String(name), 
@@ -252,8 +246,9 @@ class PandaCompiler {
         if threads > 1 {
             def workQueue := MessageQueue<File?>()
             def responseQueue := MessageQueue<ImmutableArray<ASTFile>>()
-            for f in settings.sources
+            for f in settings.sources {
                 workQueue.post(f)
+            }
             def errorReporter := self.errors
             def parser := self.parser
             for i in 0 .. threads {
@@ -262,15 +257,19 @@ class PandaCompiler {
                     def result := Array<ASTFile>()
                     loop {
                         def f := workQueue.getMessage()
-                        if f = null
+                        if f = null {
                             break
+                        }
                         def parsed:ASTFile?
-                        if f.name.endsWith(".plink")
+                        if f.name.endsWith(".plink") {
                             parsed := parsePLink(f, parser)
-                        else
+                        }
+                        else {
                             parsed := parser.parseFile(f)
-                        if parsed != null
+                        }
+                        if parsed != null {
                             result.add(parsed)
+                        }
                     }
                     responseQueue.post(ImmutableArray<ASTFile>(result))
                 })
@@ -284,12 +283,15 @@ class PandaCompiler {
             for f in settings.sources {
                 def input := BufferedInputStream(f.openInputStream())
                 def parsed:ASTFile?
-                if f.name.endsWith(".plink")
+                if f.name.endsWith(".plink") {
                     parsed := parsePLink(f, parser)
-                else
+                }
+                else {
                     parsed := parser.parseFile(f)
-                if parsed != null
+                }
+                if parsed != null {
                     result.add(parsed)
+                }
                 input.close()
             }
         }
@@ -389,7 +391,7 @@ class PandaCompiler {
         while i < args.count {
             def arg := args[i]
             switch arg {
-                case "-o": {
+                case "-o":
                     i += 1
                     if i >= args.count {
                         Console.writeLine("expected file path after '-o'")
@@ -400,10 +402,9 @@ class PandaCompiler {
                         System.exit(1)
                     }
                     target := File(args[i])
-                }
                 case "-O":
                     optimize := true
-                case "-f": {
+                case "-f":
                     i += 1
                     if i >= args.count {
                         Console.writeLine("expected output format after '-f'")
@@ -419,35 +420,32 @@ class PandaCompiler {
                         case "lib": outputFormat := CompilerSettings.OutputFormat.LIB
                         case "plink": outputFormat := CompilerSettings.OutputFormat.PLINK
                         case "js": outputFormat := CompilerSettings.OutputFormat.JAVASCRIPT
-                        default: {
+                        default:
                             Console.writeLine("unsupported output format " +
                                     "'\{args[i]}'")
                             System.exit(1)                        
-                        }
                     }
-                }
-                case "-L": {
+                case "-L":
                     i += 1
                     if i >= args.count {
                         Console.writeLine("expected file path after '-L'")
                         System.exit(1)
                     }
                     librarySearchPaths.add(File(args[i]))
-                }
                 case "-XnoCoreLib":
                     loadCoreLibraries := false
                 case "-XpreserveTempArtifacts":
                     preserveTempArtifacts := true
                 case "-Xtime":
                     checkpoints := true
-                default: {
-                    if arg.endsWith(".panda")
+                default:
+                    if arg.endsWith(".panda") {
                         sources.add(File(arg))
+                    }
                     else {
                         Console.writeLine("unsupported argument '\{arg}'")
                         System.exit(1)
                     }
-                }
             }
             i += 1
         }
@@ -466,8 +464,9 @@ class PandaCompiler {
             sources.add(PANDA_HOME.resolve(
                     "shared/core/lib/PandaCoreClasses.plink"))
             def ui := PANDA_HOME.resolve("shared/ui/lib/pandaui.plink")
-            if ui.exists()
+            if ui.exists() {
                 sources.add(ui)
+            }
         }
         return CompilerSettings(sources, librarySearchPaths, outputFormat,
                 target->File, optimize, preserveTempArtifacts)
@@ -489,23 +488,28 @@ class PandaCompiler {
             }
             def pandac := PandaCompiler()
             pandac.runWithArgs(args)
-            if pandac.errorCount > 0
+            if pandac.errorCount > 0 {
                 System.exit(2)
+            }
         }
         catch e:InternalCompilerException {
             def position := e.position
-            if position != null
+            if position != null {
                 Console.writeLine(position + ": " + e)
-            else
+            }
+            else {
                 Console.writeLine(e)
+            }
             System.exit(3)
         }
         catch e:CompilerException {
             def position := e.position
-            if position != null
+            if position != null {
                 Console.writeLine(position + ": " + e)
-            else
+            }
+            else {
                 Console.writeLine(e)
+            }
             System.exit(3)
         }
         catch e:Error {
