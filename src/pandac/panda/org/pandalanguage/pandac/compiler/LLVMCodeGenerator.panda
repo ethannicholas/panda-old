@@ -555,9 +555,9 @@ class LLVMCodeGenerator (CodeGenerator) {
         def classType := getLLVMType(ClassType.CLASS)
         writeBody(cast + " = bitcast " + cc.type + "* @" + cc.name +
                 " to " + classType, "convert class pointer")
-        declarations.add("declare i8* @_pandaNew(%panda$core$Class*, i32)")
+        declarations.add("declare i8* @_pandaNew(%panda$core$Class*, i64)")
         def alloc := createCallReference("i8* @_pandaNew(" + classType + " " + 
-                cast + ", i32 " + size(targetType) + ")", 
+                cast + ", i64 " + size(targetType) + ")", 
                 "allocate " + targetType.name)
     
         def result := createCommandReference("bitcast i8* " + alloc + " to " + 
@@ -894,8 +894,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def cc := getClassConstant(charPrimitiveArrayClass)
         def charsType := "[\{chars.count} x \{getLLVMType(CharType.CHAR)}]"
         def type := "{ " + cc.type + "*, " +
-                getLLVMType(IntType.INT32) + ", " + 
-                getLLVMType(IntType.INT32) + ", " + 
+                getLLVMType(IntType.INT) + ", " + 
                 charsType + "* }"
         def result := "ca" + charArrayCount
         charArrayCount += 1
@@ -912,8 +911,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
         header.writeLine("@" + result + " = private unnamed_addr constant " + 
                 type + " { " + cc.type + "* @" + cc.name + ", " + 
-                getLLVMType(IntType.INT32) + " " + chars.count + ", " +
-                getLLVMType(IntType.INT32) + " " + chars.count + ", " + 
+                getLLVMType(IntType.INT) + " " + chars.count + ", " + 
                 charsType + "* " + charsName + " }, align " +
                 POINTER_SIZE)
         return "bitcast(" + type + "* @" + result + " to " + 
@@ -1116,12 +1114,13 @@ class LLVMCodeGenerator (CodeGenerator) {
         assert ref != null : "expected non-null ref in createNewPrimitiveArrayWithLengthReference"
         declarations.add("declare i8* @pandaNewPrimitiveArrayWithLength(" + 
                 getLLVMType(ClassType.CLASS) + ", " + 
-                getLLVMType(IntType.INT32) + ", " +
-                getLLVMType(IntType.INT32) + ", " +
+                getLLVMType(IntType.INT) + ", " +
+                getLLVMType(IntType.INT) + ", " +
                 getLLVMType(BitType.BIT) + ")")
         def alloc := createCallReference(
                 "i8* @pandaNewPrimitiveArrayWithLength(\{classType} \{cast}, " + 
-                "i32 \{ref}, i32 \{size(elementType)}, i1 " +
+                "\{getLLVMType(IntType.INT)} \{ref}, " +
+                "\{getLLVMType(IntType.INT)} \{size(elementType)}, i1 " +
                 !elementType.isPrimitive + ")", "allocate " + na.type.name)
         def result := createCommandReference("bitcast i8* \{alloc} to " + 
                 getLLVMType(na.type), "cast array to final type")
@@ -1144,12 +1143,12 @@ class LLVMCodeGenerator (CodeGenerator) {
         declarations.add("declare i8* @pandaNewPrimitiveArrayCopy(" + 
                 getLLVMType(ClassType.CLASS) + ", " + 
                 getLLVMType(ClassType.PRIMITIVE_ARRAY) + ", " + 
-                getLLVMType(IntType.INT32) + ", " +
+                getLLVMType(IntType.INT) + ", " +
                 getLLVMType(BitType.BIT) + ")")
         def alloc := createCallReference("i8* " +
                 "@pandaNewPrimitiveArrayCopy(\{classType} \{cast}, " + 
                 "\{getLLVMType(ClassType.PRIMITIVE_ARRAY)} \{arrayCast}, " +
-                "i32 \{size(elementType)}, i1 \{!elementType.isPrimitive})", 
+                "i64 \{size(elementType)}, i1 \{!elementType.isPrimitive})", 
                 "allocate \{na.type.name}")
         var result := createCommandReference("bitcast i8* \{alloc} to " + 
                 getLLVMType(na.type), "cast array to final type")
@@ -1209,11 +1208,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         }
         declarations.add("declare i8* @pandaNewPrimitiveArrayWithValues(" + 
                 getLLVMType(ClassType.CLASS) + ", " + 
-                getLLVMType(IntType.INT32) + ", " + 
-                getLLVMType(IntType.INT32) + ", ...)")
-        def code := MutableString("i8* (\{classType}, i32, i32, ...)* " +
-                "@pandaNewPrimitiveArrayWithValues(\{classType} \{cast}, i32 " + 
-                "\{na.values.count}, i32 \{type}")
+                getLLVMType(IntType.INT) + ", " + 
+                getLLVMType(IntType.INT) + ", ...)")
+        def code := MutableString("i8* (\{classType}, i64, i64, ...)* " +
+                "@pandaNewPrimitiveArrayWithValues(\{classType} \{cast}, i64 " + 
+                "\{na.values.count}, i64 \{type}")
         for r in references {
             code.append(", ")
             code.append(r)
@@ -1354,10 +1353,10 @@ class LLVMCodeGenerator (CodeGenerator) {
             def symbolTable := context.getSymbolTable(owner)
             def indexField := symbolTable[fr.field.name + 
                     StubGenerator.INDEX_SUFFIX]->FieldNode
-            body.writeLine("load i32* @" + getName(indexField))
+            body.writeLine("load i64* @" + getName(indexField))
             def callString := MutableString("fastcc " + getLLVMType(type) + 
                     " @panda$core$Panda$getThreadLocal" + suffix + 
-                    "(i32 " + threadLocalId + ", ")
+                    "(i64 " + threadLocalId + ", ")
             def stub := getStub(Panda.name).symbols["getThreadLocal" + 
                     suffix]->Methods.methods[0].stub
             program.liveMethods.add(stub)
@@ -1707,15 +1706,15 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     @pre(array.type.isPrimitiveArray)
-    @pre(index.type = IntType.INT32)
-     method getPrimitiveArrayElementPointer(array:Value, index:Value):String {
+    @pre(index.type = IntType.INT)
+    method getPrimitiveArrayElementPointer(array:Value, index:Value):String {
         def arrayRef := getTypedReference(array)
         def indexRef := getTypedReference(index)
         if context.compilerSettings.boundsChecking {
             def cast := getTempVariable()
             def arrayType := getLLVMType(ClassType.PRIMITIVE_ARRAY)
             body.writeLine("\{cast} = bitcast \{arrayRef} to \{arrayType}")
-            declarations.add("declare void @pandaCheckBounds(\{getLLVMType(ClassType.PRIMITIVE_ARRAY)}, i32)")
+            declarations.add("declare void @pandaCheckBounds(\{getLLVMType(ClassType.PRIMITIVE_ARRAY)}, i64)")
             call("void @pandaCheckBounds(\{arrayType} \{cast}, \{indexRef})")
         }
         def arrayContentsPointer := createCommandReference("getelementptr " +
@@ -1758,7 +1757,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             def threadLocalId := getTempVariable()
             def indexField := owner.symbols[fa.fieldNode.name + 
                     StubGenerator.INDEX_SUFFIX]->Variable
-            body.writeLine("load i32* @" + getName(indexField))
+            body.writeLine("load i64* @" + getName(indexField))
             var ref := getReference(fa.value)
             assert ref != null : "expected non-null ref in generateFieldAssignmentCode"
             if !fa.value.type.isPrimitive & 
@@ -1781,7 +1780,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 suffix := "Object"
             }
             call("fastcc void @panda$core$Panda$setThreadLocal" + 
-                    suffix + "(i32 " + threadLocalId + ", " + ref + ")")
+                    suffix + "(i64 " + threadLocalId + ", " + ref + ")")
             def stub := getStub(Panda.name).symbols["setThreadLocal" + 
                     suffix]->Methods.methods[0].stub
             program.liveMethods.add(stub)
@@ -2206,7 +2205,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             if cl.isExternal {
                 out.write("external ")
             }
-            out.write("global i32")
+            out.write("global i64")
             if !cl.isExternal {
                 out.writeLine(" 0")
             }

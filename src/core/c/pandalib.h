@@ -18,7 +18,7 @@
 
 typedef panda$core$Object Object;
 typedef panda$core$Class Class;
-typedef panda$collections$PrimitiveArray Array;
+typedef panda$collections$PrimitiveArray PrimitiveArray;
 typedef panda$core$String String;
 typedef panda$collections$PrimitiveArray$LTpanda$core$String$GT String$Array;
 typedef panda$io$File File;
@@ -52,22 +52,22 @@ typedef struct _nativeException {
 void* pandaGetInterfaceMethod(panda$core$Object* o, panda$core$Class* intf, 
         int index);
 
-Object* _pandaNew(Class* class_ptr, Int32 size);
+Object* _pandaNew(Class* class_ptr, Int size);
 
 #define pandaNew(CLASS) ((CLASS*) _pandaNew(& CLASS ## _class, sizeof(CLASS)))
 
-String* pandaNewString(const char* chars, int byteLength);
+String* pandaNewString(const char* chars, Int byteLength);
 
-Array* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int32 length, Int32 elementSize,
-        Bit elementsArePointers);
+PrimitiveArray* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int length, 
+        Int elementSize, Bit elementsArePointers);
 
-Array* pandaNewPrimitiveArrayCopy(Class* class_ptr, Array* array, 
-        Int32 elementSize, Bit elementsArePointers);
+PrimitiveArray* pandaNewPrimitiveArrayCopy(Class* class_ptr, 
+        PrimitiveArray* array, Int elementSize, Bit elementsArePointers);
 
-Array* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int32 length, 
-        Int32 elementType, ...);
+PrimitiveArray* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int length, 
+        Int elementType, ...);
 
-void pandaCheckBounds(panda$collections$PrimitiveArray* array, Int32 index);
+void pandaCheckBounds(PrimitiveArray* array, Int index);
 
 void pandaCheckOverflow(Bit flag);
 

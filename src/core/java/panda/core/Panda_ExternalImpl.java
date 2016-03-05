@@ -27,7 +27,7 @@ class Panda_ExternalImpl implements panda.core.Panda_External {
     }
 
     @Override
-    public void debugWrite_class_Int32(int i) {
+    public void debugWrite_class_Int64(long i) {
         java.lang.System.out.println(i);
     }
 
@@ -42,12 +42,12 @@ class Panda_ExternalImpl implements panda.core.Panda_External {
     }
 
     @Override
-    public int allocThreadLocal_class_$Rpanda$core$Int32() {
+    public long allocThreadLocal_class_$Rpanda$core$Int64() {
         return 0;
     }
 
     @Override
-    public panda.collections.HashMap$.$Lpanda$core$Int32$.$Cpanda$core$Object$Z$R getThreadLocals_class_panda$threads$Thread_$Rpanda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT(panda.threads.Thread t) {
+    public panda.collections.HashMap$.$Lpanda$core$Int64$.$Cpanda$core$Object$Z$R getThreadLocals_class_panda$threads$Thread_$Rpanda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT(panda.threads.Thread t) {
         throw new UnsupportedOperationException();
     }
 

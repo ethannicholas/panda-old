@@ -13,28 +13,28 @@ class Matcher_ExternalImpl implements panda.core.Matcher_External {
     }
 
     @Override
-    public boolean find_class_panda$core$$NativePointer_Int32_$Rpanda$core$Bit(java.lang.Object nativeHandle, int startIndex) {
-        return ((java.util.regex.Matcher) nativeHandle).find(startIndex);
+    public boolean find_class_panda$core$$NativePointer_Int64_$Rpanda$core$Bit(java.lang.Object nativeHandle, long startIndex) {
+        return ((java.util.regex.Matcher) nativeHandle).find((int) startIndex);
     }
 
     @Override
-    public panda.core.String group_class_panda$core$$NativePointer_Int32_$Rpanda$core$String(java.lang.Object nativeHandle, int group) {
-        java.lang.String raw = ((java.util.regex.Matcher) nativeHandle).group(group);
+    public panda.core.String group_class_panda$core$$NativePointer_Int64_$Rpanda$core$String(java.lang.Object nativeHandle, long group) {
+        java.lang.String raw = ((java.util.regex.Matcher) nativeHandle).group((int) group);
         return panda.core.PandaCore.newString(raw != null ? raw : "");
     }
 
     @Override
-    public int _groupCount_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
+    public long _groupCount_class_panda$core$$NativePointer_$Rpanda$core$Int64(java.lang.Object nativeHandle) {
         return ((java.util.regex.Matcher) nativeHandle).groupCount() + 1;
     }
 
     @Override
-    public int _start_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
+    public long _start_class_panda$core$$NativePointer_$Rpanda$core$Int64(java.lang.Object nativeHandle) {
         return ((java.util.regex.Matcher) nativeHandle).start();
     }
 
     @Override
-    public int _end_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeHandle) {
+    public long _end_class_panda$core$$NativePointer_$Rpanda$core$Int64(java.lang.Object nativeHandle) {
         return ((java.util.regex.Matcher) nativeHandle).end();
     }
 }

@@ -2,7 +2,7 @@ package panda.threads;
 
 class InternalMessageQueue_ExternalImpl implements panda.threads.InternalMessageQueue_External {
     @Override
-    public int pendingMessages_$Rpanda$core$Int32(panda.threads.InternalMessageQueue self) {
+    public long pendingMessages_$Rpanda$core$Int64(panda.threads.InternalMessageQueue self) {
         java.util.Queue<panda.threads.Message> queue = ((java.util.ArrayDeque<panda.threads.Message>) self.$nativeQueue);
         synchronized (queue) {
             return queue.size();
@@ -26,7 +26,7 @@ class InternalMessageQueue_ExternalImpl implements panda.threads.InternalMessage
     }
 
     @Override
-    public panda.core.Object getMessage_Int32_$Rpanda$core$Object$Z(panda.threads.InternalMessageQueue self, int timeout) {
+    public panda.core.Object getMessage_Int64_$Rpanda$core$Object$Z(panda.threads.InternalMessageQueue self, long timeout) {
         return getMessage_$Rpanda$core$Object$Z(self);
     }
 

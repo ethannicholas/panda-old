@@ -14,7 +14,7 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
     }
 
     @Override
-    public int close_class_panda$core$$NativePointer_$Rpanda$core$Int32(java.lang.Object nativeFile) {
+    public long close_class_panda$core$$NativePointer_$Rpanda$core$Int64(java.lang.Object nativeFile) {
         try {
             ((java.io.FileInputStream) nativeFile).close();
             return 0;
@@ -39,15 +39,15 @@ class FileInputStream_ExternalImpl implements panda.io.FileInputStream_External 
     }
 
     @Override
-    public panda.core.Int32Wrapper read_panda$collections$ListWriter$LTpanda$core$UInt8$GT_Int32_$Rpanda$core$Int32Wrapper$Z(panda.io.FileInputStream in, panda.collections.ListWriter$.$Lpanda$core$UInt8$R dest, int max) {
+    public panda.core.Int64Wrapper read_panda$collections$ListWriter$LTpanda$core$UInt8$GT_Int64_$Rpanda$core$Int64Wrapper$Z(panda.io.FileInputStream in, panda.collections.ListWriter$.$Lpanda$core$UInt8$R dest, long max) {
         try {
-            byte[] buffer = new byte[max];
+            byte[] buffer = new byte[(int) max];
             int result = ((java.io.InputStream) in.$nativeFile).read(buffer);
             if (result <= 0)
                 return null;
             for (int i = 0; i < result; i++)
                 dest.add_UInt8(buffer[i]);
-            return panda.core.Int32Wrapper.createnew$init_Int32(result);
+            return panda.core.Int64Wrapper.createnew$init_Int64(result);
         }
         catch (java.io.IOException e) {
             throw new java.lang.RuntimeException(e);

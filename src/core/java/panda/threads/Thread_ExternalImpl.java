@@ -22,9 +22,9 @@ class Thread_ExternalImpl implements panda.threads.Thread_External {
     }
 
     @Override
-    public void sleep_class_Int32(int millis) {
+    public void sleep_class_Int64(long millis) {
         try {
-            java.lang.Thread.sleep(millis);
+            java.lang.Thread.sleep((int) millis);
         }
         catch (InterruptedException e) {
         }

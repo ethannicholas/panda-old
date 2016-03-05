@@ -7,7 +7,7 @@ class RegularExpression_ExternalImpl implements panda.core.RegularExpression_Ext
     }
 
     @Override
-    public void compile_panda$core$String_Int32(panda.core.RegularExpression self, panda.core.String regex, int flags) {
+    public void compile_panda$core$String_Int64(panda.core.RegularExpression self, panda.core.String regex, long flags) {
         int javaFlags = 0;
         if ((flags & panda.core.RegularExpression.$MULTILINE) != 0)
             javaFlags |= java.util.regex.Pattern.MULTILINE;

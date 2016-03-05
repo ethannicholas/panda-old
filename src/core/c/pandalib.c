@@ -54,8 +54,8 @@ static pthread_key_t currentThreadKey;
 
 static Bit debugAllocations = 0;
 
-Int32 panda$core$Object$get_hash(Object* object) {
-    return (Int32) ((uintptr_t) object); // this will truncate the pointer on
+Int panda$core$Object$get_hash(Object* object) {
+    return (Int) ((uintptr_t) object); // this will truncate the pointer on
                                          // 64-bit systems, but that's ok
 }
 
@@ -73,7 +73,7 @@ char* pandaGetString(String* s) {
     return result;
 }
 
-void* pandaAlloc(Int32 size, Bit containsPointers) {
+void* pandaAlloc(Int size, Bit containsPointers) {
     if (!inited) {
         pandaFatalError("pandaInit has not been called");
     }
@@ -102,8 +102,8 @@ void pandaMain(panda$collections$Array$LTpanda$core$String$GT* arg);
 void pandaStart() {
     panda$threads$Thread* main = pandaNew(panda$threads$Thread);
     panda$threads$Thread$init(main);
-    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
-    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$init(threadLocals);
+    panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT);
+    panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$init(threadLocals);
     main->threadLocals = threadLocals;
     pthread_setspecific(currentThreadKey, main);
     // run the actual program
@@ -162,7 +162,7 @@ void* pandaGetInterfaceMethod(panda$core$Object* o, panda$core$Class* intf,
 // other than class_ptr will be zeroed. The constructor is not called.
 // class_ptr - the Panda Class object
 // size - the number of bytes to allocate
-Object* _pandaNew(Class* class_ptr, Int32 size) {
+Object* _pandaNew(Class* class_ptr, Int size) {
     Object* result = (Object*) pandaAlloc(size, class_ptr->containsPointers);
     result->cl = class_ptr;
     if (debugAllocations)
@@ -186,17 +186,18 @@ Object* _pandaNew(Class* class_ptr, Int32 size) {
 // Creates a Panda String from a UTF-8 character sequence.
 // chars - the UTF-8 bytes of the text (does not need to be null-terminated)
 // byteLength - the length of chars
-String* pandaNewString(const char* chars, int byteLength) {
+String* pandaNewString(const char* chars, Int byteLength) {
     if (byteLength == -1)
         byteLength = strlen(chars);
-    Int32 length = byteLength;
+    Int length = byteLength;
     panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* data = 
             (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
             &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
             length, sizeof(Char), false);
-    int i;
-    for (i = 0; i < byteLength; i++)
+    Int i;
+    for (i = 0; i < byteLength; i++) {
         data->contents[i] = chars[i];
+    }
     String* result = pandaNew(panda$core$String);
     result->chars = data;
     return result;
@@ -208,13 +209,13 @@ String* pandaNewString(const char* chars, int byteLength) {
 // elementSize - the size of each element
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
-Array* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int32 length, 
-        Int32 elementSize, Bit elementsArePointers) {
+PrimitiveArray* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int length, 
+        Int elementSize, Bit elementsArePointers) {
     if ((elementSize < 0) || (length < 0))
        pandaFatalError("creating array with negative size");
-    Array* result = (Array*) _pandaNew(class_ptr, sizeof(Array));
+    PrimitiveArray* result = (PrimitiveArray*) _pandaNew(class_ptr, 
+            sizeof(PrimitiveArray));
     result->$length = length;
-    result->$maxLength = length;
     result->contents = pandaAlloc(length * elementSize, elementsArePointers);
     return result;
 }
@@ -225,14 +226,14 @@ Array* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int32 length,
 // elementSize - size of each element
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
-Array* pandaNewPrimitiveArrayCopy(Class* class_ptr, Array* array, 
-            Int32 elementSize, Bit elementsArePointers) {
+PrimitiveArray* pandaNewPrimitiveArrayCopy(Class* class_ptr, 
+            PrimitiveArray* array, Int elementSize, Bit elementsArePointers) {
     if (elementSize < 0)
        pandaFatalError("creating array with negative size");
-    Array* result = (Array*) _pandaNew(class_ptr, sizeof(Array));
+    PrimitiveArray* result = (PrimitiveArray*) _pandaNew(class_ptr, 
+            sizeof(PrimitiveArray));
     result->$length = array->$length;
-    result->$maxLength = array->$length;
-    int size = result->$maxLength * elementSize;
+    int size = result->$length * elementSize;
     result->contents = pandaAlloc(size, elementsArePointers);
     memcpy(result->contents, ((Int8*) array->contents), size);
     return result;
@@ -244,11 +245,11 @@ Array* pandaNewPrimitiveArrayCopy(Class* class_ptr, Array* array,
 // elementSize - size of each element
 // elementsArePointers - true if the array elements are pointers (if not,
 //         the garbage collector doesn't need to worry about them)
-Array* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int32 length, 
-        Int32 elementType, ...) {
+PrimitiveArray* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int length, 
+        Int elementType, ...) {
     if (length < 0)
        pandaFatalError("creating array with negative size");
-    Array* result;
+    PrimitiveArray* result;
     va_list args;
     va_start(args, elementType);
     unsigned char* target;
@@ -339,7 +340,7 @@ Array* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int32 length,
             break;
 
         default:
-            fprintf(stderr, "Unsupported element type: %d\n", elementType);
+            fprintf(stderr, "Unsupported element type: %lld\n", elementType);
             __builtin_trap();
     }
     va_end(args);
@@ -360,28 +361,18 @@ Array* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int32 length,
 //         the garbage collector doesn't need to worry about them)
 // newLength - the new length
 void panda$collections$PrimitiveArray$setLength(
-        panda$core$Object* arrayObject, Int32 elementSize, 
-        Bit elementsArePointers, Int32 newLength) {
-    Array* array = (Array*) arrayObject;
-    int oldLength = array->$length;
-    array->$length = newLength;
-    Int32 newMax = array->$maxLength;
-    if (newLength > newMax) {
-        newMax = MAX(newMax, 2);
-        while (newLength > newMax)
-            newMax *= 2;
-        void* newContents = pandaAlloc(newMax * elementSize, elementsArePointers);
-        memcpy(newContents, array->contents, oldLength * elementSize);
-        FREE(array->contents);
-        array->contents = newContents;
-        array->$length = newLength;
-        array->$maxLength = newMax;
-    }
+        panda$core$Object* arrayObject, Int elementSize, 
+        Bit elementsArePointers, Int newLength) {
+    (void) arrayObject;
+    (void) elementSize;
+    (void) elementsArePointers;
+    (void) newLength;
+    __builtin_trap();
 }
 
 void panda$collections$PrimitiveArray$pandaSetArrayLength(
-        panda$core$Object* arrayObject, Int32 elementSize, 
-        Bit elementsArePointers, Int32 newLength) {
+        panda$core$Object* arrayObject, Int elementSize, 
+        Bit elementsArePointers, Int newLength) {
     panda$collections$PrimitiveArray$setLength(arrayObject, 
             elementSize, elementsArePointers, newLength);
 }
@@ -427,12 +418,12 @@ void pandaCreateAndThrow(panda$core$Class* exception, const char* message) {
     pandaThrow((Error*) result);
 }
 
-void pandaCheckBounds(panda$collections$PrimitiveArray* array, Int32 index) {
+void pandaCheckBounds(PrimitiveArray* array, Int index) {
     if ((index >= array->$length) || (index < 0)) {
         __builtin_trap();
         char buffer[100];
-        sprintf(buffer, "Array index out of bounds: requested element %d, array length is %d", 
-                index, array->$length);
+        sprintf(buffer, "Array index out of bounds: requested element %lld, "
+                "array length is %lld", index, array->$length);
         pandaCreateAndThrow(&panda$collections$IndexOutOfBoundsError_class, 
                 buffer);
     }
@@ -493,7 +484,7 @@ Int64 panda$core$Panda$currentTime() {
     
 }
 
-void panda$threads$Thread$sleep(Int32 millis) {
+void panda$threads$Thread$sleep(Int millis) {
     usleep(millis * 1000);
 }
 
@@ -581,7 +572,7 @@ String* panda$core$Environment$pandaGetEnv(String* key) {
         return NULL;
 }
 
-void panda$core$System$exit_Int32(Int32 exitCode) {
+void panda$core$System$exit_Int64(Int exitCode) {
     exit(exitCode);
 }
 
@@ -660,11 +651,11 @@ void* panda$io$FileOutputStream$open(
             s, read, write);
 }
 
-Int32 panda$io$FileInputStream$close_$NativePointer_$RInt32(void* handle) {
+Int panda$io$FileInputStream$close_$NativePointer_$RInt64(void* handle) {
     return fclose((FILE*) handle);
 }
 
-Int32 panda$io$FileOutputStream$close_$NativePointer_$RInt32(void* handle) {
+Int panda$io$FileOutputStream$close_$NativePointer_$RInt64(void* handle) {
     return fclose((FILE*) handle);
 }
 
@@ -688,12 +679,12 @@ short panda$io$FileInputStream$read_$NativePointer_$RInt16(void* handle) {
         return -1;
 }
 
-void panda$collections$Array$LTpanda$core$UInt8$GT$ensureCapacity(panda$collections$Array$LTpanda$core$UInt8$GT* arr, Int32 length);
+void panda$collections$Array$LTpanda$core$UInt8$GT$ensureCapacity(panda$collections$Array$LTpanda$core$UInt8$GT* arr, Int length);
 
-panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int32_$RInt32$Z(
+IntWrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int64_$RInt64$Z(
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$UInt8$GT* bytes,
-        Int32 max) {
+        Int max) {
     UInt8 data[max];
     // FIXME check for errors
     int count = fread(data, 1, max, (FILE*) self->nativeFile);
@@ -717,15 +708,15 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTUInt8$GT_Int
                     data[i]);
         }
     }
-    panda$core$Int32Wrapper* result = pandaNew(panda$core$Int32Wrapper);
+    IntWrapper* result = pandaNew(IntWrapper);
     result->value = count;
     return result;
 }
 
-panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int32_$RInt32$Z(
+IntWrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int64_$RInt64$Z(
         panda$io$FileInputStream* self, 
         panda$collections$ListWriter$LTpanda$core$Char$GT* chars, 
-        Int32 max) {
+        Int max) {
     panda$collections$CollectionWriter$LTpanda$core$Char$GT$add_Char_TYPE* add =
             pandaGetInterfaceMethod((panda$core$Object*) chars, 
                     &panda$collections$CollectionWriter$LTpanda$core$Char$GT_class, 
@@ -739,7 +730,7 @@ panda$core$Int32Wrapper* panda$io$FileInputStream$read_ListWriter$LTChar$GT_Int3
         add((panda$collections$CollectionWriter$LTpanda$core$Char$GT*) chars, 
                 data[i]);
     }
-    panda$core$Int32Wrapper* result = pandaNew(panda$core$Int32Wrapper);
+    IntWrapper* result = pandaNew(IntWrapper);
     result->value = count;
     return result;
 }
@@ -752,13 +743,13 @@ void panda$io$FileOutputStream$writeUInt8(void* handle, UInt8 b) {
 void panda$collections$Array$LTpanda$core$Int8$GT$$ARR();
 
 void panda$io$FileOutputStream$writeUInt8Array(void* handle, 
-        panda$collections$ListView$LTpanda$core$UInt8$GT* b, Int32 offset, 
-        Int32 length) {
+        panda$collections$ListView$LTpanda$core$UInt8$GT* b, Int offset, 
+        Int length) {
     panda$collections$ListView$LTpanda$core$UInt8$GT$$ARR_TYPE* subscript =
             pandaGetInterfaceMethod((panda$core$Object*) b, 
                     &panda$collections$ListView$LTpanda$core$UInt8$GT_class, 
                     panda$collections$ListView$LTpanda$core$UInt8$GT$$ARR_INDEX);
-    const Int32 BUFFER_SIZE = 8192;
+    const Int BUFFER_SIZE = 8192;
     UInt8 data[BUFFER_SIZE];
     while (length > 0) {
         int currentLength = MIN(length, BUFFER_SIZE);
@@ -856,14 +847,14 @@ void _pandaThreadEntry(Thread* thread) {
     }
 }
 
-int panda$core$Panda$allocThreadLocal() {
+Int panda$core$Panda$allocThreadLocal() {
     pthread_mutex_lock(&threadLock);
     int result = ++threadLocalCount;
     pthread_mutex_unlock(&threadLock);
     return result;
 }
 
-panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* panda$core$Panda$getThreadLocals(Thread* thread) {
+panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* panda$core$Panda$getThreadLocals(Thread* thread) {
     return thread->threadLocals;
 }
 
@@ -906,7 +897,7 @@ Object* panda$core$Panda$callObjectFunction(void* f) {
     return ((Object* (*)()) f)();
 }
 
-Int32 panda$threads$InternalMessageQueue$pendingMessages(
+Int panda$threads$InternalMessageQueue$pendingMessages(
         InternalMessageQueue* msgQueue) {
     NativeQueue* queue = msgQueue->nativeQueue;
     pthread_mutex_lock(&queue->lock);
@@ -966,7 +957,7 @@ panda$core$Object* panda$threads$InternalMessageQueue$getMessage_$RObject$Z(Inte
     return result->data;
 }
 
-panda$core$Object* panda$threads$InternalMessageQueue$getMessage_Int32_$RObject$Z(InternalMessageQueue* queue, int timeout) {
+panda$core$Object* panda$threads$InternalMessageQueue$getMessage_Int64_$RObject$Z(InternalMessageQueue* queue, Int timeout) {
     // FIXME NOT IMPLEMENTED
     UNUSED(timeout);
     return panda$threads$InternalMessageQueue$getMessage_$RObject$Z(queue);
@@ -992,13 +983,13 @@ void panda$threads$Thread$startThread(
         preventsExitThreads++;
         pthread_mutex_unlock(&preventsExitThreadsMutex);
     }
-    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT);
-    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$init(threadLocals);
+    panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* threadLocals = pandaNew(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT);
+    panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$init(threadLocals);
     thread->threadLocals = threadLocals;
-    panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE* hashPut =
-            (panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_TYPE*) 
+    panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARREQ_TYPE* hashPut =
+            (panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARREQ_TYPE*) 
                 *(&threadLocals->cl->vtable + 
-                panda$collections$HashMap$LTpanda$core$Int32$Cpanda$core$Object$Z$GT$$ARREQ_INDEX);    
+                panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARREQ_INDEX);    
     hashPut(threadLocals, class_panda$threads$Thread$context$index, 
             (panda$core$Object*) context);
     panda$core$BitWrapper* trueWrapper = pandaNew(panda$core$BitWrapper);
@@ -1129,38 +1120,38 @@ union Real64Int64 {
     Int64 i;
 };
 
-Int32 panda$core$Int8Wrapper$get_length(Int8 self) {
+UInt8 panda$core$Int8Wrapper$get_length(Int8 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$Int16Wrapper$get_length(Int16 self) {
+UInt8 panda$core$Int16Wrapper$get_length(Int16 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$Int32Wrapper$get_length(Int32 self) {
+UInt8 panda$core$Int32Wrapper$get_length(Int32 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$Int64Wrapper$get_length(Int64 self) {
+UInt8 panda$core$Int64Wrapper$get_length(Int64 self) {
     UInt32 high = self >> 32;
     if (high != 0)
         return 32 - __builtin_clz(high);
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt8Wrapper$get_length(UInt8 self) {
+UInt8 panda$core$UInt8Wrapper$get_length(UInt8 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt16Wrapper$get_length(UInt16 self) {
+UInt8 panda$core$UInt16Wrapper$get_length(UInt16 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt32Wrapper$get_length(UInt32 self) {
+UInt8 panda$core$UInt32Wrapper$get_length(UInt32 self) {
     return 32 - __builtin_clz(self);
 }
 
-Int32 panda$core$UInt64Wrapper$get_length(UInt64 self) {
+UInt8 panda$core$UInt64Wrapper$get_length(UInt64 self) {
     UInt32 high = self >> 32;
     if (high != 0)
         return 32 - __builtin_clz(high);
@@ -1267,7 +1258,7 @@ typedef struct NativeRegex {
 } NativeRegex;
 
 void panda$core$RegularExpression$compile(RegularExpression* r, String* regex, 
-        Int32 flags) {
+        Int flags) {
     UErrorCode status = U_ZERO_ERROR;
     char* text = pandaGetString(regex);
     UText* ut = utext_openUTF8(NULL, text, regex->chars->$length, &status);
@@ -1314,7 +1305,7 @@ Bit panda$core$Matcher$matches_$NativePointer_$RBit(void* nr) {
     return result;
 }
 
-Bit panda$core$Matcher$find_$NativePointer_Int32_$RBit(void* nr, Int32 startIndex) {
+Bit panda$core$Matcher$find_$NativePointer_Int64_$RBit(void* nr, Int startIndex) {
     UErrorCode status = U_ZERO_ERROR;
     Bit result = uregex_find(((NativeRegex*) nr)->regex, startIndex, &status);
     if (U_FAILURE(status))
@@ -1336,15 +1327,15 @@ String* pandaUTextToString(UText* ut, int length) {
     return result;
 }
 
-Int32 panda$core$Matcher$_groupCount(void* nr) {
+Int panda$core$Matcher$_groupCount(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
-    Int32 result = uregex_groupCount(((NativeRegex*) nr)->regex, &status);
+    Int result = uregex_groupCount(((NativeRegex*) nr)->regex, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result + 1;
 }
 
-String* panda$core$Matcher$group_$NativePointer_Int32_$RString(void* nr, Int32 group) {
+String* panda$core$Matcher$group_$NativePointer_Int64_$RString(void* nr, Int group) {
     UErrorCode status = U_ZERO_ERROR;
     int64_t length;
     UText* ut = uregex_groupUText(((NativeRegex*) nr)->regex, group, NULL,
@@ -1354,17 +1345,17 @@ String* panda$core$Matcher$group_$NativePointer_Int32_$RString(void* nr, Int32 g
     return pandaUTextToString(ut, length);
 }
 
-Int32 panda$core$Matcher$_start(void* nr) {
+Int panda$core$Matcher$_start(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
-    Int32 result = uregex_start(((NativeRegex*) nr)->regex, 0, &status);
+    Int result = uregex_start(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result;
 }
 
-Int32 panda$core$Matcher$_end(void* nr) {
+Int panda$core$Matcher$_end(void* nr) {
     UErrorCode status = U_ZERO_ERROR;
-    Int32 result = uregex_end(((NativeRegex*) nr)->regex, 0, &status);
+    Int result = uregex_end(((NativeRegex*) nr)->regex, 0, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     return result;
@@ -1379,8 +1370,8 @@ void panda$core$RegularExpression$close(RegularExpression* r) {
 
 /***** Debug *****/
 
-void panda$core$Panda$debugWrite_Int32(Int32 v) {
-    printf("Debug: %d\n", v);
+void panda$core$Panda$debugWrite_Int64(Int v) {
+    printf("Debug: %lld\n", v);
 }
 
 void panda$core$Panda$debugWritePointer(Object* v) {
@@ -1398,6 +1389,6 @@ void panda$core$Panda$debugWrite$Object(Object* o) {
 
 #undef pandaNew
 
-Object* pandaNew(Class* class_ptr, Int32 size) {
+Object* pandaNew(Class* class_ptr, Int size) {
     return _pandaNew(class_ptr, size);
 }

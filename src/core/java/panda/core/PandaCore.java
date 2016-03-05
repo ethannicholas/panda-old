@@ -54,10 +54,10 @@ public class PandaCore {
     }
     
     public static java.lang.String toJavaString(panda.core.String string) {
-        int length = string.get_length_$Rpanda$core$Int32();
+        int length = (int) string.get_length_$Rpanda$core$Int64();
         char[] chars = new char[length];
         for (int i = 0; i < length; i++)
-            chars[i] = string.$ARR_Int32_$Rpanda$core$Char(i);
+            chars[i] = string.$ARR_Int64_$Rpanda$core$Char(i);
         return new java.lang.String(chars);
     }
 

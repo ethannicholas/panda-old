@@ -37,13 +37,17 @@ typedef int8_t Int8;
 typedef int16_t Int16;
 typedef int32_t Int32;
 typedef int64_t Int64;
+typedef Int64 Int;
 typedef uint8_t UInt8;
 typedef uint16_t UInt16;
 typedef uint32_t UInt32;
 typedef uint64_t UInt64;
+typedef UInt64 UInt;
 typedef float Real32;
 typedef double Real64;
 typedef uint16_t Char;
+#define IntWrapper panda$core$Int64Wrapper
+#define IntWrapper_class panda$core$Int64Wrapper_class
 
 typedef struct itable {
     struct panda$core$Class* cl;
