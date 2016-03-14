@@ -50,6 +50,25 @@ uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 uses org.pandalanguage.pandac.types.WrapperType
 
+================================================================================
+Refactoring badly needed!
+
+Originally this was just a collection of useful information that the IRGenerator
+maintained, passing it into things that needed access to it without having to 
+pass around the entire IRGenerator. It was originally intended that the Context
+be sharable between multiple IRGenerators (e.g. when doing multithreaded
+compilation).
+
+After a long series of it-seemed-like-a-good-idea-at-the-time changes (e.g. it
+turned out one spot that had access to the Context but not the IRGenerator 
+needed to resolve a method call -- so is it better to just move the (very simple 
+at the time) method call resolution into Context vs. refactor the whole damned
+compiler?), the original vision has morphed into the current monstrosity, where 
+the Context does way too much shit and is tightly coupled to the IRGenerator 
+anyway, so I'm not even clear on what the distinction between the two of them is
+supposed to be in the first place. I will be taking a flamethrower to this 
+design once I have the language stabilized.
+================================================================================
 class Context {
     def stubGenerator:StubGenerator
 
@@ -361,6 +380,14 @@ class Context {
         return matchCost(type, isVarArg, params, returnType)
     }
 
+    function matchCost(target:Value, m:Methods.MethodEntry, 
+            var params:ListView<Value>, returnType:Type?):Int? {
+        var methodParams:ListView<FormalParameter> := m.stub.parameters
+        var isVarArg := methodParams.count > 0 & 
+                methodParams[methodParams.count - 1].isVarArg
+        return matchCost(m.effectiveType, isVarArg, params, returnType)
+    }
+
     method getSymbolTable(cl:ClassType):SymbolTable {
         var result := symbolTables[cl]
         if result = null {
@@ -420,7 +447,7 @@ class Context {
         def symbol := getSymbolTable(searchClass.type)[name]
         if symbol-?>Methods {
             def result := Array<MethodStub>()
-            for m in symbol->Methods.methods {
+            for m in symbol->Methods.entries {
                 result.add(m.stub)
             }
             return result
@@ -861,6 +888,11 @@ class Context {
         return msg.convert()
     }
 
+    method call(position:Position, var target:Value, m:Methods.MethodEntry,
+            var params:ListView<Value>):Value? {
+        return call(position, target, m.stub, params)
+    }
+
     method call(position:Position, var target:Value, m:MethodStub,
             var params:ListView<Value>):Value? {
         if target.type.isPrimitive & m.name = "hash" & params.count = 0 {
@@ -1064,7 +1096,7 @@ class Context {
         def methods := symbolTable[methodName]
         if methods-?>Methods {
             def stubs := Array<MethodStub>()
-            for m in methods->Methods.methods {
+            for m in methods->Methods.entries {
                 stubs.add(m.stub)
             }
             return call(position, target, stubs, params, returnType, 
@@ -1083,11 +1115,15 @@ class Context {
         return null
     }
 
+    -* todo: delete this overload *-
     method call(position:Position, target:Value, 
             methods:ListView<MethodStub>, params:ListView<Value>):Value? {
+        assert HashSet<MethodStub>(methods).count = methods.count :
+                "duplicate method in methods list"
         return call(position, target, methods, params, null, true)
     }
 
+    -* todo: delete this overload *-
     method call(position:Position, target:Value, 
             methods:ListView<MethodStub>, var params:ListView<Value>,
             returnType:Type?, reportErrors:Bit):Value? {
@@ -1148,8 +1184,92 @@ class Context {
             return null
         }
         else {
-            if reportErrors{
+            if reportErrors {
                 reportAmbiguous(position, best, params, returnType)
+            }
+            return null
+        }
+    }
+
+    method call(position:Position, target:Value, 
+            methods:ListView<Methods.MethodEntry>, 
+            var params:ListView<Value>):Value? {
+        return call(position, target, methods, params, null)
+    }
+
+    method call(position:Position, target:Value, 
+            methods:ListView<Methods.MethodEntry>, var params:ListView<Value>,
+            returnType:Type?):Value? {
+        return call(position, target, methods, params, returnType, true)
+    }
+
+    method call(position:Position, target:Value, 
+            methods:ListView<Methods.MethodEntry>, var params:ListView<Value>,
+            returnType:Type?, reportErrors:Bit):Value? {
+        if params.count > 0 {
+            def last := params[params.count - 1]
+            if last-?>UnresolvedRange {
+                def range := last->UnresolvedRange
+                def left := range.left
+                if isListView(left) & range.right = null {
+                    assert left != null
+                    def newParams := Array<Value>()
+                    newParams.addAll(params[0 .. params.count - 1])
+                    newParams.add(Unwrap(left))
+                    params := newParams
+                }
+            }
+        }
+        var bestCost := Int.MAX
+        var best:Array<Methods.MethodEntry> := []
+        for m in methods {
+            def finalTarget := getEffectiveTarget(m.stub, target)
+            if finalTarget = null {
+                continue
+            }
+            def cost := matchCost(finalTarget, m, params, returnType)
+            if cost != null & cost < bestCost {
+                bestCost := cost
+                best := [m]
+            }
+            else if cost != null & cost = bestCost {
+                best.add(m)
+            }
+        }
+        if best.count = 1 {
+            def finalTarget := getEffectiveTarget(best[0].stub, target)
+            if finalTarget = null {
+                errors.error("internal error: null target in " +
+                        "\{target}:\{best[0]}", position)
+                return null
+            }
+            if reportErrors & inClosure & target-?>InstanceContext & 
+                    !best[0].stub.annotations.isClass {
+                errors.error("cannot implicitly reference 'self' within a " + 
+                        "closure. Use an explicit 'self.' to make the " +
+                        "capture semantics explicit.", position)
+            }
+            return call(position, finalTarget, best[0], params)
+        }
+        else if best.count = 0 {
+            if reportErrors {
+                def types := Array<String>()
+                for p in params {
+                    types.add(p.type.displayName)
+                }
+                errors.error("no match for \{methods[0].stub.owner.name}." +
+                        "\{methods[0].stub.name}(\{types.join(', ')})", 
+                        position)
+            }
+            return null
+        }
+        else {
+            if reportErrors {
+                def stubs := Array<MethodStub>()
+                for m in methods {
+                    stubs.add(m.stub)
+                }
+                reportAmbiguous(position, stubs, params, returnType)
             }
             return null
         }

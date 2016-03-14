@@ -361,13 +361,11 @@ PrimitiveArray* pandaNewPrimitiveArrayWithValues(Class* class_ptr, Int length,
 //         the garbage collector doesn't need to worry about them)
 // newLength - the new length
 void panda$collections$PrimitiveArray$setLength(
-        panda$core$Object* arrayObject, Int elementSize, 
-        Bit elementsArePointers, Int newLength) {
-    (void) arrayObject;
-    (void) elementSize;
+        panda$core$Object* arrayObject, Int elementSize, Bit elementsArePointers, 
+        Int newLength) {
     (void) elementsArePointers;
-    (void) newLength;
-    __builtin_trap();
+    PrimitiveArray* array = (PrimitiveArray*) arrayObject;
+    array->contents = REALLOC(array->contents, elementSize * newLength);
 }
 
 void panda$collections$PrimitiveArray$pandaSetArrayLength(

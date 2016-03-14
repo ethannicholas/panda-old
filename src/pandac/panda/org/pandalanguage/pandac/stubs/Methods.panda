@@ -33,6 +33,20 @@ class Methods : Immutable (Symbol) {
         }
 
         @override
+        function get_hash():Int {
+            return stub.hash ~~ effectiveType.hash
+        }
+
+        @override
+        function =(o:Object):Bit {
+            if o-!>MethodEntry {
+                return false
+            }
+            def e := o->MethodEntry
+            return stub = e.stub & effectiveType = e.effectiveType
+        }
+
+        @override
         function convert():String {
             return "(\{stub.name}, \{effectiveType})"
         }
@@ -41,16 +55,18 @@ class Methods : Immutable (Symbol) {
     @private
     var _name:String
 
-    def methods:ImmutableArray<MethodEntry>
+    def entries:ImmutableArray<MethodEntry>
 
     init(stub:MethodStub, effectiveType:MethodType) {
         self._name := stub.name
-        self.methods := [MethodEntry(stub, effectiveType)]
+        self.entries := [MethodEntry(stub, effectiveType)]
     }
 
-    init(methods:ListView<MethodEntry>) {
-        self._name := methods[0].stub.name
-        self.methods := ImmutableArray<MethodEntry>(methods)
+    init(entries:ListView<MethodEntry>) {
+        self._name := entries[0].stub.name
+        self.entries := ImmutableArray<MethodEntry>(entries)
+        assert HashSet<MethodEntry>(entries).count = entries.count : 
+                "duplicate method in \{entries}"
     }
 
     @override
@@ -60,7 +76,7 @@ class Methods : Immutable (Symbol) {
 
     function +(m:MethodEntry):Methods {
         def result := Array<MethodEntry>()
-        for old in methods {
+        for old in entries {
             if !m.isOverrideOf(old) {
                 result.add(old)
             }
@@ -73,8 +89,8 @@ class Methods : Immutable (Symbol) {
     function +(m:Methods):Methods {
         -- FIXME brain-dead O(N^2) approach
         def result := Array<MethodEntry>()
-        outer: for oldMethod in methods {
-            for newMethod in m.methods {
+        outer: for oldMethod in entries {
+            for newMethod in m.entries {
                 assert newMethod.stub.name = oldMethod.stub.name
                 if newMethod.isOverrideOf(oldMethod) {
                     continue outer
@@ -82,7 +98,7 @@ class Methods : Immutable (Symbol) {
             }
             result.add(oldMethod)
         }
-        for newMethod in m.methods {
+        for newMethod in m.entries {
             assert !result.contains(newMethod) : "already have \{newMethod.stub}"
             result.add(newMethod)
         }
@@ -91,7 +107,7 @@ class Methods : Immutable (Symbol) {
 
     function withGenerics(parameters:ListView<Type>):Methods {
         def result := Array<MethodEntry>()
-        for m in methods {
+        for m in entries {
             result.add(MethodEntry(m.stub, m.stub.typeWithGenerics(parameters)))
         }
         return Methods(result)
@@ -99,6 +115,6 @@ class Methods : Immutable (Symbol) {
 
     @override
     function convert():String {
-        return methods.convert()
+        return entries.convert()
     }
 }

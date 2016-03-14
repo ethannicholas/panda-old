@@ -2,6 +2,7 @@ package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.Dummy
+uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.MethodStub
 uses org.pandalanguage.pandac.types.UnresolvedType
 uses org.pandalanguage.pandac.types.Type
@@ -14,14 +15,14 @@ implementation. For instance, `"1234".convert()` might be a call to any of
 class UnresolvedMethodCall : UnresolvedValue {
     def target:Value?
 
-    def methods:ListView<MethodStub>
+    def methods:Methods
 
     def parameters:ListView<Value>
 
     @pre(methods.count > 1)
     init(context:Context, position:Position, target:Value, 
-            methods:ListView<MethodStub>, parameters:ListView<Value>) {
-        super.init(position, "ambiguous call to '\{methods[0].name}'", 
+            methods:Methods, parameters:ListView<Value>) {
+        super.init(position, "ambiguous call to '\{methods.name}'", 
                 getValue(context, position, target, methods, parameters))
         self.target := target
         self.methods := methods
@@ -30,14 +31,15 @@ class UnresolvedMethodCall : UnresolvedValue {
 
     @private
     function getValue(context:Context, position:Position, target:Value, 
-            methods:ListView<MethodStub>, parameters:ListView<Value>):Value? {
-        return context.call(position, target, methods, parameters, null, false)
+            methods:Methods, parameters:ListView<Value>):Value? {
+        return context.call(position, target, methods.entries, parameters, null, 
+                false)
     }
 
     @override
     method implicitCastCost(context:Context, t:Type):Int? {
         def best := Int.MAX
-        for m in methods {
+        for m in methods.entries {
             def cost := context.matchCost(target, m, parameters, t)
             if cost != null & cost < best {
                 best := cost
@@ -51,8 +53,8 @@ class UnresolvedMethodCall : UnresolvedValue {
 
     @override
     method canExplicitCastTo(context:Context, t:Type):Bit {
-        for m in methods {
-            if m.returnType.canExplicitCastTo(context, t) {
+        for m in methods.entries {
+            if m.effectiveType.returnType.canExplicitCastTo(context, t) {
                 return true
             }
         }
@@ -62,11 +64,12 @@ class UnresolvedMethodCall : UnresolvedValue {
     @override
     method explicitCast(position:Position, context:Context, t:Type):Value {
         def bestCost := Int.MAX
-        def best := Array<MethodStub>()
-        for m in methods {
+        def best := Array<Methods.MethodEntry>()
+        for m in methods.entries {
             var cost := context.matchCost(target, m, parameters, null)
             if cost != null {
-                def castCost := t.implicitCastCost(context, m.returnType)
+                def castCost := t.implicitCastCost(context, 
+                        m.effectiveType.returnType)
                 if castCost = null {
                     continue
                 }
@@ -86,16 +89,16 @@ class UnresolvedMethodCall : UnresolvedValue {
                     "null result calling \{target}(\{parameters})"
             return result.explicitCast(position, context, t)
         }
-        def error := context.call(position, target, methods, parameters, t, 
-                true)
+        def error := context.call(position, target, methods.entries, parameters, 
+                t, true)
         assert error = null
         return Dummy(position, t)
     }
 
     @override
     method implicitCast(position:Position, context:Context, t:Type):Value {
-        def result := context.call(position, target, methods, parameters, t,
-                true)
+        def result := context.call(position, target, methods.entries, 
+                parameters, t, true)
         if result != null {
             if t = VoidType.VOID {
                 assert result.type = VoidType.VOID
@@ -108,14 +111,14 @@ class UnresolvedMethodCall : UnresolvedValue {
 
     @override
     method reportError(context:Context) {
-        def result := context.call(position, target, methods, parameters, null, 
-                true)
+        def result := context.call(position, target, methods.entries, 
+                parameters, null, true)
         assert result = null : "somehow was able to actually call ambiguous " +
                 "methods \{methods}"
     }
 
     @override
     function convert():String {
-        return "\{methods[0].name}"
+        return "\{methods.name}"
     }
 }
