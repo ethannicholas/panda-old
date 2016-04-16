@@ -225,8 +225,9 @@ class Context {
                     parameterStubs.add(null)
                 }
             }
-            return generic.createStub(baseStub, parameterStubs, isKnown(type), 
+            def result := generic.createStub(baseStub, parameterStubs, isKnown(type), 
                     self)
+            return result
         }
         else if type-?>GenericParameterType {
             return getStub(type->GenericParameterType.bound.name)
@@ -380,7 +381,7 @@ class Context {
         return matchCost(type, isVarArg, params, returnType)
     }
 
-    function matchCost(target:Value, m:Methods.MethodEntry, 
+    function matchCost(target:Value, m:Methods.Entry, 
             var params:ListView<Value>, returnType:Type?):Int? {
         var methodParams:ListView<FormalParameter> := m.stub.parameters
         var isVarArg := methodParams.count > 0 & 
@@ -392,50 +393,48 @@ class Context {
         var result := symbolTables[cl]
         if result = null {
             def stub := getStub(cl)
-            def parents := Array<SymbolTable>()
-            def superclass := stub.superclass
-            if superclass != null {
-                parents.add(getSymbolTable(superclass))
+            if stub.isUnspecialized & cl-?>GenericType {
+                def g := cl->GenericType
+                result := UnspecializedTypeSymbolTable(self, g, 
+                        getSymbolTable(g.base))
             }
             else {
-                parents.add(stubGenerator.masterSymbolTable)
-            }
-            for intf in stub.interfaces {
-                parents.add(getSymbolTable(intf))
-            }
-            def containingClass := stub.containingClass
-            if containingClass != null {
-                parents.add(getSymbolTable(containingClass))
-            }
-            result := SymbolTable(parents)
-            stubGenerator.usePackage("panda.collections", result, 
-                    Position.INTERNAL)
-            stubGenerator.usePackage("panda.core", result, 
-                    Position.INTERNAL)
-            stubGenerator.usePackage("panda.io", result, 
-                    Position.INTERNAL)
-            stubGenerator.usePackage("panda.math", result, 
-                    Position.INTERNAL)
-            stubGenerator.usePackage("panda.threads", result, 
-                    Position.INTERNAL)
-            for p in stub.lookupContext.packageUses {
-                stubGenerator.usePackage(p, result, stub.position)
-            }
-            for (alias, target) in stub.lookupContext.classAliases {
-                def resolved := resolveType(ASTClassType(
-                        stub.position, target, null, false))
-                assert resolved != null
-                stubGenerator.aliasType(alias, resolved, result)
-            }
-            result.addAll(stub.symbols)
-            if stub.isUnspecialized & cl-?>GenericType {
-                def parameters := cl->GenericType.parameters
-                for symbol in result.mySymbols.values {
-                    if symbol-?>Methods {
-                        result.mySymbols[symbol.name] := 
-                                symbol->Methods.withGenerics(parameters)
-                    }
+                def parents := Array<SymbolTable>()
+                def superclass := stub.superclass
+                if superclass != null {
+                    parents.add(getSymbolTable(superclass))
                 }
+                else {
+                    parents.add(stubGenerator.masterSymbolTable)
+                }
+                for intf in stub.interfaces {
+                    parents.add(getSymbolTable(intf))
+                }
+                def containingClass := stub.containingClass
+                if containingClass != null {
+                    parents.add(getSymbolTable(containingClass))
+                }
+                result := SymbolTable(parents)
+                stubGenerator.usePackage("panda.collections", result, 
+                        Position.INTERNAL)
+                stubGenerator.usePackage("panda.core", result, 
+                        Position.INTERNAL)
+                stubGenerator.usePackage("panda.io", result, 
+                        Position.INTERNAL)
+                stubGenerator.usePackage("panda.math", result, 
+                        Position.INTERNAL)
+                stubGenerator.usePackage("panda.threads", result, 
+                        Position.INTERNAL)
+                for p in stub.lookupContext.packageUses {
+                    stubGenerator.usePackage(p, result, stub.position)
+                }
+                for (alias, target) in stub.lookupContext.classAliases {
+                    def resolved := resolveType(ASTClassType(
+                            stub.position, target, null, false))
+                    assert resolved != null
+                    stubGenerator.aliasType(alias, resolved, result)
+                }
+                result.addAll(stub.symbols)
             }
             symbolTables[cl] := result
         }
@@ -749,7 +748,9 @@ class Context {
             stub := getStub(genericType.base)
         }
         for (i, p) in stub.genericParameters.enumeration {
-            symbols.add(p[0], TypeSymbol(genericType.parameters[i]))
+            def symbol := TypeSymbol(genericType.parameters[i])
+            symbols.add(p[0], symbol)
+            symbols.add(owner->GenericType.base.name + "." + p[0], symbol)
         }
         return GenericType.getType(type, symbols)->ClassType
     }
@@ -888,7 +889,7 @@ class Context {
         return msg.convert()
     }
 
-    method call(position:Position, var target:Value, m:Methods.MethodEntry,
+    method call(position:Position, var target:Value, m:Methods.Entry,
             var params:ListView<Value>):Value? {
         return call(position, target, m.stub, params)
     }
@@ -982,7 +983,7 @@ class Context {
                     params.count, position)
             return null
         }
-        def actualParams := m.type.methodParameters
+        def actualParams := m.unwrapped.type.methodParameters
         def effectiveParams := type.methodParameters
         for i in 0 .. count {
             def targetType := effectiveParams[i]
@@ -1032,9 +1033,10 @@ class Context {
             return Cast(position, target.unwrap(self), m.returnType, 
                     Cast.Kind.CONVERT)
         }
-        liveMethods.add(m)
-        var result:Value := MethodCall(position, target, m, finalParams)
-        if result.type != type.returnType {
+        liveMethods.add(m.unwrapped)
+        var result:Value := MethodCall(position, target, m.unwrapped, 
+                                       finalParams)
+        if result.type != m.returnType {
             result := result.explicitCast(self, type.returnType)
         }
         return result
@@ -1192,19 +1194,19 @@ class Context {
     }
 
     method call(position:Position, target:Value, 
-            methods:ListView<Methods.MethodEntry>, 
+            methods:ListView<Methods.Entry>, 
             var params:ListView<Value>):Value? {
         return call(position, target, methods, params, null)
     }
 
     method call(position:Position, target:Value, 
-            methods:ListView<Methods.MethodEntry>, var params:ListView<Value>,
+            methods:ListView<Methods.Entry>, var params:ListView<Value>,
             returnType:Type?):Value? {
         return call(position, target, methods, params, returnType, true)
     }
 
     method call(position:Position, target:Value, 
-            methods:ListView<Methods.MethodEntry>, var params:ListView<Value>,
+            methods:ListView<Methods.Entry>, var params:ListView<Value>,
             returnType:Type?, reportErrors:Bit):Value? {
         if params.count > 0 {
             def last := params[params.count - 1]
@@ -1221,7 +1223,7 @@ class Context {
             }
         }
         var bestCost := Int.MAX
-        var best:Array<Methods.MethodEntry> := []
+        var best:Array<Methods.Entry> := []
         for m in methods {
             def finalTarget := getEffectiveTarget(m.stub, target)
             if finalTarget = null {

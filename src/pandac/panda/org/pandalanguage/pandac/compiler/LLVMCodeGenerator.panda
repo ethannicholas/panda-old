@@ -343,6 +343,9 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     method getName(m:MethodStub):String {
+        if m.base != null {
+            return getName(m.base)
+        }
         return methodNamer.getName(m)
     }
 
@@ -695,8 +698,13 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     function getMethodIndex(cl:ClassConstant, m:MethodStub):Int {
+        if m.base != null {
+            return getMethodIndex(cl, m.base)
+        }
         def result := cl.methods.indexOf(m)
-        assert result != null : m + " not found in class constant"
+        assert result != null : 
+                "\{m.owner}.\{m} not found in class constant \{cl.name}: " +
+                cl.methods
         return result
     }
 
@@ -810,7 +818,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             getStub(ClassType.STRING)
             def methods := Array<MethodStub>()
             for m in cl.type.virtualMethods(context) {
-                methods.add(m.stub)
+                methods.add(m.stub.unwrapped)
             }
             def className := getName(cl)
             cc := ClassConstant(
@@ -2231,7 +2239,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method writeMethodDeclaration(m:MethodStub) {
         def external := m.annotations.isExternal
         if (m.name != MethodNode.CLASS_INIT_NAME & !program.liveMethods.contains(m) & !external) | 
-                (m.annotations.isAbstract & !m.annotations.isExternal) |
+                (m.annotations.isAbstract & !external) |
                 writtenMethods.contains(m) {
             writtenMethods.add(m)
             return
@@ -2407,9 +2415,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         do {
             progress := false
             for stub in context.classes.values.filter(stub => stub.isExternal) {
+                Console.writeLine("writing methods in \{stub.name}")
                 for entry in stub.methods {
                     def m := entry.stub
-                    if (!stub.annotations.isUnspecified | m.annotations.isClass) &
+                    if (!stub.annotations.isUnspecified | m.annotations.isClass |
+                            stub.isUnspecialized) &
                             program.liveMethods.contains(m) & 
                             !writtenMethods.contains(m) {
                         progress := true

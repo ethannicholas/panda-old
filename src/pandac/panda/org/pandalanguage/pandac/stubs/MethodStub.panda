@@ -44,10 +44,24 @@ class MethodStub : Immutable {
 
     property type:MethodType
 
+    -- if this stub is a specialization of a generic method in an unspecialized
+    -- class (i.e. it's not a "real" method), base points to the actual stub
+    def base:MethodStub?
+
+    property unwrapped:MethodStub
+
     init(position:Position, name:String, annotations:Annotations,
             kind:Kind, parameters:ListView<FormalParameter>, 
             genericParameters:ListView<(String, Type?)>?, returnType:Type,
             body:ASTBlock?, owner:ClassType) {
+        init(position, name, annotations, kind, parameters, genericParameters,
+                returnType, body, owner, null)
+    }
+
+    init(position:Position, name:String, annotations:Annotations,
+            kind:Kind, parameters:ListView<FormalParameter>, 
+            genericParameters:ListView<(String, Type?)>?, returnType:Type,
+            body:ASTBlock?, owner:ClassType, base:MethodStub?) {
         self.position := position
         self.name := name
         self.annotations := annotations
@@ -63,6 +77,7 @@ class MethodStub : Immutable {
         }
         self.returnType := returnType
         self.owner := owner
+        self.base := base
     }
 
     ============================================================================
@@ -89,7 +104,42 @@ class MethodStub : Immutable {
         return MethodType(types, returnType, kind = Kind.FUNCTION, true)
     }
 
-    function typeWithGenerics(genericTypes:ListView<Type>):MethodType {
+    function specializeFor(context:Context, type:GenericType):MethodStub {
+        def symbols := SymbolTable()
+        if owner-?>GenericType {
+            def genericOwner := owner->GenericType
+            for (i, g) in genericOwner.parameters.enumeration {
+                symbols.add(g.name, TypeSymbol(type.parameters[i]))
+            }
+        }
+        else {
+            def ownerStub := context.getStub(owner)
+            if ownerStub.genericParameters != null {
+                for (i, g) in ownerStub.genericParameters.enumeration {
+                    def base:String
+                    if owner-?>GenericType {
+                        base := owner->GenericType.base.name
+                    }
+                    else {
+                        base := owner.name
+                    }
+                    symbols.add(base + "." + g[0], 
+                            TypeSymbol(type.parameters[i]))
+                }
+            }
+        }
+        def newParameters := Array<FormalParameter>()
+        for p in parameters {
+            newParameters.add(FormalParameter(p.position, p.name, 
+                    GenericType.getType(p.type, symbols), p.isVar, p.isVarArg))
+        }
+        def newReturnType := GenericType.getType(self.returnType, symbols)
+        def result := MethodStub(position, name, annotations, kind, newParameters, 
+                genericParameters, newReturnType, null, type, self)
+        return result
+    }
+
+    function typeWithGenerics(genericTypes:ListView<Type>?):MethodType {
         if genericParameters = null {
             return type
         }
@@ -103,6 +153,14 @@ class MethodStub : Immutable {
         }
         def returnType := GenericType.getType(self.returnType, symbols)
         return MethodType(types, returnType, kind = Kind.FUNCTION, true)
+    }
+
+    @private
+    function get_unwrapped():MethodStub {
+        if base != null {
+            return base.unwrapped
+        }
+        return self
     }
 
     @override

@@ -150,8 +150,8 @@ class ClassType : Type {
     ============================================================================
     @safeReturn
     method interfaceMethods(intf:ClassType, 
-            context:Context):ListView<Methods.MethodEntry> {
-        def result := Array<Methods.MethodEntry>(intf.virtualMethods(context))
+            context:Context):ListView<Methods.Entry> {
+        def result := Array<Methods.Entry>(intf.virtualMethods(context))
         def myMethods := virtualMethods(context)
         for (i, m) in result.enumeration {
             for m2 in myMethods {
@@ -164,11 +164,20 @@ class ClassType : Type {
         return result
     }
 
-    @class
     @limited
-    method addOverrides(source:CollectionView<Methods.MethodEntry>, 
-            dest:List<Methods.MethodEntry>) {
-        outer: for s in source {
+    method addOverrides(context:Context, source:CollectionView<Methods.Entry>, 
+            dest:List<Methods.Entry>) {
+        def stub := context.getStub(self)
+        outer: for raw in source {
+            def s:Methods.Entry
+            if self-?>GenericType & stub.isUnspecialized {
+                def parameters := self->GenericType.parameters
+                s := Methods.Entry(raw.stub, 
+                        raw.stub.typeWithGenerics(parameters))
+            }
+            else {
+                s := raw
+            }
             if !s.stub.isDeclaredVirtual {
                 continue
             }
@@ -183,8 +192,8 @@ class ClassType : Type {
     }
 
     function instanceMethods(context:Context):
-            CollectionView<Methods.MethodEntry> {
-        def result := Array<Methods.MethodEntry>()
+            CollectionView<Methods.Entry> {
+        def result := Array<Methods.Entry>()
         def stub := context.getStub(self)
         if stub.superclass != null {
             def effective := context.effectiveType(self, 
@@ -192,14 +201,14 @@ class ClassType : Type {
             result.addAll(effective.instanceMethods(context).filter(
                         m => !m.stub.annotations.isPrivate))
         }
-        def test:(Methods.MethodEntry)=>(Bit) := m => m.stub.kind != MethodStub.Kind.INIT & 
+        def test:(Methods.Entry)=>(Bit) := 
+                m => m.stub.kind != MethodStub.Kind.INIT & 
                 !m.stub.annotations.isClass
-        def myMethods := stub.methods.filter(test
-                )
+        def myMethods := stub.methods.filter(test)
         if self-?>GenericType & stub.isUnspecialized {
             def parameters := self->GenericType.parameters
             for m in myMethods {
-                result.add(Methods.MethodEntry(m.stub, 
+                result.add(Methods.Entry(m.stub, 
                         m.stub.typeWithGenerics(parameters)))
             }
         }
@@ -216,33 +225,52 @@ class ClassType : Type {
     methods will appear at the end of the array.
     ============================================================================
     @safeReturn
-    method virtualMethods(context:Context):ListView<Methods.MethodEntry> {
-        def result := Array<Methods.MethodEntry>()
+    method virtualMethods(context:Context):ListView<Methods.Entry> {
+        def result := Array<Methods.Entry>()
         def stub := context.getStub(self)
+
+--        def filter := m:Methods.Entry => m.stub.owner != ClassType.OBJECT
+
+
         for i in stub.interfaces.count - 1 ... 0 by -1 {
             def intf := context.effectiveType(self, stub.interfaces[i])
-            addOverrides(intf->ClassType.virtualMethods(context),
+--            Console.writeLine("effectiveType of \{stub.interfaces[i]} within \{self} = \{intf}")
+--            Console.writeLine("adding overrides of \{intf} in \{self}")
+            addOverrides(context, intf->ClassType.virtualMethods(context),
                     result)
+--            Console.writeLine("FINISHED adding overrides of \{intf} in \{self}")
+--            Console.writeLine("virtualMethods for \{self} after \{intf}: \{result.filter(filter)}")
         }
         def sc := stub.superclass
         if sc != null {
             def effective := context.effectiveType(self, sc)->ClassType
-            addOverrides(effective.virtualMethods(context), result)
+            addOverrides(context, effective.virtualMethods(context), result)
         }
-        def virtuals := Array<Methods.MethodEntry>()
+        def virtuals := Array<Methods.Entry>()
+        def symbolTable := context.getSymbolTable(self)
+        def names := HashSet<String>()
         for m in stub.methods {
-            if m.stub.isDeclaredVirtual {
-                if self-?>GenericType & stub.isUnspecialized {
-                    def parameters := self->GenericType.parameters
-                    virtuals.add(Methods.MethodEntry(m.stub, 
-                            m.stub.typeWithGenerics(parameters)))
-                }
-                else {
-                    virtuals.add(m)
+            names.add(m.stub.name)
+        }
+        for name in names {
+            for m in symbolTable[name]->Methods.entries {
+                if m.stub.isDeclaredVirtual {
+                    -- FIXME: add an override point somewhere to get rid of 
+                    -- the yucky self check
+                    if self-?>GenericType & stub.isUnspecialized {
+                        def parameters := self->GenericType.parameters
+                        virtuals.add(Methods.Entry(m.stub, 
+                                m.stub.typeWithGenerics(parameters)))
+                    }
+                    else {
+                        virtuals.add(m)
+                    }
                 }
             }
         }
-        addOverrides(virtuals, result)
+--        Console.writeLine("virtualMethods for \{self}, before overrides: \{result.filter(filter)}")
+        addOverrides(context, virtuals, result)
+--        Console.writeLine("virtualMethods for \{self}, after overrides: \{result.filter(filter)}")
         return result
     }
 

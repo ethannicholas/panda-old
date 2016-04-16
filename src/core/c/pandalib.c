@@ -392,7 +392,7 @@ void pandaUncaughtException(Error* e) {
                 *(&e->cl->vtable + 
                 panda$core$Object$convert_INDEX);
     String* stackTrace = cnvString((panda$core$Object*) e);
-    printf("%s", pandaGetString(stackTrace));
+    printf("%s\n", pandaGetString(stackTrace));
     __builtin_trap();
 }
 
@@ -588,8 +588,8 @@ panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT* panda
             pandaNewPrimitiveArrayWithLength(&panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT_class, 
                     0, sizeof(panda$core$StackTraceEntry*), true);
 
-    unw_cursor_t    cursor;
-    unw_context_t   context;
+    unw_cursor_t  cursor;
+    unw_context_t context;
 
     unw_getcontext(&context);
     unw_init_local(&cursor, &context);
@@ -616,6 +616,7 @@ panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT* panda
         int index = result->$length;
         panda$collections$PrimitiveArray$setLength((Object*) result, 
                 sizeof(panda$core$StackTraceEntry*), true, index + 1);
+        printf("    %s\n", fname);
         result->contents[index] = entry;
     }
     return result;

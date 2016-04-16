@@ -1,5 +1,7 @@
 package org.pandalanguage.pandac.stubs
 
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.MethodType
 
@@ -7,7 +9,7 @@ uses org.pandalanguage.pandac.types.MethodType
 Represents a group of same-named method overloads.
 ================================================================================
 class Methods : Immutable (Symbol) {
-    class MethodEntry {
+    class Entry {
         def stub:MethodStub
 
         def effectiveType:MethodType
@@ -20,7 +22,7 @@ class Methods : Immutable (Symbol) {
         ========================================================================
         Returns true if this method overrides `parent`.
         ========================================================================
-        function isOverrideOf(parent:MethodEntry):Bit {
+        function isOverrideOf(parent:Entry):Bit {
             if parent.stub.name != stub.name {
                 return false
             }
@@ -39,33 +41,33 @@ class Methods : Immutable (Symbol) {
 
         @override
         function =(o:Object):Bit {
-            if o-!>MethodEntry {
+            if o-!>Entry {
                 return false
             }
-            def e := o->MethodEntry
+            def e := o->Entry
             return stub = e.stub & effectiveType = e.effectiveType
         }
 
         @override
         function convert():String {
-            return "(\{stub.name}, \{effectiveType})"
+            return "(\{stub.owner}.\{stub}, \{effectiveType})"
         }
     }
 
     @private
     var _name:String
 
-    def entries:ImmutableArray<MethodEntry>
+    def entries:ImmutableArray<Entry>
 
     init(stub:MethodStub, effectiveType:MethodType) {
         self._name := stub.name
-        self.entries := [MethodEntry(stub, effectiveType)]
+        self.entries := [Entry(stub, effectiveType)]
     }
 
-    init(entries:ListView<MethodEntry>) {
+    init(entries:ListView<Entry>) {
         self._name := entries[0].stub.name
-        self.entries := ImmutableArray<MethodEntry>(entries)
-        assert HashSet<MethodEntry>(entries).count = entries.count : 
+        self.entries := ImmutableArray<Entry>(entries)
+        assert HashSet<Entry>(entries).count = entries.count : 
                 "duplicate method in \{entries}"
     }
 
@@ -74,8 +76,8 @@ class Methods : Immutable (Symbol) {
         return _name
     }
 
-    function +(m:MethodEntry):Methods {
-        def result := Array<MethodEntry>()
+    function +(m:Entry):Methods {
+        def result := Array<Entry>()
         for old in entries {
             if !m.isOverrideOf(old) {
                 result.add(old)
@@ -88,7 +90,7 @@ class Methods : Immutable (Symbol) {
 
     function +(m:Methods):Methods {
         -- FIXME brain-dead O(N^2) approach
-        def result := Array<MethodEntry>()
+        def result := Array<Entry>()
         outer: for oldMethod in entries {
             for newMethod in m.entries {
                 assert newMethod.stub.name = oldMethod.stub.name
@@ -105,10 +107,11 @@ class Methods : Immutable (Symbol) {
         return Methods(result)
     }
 
-    function withGenerics(parameters:ListView<Type>):Methods {
-        def result := Array<MethodEntry>()
+    function forType(context:Context, type:GenericType):Methods {
+        def result := Array<Entry>()
         for m in entries {
-            result.add(MethodEntry(m.stub, m.stub.typeWithGenerics(parameters)))
+            def newStub := m.stub.specializeFor(context, type)
+            result.add(Entry(newStub, newStub.type))
         }
         return Methods(result)
     }
