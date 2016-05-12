@@ -10,6 +10,7 @@ uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericParameterType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.IntType
 uses org.pandalanguage.pandac.types.NativePointerType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
@@ -131,10 +132,25 @@ class HeaderCodeGenerator (CodeGenerator) {
     method writeMethods(cl:ClassStub, out:OutputStream) {
         def methods := Array<MethodStub>()
         for m in cl.type.virtualMethods(context) {
-            methods.add(m.stub)
+            methods.add(m)
         }
-        for (i, m) in methods.enumeration {
-            if m.owner = cl.type {
+        var classType := cl.type
+        while classType-?>GenericType {
+            classType := classType->GenericType.base
+        }
+        for (i, raw) in methods.enumeration {
+            def m:MethodStub
+            if raw.base != null {
+                m := raw.base
+            }
+            else {
+                m := raw
+            }
+            var owner := m.owner
+            while owner-?>GenericType {
+                owner := owner->GenericType.base
+            }
+            if owner = classType {
                 def name := getName(m)
                 out.writeLine("#define " + name + "_INDEX " + i)
                 out.write("typedef ")
@@ -165,7 +181,7 @@ class HeaderCodeGenerator (CodeGenerator) {
         }
 
         for entry in cl.methods {
-            def m := entry.stub
+            def m := entry
             if !methods.contains(m) | m.annotations.isExternal {
                 out.write(getCType(m.returnType))
                 out.write(" " + getName(m) + "(")
@@ -237,10 +253,9 @@ class HeaderCodeGenerator (CodeGenerator) {
         }
         for cl in program.stubs.values {
             if !cl.isExternal & !cl.annotations.isUnspecified {
-                out.writeLine("#ifndef " + getName(cl) + "_TYPEDEF")
-                out.writeLine("#define " +  getName(cl) + "_TYPEDEF")
-                out.writeLine("typedef struct " + getName(cl) + " " + 
-                        getName(cl) + ";")
+                out.writeLine("#ifndef \{getName(cl)}_TYPEDEF")
+                out.writeLine("#define \{getName(cl)}_TYPEDEF")
+                out.writeLine("typedef struct \{getName(cl)} \{getName(cl)};")
                 out.writeLine("#endif")
             }
         }

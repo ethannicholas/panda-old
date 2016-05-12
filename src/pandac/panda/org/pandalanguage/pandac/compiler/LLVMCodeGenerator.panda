@@ -117,7 +117,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     constant ITABLE_INDEX := 5
 
     @private
-    constant FAIL_ASSERT_NAME := "@panda$core$Panda$failAssert"
+    constant FAIL_ASSERT_NAME := "@panda$core$Panda$failAssert_class_panda$core$String$Z"
 
     def program:Program
 
@@ -271,6 +271,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method getLLVMMethodType(m:MethodStub):String {
+        if m.base != null {
+            return getLLVMMethodType(m.base)
+        }
         def result := MutableString()
         def returnType := m.returnType
         result.append(getLLVMType(returnType))
@@ -787,12 +790,11 @@ class LLVMCodeGenerator (CodeGenerator) {
                     "* @" + intfCC.name + " to " + 
                     getLLVMType(ClassType.CLASS) + "), " + previous + ", [" + 
                     methods.count + " x i8*][")
-            for (i, entry) in methods.enumeration {
-                def m := entry.stub
+            def separator := ""
+            for m in methods {
                 program.liveMethods.add(m)
-                if i > 0 {
-                    result.append(", ")
-                }
+                result.append(separator)
+                separator := ", "
                 if m.annotations.isAbstract {
                     result.append("i8* null")
                 }
@@ -818,7 +820,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             getStub(ClassType.STRING)
             def methods := Array<MethodStub>()
             for m in cl.type.virtualMethods(context) {
-                methods.add(m.stub.unwrapped)
+                methods.add(m.unwrapped)
             }
             def className := getName(cl)
             cc := ClassConstant(
@@ -867,8 +869,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             -- class constant includes vtable. Doesn't include statics, as 
             -- those are just globals.
             var overridesFinalize := false
-            for entry in cl.methods {
-                def m := entry.stub
+            for m in cl.methods {
                 if m.name = MethodNode.FINALIZE_NAME & 
                         !m.annotations.isClass & 
                         m.parameters.count = 1 {
@@ -1309,11 +1310,11 @@ class LLVMCodeGenerator (CodeGenerator) {
             return
         }
         def classInit := cl.methods.filter(
-                m => m.stub.name = MethodNode.CLASS_INIT_NAME)
+                m => m.name = MethodNode.CLASS_INIT_NAME)
         assert classInit.count = 1 : "expected exactly one method named " +
                 "'\{MethodNode.CLASS_INIT_NAME} in \{cl}, found " +
                 classInit.count
-        def stub := classInit.iterator.next().stub
+        def stub := classInit.iterator.next()
         call("fastcc void @\{getName(stub)}()")
         program.liveMethods.add(stub)
     }
@@ -1322,6 +1323,9 @@ class LLVMCodeGenerator (CodeGenerator) {
     @pre(!object.type.isPrimitive)
     @pre(!field.annotations.isThread)
     method getFieldPointer(object:Value, field:FieldNode):String {
+        if field.base != null {
+            return getFieldPointer(object, field.base)
+        }
         if field.annotations.isClass {
             if field.name != FieldNode.CLASS_INITED_NAME {
                 callClassInit(getStub(field.owner))
@@ -1362,11 +1366,11 @@ class LLVMCodeGenerator (CodeGenerator) {
             def indexField := symbolTable[fr.field.name + 
                     StubGenerator.INDEX_SUFFIX]->FieldNode
             body.writeLine("load i64* @" + getName(indexField))
-            def callString := MutableString("fastcc " + getLLVMType(type) + 
-                    " @panda$core$Panda$getThreadLocal" + suffix + 
-                    "(i64 " + threadLocalId + ", ")
             def stub := getStub(Panda.name).symbols["getThreadLocal" + 
-                    suffix]->Methods.entries[0].stub
+                    suffix]->Methods.entries[0]
+            def returnSuffix := type.name.replace(".", "$")
+            def callString := MutableString("fastcc " + getLLVMType(type) + 
+                    " @\{getName(stub)}(i64 \{threadLocalId}, ")
             program.liveMethods.add(stub)
             def initializer := symbolTable[
                         IRGenerator.getThreadLocalInitializerName(fr.field)
@@ -1375,9 +1379,9 @@ class LLVMCodeGenerator (CodeGenerator) {
                 callString.append(
                         getLLVMType(NativePointerType.NATIVE_POINTER) + 
                         " bitcast(" + getLLVMType(fr.type) + "()* @" + 
-                        getName(initializer.entries[0].stub) + " to " + 
+                        getName(initializer.entries[0]) + " to " + 
                         getLLVMType(NativePointerType.NATIVE_POINTER) + "))")
-                program.liveMethods.add(initializer.entries[0].stub)
+                program.liveMethods.add(initializer.entries[0])
             }
             else {
                 callString.append("i8* null)") -- no initializer function
@@ -1787,10 +1791,9 @@ class LLVMCodeGenerator (CodeGenerator) {
             else {
                 suffix := "Object"
             }
-            call("fastcc void @panda$core$Panda$setThreadLocal" + 
-                    suffix + "(i64 " + threadLocalId + ", " + ref + ")")
             def stub := getStub(Panda.name).symbols["setThreadLocal" + 
-                    suffix]->Methods.entries[0].stub
+                    suffix]->Methods.entries[0]
+            call("fastcc void @\{getName(stub)}(i64 \{threadLocalId}, \{ref})")
             program.liveMethods.add(stub)
         }
     }
@@ -1972,7 +1975,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         writeBody("br \{getTypedReference(a.test)}, label %\{succeedLabel}, " +
                 "label %\{failLabel}", "assert test")
         body.writeLine()
-        program.liveMethods.add(getStub(Panda.name).symbols["failAssert"]->Methods.entries[0].stub)
+        program.liveMethods.add(getStub(Panda.name).symbols["failAssert"]->Methods.entries[0])
         createBlock(failLabel, "assert fail")
         var error := a.error
         if error != null {
@@ -2071,13 +2074,13 @@ class LLVMCodeGenerator (CodeGenerator) {
                 def test := getTempVariable()
                 body.writeLine(test + 
                         " = call i1 " +
-                        "@panda$core$Panda$instanceOf(" + 
+                        "@panda$core$Panda$instanceOf_class_panda$core$Object$Z_panda$core$Class_Bit_$Rpanda$core$Bit(" + 
                         objectType + " " + errorObject + ", " + classType + 
                         " bitcast(" + catchClassConstant.type + "* @" + 
                         catchClassConstant.name + " to " + classType + 
                         "), i1 0)")
                 program.liveMethods.add(getStub(ClassType.PANDA).symbols[
-                        "instanceOf"]->Methods.entries[0].stub)
+                        "instanceOf"]->Methods.entries[0])
                 def nextLabel:String
                 if i < t.catches.count - 1 {
                     nextLabel := catchTestLabels[t.catches[i + 1]]
@@ -2402,8 +2405,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 writeFieldDeclaration(f)
             }
         }
-        for entry in cl.stub.methods {
-            def m := entry.stub
+        for m in cl.stub.methods {
             if m.annotations.isExternal {
                 writeMethodDeclaration(m)
             }
@@ -2415,9 +2417,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         do {
             progress := false
             for stub in context.classes.values.filter(stub => stub.isExternal) {
-                Console.writeLine("writing methods in \{stub.name}")
-                for entry in stub.methods {
-                    def m := entry.stub
+                for m in stub.methods {
                     if (!stub.annotations.isUnspecified | m.annotations.isClass |
                             stub.isUnspecialized) &
                             program.liveMethods.contains(m) & 

@@ -30,7 +30,7 @@ class UnresolvedMethod : UnresolvedValue {
         var best := Array<MethodStub>()
         var bestCost := Int.MAX
         for m in methods.entries {
-            def cost := m.effectiveType.implicitCastCost(context, t)
+            def cost := m.type.implicitCastCost(context, t)
             if cost = null {
                 continue
             }
@@ -46,10 +46,10 @@ class UnresolvedMethod : UnresolvedValue {
 
     @override
     method implicitCast(position:Position, context:Context, t:Type):Value {
-        var best := Array<Methods.Entry>()
+        var best := Array<MethodStub>()
         var bestCost := Int.MAX
         for m in methods.entries {
-            def cost := m.effectiveType.implicitCastCost(context, t)
+            def cost := m.type.implicitCastCost(context, t)
             if cost = null {
                 continue
             }
@@ -67,10 +67,10 @@ class UnresolvedMethod : UnresolvedValue {
             return Dummy(position, t)
         }
         else if best.count = 1 {
-            def finalTarget := context.irGenerator.getMethodTarget(best[0].stub,
+            def finalTarget := context.irGenerator.getMethodTarget(best[0],
                     target)
             return MethodReference(context, position, finalTarget, 
-                    best[0].stub).implicitCast(position, context, t)
+                    best[0]).implicitCast(position, context, t)
         }
         else {
             reportError(context, best)
@@ -81,7 +81,7 @@ class UnresolvedMethod : UnresolvedValue {
     @override
     method canExplicitCastTo(context:Context, t:Type):Bit {
         for m in methods.entries {
-            if m.effectiveType.canExplicitCastTo(context, t) {
+            if m.type.canExplicitCastTo(context, t) {
                 return true
             }
         }
@@ -90,9 +90,9 @@ class UnresolvedMethod : UnresolvedValue {
 
     @override
     method explicitCast(position:Position, context:Context, t:Type):Value {
-        def matches := Array<Methods.Entry>()
+        def matches := Array<MethodStub>()
         for m in methods.entries {
-            if m.effectiveType.canExplicitCastTo(context, t) {
+            if m.type.canExplicitCastTo(context, t) {
                 matches.add(m)
             }
         }
@@ -103,7 +103,7 @@ class UnresolvedMethod : UnresolvedValue {
         }
         if matches.count = 1 {
             return MethodReference(context, position, target, 
-                    matches[0].stub).explicitCast(position, context, t)
+                    matches[0]).explicitCast(position, context, t)
         }
         else {
             reportError(context, matches)
@@ -112,12 +112,12 @@ class UnresolvedMethod : UnresolvedValue {
     }    
 
     @override
-    method reportError(context:Context, matches:ListView<Methods.Entry>) {
+    method reportError(context:Context, matches:ListView<MethodStub>) {
         def text := MutableString("ambiguous reference to method " +
                 "'\{methods.name}', the following methods are all equally " +
                 "good matches:\n")
         for m in matches {
-            text.append("    \{m.stub} (\{m.stub.position})\n")
+            text.append("    \{m} (\{m.position})\n")
         }
         context.errors.error(text.convert(), position)
     }

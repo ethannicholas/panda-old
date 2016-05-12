@@ -88,6 +88,8 @@ class Context {
 
     var inClosure:Bit
 
+    var creatingStubs := HashSet<String>()
+
     def liveMethods := HashSet<MethodStub>()
 
     ============================================================================
@@ -197,6 +199,9 @@ class Context {
 
     @private
     method createStub(name:String):ClassStub? {
+        assert !creatingStubs.contains(name) : "circular stub dependency" +
+                "for \{name}"
+        creatingStubs.add(name)
         var type := stubGenerator.resolveType(
                 PandaParser(errors).parseType(name, Position.INTERNAL), 
                 symbolTable)
@@ -381,12 +386,12 @@ class Context {
         return matchCost(type, isVarArg, params, returnType)
     }
 
-    function matchCost(target:Value, m:Methods.Entry, 
-            var params:ListView<Value>, returnType:Type?):Int? {
-        var methodParams:ListView<FormalParameter> := m.stub.parameters
+    function matchCost(target:Value, m:MethodStub, var params:ListView<Value>, 
+            returnType:Type?):Int? {
+        var methodParams:ListView<FormalParameter> := m.parameters
         var isVarArg := methodParams.count > 0 & 
                 methodParams[methodParams.count - 1].isVarArg
-        return matchCost(m.effectiveType, isVarArg, params, returnType)
+        return matchCost(m.type, isVarArg, params, returnType)
     }
 
     method getSymbolTable(cl:ClassType):SymbolTable {
@@ -447,7 +452,7 @@ class Context {
         if symbol-?>Methods {
             def result := Array<MethodStub>()
             for m in symbol->Methods.entries {
-                result.add(m.stub)
+                result.add(m)
             }
             return result
         }
@@ -889,11 +894,6 @@ class Context {
         return msg.convert()
     }
 
-    method call(position:Position, var target:Value, m:Methods.Entry,
-            var params:ListView<Value>):Value? {
-        return call(position, target, m.stub, params)
-    }
-
     method call(position:Position, var target:Value, m:MethodStub,
             var params:ListView<Value>):Value? {
         if target.type.isPrimitive & m.name = "hash" & params.count = 0 {
@@ -1099,7 +1099,7 @@ class Context {
         if methods-?>Methods {
             def stubs := Array<MethodStub>()
             for m in methods->Methods.entries {
-                stubs.add(m.stub)
+                stubs.add(m)
             }
             return call(position, target, stubs, params, returnType, 
                     reportErrors)
@@ -1193,20 +1193,18 @@ class Context {
         }
     }
 
-    method call(position:Position, target:Value, 
-            methods:ListView<Methods.Entry>, 
+    method call(position:Position, target:Value, methods:ListView<MethodStub>, 
             var params:ListView<Value>):Value? {
         return call(position, target, methods, params, null)
     }
 
-    method call(position:Position, target:Value, 
-            methods:ListView<Methods.Entry>, var params:ListView<Value>,
-            returnType:Type?):Value? {
+    method call(position:Position, target:Value, methods:ListView<MethodStub>, 
+            var params:ListView<Value>, returnType:Type?):Value? {
         return call(position, target, methods, params, returnType, true)
     }
 
     method call(position:Position, target:Value, 
-            methods:ListView<Methods.Entry>, var params:ListView<Value>,
+            methods:ListView<MethodStub>, var params:ListView<Value>,
             returnType:Type?, reportErrors:Bit):Value? {
         if params.count > 0 {
             def last := params[params.count - 1]
@@ -1223,9 +1221,9 @@ class Context {
             }
         }
         var bestCost := Int.MAX
-        var best:Array<Methods.Entry> := []
+        var best:Array<MethodStub> := []
         for m in methods {
-            def finalTarget := getEffectiveTarget(m.stub, target)
+            def finalTarget := getEffectiveTarget(m, target)
             if finalTarget = null {
                 continue
             }
@@ -1239,14 +1237,14 @@ class Context {
             }
         }
         if best.count = 1 {
-            def finalTarget := getEffectiveTarget(best[0].stub, target)
+            def finalTarget := getEffectiveTarget(best[0], target)
             if finalTarget = null {
                 errors.error("internal error: null target in " +
                         "\{target}:\{best[0]}", position)
                 return null
             }
             if reportErrors & inClosure & target-?>InstanceContext & 
-                    !best[0].stub.annotations.isClass {
+                    !best[0].annotations.isClass {
                 errors.error("cannot implicitly reference 'self' within a " + 
                         "closure. Use an explicit 'self.' to make the " +
                         "capture semantics explicit.", position)
@@ -1259,19 +1257,15 @@ class Context {
                 for p in params {
                     types.add(p.type.displayName)
                 }
-                errors.error("no match for \{methods[0].stub.owner.name}." +
-                        "\{methods[0].stub.name}(\{types.join(', ')})", 
+                errors.error("no match for \{methods[0].owner.name}." +
+                        "\{methods[0].name}(\{types.join(', ')})", 
                         position)
             }
             return null
         }
         else {
             if reportErrors {
-                def stubs := Array<MethodStub>()
-                for m in methods {
-                    stubs.add(m.stub)
-                }
-                reportAmbiguous(position, stubs, params, returnType)
+                reportAmbiguous(position, methods, params, returnType)
             }
             return null
         }

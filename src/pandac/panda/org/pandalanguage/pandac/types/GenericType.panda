@@ -73,13 +73,23 @@ class GenericType : ClassType {
 
     @override
     function implicitCastCost(context:Context, target:Type):Int? {
-        def stub := context.getStub(self)
-        def baseStub := context.getStub(base)
-        if stub = baseStub {
-            Console.writeLine("broken generic cast check")
-            return 0
+        def baseCost := base.implicitCastCost(context, target)
+        if baseCost != null {
+            return baseCost
         }
-        return super.implicitCastCost(context, target)
+        if target-?>GenericType & parameters = target->GenericType.parameters {
+            return base.implicitCastCost(context, target->GenericType.base)
+        }
+        def result := super.implicitCastCost(context, target)
+        if result = null {
+            def stub := context.getStub(self)
+            def baseStub := context.getStub(base)
+            if stub = baseStub {
+                Console.writeLine("broken generic cast check")
+                return 0        
+            }
+        }
+        return result
     }
 
     @private
@@ -198,11 +208,10 @@ class GenericType : ClassType {
     method addMethod(m:MethodStub, symbols:SymbolTable) {
         def methods := symbols.mySymbols[m.name]
         if methods = null {
-            symbols.add(Methods(m, m.type))
+            symbols.add(Methods(m))
         }
         else if methods-?>Methods {
-            symbols.mySymbols[m.name] := methods->Methods + Methods.Entry(
-                    m, m.type)
+            symbols.mySymbols[m.name] := methods->Methods + m
         }
         else {
             unreachable
@@ -251,8 +260,9 @@ class GenericType : ClassType {
                 symbols.add(newField)
             }
         }
-        for m in baseStub.methods.filter(m => !m.stub.annotations.isClass) {
-            addMethod(instantiateMethod(m.stub, symbols), symbols)
+        def filter:(MethodStub)=>(Bit) := m => !m.annotations.isClass
+        for m in baseStub.methods.filter(m => !m.annotations.isClass) {
+            addMethod(instantiateMethod(m, symbols), symbols)
         }
         var annotations := baseStub.annotations - Annotations.Kind.UNSPECIFIED
         for (i, p) in parameters.enumeration {

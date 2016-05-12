@@ -194,6 +194,7 @@ class IRGenerator {
         def contextValue:Value
         if !f.annotations.isClass & !f.annotations.isThread {
             if !rawContextValue.canImplicitCastTo(context, f.owner) {
+                Console.writeLine("failed!")
                 context.errors.error("cannot reference instance field " +
                         "'\{f.name}' belonging to class " +
                         "'\{f.owner.displayName}' from an instance of " +
@@ -311,10 +312,9 @@ class IRGenerator {
                 finalTarget := ClassLiteral(c.position, 
                         context.currentClass.type)
             }
-            def methods := Array<Methods.Entry>()
+            def methods := Array<MethodStub>()
             for m in u.methods.entries {
-                if context.matchCost(finalTarget, m.stub, parameters, 
-                        null) != null {
+                if context.matchCost(finalTarget, m, parameters, null) != null {
                     methods.add(m)
                 }
             }
@@ -858,8 +858,8 @@ class IRGenerator {
             }
             if methods.entries.count = 1 {
                 return MethodReference(context, position, 
-                        getMethodTarget(methods.entries[0].stub, target), 
-                        methods.entries[0].stub)
+                        getMethodTarget(methods.entries[0], target), 
+                        methods.entries[0])
             }
             return UnresolvedMethod(position, target, methods)
         }
@@ -1065,7 +1065,7 @@ class IRGenerator {
         assert inits != null
         def methods := Array<MethodStub>()
         for m in inits->Methods.entries {
-            methods.add(m.stub)
+            methods.add(m)
         }
         def call := context.call(n.position, ClassLiteral(n.position, type), 
                 methods, parameters)
@@ -3083,9 +3083,8 @@ class IRGenerator {
         def closureSymbols := OrderedMap<String, Symbol>()
         def closureInit, closureFields := createClosureInitAndFields(
                 m.position, captures, closureType)
-        closureSymbols[stub.name] := Methods(stub, stub.type)
-        closureSymbols[closureInit.name] := Methods(closureInit, 
-                closureInit.type)
+        closureSymbols[stub.name] := Methods(stub)
+        closureSymbols[closureInit.name] := Methods(closureInit)
         for f in closureFields {
             closureSymbols[f.name] := f
         }
@@ -3209,7 +3208,7 @@ class IRGenerator {
                     selfType := GenericType(m.owner, types)
                 }
                 else {
-                    selfType := m.owner
+                    selfType := context.currentClass.type
                 }
             }
             def selfParam := Parameter(m.position, Parameter.SELF_NAME,
@@ -3297,7 +3296,7 @@ class IRGenerator {
         def methods := cl.methods
         for p in properties {
             def getName := String.format(GET_PATTERN, p.name)
-            def getters := methods.filter(m => m.stub.name = getName)
+            def getters := methods.filter(m => m.name = getName)
             if getters.count > 1 {
                 def error := MutableString("expected only one '\{getName}' " +
                         "method, but found:")
@@ -3307,7 +3306,7 @@ class IRGenerator {
                 context.errors.error(error.convert(), cl.position)
             }
             if getters.count = 1 {
-                def getter := getters.iterator.next().stub
+                def getter := getters.iterator.next()
                 if getter.kind != MethodStub.Kind.FUNCTION {
                     context.errors.error("property getters must be functions",
                             getter.position)
@@ -3325,7 +3324,7 @@ class IRGenerator {
                 }
             }
             def setName := String.format(SET_PATTERN, p.name)
-            def setters := methods.filter(m => m.stub.name = setName)
+            def setters := methods.filter(m => m.name = setName)
             if setters.count > 1 {
                 def error := MutableString("expected only one '\{setName}' " +
                         "method, but found:")
@@ -3335,7 +3334,7 @@ class IRGenerator {
                 context.errors.error(error.convert(), cl.position)
             }
             if setters.count = 1 {
-                def setter := setters.iterator.next().stub
+                def setter := setters.iterator.next()
                 if setter.parameters.count = 1 {
                     def type := setter.parameters[0].type
                     if type != p.type {
@@ -3367,17 +3366,16 @@ class IRGenerator {
         pushSymbols(cl.type)
         checkProperties(cl)
         cl.fields.apply(inferFieldType)
-        for m in cl.methods.filter(m => m.stub.body != null) {
-            if cl.annotations.isUnspecified & !m.stub.annotations.isClass {
+        for m in cl.methods.filter(m => m.body != null) {
+            if cl.annotations.isUnspecified & !m.annotations.isClass {
                 continue
             }
-            context.methods.add(convertMethod(m.stub))
+            context.methods.add(convertMethod(m))
         }
         context.popSymbolTable()
         if cl.kind != ClassStub.Kind.INTERFACE & 
                 !cl.annotations.isAbstract {
-            for entry in cl.type.virtualMethods(context) {
-                def m := entry.stub
+            for m in cl.type.virtualMethods(context) {
                 if m.annotations.isAbstract {
                     context.errors.error("non-abstract class '\{cl.name}' " +
                             "does not implement abstract \{m}", cl.position)
@@ -3501,10 +3499,10 @@ class IRGenerator {
                     createStub(f.type)
                 }
                 for m in cl.methods {
-                    for p in m.stub.parameters {
+                    for p in m.parameters {
                         createStub(p.type)
                     }
-                    createStub(m.stub.returnType)
+                    createStub(m.returnType)
                 }
                 def sc := cl.superclass
                 if sc != null {

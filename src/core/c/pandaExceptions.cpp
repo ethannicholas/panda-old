@@ -342,7 +342,7 @@ struct LSDA {
 
 
 bool can_handle(Error* thrown, Class* catchType) {
-    return panda$core$Panda$instanceOf((Object*) thrown, catchType, false);
+    return panda$core$Panda$instanceOf_class_panda$core$Object$Z_panda$core$Class_Bit_$Rpanda$core$Bit((Object*) thrown, catchType, false);
 }
 
 _Unwind_Reason_Code run_landing_pad(_Unwind_Exception* unwind_exception,

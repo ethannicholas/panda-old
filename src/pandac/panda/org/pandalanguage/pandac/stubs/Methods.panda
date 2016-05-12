@@ -9,65 +9,20 @@ uses org.pandalanguage.pandac.types.MethodType
 Represents a group of same-named method overloads.
 ================================================================================
 class Methods : Immutable (Symbol) {
-    class Entry {
-        def stub:MethodStub
-
-        def effectiveType:MethodType
-
-        init(stub:MethodStub, effectiveType:MethodType) {
-            self.stub := stub
-            self.effectiveType := effectiveType
-        }
-
-        ========================================================================
-        Returns true if this method overrides `parent`.
-        ========================================================================
-        function isOverrideOf(parent:Entry):Bit {
-            if parent.stub.name != stub.name {
-                return false
-            }
-            if parent.stub.annotations.isClass != stub.annotations.isClass {
-                return false
-            }
-            return parent.effectiveType.methodParameters = 
-                    effectiveType.methodParameters &
-                    parent.effectiveType.returnType = effectiveType.returnType
-        }
-
-        @override
-        function get_hash():Int {
-            return stub.hash ~~ effectiveType.hash
-        }
-
-        @override
-        function =(o:Object):Bit {
-            if o-!>Entry {
-                return false
-            }
-            def e := o->Entry
-            return stub = e.stub & effectiveType = e.effectiveType
-        }
-
-        @override
-        function convert():String {
-            return "(\{stub.owner}.\{stub}, \{effectiveType})"
-        }
-    }
-
     @private
     var _name:String
 
-    def entries:ImmutableArray<Entry>
+    def entries:ImmutableArray<MethodStub>
 
-    init(stub:MethodStub, effectiveType:MethodType) {
+    init(stub:MethodStub) {
         self._name := stub.name
-        self.entries := [Entry(stub, effectiveType)]
+        self.entries := [stub]
     }
 
-    init(entries:ListView<Entry>) {
-        self._name := entries[0].stub.name
-        self.entries := ImmutableArray<Entry>(entries)
-        assert HashSet<Entry>(entries).count = entries.count : 
+    init(entries:ListView<MethodStub>) {
+        self._name := entries[0].name
+        self.entries := ImmutableArray<MethodStub>(entries)
+        assert HashSet<MethodStub>(entries).count = entries.count : 
                 "duplicate method in \{entries}"
     }
 
@@ -76,24 +31,24 @@ class Methods : Immutable (Symbol) {
         return _name
     }
 
-    function +(m:Entry):Methods {
-        def result := Array<Entry>()
+    function +(m:MethodStub):Methods {
+        def result := Array<MethodStub>()
         for old in entries {
             if !m.isOverrideOf(old) {
                 result.add(old)
             }
         }
-        assert !result.contains(m) : "already have \{m.stub}"
+        assert !result.contains(m) : "already have \{m}"
         result.add(m)
         return Methods(result)
     }
 
     function +(m:Methods):Methods {
         -- FIXME brain-dead O(N^2) approach
-        def result := Array<Entry>()
+        def result := Array<MethodStub>()
         outer: for oldMethod in entries {
             for newMethod in m.entries {
-                assert newMethod.stub.name = oldMethod.stub.name
+                assert newMethod.name = oldMethod.name
                 if newMethod.isOverrideOf(oldMethod) {
                     continue outer
                 }
@@ -101,17 +56,17 @@ class Methods : Immutable (Symbol) {
             result.add(oldMethod)
         }
         for newMethod in m.entries {
-            assert !result.contains(newMethod) : "already have \{newMethod.stub}"
+            assert !result.contains(newMethod) : "already have \{newMethod}"
             result.add(newMethod)
         }
         return Methods(result)
     }
 
     function forType(context:Context, type:GenericType):Methods {
-        def result := Array<Entry>()
+        def result := Array<MethodStub>()
         for m in entries {
-            def newStub := m.stub.specializeFor(context, type)
-            result.add(Entry(newStub, newStub.type))
+            def newStub := m.specializeFor(context, type)
+            result.add(newStub)
         }
         return Methods(result)
     }

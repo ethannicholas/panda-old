@@ -12,8 +12,8 @@ void pandaUIInit() {
     static Bit initialized = false;
     if (!initialized) {
         SDL_Init(SDL_INIT_VIDEO);
-        panda$ui$events$Event$Type$$classInit();
-        panda$ui$events$KeyEvent$Key$$classInit();
+        panda$ui$events$Event$Type$$classInit_class();
+        panda$ui$events$KeyEvent$Key$$classInit_class();
         initialized = true;
     }
 }
@@ -21,9 +21,9 @@ void pandaUIInit() {
 panda$ui$events$Event* pandaCreateEvent(SDL_Event* event);
 
 void panda$ui$UIMessageQueue$pumpEvents(panda$ui$UIMessageQueue* self) {
-    panda$threads$MessageQueue$post_TYPE* post =
-            (panda$threads$MessageQueue$post_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$post_INDEX);    
+    panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE* post =
+            (panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE*) 
+                *(&self->cl->vtable + panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_INDEX);    
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         post((panda$threads$MessageQueue*) self, 
@@ -32,13 +32,13 @@ void panda$ui$UIMessageQueue$pumpEvents(panda$ui$UIMessageQueue* self) {
 }
 
 void panda$ui$UIMessageQueue$waitForEvent(panda$ui$UIMessageQueue* self) {
-    panda$threads$MessageQueue$hasMessage_TYPE* hasMessage =
-            (panda$threads$MessageQueue$hasMessage_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$hasMessage_INDEX);    
+    panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_TYPE* hasMessage =
+            (panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_TYPE*) 
+                *(&self->cl->vtable + panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_INDEX);    
     if (!hasMessage((panda$threads$MessageQueue*) self)) {
-        panda$threads$MessageQueue$post_TYPE* post =
-                (panda$threads$MessageQueue$post_TYPE*) 
-                    *(&self->cl->vtable + panda$threads$MessageQueue$post_INDEX);    
+        panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE* post =
+                (panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE*) 
+                    *(&self->cl->vtable + panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_INDEX);    
         SDL_Event event;
         SDL_WaitEvent(&event);
         post((panda$threads$MessageQueue*) self, 
@@ -313,7 +313,7 @@ panda$ui$images$Image* panda$ui$images$Image$load(panda$io$File* file) {
                 size, 1, false);
     memcpy(pixels->contents, surface->pixels, size);
     result->pixels = pandaNew(panda$collections$ImmutableArray$LTpanda$core$UInt8$GT);
-    panda$collections$ImmutableArray$LTpanda$core$UInt8$GT$init_PrimitiveArray$LTpanda$core$UInt8$GT(result->pixels,
+    panda$collections$ImmutableArray$LTpanda$core$UInt8$GT$init_panda$collections$PrimitiveArray$LTpanda$core$UInt8$GT(result->pixels,
             pixels);
     return result;
 }

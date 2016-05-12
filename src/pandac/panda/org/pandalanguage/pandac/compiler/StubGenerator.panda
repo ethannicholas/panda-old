@@ -1101,7 +1101,7 @@ class StubGenerator {
             def target := type.methodParameters[i]
             parameters.add(FormalParameter(p.position, p.name, 
                     target, p.isVar, p.isVarArg))
-            args.add(ASTArrowExpression(ASTArrowExpression.Kind.CAST,
+            args.add(ASTArrowExpression(ASTArrowExpression.Kind.FORCE_CAST,
                     ASTIdentifier(m.position, p.name), 
                     IRGenerator.toASTType(m.position, target)))
         }
@@ -1132,8 +1132,10 @@ class StubGenerator {
             }
             def genericParameters := parent->GenericType.parameters
             for m2 in methods->Methods.entries {
-                if isOverride(m, m2.stub, genericParameters) {
-                    return createShim(m, m2.effectiveType)
+                if isOverride(m, m2, genericParameters) {
+                    if m.type != m2.type {
+                        return createShim(m, m2.type)
+                    }
                 }
             }
         }
@@ -1566,10 +1568,10 @@ class StubGenerator {
             errors:ErrorReporter) {
         def methods := map[m.name]
         if methods = null {
-            map[m.name] := Methods(m, m.type)
+            map[m.name] := Methods(m)
         }
         else if methods-?>Methods {
-            map[m.name] := methods->Methods + Methods.Entry(m, m.type)
+            map[m.name] := methods->Methods + m
         }
         else {
             errors.error("invalid redefinition of symbol '\{m.name}'",

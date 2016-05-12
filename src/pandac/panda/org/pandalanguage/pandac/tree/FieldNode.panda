@@ -1,7 +1,11 @@
 package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.ast.ASTExpression
+uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.SymbolTable
+uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.types.ClassType
+uses org.pandalanguage.pandac.types.GenericType
 uses org.pandalanguage.pandac.types.Type
 
 class FieldNode : Variable {
@@ -29,14 +33,53 @@ class FieldNode : Variable {
     ============================================================================
     def annotations:Annotations
 
+    def base:FieldNode?
+
     init(position:Position, owner:ClassType, name:String, 
             annotations:Annotations, kind:Kind, type:Type, 
             initialValue:ASTExpression?, tuplePosition:Int?) {
+        init(position, owner, name, annotations, kind, type, initialValue,
+                tuplePosition, null)
+    }
+
+    init(position:Position, owner:ClassType, name:String, 
+            annotations:Annotations, kind:Kind, type:Type, 
+            initialValue:ASTExpression?, tuplePosition:Int?, base:FieldNode?) {
         super.init(position, name, type, kind)
         assert name != "self" : "creating field named 'self'"
         self.owner := owner
         self.initialValue := initialValue
         self.annotations := annotations
         self.tuplePosition := tuplePosition
+        self.base := base
+    }
+
+    function forType(context:Context, type:GenericType):FieldNode {
+        def symbols := SymbolTable()
+        if owner-?>GenericType {
+            def genericOwner := owner->GenericType
+            for (i, g) in genericOwner.parameters.enumeration {
+                symbols.add(g.name, TypeSymbol(type.parameters[i]))
+            }
+        }
+        else {
+            def ownerStub := context.getStub(owner)
+            if ownerStub.genericParameters != null {
+                for (i, g) in ownerStub.genericParameters.enumeration {
+                    def base:String
+                    if owner-?>GenericType {
+                        base := owner->GenericType.base.name
+                    }
+                    else {
+                        base := owner.name
+                    }
+                    symbols.add(base + "." + g[0], 
+                            TypeSymbol(type.parameters[i]))
+                }
+            }
+        }
+        def newType := GenericType.getType(self.type, symbols)
+        return FieldNode(position, type, name, annotations, kind, newType,
+                initialValue, tuplePosition, self)
     }
 }
