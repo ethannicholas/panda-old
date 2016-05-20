@@ -1106,19 +1106,22 @@ class StubGenerator {
                     IRGenerator.toASTType(m.position, target)))
         }
         def body := Array<ASTStatement>()
-        def call := ASTCallExpression(ASTIdentifier(m.position, "$" + m.name), 
+        def call := ASTCallExpression(ASTIdentifier(m.position, m.name), 
                 args)
         if type.returnType = VoidType.VOID {
             body.add(ASTExpressionStatement(call))
         }
         else {
-            body.add(ASTReturn(m.position, ASTArrowExpression(
-                    ASTArrowExpression.Kind.FORCE_CAST, call, 
-                    IRGenerator.toASTType(m.position, type.returnType))))
+            def cast1 := ASTArrowExpression(ASTArrowExpression.Kind.FORCE_CAST, 
+                    call, IRGenerator.toASTType(m.position, m.returnType))
+            def cast2 := ASTArrowExpression(ASTArrowExpression.Kind.FORCE_CAST, 
+                    cast1, IRGenerator.toASTType(m.position, type.returnType))
+            body.add(ASTReturn(m.position, cast2))
         }
-        def result := MethodStub(m.position, m.name, m.annotations, m.kind, 
-                    m.parameters, m.genericParameters, type.returnType, 
-                    ASTBlock(m.position, body), m.owner)
+        def result := MethodStub(m.position, m.name, m.annotations + 
+                Annotations.Kind.SHIM + Annotations.Kind.SYNTHETIC, m.kind, 
+                m.parameters, m.genericParameters, type.returnType, 
+                ASTBlock(m.position, body), m.owner)
         return result
     }
 
@@ -1337,12 +1340,6 @@ class StubGenerator {
                             superclass->ClassType?, interfaces)
                     if shim != null {
                         addSymbol(shim, symbols.mySymbols, errors)
-                        converted := MethodStub(converted.position, 
-                                "$" + converted.name, converted.annotations, 
-                                converted.kind, converted.parameters, 
-                                converted.genericParameters, 
-                                converted.returnType, converted.body, 
-                                converted.owner)
                     }
                     addSymbol(converted, symbols.mySymbols, errors)
                     foundInit |= converted.kind = 

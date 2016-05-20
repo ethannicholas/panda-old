@@ -926,7 +926,7 @@ void panda$threads$InternalMessageQueue$finalize(
     pthread_mutex_destroy(&nq->lock);
 }
 
-void panda$threads$InternalMessageQueue$sendMessage(
+void panda$threads$InternalMessageQueue$sendMessage_panda$threads$Message(
         InternalMessageQueue* msgQueue, Message* message) {
     NativeQueue* queue = (NativeQueue*) msgQueue->nativeQueue;
     pthread_mutex_lock(&queue->lock);

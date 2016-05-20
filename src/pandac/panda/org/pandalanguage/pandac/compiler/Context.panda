@@ -405,14 +405,16 @@ class Context {
             }
             else {
                 def parents := Array<SymbolTable>()
-                def superclass := stub.superclass
-                if superclass != null {
+                if stub.superclass != null {
+                    def superclass := effectiveType(cl, 
+                            stub.superclass)->ClassType
                     parents.add(getSymbolTable(superclass))
                 }
                 else {
                     parents.add(stubGenerator.masterSymbolTable)
                 }
-                for intf in stub.interfaces {
+                for raw in stub.interfaces {
+                    def intf := effectiveType(cl, raw)->ClassType
                     parents.add(getSymbolTable(intf))
                 }
                 def containingClass := stub.containingClass
@@ -1083,18 +1085,19 @@ class Context {
     method call(position:Position, target:Value, 
             methodName:String, var params:ListView<Value>, returnType:Type?,
             reportErrors:Bit):Value? {
-        def stub:ClassStub
+        def type:ClassType
         if target-?>ClassLiteral {
-            stub := getStub(target->ClassLiteral.value)
+            type := target->ClassLiteral.value
         }
         else if target-?>Super {
             def sub := getStub(target.type.convert()->ClassType)
-            stub := getStub(sub.superclass->ClassType)
+            type := effectiveType(target.type.convert()->ClassType, 
+                    sub.superclass->ClassType)->ClassType
         }
         else {
-            stub := getStub(target.type.convert()->ClassType)
+            type := target.type.convert()->ClassType
         }
-        def symbolTable := getSymbolTable(stub.type)
+        def symbolTable := getSymbolTable(type)
         def methods := symbolTable[methodName]
         if methods-?>Methods {
             def stubs := Array<MethodStub>()
@@ -1158,6 +1161,9 @@ class Context {
             else if cost != null & cost = bestCost {
                 best.add(m)
             }
+        }
+        if best.count > 1 {
+            best := best.filter(m => !m.annotations.isShim)
         }
         if best.count = 1 {
             def finalTarget := getEffectiveTarget(best[0], target)
@@ -1235,6 +1241,9 @@ class Context {
             else if cost != null & cost = bestCost {
                 best.add(m)
             }
+        }
+        if best.count > 1 {
+            best.filterInPlace(m => !m.annotations.isShim)
         }
         if best.count = 1 {
             def finalTarget := getEffectiveTarget(best[0], target)
