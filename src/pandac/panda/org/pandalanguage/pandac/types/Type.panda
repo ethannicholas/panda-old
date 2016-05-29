@@ -4,6 +4,7 @@ uses org.pandalanguage.pandac.compiler.Context
 uses org.pandalanguage.pandac.compiler.Dummy
 uses org.pandalanguage.pandac.compiler.CompilerException
 uses org.pandalanguage.pandac.compiler.ErrorReporter
+uses org.pandalanguage.pandac.compiler.StubGenerator
 uses org.pandalanguage.pandac.parser.PandaParser
 uses org.pandalanguage.pandac.tree.BinaryOperation
 uses org.pandalanguage.pandac.tree.Position
@@ -183,26 +184,28 @@ class Type : Immutable {
         return self
     }
 
-    method nullableVersion(context:Context):Type {
+    method nullableVersion(stubGenerator:StubGenerator):Type {
         if isNullable {
             return self
         }
         assert !name.endsWith("?")
-        var result := context.stubGenerator.types[name + "?"]
+        var result := stubGenerator.types[name + "?"]
         if result = null {
             result := NullableType(self.convert()->ClassType)
-            context.stubGenerator.types[result.name] := result
+            stubGenerator.types[result.name] := result
         }
         return result
     }
 
-    method isImmutable(context:Context):Bit {
-        return context.getStub(self.convert()->ClassType).isImmutable(context)
+    method isImmutable(stubGenerator:StubGenerator):Bit {
+        return stubGenerator.getStub(self.convert()->ClassType).isImmutable(
+                stubGenerator)
     }
 
     @class
-    method union(context:Context, var type1:Type, var type2:Type):Type {
-        return union(context, type1, type2, false)
+    method union(stubGenerator:StubGenerator, var type1:Type, 
+            var type2:Type):Type {
+        return union(stubGenerator, type1, type2, false)
     }
 
     ============================================================================
@@ -214,16 +217,16 @@ class Type : Immutable {
     @returns a type which can hold an instance of either parameter
     ============================================================================
     @class
-    method union(context:Context, var type1:Type, var type2:Type, 
+    method union(stubGenerator:StubGenerator, var type1:Type, var type2:Type, 
             mathy:Bit):Type {
         if type1 = type2 {
             return type1
         }
         if type1 = NullType.NULL {
-            return type2.nullableVersion(context)
+            return type2.nullableVersion(stubGenerator)
         }
         if type2 = NullType.NULL {
-            return type1.nullableVersion(context)
+            return type1.nullableVersion(stubGenerator)
         }
         if type1 = StringOrCharType.STRING_OR_CHAR {
             if type2 = ClassType.STRING | type2 = CharType.CHAR {
@@ -275,7 +278,7 @@ class Type : Immutable {
             def prim1 := type1.convert()->PrimitiveType
             def prim2 := type2.convert()->PrimitiveType
             if prim1.isNumber & prim2.isNumber {
-                return BinaryOperation.mathOperandType(context, 
+                return BinaryOperation.mathOperandType(stubGenerator, 
                         Dummy(Position.INTERNAL, prim1),
                         Dummy(Position.INTERNAL, prim2),
                         true)
@@ -285,14 +288,14 @@ class Type : Immutable {
         var test1:Type? := type1.convert()->ClassType
         while test1 != null {
             ancestors1.add(test1)
-            def cl := context.getStub(test1.convert()->ClassType)
+            def cl := stubGenerator.getStub(test1.convert()->ClassType)
             test1 := cl.superclass
         }
         def ancestors2 := Array<Type>()
         var test2:Type? := type2.convert()->ClassType
         while test2 != null {
             ancestors2.add(test2)
-            def cl := context.getStub(test2.convert()->ClassType)
+            def cl := stubGenerator.getStub(test2.convert()->ClassType)
             test2 := cl.superclass
         }
         var index := 0
@@ -303,11 +306,11 @@ class Type : Immutable {
         }
         var type := ancestors1[ancestors1.count - index]
         while !type.isPrimitive & 
-                context.getStub(type->ClassType).annotations.isUnspecified {
-            type := context.getStub(type->ClassType).superclass->Type
+                stubGenerator.getStub(type->ClassType).annotations.isUnspecified {
+            type := stubGenerator.getStub(type->ClassType).superclass->Type
         }
         if nullable {
-            type := type.nullableVersion(context)
+            type := type.nullableVersion(stubGenerator)
         }
 
         return type

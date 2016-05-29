@@ -2231,11 +2231,11 @@ class LLVMCodeGenerator (CodeGenerator) {
         if type.isPrimitive {
             return true
         }
-        def stub := context.classes[type.name]
+        def stub := context.stubGenerator.stubs[type.name]
         if stub = null {
             return false
         }
-        return type.isImmutable(context)
+        return type.isImmutable(context.stubGenerator)
     }
 
     @protected
@@ -2252,7 +2252,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         def immutableReturn := m.returnType != VoidType.VOID & 
                 isKnownToBeImmutable(m.returnType)
         for p in m.parameters {
-            if context.classes[p.type.name] != null {
+            if context.stubGenerator.stubs[p.type.name] != null {
                 writeTypeDescriptor(p.type)
             }
         }
@@ -2416,7 +2416,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         var progress:Bit
         do {
             progress := false
-            for stub in context.classes.values.filter(stub => stub.isExternal) {
+            for stub in context.stubGenerator.stubs.values.filter(
+                    stub => stub.isExternal) {
                 for m in stub.methods {
                     if (!stub.annotations.isUnspecified | m.annotations.isClass |
                             stub.isUnspecialized) &
@@ -2451,7 +2452,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 '"')
         header.writeLine('%$itable = type { %panda$core$Class*, %$itable*, ' +
                 "[0 x i8*] }")
-        def stubs := HashMap<String, ClassStub>(context.classes)
+        def stubs := HashMap<String, ClassStub>(context.stubGenerator.stubs)
         for (_, stub) in stubs {
             if context.compilerSettings.isLibrary & 
                     !stub.annotations.isUnspecified {

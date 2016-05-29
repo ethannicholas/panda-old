@@ -877,7 +877,7 @@ Int32 panda$core$Panda$callInt32Function(void* f) {
     return ((Int32 (*)()) f)();
 }
 
-Int64 panda$core$Panda$callInt64Function(void* f) {
+Int64 panda$core$Panda$callInt64Function_class_panda$core$$NativePointer_$Rpanda$core$Int64(void* f) {
     return ((Int64 (*)()) f)();
 }
 

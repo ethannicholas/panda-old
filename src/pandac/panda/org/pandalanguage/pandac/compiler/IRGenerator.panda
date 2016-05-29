@@ -169,8 +169,7 @@ class IRGenerator {
     init(root:Package, classes:MapView<String, ClassStub>,
             stubGenerator:StubGenerator, compilerSettings:CompilerSettings,
             errors:ErrorReporter) {
-        context := Context(self, stubGenerator, root, classes, errors, 
-                compilerSettings)
+        context := Context(self, stubGenerator, root, errors, compilerSettings)
     }
 
     @class
@@ -2189,8 +2188,8 @@ class IRGenerator {
         var value := context.callOverloadedOperator(position, methodName, left,
                 right)
         if value = null {
-            def operandType := BinaryOperation.operandType(context, op, left, 
-                    right)
+            def operandType := BinaryOperation.operandType(context.stubGenerator,
+                    op, left, right)
             if operandType = null {
                 context.errors.error("'\{methodName}' cannot operate on " +
                         "'\{left.type.displayName}', "+ 
@@ -2935,7 +2934,7 @@ class IRGenerator {
                         p.position, p.identifier, type, Variable.Kind.DEF,
                         context.currentMethod))
             }
-            def ir := IRGenerator(context.root, context.classes,
+            def ir := IRGenerator(context.root, context.stubGenerator.stubs,
                     context.stubGenerator, context.compilerSettings,
                     context.errors)
             ir.context.currentClass := context.currentClass
@@ -3101,7 +3100,7 @@ class IRGenerator {
                 Array<ASTInvariant>(), null, false, 
                 context.currentClass.type)
         if addMethods {
-            context.classes[closureStub.name] := closureStub
+            context.stubGenerator.stubs[closureStub.name] := closureStub
         }
         context.popSymbolTable()
         context.localVariables.clear()
@@ -3425,7 +3424,7 @@ class IRGenerator {
         if expr != null {
             if expr.checkValid(context) {
                 def immutable := f.kind = Variable.Kind.CONSTANT | 
-                        f.owner.isImmutable(context)
+                        f.owner.isImmutable(context.stubGenerator)
                 def type := expr.preferredVariableType(context, immutable)
                 if f.tuplePosition = null {
                     f.type := type
@@ -3488,7 +3487,8 @@ class IRGenerator {
         def checked := HashSet<ClassStub>()
         do {
             progress := false
-            def classes := HashMap<String, ClassStub>(context.classes)
+            def classes := HashMap<String, ClassStub>(
+                    context.stubGenerator.stubs)
             for (_, cl) in classes {
                 if checked.contains(cl) {
                     continue
@@ -3557,14 +3557,14 @@ class IRGenerator {
     }
 
     method createThreadLocalInitializers() {
-        for cl in context.classes.values {
+        for cl in context.stubGenerator.stubs.values {
             for f in cl.fields.filter(f => f.annotations.isThread) {
                 inferFieldType(f)
                 def name := getThreadLocalInitializerName(f)
                 if cl.symbols[name] != null {
                     continue
                 }
-                context.symbolTables.remove(cl.type)
+                context.stubGenerator.symbolTables.remove(cl.type)
                 def body := Array<ASTStatement>()
                 body.add(ASTReturn(f.position, f.initialValue))
                 def m := MethodStub(f.position, 
@@ -3588,8 +3588,8 @@ class IRGenerator {
             madeProgress := false
             createAllStubs()
             createThreadLocalInitializers()
-            def filtered := context.classes.values.filter(cl => !cl.isExternal & 
-                    !classes.contains(cl.name))
+            def filtered := context.stubGenerator.stubs.values.filter(
+                    cl => !cl.isExternal & !classes.contains(cl.name))
             for cl in filtered {
                 classes[cl.name] := convertClass(cl)
                 madeProgress := true
@@ -3598,7 +3598,7 @@ class IRGenerator {
         while madeProgress
         def root := MutablePackage("")
         def modules := Array<Module>()
-        for cl in context.classes.values {
+        for cl in context.stubGenerator.stubs.values {
             addClass(cl, root)
             -- HACK, need a more general way of dealing with modules
             if cl.name.startsWith("panda.ui.") | 
@@ -3606,7 +3606,7 @@ class IRGenerator {
                 modules.add(Module.PANDAUI)
             }
         }
-        return Program(root.convert()->Package, context.classes, classes, 
-                modules, context.liveMethods, context.stubGenerator)
+        return Program(root.convert()->Package, context.stubGenerator.stubs, 
+                classes, modules, context.liveMethods, context.stubGenerator)
     }
 }

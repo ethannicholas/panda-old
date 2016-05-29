@@ -41,7 +41,7 @@ Real32 panda$core$String$pandaStringToReal32(String* s) {
     return result;
 }
 
-Real64 panda$core$String$pandaStringToReal64(String* s) {
+Real64 panda$core$String$pandaStringToReal64_class_panda$core$String_$Rpanda$core$Real64(String* s) {
     static StringToDoubleConverter* converter = new StringToDoubleConverter(0,
         NAN, NAN, INFINITY_STRING, NAN_STRING);
     char* buffer = pandaGetString(s);

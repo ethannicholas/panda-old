@@ -1,6 +1,7 @@
 package org.pandalanguage.pandac.tree
 
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.StubGenerator
 uses org.pandalanguage.pandac.compiler.InternalCompilerException
 uses org.pandalanguage.pandac.types.BitType
 uses org.pandalanguage.pandac.types.CharType
@@ -94,8 +95,8 @@ class BinaryOperation : Value {
     }
 
     @class
-    function mathOperandType(context:Context, leftValue:Value, rightValue:Value, 
-            signMatters:Bit):Type? {
+    function mathOperandType(stubGenerator:StubGenerator, leftValue:Value, 
+            rightValue:Value, signMatters:Bit):Type? {
         var left := leftValue.type
         var right := rightValue.type
         if left.isWrapper {
@@ -218,7 +219,7 @@ class BinaryOperation : Value {
     }
 
     @class
-    function divideOperandType(context:Context, leftValue:Value, 
+    function divideOperandType(stubGenerator:StubGenerator, leftValue:Value, 
             rightValue:Value):Type? {
         if !leftValue.type.isPrimitive & !leftValue.type.isWrapper {
             return null
@@ -242,7 +243,7 @@ class BinaryOperation : Value {
     }
 
     @class
-    method logicalOperandType(context:Context, leftValue:Value, 
+    method logicalOperandType(stubGenerator:StubGenerator, leftValue:Value, 
             rightValue:Value):Type? {
         var left := leftValue.type
         var right := rightValue.type
@@ -251,10 +252,10 @@ class BinaryOperation : Value {
             return NativePointerType.NATIVE_POINTER
         }
         if left = NullType.NULL {
-            return right.nullableVersion(context)
+            return right.nullableVersion(stubGenerator)
         }
         if right = NullType.NULL {
-            return left.nullableVersion(context)
+            return left.nullableVersion(stubGenerator)
         }
         if left.isWrapper {
             left := left.convert()->PrimitiveType
@@ -270,7 +271,8 @@ class BinaryOperation : Value {
                         right = StringOrCharType.STRING_OR_CHAR) {
             return CharType.CHAR
         }
-        var result := mathOperandType(context, leftValue, rightValue, true)
+        var result := mathOperandType(stubGenerator, leftValue, rightValue,
+                true)
         if result = RealLiteralType.REAL_LITERAL {
             result := RealType.REAL64
         }
@@ -278,7 +280,7 @@ class BinaryOperation : Value {
     }
 
     @class
-    method shiftOperandType(context:Context, leftValue:Value, 
+    method shiftOperandType(stubGenerator:StubGenerator, leftValue:Value, 
             rightValue:Value):Type? {
         var left := leftValue.type
         var right := rightValue.type
@@ -307,7 +309,7 @@ class BinaryOperation : Value {
     }
 
     @class
-    method operandType(context:Context, kind:Kind, 
+    method operandType(stubGenerator:StubGenerator, kind:Kind, 
             left:Value, right:Value):Type? {
         switch kind {
             case Kind.ADD, Kind.SUBTRACT, 
@@ -315,16 +317,16 @@ class BinaryOperation : Value {
                     Kind.INT_DIVIDE, 
                     Kind.REMAINDER,
                     Kind.POWER:
-                return mathOperandType(context, left, right, true)
+                return mathOperandType(stubGenerator, left, right, true)
             case Kind.DIVIDE:
-                return divideOperandType(context, left, right)
+                return divideOperandType(stubGenerator, left, right)
             case Kind.SHIFT_LEFT,
                     Kind.SHIFT_RIGHT:
-                return shiftOperandType(context, left, right)
+                return shiftOperandType(stubGenerator, left, right)
             case Kind.BITWISE_AND,
                     Kind.BITWISE_OR,
                     Kind.BITWISE_XOR:
-                return mathOperandType(context, left, right, false)
+                return mathOperandType(stubGenerator, left, right, false)
             case Kind.AND, Kind.OR,
                     Kind.XOR:
                 return BitType.BIT
@@ -333,10 +335,10 @@ class BinaryOperation : Value {
                     Kind.GREATER_THAN_OR_EQUAL,
                     Kind.LESS_THAN,
                     Kind.LESS_THAN_OR_EQUAL:
-                return logicalOperandType(context, left, right)
+                return logicalOperandType(stubGenerator, left, right)
             case Kind.IDENTITY, 
                     Kind.NOT_IDENTITY:
-                return Type.union(context, left.type, right.type)
+                return Type.union(stubGenerator, left.type, right.type)
             default:
                 Console.writeLine("unsupported binary operation: \{kind}")
                 unreachable
