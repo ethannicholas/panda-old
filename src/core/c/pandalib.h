@@ -54,7 +54,7 @@ void* pandaGetInterfaceMethod(panda$core$Object* o, panda$core$Class* intf,
 
 Object* _pandaNew(Class* class_ptr, Int size);
 
-#define pandaNew(CLASS) ((CLASS*) _pandaNew(& CLASS ## _class, sizeof(CLASS)))
+#define pandaNew(CLASS) ((CLASS*) _pandaNew((Class*) & CLASS ## _class, sizeof(CLASS)))
 
 String* pandaNewString(const char* chars, Int byteLength);
 
@@ -72,6 +72,8 @@ void pandaCheckBounds(PrimitiveArray* array, Int index);
 void pandaCheckOverflow(Bit flag);
 
 char* pandaGetString(String* s);
+
+void pandaThrow(Error* e);
 
 void pandaFatalError(const char* msg);
 

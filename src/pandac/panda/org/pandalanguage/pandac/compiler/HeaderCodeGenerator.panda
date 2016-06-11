@@ -61,22 +61,6 @@ class HeaderCodeGenerator (CodeGenerator) {
         return methodNamer.getName(m)
     }
     
-    @private
-    function getLLVMName(t:Type):String {
-        switch t {
-            case IntType.INT8,  IntType.UINT8:  return "i8"
-            case IntType.INT16, IntType.UINT16: return "i16"
-            case IntType.INT32, IntType.UINT32: return "i32"
-            case IntType.INT64, IntType.UINT64: return "i64"
-            case RealType.REAL32: return "float"
-            case RealType.REAL64: return "double"
-            case CharType.CHAR:   return "char"
-            case BitType.BIT:     return "i1"
-            case VoidType.VOID:   return "void"
-            default:              return "<unknown:"+ t + ">"
-        }
-    }
-    
     method getName(raw:Type):String {
         def t := raw.unwrapUnspecializedGenerics(context)
         if t.isNullable {
@@ -182,7 +166,7 @@ class HeaderCodeGenerator (CodeGenerator) {
 
         for entry in cl.methods {
             def m := entry
-            if !methods.contains(m) | m.annotations.isExternal {
+            if !program.isEffectivelyVirtual(m) | m.annotations.isExternal {
                 out.write(getCType(m.returnType))
                 out.write(" " + getName(m) + "(")
                 var first := true
@@ -205,12 +189,28 @@ class HeaderCodeGenerator (CodeGenerator) {
                     out.write(getCType(p.type))
                 }
                 out.writeLine(");")
+
+                if m.kind = MethodStub.Kind.INIT {
+                    out.write(getCType(cl.type))
+                    out.write(" new_\{getName(m)}(")
+                    first := true
+                    for (i, p) in m.parameters.enumeration {
+                        if first {
+                            first := false
+                        }
+                        else {
+                            out.write(", ")
+                        }
+                        out.write(getCType(p.type))
+                    }
+                    out.writeLine(");")
+                }
             }
         }
     }
 
     method generateStruct(cl:ClassStub, out:OutputStream) {
-        out.writeLine("struct " + getName(cl) + " {")
+        out.writeLine("struct \{getName(cl)} {")
         writeFields(cl, out)
         if cl.name = PrimitiveArray.name {
             out.writeLine("    Int64 $length;")
@@ -223,23 +223,33 @@ class HeaderCodeGenerator (CodeGenerator) {
         out.writeLine("};")
     }
 
+    method generateClass(cl:ClassStub, externalFields:Bit, out:OutputStream) {
+        out.writeLine("#ifndef CLASS_\{getName(cl)}")
+        out.writeLine("#define CLASS_\{getName(cl)}")
+        generateStruct(cl, out)
+        out.writeLine()
+        writeMethods(cl, out)
+        for f in cl.fields {
+            if f.annotations.isClass | f.annotations.isThread {
+                def t := f.owner
+                if externalFields {
+                    out.write("extern ")
+                }
+                out.writeLine(getCType(f.type) + " class_" + 
+                        getName(t) + "$" + getName(f) + ";")
+            }
+        }
+        out.writeLine("#endif")
+    }
+
     method generateHeader(cl:ClassStub, dest:File) {
         var out := BufferedOutputStream(dest.openOutputStream())
         out.writeLine(HEADER)
         out.writeLine("#ifndef " + getName(cl) + "_H")
         out.writeLine("#define " + getName(cl) + "_H")
-        generateStruct(cl, out)
-        out.writeLine()
         out.writeLine("extern panda$core$Class " + 
                 getName(cl) + "_class;")
-        writeMethods(cl, out)
-        for f in cl.fields {
-            if f.annotations.isClass | f.annotations.isThread {
-                def t := f.owner
-                out.writeLine("extern " + getCType(f.type) + " class_" + 
-                        getName(t) + "$" + getName(f) + ";")
-            }
-        }
+        generateClass(cl, true, out)
         out.writeLine("#endif")
         out.close()
     }

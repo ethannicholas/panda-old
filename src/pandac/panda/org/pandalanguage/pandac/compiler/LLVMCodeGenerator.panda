@@ -2335,7 +2335,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         if !external {
             body.write("fastcc ")
         }
-        body.write(getLLVMType(m.stub.returnType) + " @\{getName(m.stub)}(")
+        def name := getName(m.stub)
+        body.write(getLLVMType(m.stub.returnType) + " @\{name}(")
         var first := true
         if !m.stub.annotations.isClass {
             body.write("\{getSelfType(m.stub)} %self")
@@ -2394,6 +2395,50 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             body.level -= 1
             body.writeLine("}")
+            if m.stub.kind = MethodStub.Kind.INIT {
+                def targetType := m.stub.owner
+                body.write("define fastcc \{getLLVMType(targetType)} @new_\{name}(")
+                first := true
+                for (i, p) in m.parameters.enumeration {
+                    if first {
+                        first := false
+                    }
+                    else {
+                        body.write(", ")
+                    }
+                    body.write(getLLVMType(p.type))
+                    if !external {
+                        body.write(" %") 
+                        body.write(getName(p))
+                    }
+                }
+                body.writeLine(") {")
+                tempVariable := 1
+                def target := getStub(targetType)
+                def cc := getClassConstant(target)
+                def cast := getTempVariable()
+                def classType := getLLVMType(ClassType.CLASS)
+                writeBody("\{cast} = bitcast \{cc.type}* @\{cc.name} to " + 
+                        classType, "convert class pointer")
+                declarations.add("declare i8* @_pandaNew(%panda$core$Class*, i64)")
+                def alloc := createCallReference("i8* @_pandaNew(\{classType} " + 
+                        "\{cast}, i64 \{size(targetType)})", 
+                        "allocate " + targetType.name)
+            
+                def result := createCommandReference("bitcast i8* \{alloc} to " + 
+                        getLLVMType(targetType), "convert pointer to " + 
+                        targetType.name)
+
+                def text := MutableString("fastcc void @\{name}(")
+                text.append(getLLVMType(targetType) + " " + result)
+                for (i, p) in m.parameters.enumeration {
+                    text.append(", \{getLLVMType(p.type)} %\{getName(p)}")
+                }
+                text.append(")")
+                call(text.convert())
+                body.writeLine("ret \{getLLVMType(targetType)} \{result}")
+                body.writeLine("}")
+            }
         }
         currentMethod := null
     }
