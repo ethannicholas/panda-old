@@ -358,7 +358,7 @@ class CCodeGenerator (CodeGenerator) {
                 }
             }
             else {
-                result := v.name
+                result := "$" + v.name
             }
             if v-?>LocalVariable {
                 result += variableNames.count
@@ -375,15 +375,11 @@ class CCodeGenerator (CodeGenerator) {
 
     @private
     method getStub(name:String):ClassStub {
-        Console.writeLine("    getStub: \{name}")
         def stub := context.getStub(name)
         if !writtenStubs.contains(name) {
             writtenStubs.add(name)
             if program.classes[name] != null & !stub.annotations.isUnspecified {
                 generateClassCode(stub)
-            }
-            else {
-                Console.writeLine("    skipping")
             }
         }
         return stub
@@ -452,13 +448,14 @@ class CCodeGenerator (CodeGenerator) {
 
 
     @protected
-    function getMethodIndex(m:MethodStub):Int {
-        if m.base != null {
-            return getMethodIndex(m.base)
+    function getMethodIndex(var m:MethodStub):Int {
+        m := m.unwrapped
+        for (i, m2) in m.owner.virtualMethods(context).enumeration {
+            if m = m2.unwrapped {
+                return i
+            }
         }
-        def result := m.owner.virtualMethods(context).indexOf(m)
-        assert result != null : "\{m} not found in class \{m.owner.name}"
-        return result
+        unreachable : "\{m} not found in class \{m.owner.name} (\{m.owner.virtualMethods(context)})"
     }
 
     ============================================================================
@@ -484,7 +481,7 @@ class CCodeGenerator (CodeGenerator) {
             nameCount += 1
             shimMap[m] := result
             shims.write("\{getCType(m.returnType)} \{result}(")
-            shims.write("\{getCType(m.owner)} self")
+            shims.write("\{getCType(m.owner)} $self")
             for (i, p) in m.parameters.enumeration {
                 shims.write(", \{getCType(p.type)} param\{i}")
             }
@@ -494,7 +491,7 @@ class CCodeGenerator (CodeGenerator) {
                 shims.write("return ")
             }
             def index := getMethodIndex(m)
-            shims.write("((\{getCMethodType(m)}) *(&self->cl->vtable + \{index}))(self")
+            shims.write("((\{getCMethodType(m)}) *(&$self->cl->vtable + \{index}))($self")
             for i in 0 .. m.parameters.count {
                 shims.write(", param\{i}")
             }
@@ -508,14 +505,15 @@ class CCodeGenerator (CodeGenerator) {
     See getVirtualShim for an explanation.
     ============================================================================
     @protected
-    method getInterfaceShim(m:MethodStub):String {
+    method getInterfaceShim(var m:MethodStub):String {
+        m := m.unwrapped
         var result := shimMap[m]
         if result = null {
             result := "$shim" + nameCount
             nameCount += 1
             shimMap[m] := result
             shims.write("\{getCType(m.returnType)} \{result}(")
-            shims.write("\{getCType(m.owner)} self")
+            shims.write("\{getCType(m.owner)} $self")
             for (i, p) in m.parameters.enumeration {
                 shims.write(", \{getCType(p.type)} param\{i}")
             }
@@ -526,9 +524,9 @@ class CCodeGenerator (CodeGenerator) {
             }
             def index := getMethodIndex(m)
             shims.write("((\{getCMethodType(m)}) pandaGetInterfaceMethod(" +
-                    "(\{getCType(ClassType.OBJECT)}) self, " +
-                    "(\{getCType(ClassType.CLASS)}) &\{getClassConstantName(getStub(m.owner))}, " +
-                    "\{index}))(self")
+                    "(\{getCType(ClassType.OBJECT)}) $self, " +
+                    "(\{getCType(ClassType.CLASS)}) &\{getClassConstantName(getStub(m.owner.unwrapGenerics->ClassType))}, " +
+                    "\{index}))($self")
             for i in 0 .. m.parameters.count {
                 shims.write(", param\{i}")
             }
@@ -776,7 +774,7 @@ class CCodeGenerator (CodeGenerator) {
     method writeFieldReference(fr:FieldReference) {
         if fr.field.annotations.isThread {
             def owner := fr.field.owner
-            callClassInit(context.getStub(owner))
+            callClassInit(getStub(owner))
             var type := fr.type
             def suffix:String
             if type.isPrimitive {
@@ -847,7 +845,7 @@ class CCodeGenerator (CodeGenerator) {
         
     @protected
     method writeSuperReference(s:Super) {
-        body.write("self")
+        body.write("$self")
     }
 
     @protected
@@ -999,7 +997,7 @@ class CCodeGenerator (CodeGenerator) {
             body.writeLine(";")
         }
         else {
-            unreachable
+            body.write("abort(); // assigning to a thread field")
         }
     }
 
@@ -1228,7 +1226,7 @@ class CCodeGenerator (CodeGenerator) {
         out.write(getCType(m.returnType) + " \{getName(m)}(")
         var first := true
         if !m.annotations.isClass {
-            out.write("\{getSelfType(m)} self")
+            out.write("\{getSelfType(m)} $self")
             first := false
         }
         for (i, p) in m.parameters.enumeration {
@@ -1248,7 +1246,7 @@ class CCodeGenerator (CodeGenerator) {
     method writeMethodDeclaration(m:MethodStub, out:OutputStream) {
         def names := Array<String>()
         for p in m.parameters {
-            names.add(p.name)
+            names.add("$" + p.name)
         }
         writeMethodDeclaration(m, names, out)
     }
@@ -1350,6 +1348,9 @@ class CCodeGenerator (CodeGenerator) {
     method generateClassCode(cl:ClassStub) {
         getStub(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
         getStub(ClassType.STRING)
+        if cl.superclass != null {
+            getStub(cl.superclass)
+        }
         assert !cl.annotations.isUnspecified
         def name := getName(cl)
         def classStub := getStub(ClassType.CLASS)

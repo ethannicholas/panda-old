@@ -22,7 +22,7 @@ String* panda$core$Real32Wrapper$pandaReal32ToString(Real32 r) {
     return pandaNewString(result, strlen(result));
 }
 
-String* panda$core$Real64Wrapper$pandaReal64ToString(Real64 r) {
+String* panda$core$Real64Wrapper$pandaReal64ToString_class_Real64_$Rpanda$core$String(Real64 r) {
     static DoubleToStringConverter* converter = new DoubleToStringConverter(0,
             INFINITY_STRING, NAN_STRING, EXP, -6, 21, 0, 0);
     char buffer[BUFFER_SIZE];
