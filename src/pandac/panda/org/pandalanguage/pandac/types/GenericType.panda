@@ -179,7 +179,9 @@ class GenericType : ClassType {
     }
 
     @private
-    method instantiateMethod(m:MethodStub, symbols:SymbolTable):MethodStub {
+    method instantiateMethod(m:MethodStub, symbols:SymbolTable, 
+            superclass:ClassType?, interfaces:ListView<ClassType>, 
+            stubGenerator:StubGenerator):MethodStub {
         def parameters := Array<FormalParameter>()
         for p in m.parameters {
             def type := getType(p.type, symbols)
@@ -193,6 +195,13 @@ class GenericType : ClassType {
         def result := MethodStub(m.position, m.name, annotations,
                 m.kind, parameters, null, getType(m.returnType, symbols), 
                 m.body, self)
+        def shim := stubGenerator.createShimIfNeeded(result, superclass, 
+                interfaces)
+        if shim != null & 
+                shim.type.unwrapGenerics != result.type.unwrapGenerics {
+            Console.writeLine("\{self} shimmed \{result} into \{shim}")
+            addMethod(shim, symbols)
+        }
         return result
     }
 
@@ -207,6 +216,29 @@ class GenericType : ClassType {
         }
         else {
             unreachable
+        }
+    }
+
+    method addSupertypeSymbols(type:ClassType, symbols:SymbolTable,
+            stubGenerator:StubGenerator) {
+        if type-?>GenericType {
+            def g := type->GenericType
+            def base := stubGenerator.getStub(g.base)
+            for (i, p) in base.genericParameters.enumeration {
+                symbols.add(base.name + "." + p[0], TypeSymbol(g.parameters[i]))
+            }
+        }
+        def stub := stubGenerator.getStub(type)
+        def superclass := stub.superclass
+        if superclass != null {
+            def resolved := getType(superclass, symbols)
+            addSupertypeSymbols(superclass, symbols, stubGenerator)
+        }
+        def interfaces := Array<ClassType>()
+        for intf in stub.interfaces {
+            def type := getType(intf, symbols)
+            def intfClass := type.convert()->ClassType
+            addSupertypeSymbols(intfClass, symbols, stubGenerator)
         }
     }
 
@@ -227,21 +259,19 @@ class GenericType : ClassType {
         }        
         var superclass := baseStub.superclass
         if superclass != null {
-            def resolved:Type?
-            resolved := getType(superclass, symbols)
+            def resolved := getType(superclass, symbols)
             superclass := resolved->ClassType
+            addSupertypeSymbols(superclass, symbols, stubGenerator)
         }
         else {
             superclass := null
         }
         def interfaces := Array<ClassType>()
         for intf in baseStub.interfaces {
-            var type:Type?
-            type := getType(intf, symbols)
-            if type != null {
-                def intfClass := type.convert()->ClassType
-                interfaces.add(intfClass)
-            }
+            def type := getType(intf, symbols)
+            def intfClass := type.convert()->ClassType
+            interfaces.add(intfClass)
+            addSupertypeSymbols(intfClass, symbols, stubGenerator)
         }
         for f in baseStub.fields {
             if f.annotations.isClass | f.annotations.isThread {
@@ -252,9 +282,9 @@ class GenericType : ClassType {
                 symbols.add(newField)
             }
         }
-        def filter:(MethodStub)=>(Bit) := m => !m.annotations.isClass
         for m in baseStub.methods.filter(m => !m.annotations.isClass) {
-            addMethod(instantiateMethod(m, symbols), symbols)
+            addMethod(instantiateMethod(m, symbols, superclass, interfaces, 
+                    stubGenerator), symbols)
         }
         var annotations := baseStub.annotations - Annotations.Kind.UNSPECIFIED
         for (i, p) in parameters.enumeration {

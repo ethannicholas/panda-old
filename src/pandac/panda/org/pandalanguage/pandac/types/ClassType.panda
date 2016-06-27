@@ -1,6 +1,7 @@
 package org.pandalanguage.pandac.types
 
 uses org.pandalanguage.pandac.compiler.Context
+uses org.pandalanguage.pandac.compiler.StubGenerator
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.Methods
 uses org.pandalanguage.pandac.stubs.MethodStub
@@ -150,9 +151,9 @@ class ClassType : Type {
     ============================================================================
     @safeReturn
     method interfaceMethods(intf:ClassType, 
-            context:Context):ListView<MethodStub> {
-        def result := Array<MethodStub>(intf.virtualMethods(context))
-        def myMethods := virtualMethods(context)
+            stubGenerator:StubGenerator):ListView<MethodStub> {
+        def result := Array<MethodStub>(intf.virtualMethods(stubGenerator))
+        def myMethods := virtualMethods(stubGenerator)
         for (i, m) in result.enumeration {
             for m2 in myMethods {
                 if m2.isOverrideOf(m) {
@@ -165,9 +166,10 @@ class ClassType : Type {
     }
 
     @limited
-    method addOverrides(context:Context, source:CollectionView<MethodStub>, 
+    method addOverrides(stubGenerator:StubGenerator, 
+            source:CollectionView<MethodStub>, 
             dest:List<MethodStub>) {
-        def stub := context.getStub(self)
+        def stub := stubGenerator.getStub(self)
         outer: for s in source {
             if !s.isDeclaredVirtual {
                 continue
@@ -182,14 +184,14 @@ class ClassType : Type {
         }
     }
 
-    function instanceMethods(context:Context):
+    function instanceMethods(stubGenerator:StubGenerator):
             CollectionView<MethodStub> {
         def result := Array<MethodStub>()
-        def stub := context.getStub(self)
+        def stub := stubGenerator.getStub(self)
         if stub.superclass != null {
-            def effective := context.effectiveType(self, 
+            def effective := stubGenerator.effectiveType(self, 
                     stub.superclass)->ClassType
-            result.addAll(effective.instanceMethods(context).filter(
+            result.addAll(effective.instanceMethods(stubGenerator).filter(
                         m => !m.annotations.isPrivate))
         }
         def test:(MethodStub)=>(Bit) := 
@@ -215,29 +217,31 @@ class ClassType : Type {
     methods will appear at the end of the array.
     ============================================================================
     @safeReturn
-    method virtualMethods(context:Context):ListView<MethodStub> {
-        def stub := context.getStub(self)
+    method virtualMethods(stubGenerator:StubGenerator):ListView<MethodStub> {
+        def stub := stubGenerator.getStub(self)
         if self-!>GenericType & stub.genericParameters != null {
             def params := Array<Type>()
             for p in stub.genericParameters {
                 params.add(GenericParameterType(name + "." + p[0], p[1]))
             }
-            return GenericType(self, params).virtualMethods(context)
+            return GenericType(self, params).virtualMethods(stubGenerator)
         }
         def result := Array<MethodStub>()
 
         for i in stub.interfaces.count - 1 ... 0 by -1 {
-            def intf := context.effectiveType(self, stub.interfaces[i])
-            addOverrides(context, intf->ClassType.virtualMethods(context),
+            def intf := stubGenerator.effectiveType(self, stub.interfaces[i])
+            addOverrides(stubGenerator, 
+                    intf->ClassType.virtualMethods(stubGenerator),
                     result)
         }
         def sc := stub.superclass
         if sc != null {
-            def effective := context.effectiveType(self, sc)->ClassType
-            addOverrides(context, effective.virtualMethods(context), result)
+            def effective := stubGenerator.effectiveType(self, sc)->ClassType
+            addOverrides(stubGenerator, effective.virtualMethods(stubGenerator), 
+                    result)
         }
         def virtuals := Array<MethodStub>()
-        def symbolTable := context.getSymbolTable(self)
+        def symbolTable := stubGenerator.getSymbolTable(self)
         def names := HashSet<String>()
         for m in stub.methods {
             names.add(m.name)
@@ -249,7 +253,7 @@ class ClassType : Type {
                 }
             }
         }
-        addOverrides(context, virtuals, result)
+        addOverrides(stubGenerator, virtuals, result)
         return result
     }
 
