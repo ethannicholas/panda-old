@@ -4,5 +4,4 @@ cd $BASEDIR
 
 source scripts/setup-script.sh
 src/ui/build_native.sh
-src/ui/build_java.sh
 #src/ui/build_js.sh

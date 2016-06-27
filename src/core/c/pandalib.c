@@ -171,8 +171,8 @@ Object* _pandaNew(Class* class_ptr, Int size) {
     if (class_ptr->overridesFinalize) {
         GC_finalization_proc oldFinalizer;
         GC_PTR oldCD;
-        void (*finalize)() = (void (*)()) *(&class_ptr->vtable + 
-                panda$core$Object$finalize_INDEX);
+        void (*finalize)() = (void (*)()) class_ptr->vtable[
+                panda$core$Object$finalize_INDEX];
         GC_register_finalizer(result, 
                 (GC_finalization_proc) runFinalizer, 
                 finalize, 
@@ -389,8 +389,8 @@ void pandaCleanupException(_Unwind_Reason_Code reason, _nativeException* e) {
 void pandaUncaughtException(Error* e) {
     panda$core$Object$convert_$Rpanda$core$String_TYPE* cnvString = 
             (panda$core$Object$convert_$Rpanda$core$String_TYPE*) 
-                *(&e->cl->vtable + 
-                panda$core$Object$convert_$Rpanda$core$String_INDEX);
+                e->cl->vtable[
+                    panda$core$Object$convert_$Rpanda$core$String_INDEX];
     String* stackTrace = cnvString((panda$core$Object*) e);
     printf("%s\n", pandaGetString(stackTrace));
     __builtin_trap();
@@ -507,7 +507,7 @@ panda$core$System$OperatingEnvironmentInfo* panda$core$System$operatingEnvironme
     return result;
 }
 
-void panda$core$System$execStream(
+void panda$core$System$execStream_class_panda$core$String_panda$core$String_panda$core$$NativePointer_panda$core$$NativePointer_panda$core$$NativePointer_panda$collections$ListView$LTpanda$core$String$GT(
         String* program, String* dir, void* inHandleArg, void* outHandleArg, 
         void* errHandleArg, 
         panda$collections$ListView$LTpanda$core$String$GT* pandaArgs) {
@@ -558,7 +558,7 @@ void panda$core$System$exec_class_panda$io$File_panda$io$File_panda$collections$
         panda$io$File* program, 
         panda$io$File* dir, 
         panda$collections$ListView$LTpanda$core$String$GT* pandaArgs) {
-    panda$core$System$execStream(program->path, dir->path, NULL, stdout, stderr,
+    panda$core$System$execStream_class_panda$core$String_panda$core$String_panda$core$$NativePointer_panda$core$$NativePointer_panda$core$$NativePointer_panda$collections$ListView$LTpanda$core$String$GT(program->path, dir->path, NULL, stdout, stderr,
                 pandaArgs);
 }
         
@@ -639,6 +639,7 @@ void* panda$io$FileInputStream$open_class_panda$core$String_Bit_Bit_$Rpanda$core
                 pandaNew(panda$io$FileNotFoundException);
         result->stack = panda$core$Error$getStackTrace_$Rpanda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT((panda$core$Error*) result);
         result->message = s;
+        printf("FAILED TO OPEN: %s\n", name);
         pandaThrow((Error*) result);
     }
     return (void*) result;
@@ -773,8 +774,8 @@ panda$collections$ListView$LTpanda$io$File$GT* panda$io$File$list_$Rpanda$collec
         panda$collections$Array$LTpanda$io$File$GT$init(result);
         panda$collections$Array$LTpanda$io$File$GT$add_panda$io$File_TYPE* add =
                 (panda$collections$Array$LTpanda$io$File$GT$add_panda$io$File_TYPE*) 
-                    *(&result->cl->vtable + 
-                    panda$collections$Array$LTpanda$io$File$GT$add_panda$io$File_INDEX);    
+                    result->cl->vtable[
+                        panda$collections$Array$LTpanda$io$File$GT$add_panda$io$File_INDEX];
         while ((ent = readdir(dir)) != NULL) {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
                 continue;
@@ -860,19 +861,19 @@ panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* panda$core
 // FIXME: these are temporary, just until we have first-class functions in
 // Panda itself
 
-Bit panda$core$Panda$callBitFunction(void* f) {
+Bit panda$core$Panda$callBitFunction_class_panda$core$$NativePointer_$Rpanda$core$Bit(void* f) {
     return ((Bit (*)()) f)();
 }
 
-Int8 panda$core$Panda$callInt8Function(void* f) {
+Int8 panda$core$Panda$callInt8Function_class_panda$core$$NativePointer_$Rpanda$core$Int8(void* f) {
     return ((Int8 (*)()) f)();
 }
 
-Int16 panda$core$Panda$callInt16Function(void* f) {
+Int16 panda$core$Panda$callInt16Function_class_panda$core$$NativePointer_$Rpanda$core$Int16(void* f) {
     return ((Int16 (*)()) f)();
 }
 
-Int32 panda$core$Panda$callInt32Function(void* f) {
+Int32 panda$core$Panda$callInt32Function_class_panda$core$$NativePointer_$Rpanda$core$Int32(void* f) {
     return ((Int32 (*)()) f)();
 }
 
@@ -880,15 +881,15 @@ Int64 panda$core$Panda$callInt64Function_class_panda$core$$NativePointer_$Rpanda
     return ((Int64 (*)()) f)();
 }
 
-Char panda$core$Panda$callCharFunction(void* f) {
+Char panda$core$Panda$callCharFunction_class_panda$core$$NativePointer_$Rpanda$core$Char(void* f) {
     return ((Char (*)()) f)();
 }
 
-Real32 panda$core$Panda$callReal32Function(void* f) {
+Real32 panda$core$Panda$callReal32Function_class_panda$core$$NativePointer_$Rpanda$core$Real32(void* f) {
     return ((Real32 (*)()) f)();
 }
 
-Real64 panda$core$Panda$callReal64Function(void* f) {
+Real64 panda$core$Panda$callReal64Function_class_panda$core$$NativePointer_$Rpanda$core$Real64(void* f) {
     return ((Real64 (*)()) f)();
 }
 
@@ -962,7 +963,7 @@ panda$core$Object* panda$threads$InternalMessageQueue$getMessage_Int64_$Rpanda$c
     return panda$threads$InternalMessageQueue$getMessage_$Rpanda$core$Object$Z(queue);
 }
 
-void panda$threads$InternalMessageQueue$threadExit() {
+void panda$threads$InternalMessageQueue$threadExit_class() {
     Thread* currentThread = panda$threads$Thread$currentThread_class_$Rpanda$threads$Thread();
     if (currentThread->preventsExit) {
         pthread_mutex_lock(&preventsExitThreadsMutex);
@@ -974,7 +975,7 @@ void panda$threads$InternalMessageQueue$threadExit() {
     pthread_exit(NULL);
 }
 
-void panda$threads$Thread$startThread(
+void panda$threads$Thread$startThread_panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT(
         Thread* thread, 
         panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT* context) {
     if (thread->preventsExit) {
@@ -987,8 +988,8 @@ void panda$threads$Thread$startThread(
     thread->threadLocals = threadLocals;
     panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARREQ_Int64_panda$core$Object$Z_TYPE* hashPut =
             (panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARREQ_Int64_panda$core$Object$Z_TYPE*) 
-                *(&threadLocals->cl->vtable + 
-                panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARREQ_Int64_panda$core$Object$Z_INDEX);
+                threadLocals->cl->vtable[
+                    panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARREQ_Int64_panda$core$Object$Z_INDEX];
     hashPut(threadLocals, class_panda$threads$Thread$context$index, 
             (panda$core$Object*) context);
     panda$core$BitWrapper* trueWrapper = pandaNew(panda$core$BitWrapper);
@@ -1228,12 +1229,12 @@ Bit panda$core$Real32Wrapper$get_isNaN_$Rpanda$core$Bit(Real32 r) {
 Bit panda$core$Real64Wrapper$get_isNaN_$Rpanda$core$Bit(Real64 r) {
     return isnan(r);
 }
-
-Real32 panda$core$Panda$pow_Real32_Real32_$RReal32(Real32 x, Real32 y) {
+       
+Real32 panda$core$Panda$pow_class_Real32_Real32_$Rpanda$core$Real32(Real32 x, Real32 y) {
     return pow(x, y);
 }
 
-Real64 panda$core$Panda$pow_Real64_Real64_$RReal64(Real64 x, Real64 y) {
+Real64 panda$core$Panda$pow_class_Real64_Real64_$Rpanda$core$Real64(Real64 x, Real64 y) {
     return pow(x, y);
 }
 

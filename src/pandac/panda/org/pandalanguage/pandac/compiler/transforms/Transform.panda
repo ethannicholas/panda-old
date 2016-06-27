@@ -1,0 +1,539 @@
+package org.pandalanguage.pandac.compiler.transforms
+
+uses org.pandalanguage.pandac.compiler.Program
+uses org.pandalanguage.pandac.tree.Assert
+uses org.pandalanguage.pandac.tree.ArrayLiteral
+uses org.pandalanguage.pandac.tree.BinaryOperation
+uses org.pandalanguage.pandac.tree.BitLiteral
+uses org.pandalanguage.pandac.tree.Block
+uses org.pandalanguage.pandac.tree.Break
+uses org.pandalanguage.pandac.tree.Cast
+uses org.pandalanguage.pandac.tree.Catch
+uses org.pandalanguage.pandac.tree.ClassLiteral
+uses org.pandalanguage.pandac.tree.ClassNode
+uses org.pandalanguage.pandac.tree.Closure
+uses org.pandalanguage.pandac.tree.Construct
+uses org.pandalanguage.pandac.tree.Continue
+uses org.pandalanguage.pandac.tree.Do
+uses org.pandalanguage.pandac.tree.DynamicCall
+uses org.pandalanguage.pandac.tree.FieldAssignment
+uses org.pandalanguage.pandac.tree.FieldReference
+uses org.pandalanguage.pandac.tree.If
+uses org.pandalanguage.pandac.tree.IntegerLiteral
+uses org.pandalanguage.pandac.tree.Loop
+uses org.pandalanguage.pandac.tree.LoopWithContinueBlock
+uses org.pandalanguage.pandac.tree.MethodCall
+uses org.pandalanguage.pandac.tree.MethodNode
+uses org.pandalanguage.pandac.tree.MethodReference
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithLength
+uses org.pandalanguage.pandac.tree.NewPrimitiveArrayWithValues
+uses org.pandalanguage.pandac.tree.NullLiteral
+uses org.pandalanguage.pandac.tree.PrimitiveArrayCopy
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexAssignment
+uses org.pandalanguage.pandac.tree.PrimitiveArrayIndexValue
+uses org.pandalanguage.pandac.tree.RealLiteral
+uses org.pandalanguage.pandac.tree.ReusedValue
+uses org.pandalanguage.pandac.tree.ReusedValueDefinition
+uses org.pandalanguage.pandac.tree.Return
+uses org.pandalanguage.pandac.tree.SkippedValue
+uses org.pandalanguage.pandac.tree.Statement
+uses org.pandalanguage.pandac.tree.StringLiteral
+uses org.pandalanguage.pandac.tree.Super
+uses org.pandalanguage.pandac.tree.Throw
+uses org.pandalanguage.pandac.tree.Try
+uses org.pandalanguage.pandac.tree.Tuple
+uses org.pandalanguage.pandac.tree.UnaryOperation
+uses org.pandalanguage.pandac.tree.Unreachable
+uses org.pandalanguage.pandac.tree.Unwrap
+uses org.pandalanguage.pandac.tree.Value
+uses org.pandalanguage.pandac.tree.ValueStatement
+uses org.pandalanguage.pandac.tree.VariableAssignment
+uses org.pandalanguage.pandac.tree.VariableReference
+uses org.pandalanguage.pandac.tree.While
+uses org.pandalanguage.pandac.types.PrimitiveArrayType
+
+class Transform {
+    function transform(p:Program):Program {
+        def classes := HashMap<String, ClassNode>()
+        var changed := false
+        for c in p.classes.values {
+            def t := transform(c)
+            changed |= t != c
+            classes[t.stub.name] := t
+        }
+        if changed {
+            Console.writeLine("new program!")
+            return Program(p.root, p.stubs, classes, p.modules,
+                    p.liveMethods, p.stubGenerator)
+        }
+        Console.writeLine("unchanged program!")
+        return p
+    }
+
+    function transform(c:ClassNode):ClassNode {
+        def methods := Array<MethodNode>()
+        var changed := false
+        for m in c.methods {
+            def t := transform(m)
+            changed |= t != m
+            methods.add(t)
+        }
+        if changed {
+            return ClassNode(c.stub, methods)
+        }
+        return c
+    }
+
+    function transform(m:MethodNode):MethodNode {
+        def t := transform(m.body)
+        if t != m.body {
+            return MethodNode(m.stub, t, m.parameters, m.localVariables)
+        }
+        return m
+    }
+
+    function transform(s:Statement?):Statement {
+        if s = null {
+            return null
+        }
+        switch s.class {
+            case Assert: return transform(s->Assert)
+            case Block: return transform(s->Block)
+            case Break: return transform(s->Break)
+            case Continue: return transform(s->Continue)
+            case Do: return transform(s->Do)
+            case FieldAssignment: return transform(s->FieldAssignment)
+            case If: return transform(s->If)
+            case PrimitiveArrayIndexAssignment: return transform(
+                    s->PrimitiveArrayIndexAssignment)
+            case Loop: return transform(s->Loop)
+            case LoopWithContinueBlock: return transform(
+                    s->LoopWithContinueBlock)
+            case Return: return transform(s->Return)
+            case Throw: return transform(s->Throw)
+            case Try: return transform(s->Try)
+            case Unreachable: return transform(s->Unreachable)
+            case ValueStatement: return transform(s->ValueStatement)
+            case While: return transform(s->While)
+            default: unreachable
+        }
+    }
+
+    function transform(v:Value?):Value {
+        if v = null {
+            return null
+        }
+        switch v.class {
+            case ArrayLiteral: return transform(v->ArrayLiteral)
+            case BinaryOperation: return transform(v->BinaryOperation)
+            case BitLiteral: return transform(v->BitLiteral)
+            case Cast: return transform(v->Cast)
+            case ClassLiteral: return transform(v->ClassLiteral)
+            case Closure: return transform(v->Closure)
+            case Construct: return transform(v->Construct)
+            case DynamicCall: return transform(v->DynamicCall)
+            case FieldReference: return transform(v->FieldReference)
+            case IntegerLiteral: return transform(v->IntegerLiteral)
+            case MethodCall: return transform(v->MethodCall)
+            case MethodReference: return transform(v->MethodReference)
+            case NewPrimitiveArrayWithLength: return transform(
+                    v->NewPrimitiveArrayWithLength)
+            case NewPrimitiveArrayWithValues: return transform(
+                    v->NewPrimitiveArrayWithValues)
+            case NullLiteral: return transform(v->NullLiteral)
+            case PrimitiveArrayCopy: return transform(v->PrimitiveArrayCopy)
+            case PrimitiveArrayIndexValue: return transform(
+                    v->PrimitiveArrayIndexValue)
+            case RealLiteral: return transform(v->RealLiteral)
+            case ReusedValue: return transform(v->ReusedValue)
+            case ReusedValueDefinition: return transform(
+                    v->ReusedValueDefinition)
+            case SkippedValue: return transform(v->SkippedValue)
+            case StringLiteral: return transform(v->StringLiteral)
+            case Super: return transform(v->Super)
+            case Tuple: return transform(v->Tuple)
+            case UnaryOperation: return transform(v->UnaryOperation)
+            case Unwrap: return transform(v->Unwrap)
+            case VariableAssignment: return transform(v->VariableAssignment)
+            case VariableReference: return transform(v->VariableReference)
+            default: unreachable
+        }
+    }
+
+    function transform(a:Assert):Assert {
+        def t := transform(a.test)
+        def e := transform(a.error)
+        if t != a.test | e != a.error {
+            return Assert(a.position, t, e)
+        }
+        return a
+    }
+
+    function transform(b:Block):Block {
+        var changed := false
+        def result := Array<Statement>()
+        for s in b.statements {
+            def t := transform(s)
+            changed |= t != s
+            result.add(t)
+        }
+        if changed {
+            return Block(b.position, result)
+        }
+        return b
+    }
+
+    function transform(b:Break):Break {
+        return b
+    }
+
+    function transform(c:Continue):Continue {
+        return c
+    }
+
+    function transform(d:Do):Do {
+        def t := transform(d.test)
+        def s := transform(d.statement)
+        if t != d.test | s != d.statement {
+            return Do(d.position, d.label, t, s)
+        }
+        return d
+    }
+
+    function transform(f:FieldAssignment):FieldAssignment {
+        def o := transform(f.object)
+        def v := transform(f.value)
+        if o != f.object | v != f.value {
+            return FieldAssignment(f.position, o, f.fieldNode, v)
+        }
+        return f
+    }
+
+    function transform(i:If):If {
+        def t := transform(i.test)
+        def s1 := transform(i.thenStatement)
+        def s2 := transform(i.elseStatement)
+        if t != i.test | s1 != i.thenStatement | s2 != i.elseStatement {
+            return If(i.position, t, s1, s2)
+        }
+        return i
+    }
+
+    function transform(l:Loop):Loop {
+        def s := transform(l.statement)
+        if s != l.statement {
+            return Loop(l.position, l.label, s)
+        }
+        return l
+    }
+
+    function transform(l:LoopWithContinueBlock):LoopWithContinueBlock {
+        def s := transform(l.statement)
+        def b := transform(l.continueBlock)
+        if s != l.statement | b != l.continueBlock {
+            return LoopWithContinueBlock(l.position, l.label, s, b)
+        }
+        return l
+    }
+
+    function transform(r:Return):Return {
+        def v := transform(r.value)
+        if v != r.value {
+            return Return(r.position, v)
+        }
+        return r
+    }
+
+    function transform(t:Throw):Throw {
+        def e := transform(t.error)
+        if e != t.error {
+            return Throw(t.position, e)
+        }
+        return t
+    }
+
+    function transform(c:Catch):Catch {
+        def s := transform(c.statement)
+        if s != c.statement {
+            return Catch(c.position, c.error, s)
+        }
+        return c
+    }
+
+    function transform(t:Try):Try {
+        def s := transform(t.statement)
+        def catches := Array<Catch>()
+        var changed := false
+        for c in t.catches {
+            def t := transform(c)
+            changed |= t != c
+            catches.add(t)
+        }
+        if s != t.statement | changed {
+            return Try(t.position, s, catches)
+        }
+        return t
+    }
+
+    function transform(u:Unreachable):Unreachable {
+        def e := transform(u.error)
+        if e != u.error {
+            return Unreachable(u.position, e)
+        }
+        return u
+    }
+
+    function transform(v:ValueStatement):ValueStatement {
+        def t := transform(v.value)
+        if t != v.value {
+            return ValueStatement(t)
+        }
+        return v
+    }
+
+    function transform(v:VariableAssignment):VariableAssignment {
+        def t := transform(v.value)
+        if t != v.value {
+            return VariableAssignment(v.position, v.variable, t, 
+                    v.isInitialValue)
+        }
+        return v
+    }
+
+    function transform(w:While):While {
+        def t := transform(w.test)
+        def s := transform(w.statement)
+        if t != w.test | s != w.statement {
+            return While(w.position, w.label, t, s)
+        }
+        return w
+    }
+
+    function transform(a:ArrayLiteral):ArrayLiteral {
+        def result := Array<Value>()
+        var changed := false
+        for v in a.values {
+            def t := transform(v)
+            changed |= t != v
+            result.add(t)
+        }
+        if changed {
+            return ArrayLiteral(a.position, a.type, result)
+        }
+        return a
+    }
+
+    function transform(b:BinaryOperation):BinaryOperation {
+        def l := transform(b.left)
+        def r := transform(b.right)
+        if l != b.left | r != b.right {
+            return BinaryOperation(b.position, b.kind, l, r)
+        }
+        return b
+    }
+
+    function transform(b:BitLiteral):BitLiteral {
+        return b
+    }
+
+    function transform(c:Cast):Cast {
+        def v := transform(c.value)
+        if v != c.value {
+            return Cast(c.position, v, c.type, c.kind)
+        }
+        return c
+    }
+
+    function transform(c:ClassLiteral):ClassLiteral {
+        return c
+    }
+
+    function transform(c:Closure):Closure {
+        def i := transform(c.instance)
+        if i != c.instance {
+            return Closure(c.position, i, c.type)
+        }
+        return c
+    }
+
+    function transform(c:Construct):Construct {
+        def i := transform(c.initCall)
+        if i != c.initCall {
+            return Construct(i, c.type)
+        }
+        return c
+    }
+
+    function transform(d:DynamicCall):DynamicCall {
+        def m := transform(d.methodValue)
+        def parameters := Array<Value>()
+        var changed := false
+        for v in d.parameters {
+            def t := transform(v)
+            changed |= t != v
+            parameters.add(t)
+        }
+        if m != d.methodValue | changed {
+            return DynamicCall(m, parameters)
+        }
+        return d
+    }
+
+    function transform(f:FieldReference):FieldReference {
+        def o := transform(f.object)
+        if o != f.object {
+            return FieldReference(f.position, o, f.field)
+        }
+        return f
+    }
+
+    function transform(i:IntegerLiteral):IntegerLiteral {
+        return i
+    }
+
+    function transform(m:MethodCall):MethodCall {
+        def t := transform(m.target)
+        def parameters := Array<Value>()
+        var changed := false
+        for v in m.parameters {
+            def t := transform(v)
+            changed |= t != v
+            parameters.add(t)
+        }
+        if t != m.target | changed {
+            return MethodCall(m.position, t, m.methodStub, parameters)
+        }
+        return m
+    }
+
+    function transform(m:MethodReference):MethodReference {
+        def t := transform(m.target)
+        if t != m.target {
+            return MethodReference(m.position, t, m.methodStub)
+        }
+        return m
+    }
+
+    function transform(n:NewPrimitiveArrayWithLength):NewPrimitiveArrayWithLength {
+        def l := transform(n.arrayLength)
+        if l != n.arrayLength {
+            return NewPrimitiveArrayWithLength(n.position, 
+                    n.type->PrimitiveArrayType, l)
+        }
+        return n
+    }
+
+    function transform(n:NewPrimitiveArrayWithValues):NewPrimitiveArrayWithValues {
+        def values := Array<Value>()
+        var changed := false
+        for v in n.values {
+            def t := transform(v)
+            changed |= t != v
+            values.add(t)
+        }
+        if changed {
+            return NewPrimitiveArrayWithValues(n.position, 
+                    n.type->PrimitiveArrayType, values)
+        }
+        return n
+    }
+
+    function transform(n:NullLiteral):NullLiteral {
+        return n
+    }
+
+    function transform(p:PrimitiveArrayCopy):PrimitiveArrayCopy {
+        def v := transform(p.array)
+        if v != p.array {
+            return PrimitiveArrayCopy(p.position, p.type->PrimitiveArrayType, 
+                    v)
+        }
+        return p
+    }
+
+    function transform(p:PrimitiveArrayIndexAssignment):PrimitiveArrayIndexAssignment {
+        def a := transform(p.array)
+        def i := transform(p.index)
+        def v := transform(p.value)
+        if a != p.array | i != p.index | v != p.value {
+            return PrimitiveArrayIndexAssignment(p.position, a, i, v)
+        }
+        return p
+    }
+
+    function transform(p:PrimitiveArrayIndexValue):PrimitiveArrayIndexValue {
+        def a := transform(p.array)
+        def i := transform(p.index)
+        if a != p.array | i != p.index {
+            return PrimitiveArrayIndexValue(a, i)
+        }
+        return p
+    }
+
+    function transform(r:RealLiteral):RealLiteral {
+        return r
+    }
+
+    function transform(r:ReusedValue):ReusedValue {
+        return r
+    }
+
+    function transform(r:ReusedValueDefinition):ReusedValueDefinition {
+        def v := transform(r.value)
+        if v != r.value {
+            return ReusedValueDefinition(v)
+        }
+        return r
+    }
+
+    function transform(s:SkippedValue):SkippedValue {
+        def d := transform(s.discardedValue)
+        def a := transform(s.actualValue)
+        if d != s.discardedValue | a != s.actualValue {
+            return SkippedValue(d, a)
+        }
+        return s
+    }
+
+    function transform(s:StringLiteral):StringLiteral {
+        return s
+    }
+
+    function transform(s:Super):Super {
+        return s
+    }
+
+    function transform(t:Tuple):Tuple {
+        def values := Array<Value>()
+        var changed := false
+        for v in t.values {
+            def v2 := transform(v)
+            changed |= v2 != v
+            values.add(v2)
+        }
+        if changed {
+            return Tuple(t.position, t.type, values)
+        }
+        return t
+    }
+
+    function transform(u:UnaryOperation):UnaryOperation {
+        def o := transform(u.operand)
+        if o != u.operand {
+            return UnaryOperation(u.position, u.kind, o)
+        }
+        return u
+    }
+
+    function transform(u:Unwrap):Unwrap {
+        def o := transform(u.value)
+        if o != u.value {
+            return Unwrap(o)
+        }
+        return u
+    }
+
+    function transform(v:VariableReference):VariableReference {
+        return v
+    }
+}

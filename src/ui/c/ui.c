@@ -23,7 +23,7 @@ panda$ui$events$Event* pandaCreateEvent(SDL_Event* event);
 void panda$ui$UIMessageQueue$pumpEvents(panda$ui$UIMessageQueue* self) {
     panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE* post =
             (panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_INDEX);    
+                self->cl->vtable[panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_INDEX];    
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         post((panda$threads$MessageQueue*) self, 
@@ -34,11 +34,11 @@ void panda$ui$UIMessageQueue$pumpEvents(panda$ui$UIMessageQueue* self) {
 void panda$ui$UIMessageQueue$waitForEvent(panda$ui$UIMessageQueue* self) {
     panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_TYPE* hasMessage =
             (panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_TYPE*) 
-                *(&self->cl->vtable + panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_INDEX);    
+                self->cl->vtable[panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_INDEX];
     if (!hasMessage((panda$threads$MessageQueue*) self)) {
         panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE* post =
                 (panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE*) 
-                    *(&self->cl->vtable + panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_INDEX);    
+                    self->cl->vtable[panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_INDEX];
         SDL_Event event;
         SDL_WaitEvent(&event);
         post((panda$threads$MessageQueue*) self, 
