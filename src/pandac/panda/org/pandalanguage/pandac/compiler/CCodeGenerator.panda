@@ -345,7 +345,7 @@ class CCodeGenerator (CodeGenerator) {
         if m.base != null {
             return getName(m.base)
         }
-        return methodNamer.getName(m)
+        return methodNamer.getName(unwrapUnspecified(m))
     }
 
     @private
@@ -436,7 +436,7 @@ class CCodeGenerator (CodeGenerator) {
     @private
     function unwrapUnspecified(m:MethodStub):MethodStub {
         def stub := getStub(m.owner)
-        if stub.annotations.isUnspecified {
+        if stub.annotations.isUnspecified & m.owner-?>GenericType {
             def base := m.owner->GenericType.base
             def args := Array<Type>()
             for (_, type) in getStub(base).genericParameters {
@@ -470,12 +470,12 @@ class CCodeGenerator (CodeGenerator) {
     @protected
     function getMethodIndex(var m:MethodStub):Int {
         m := m.unwrapped
-        for (i, m2) in m.owner.virtualMethods(context).enumeration {
+        for (i, m2) in m.owner.virtualMethods(context.stubGenerator).enumeration {
             if m = m2.unwrapped {
                 return i
             }
         }
-        unreachable : "\{m} not found in class \{m.owner.name} (\{m.owner.virtualMethods(context)})"
+        unreachable : "\{m} not found in class \{m.owner.name} (\{m.owner.virtualMethods(context.stubGenerator)})"
     }
 
     ============================================================================
@@ -1431,7 +1431,7 @@ class CCodeGenerator (CodeGenerator) {
             structs.writeLine("    .next = \{itable},")
             structs.writeLine("    .methods = {")
             var separator := ""
-            for m in cl.type.interfaceMethods(intf, context) {
+            for m in cl.type.interfaceMethods(intf, context.stubGenerator) {
                 structs.write(separator)
                 separator := ", "
                 if m.annotations.isAbstract {
@@ -1479,7 +1479,7 @@ class CCodeGenerator (CodeGenerator) {
         structs.writeLine(".itables = \{itable},")
         structs.writeLine(".vtable = {")
         var separator := ""
-        for m in cl.type.virtualMethods(context) {
+        for m in cl.type.virtualMethods(context.stubGenerator) {
             structs.write(separator)
             separator := ", "
             if m.annotations.isAbstract {

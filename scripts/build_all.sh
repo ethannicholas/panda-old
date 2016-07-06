@@ -35,7 +35,10 @@ fi
 echo "Creating parser..."
 mkdir -p $NATIVE_TARGET
 mkdir -p $SHARED_TARGET
-$PANDAC -O -o $NATIVE_TARGET/parsergenerator src/pandac/parser/ParserGenerator.panda bootstrap/GrammarParser.panda bootstrap/ErrorParser.panda
+#$PANDAC -o $NATIVE_TARGET/parsergenerator.c -f c src/pandac/parser/ParserGenerator.panda bootstrap/GrammarParser.panda bootstrap/ErrorParser.panda
+#gcc -g -Wno-parentheses-equality -L/opt/local/lib -Lbuild/native/core/c -Lbuild/native/core/lib -lpanda -lgc -licui18n -licuuc -licudata -lc++abi -I bootstrap/include -I src/core/c -I /opt/local/include $NATIVE_TARGET/parsergenerator.c -o $NATIVE_TARGET/parsergenerator
+$PANDAC -o $NATIVE_TARGET/parsergenerator src/pandac/parser/ParserGenerator.panda bootstrap/GrammarParser.panda bootstrap/ErrorParser.panda
+$NATIVE_TARGET/parsergenerator src/pandac/parser/panda.grammar src/pandac/parser/panda.errors $SHARED_TARGET/PandaLRParser.panda
 
 echo "Compiling pandac..."
 

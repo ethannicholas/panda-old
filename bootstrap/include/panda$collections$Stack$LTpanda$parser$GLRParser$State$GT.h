@@ -6,7 +6,7 @@ extern panda$core$Class panda$collections$Stack$LTpanda$parser$GLRParser$State$G
 #define CLASS_panda$collections$Stack$LTpanda$parser$GLRParser$State$GT
 struct panda$collections$Stack$LTpanda$parser$GLRParser$State$GT {
     panda$core$Class* cl;
-    panda$collections$List$LTpanda$parser$GLRParser$State$GT* contents;
+    panda$collections$Array$LTpanda$parser$GLRParser$State$GT* contents;
 };
 
 #define panda$collections$Stack$LTpanda$parser$GLRParser$State$GT$convert_$Rpanda$core$String_INDEX 1

@@ -156,14 +156,6 @@ typedef struct panda$core$MutableString panda$core$MutableString;
 #define panda$collections$PrimitiveArray$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT_TYPEDEF
 typedef struct panda$collections$PrimitiveArray$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT panda$collections$PrimitiveArray$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT;
 #endif
-#ifndef panda$collections$Array$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$Array$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$Array$LTpanda$parser$GLRParser$State$GT panda$collections$Array$LTpanda$parser$GLRParser$State$GT;
-#endif
-#ifndef panda$collections$Enumerator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$Enumerator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$Enumerator$LTpanda$parser$GLRParser$State$GT panda$collections$Enumerator$LTpanda$parser$GLRParser$State$GT;
-#endif
 #ifndef panda$core$UInt64Wrapper_TYPEDEF
 #define panda$core$UInt64Wrapper_TYPEDEF
 typedef struct panda$core$UInt64Wrapper panda$core$UInt64Wrapper;
@@ -180,13 +172,13 @@ typedef struct panda$collections$Array$LTpanda$core$UInt16$GT panda$collections$
 #define panda$core$UIntIterator$LTpanda$core$UInt8$Cpanda$core$Int8$GT_TYPEDEF
 typedef struct panda$core$UIntIterator$LTpanda$core$UInt8$Cpanda$core$Int8$GT panda$core$UIntIterator$LTpanda$core$UInt8$Cpanda$core$Int8$GT;
 #endif
-#ifndef panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
-#define panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
-typedef struct panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT;
-#endif
 #ifndef panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$ParseError$GT_TYPEDEF
 #define panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$ParseError$GT_TYPEDEF
 typedef struct panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$ParseError$GT panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$ParseError$GT;
+#endif
+#ifndef panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
+#define panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
+typedef struct panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT;
 #endif
 #ifndef panda$collections$Iterable$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT_TYPEDEF
 #define panda$collections$Iterable$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT_TYPEDEF
@@ -200,14 +192,6 @@ typedef struct panda$collections$CollectionView$LTpanda$core$Real64$GT panda$col
 #define panda$collections$FilterIterator$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
 typedef struct panda$collections$FilterIterator$LTpanda$core$Int64Wrapper$Z$GT panda$collections$FilterIterator$LTpanda$core$Int64Wrapper$Z$GT;
 #endif
-#ifndef panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT_TYPEDEF
-#define panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT_TYPEDEF
-typedef struct panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT;
-#endif
-#ifndef panda$collections$List$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$List$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$List$LTpanda$parser$GLRParser$State$GT panda$collections$List$LTpanda$parser$GLRParser$State$GT;
-#endif
 #ifndef panda$collections$ImmutableArray$LTpanda$core$UInt8$GT_TYPEDEF
 #define panda$collections$ImmutableArray$LTpanda$core$UInt8$GT_TYPEDEF
 typedef struct panda$collections$ImmutableArray$LTpanda$core$UInt8$GT panda$collections$ImmutableArray$LTpanda$core$UInt8$GT;
@@ -219,10 +203,6 @@ typedef struct panda$collections$FilterIterator$LTpanda$core$String$Z$GT panda$c
 #ifndef panda$collections$HashMapIterator$LTpanda$core$Int64$Cpanda$core$Object$Z$C$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT_TYPEDEF
 #define panda$collections$HashMapIterator$LTpanda$core$Int64$Cpanda$core$Object$Z$C$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT_TYPEDEF
 typedef struct panda$collections$HashMapIterator$LTpanda$core$Int64$Cpanda$core$Object$Z$C$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT panda$collections$HashMapIterator$LTpanda$core$Int64$Cpanda$core$Object$Z$C$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT;
-#endif
-#ifndef panda$collections$Iterable$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$Iterable$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$Iterable$LTpanda$parser$GLRParser$State$GT panda$collections$Iterable$LTpanda$parser$GLRParser$State$GT;
 #endif
 #ifndef panda$collections$Iterator$LTpanda$core$Char$GT_TYPEDEF
 #define panda$collections$Iterator$LTpanda$core$Char$GT_TYPEDEF
@@ -292,10 +272,6 @@ typedef struct panda$collections$CollectionWriter$LTpanda$core$Object$GT panda$c
 #define $LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$Z$RP_TYPEDEF
 typedef struct $LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$Z$RP $LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$Z$RP;
 #endif
-#ifndef panda$collections$CollectionWriter$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$CollectionWriter$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$CollectionWriter$LTpanda$parser$GLRParser$State$GT panda$collections$CollectionWriter$LTpanda$parser$GLRParser$State$GT;
-#endif
 #ifndef panda$collections$FilterIterator$LTpanda$core$Int32$GT_TYPEDEF
 #define panda$collections$FilterIterator$LTpanda$core$Int32$GT_TYPEDEF
 typedef struct panda$collections$FilterIterator$LTpanda$core$Int32$GT panda$collections$FilterIterator$LTpanda$core$Int32$GT;
@@ -324,13 +300,13 @@ typedef struct panda$core$ParseException panda$core$ParseException;
 #define panda$collections$Iterable$LTpanda$core$Char$GT_TYPEDEF
 typedef struct panda$collections$Iterable$LTpanda$core$Char$GT panda$collections$Iterable$LTpanda$core$Char$GT;
 #endif
-#ifndef panda$collections$FilterIterator$LTpanda$core$UInt32$GT_TYPEDEF
-#define panda$collections$FilterIterator$LTpanda$core$UInt32$GT_TYPEDEF
-typedef struct panda$collections$FilterIterator$LTpanda$core$UInt32$GT panda$collections$FilterIterator$LTpanda$core$UInt32$GT;
-#endif
 #ifndef panda$core$System$OperatingEnvironmentInfo_TYPEDEF
 #define panda$core$System$OperatingEnvironmentInfo_TYPEDEF
 typedef struct panda$core$System$OperatingEnvironmentInfo panda$core$System$OperatingEnvironmentInfo;
+#endif
+#ifndef panda$collections$FilterIterator$LTpanda$core$UInt32$GT_TYPEDEF
+#define panda$collections$FilterIterator$LTpanda$core$UInt32$GT_TYPEDEF
+typedef struct panda$collections$FilterIterator$LTpanda$core$UInt32$GT panda$collections$FilterIterator$LTpanda$core$UInt32$GT;
 #endif
 #ifndef panda$collections$Iterator$LTpanda$core$Int64$GT_TYPEDEF
 #define panda$collections$Iterator$LTpanda$core$Int64$GT_TYPEDEF
@@ -340,13 +316,13 @@ typedef struct panda$collections$Iterator$LTpanda$core$Int64$GT panda$collection
 #define panda$collections$ListWriter$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
 typedef struct panda$collections$ListWriter$LTpanda$core$Int64Wrapper$Z$GT panda$collections$ListWriter$LTpanda$core$Int64Wrapper$Z$GT;
 #endif
-#ifndef panda$collections$List$LTpanda$io$File$GT_TYPEDEF
-#define panda$collections$List$LTpanda$io$File$GT_TYPEDEF
-typedef struct panda$collections$List$LTpanda$io$File$GT panda$collections$List$LTpanda$io$File$GT;
-#endif
 #ifndef panda$collections$CollectionView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 #define panda$collections$CollectionView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 typedef struct panda$collections$CollectionView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT panda$collections$CollectionView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT;
+#endif
+#ifndef panda$collections$List$LTpanda$io$File$GT_TYPEDEF
+#define panda$collections$List$LTpanda$io$File$GT_TYPEDEF
+typedef struct panda$collections$List$LTpanda$io$File$GT panda$collections$List$LTpanda$io$File$GT;
 #endif
 #ifndef panda$collections$ImmutablePrimitiveArray$LTpanda$core$Real32$GT_TYPEDEF
 #define panda$collections$ImmutablePrimitiveArray$LTpanda$core$Real32$GT_TYPEDEF
@@ -508,13 +484,13 @@ typedef struct panda$util$JSONParser$closure36 panda$util$JSONParser$closure36;
 #define panda$util$JSONParser$closure33_TYPEDEF
 typedef struct panda$util$JSONParser$closure33 panda$util$JSONParser$closure33;
 #endif
-#ifndef panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT_TYPEDEF
-#define panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT_TYPEDEF
-typedef struct panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT;
-#endif
 #ifndef panda$util$JSONParser$closure34_TYPEDEF
 #define panda$util$JSONParser$closure34_TYPEDEF
 typedef struct panda$util$JSONParser$closure34 panda$util$JSONParser$closure34;
+#endif
+#ifndef panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT_TYPEDEF
+#define panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT_TYPEDEF
+typedef struct panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT;
 #endif
 #ifndef panda$collections$ListWriter$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
 #define panda$collections$ListWriter$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
@@ -579,10 +555,6 @@ typedef struct panda$collections$ImmutableArray$LTpanda$core$String$GT panda$col
 #ifndef panda$collections$Iterator$LT$LPpanda$core$Int64$C$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$RP$GT_TYPEDEF
 #define panda$collections$Iterator$LT$LPpanda$core$Int64$C$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$RP$GT_TYPEDEF
 typedef struct panda$collections$Iterator$LT$LPpanda$core$Int64$C$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$RP$GT panda$collections$Iterator$LT$LPpanda$core$Int64$C$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$RP$GT;
-#endif
-#ifndef panda$collections$ListWriter$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$ListWriter$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$ListWriter$LTpanda$parser$GLRParser$State$GT panda$collections$ListWriter$LTpanda$parser$GLRParser$State$GT;
 #endif
 #ifndef panda$core$MutableMethod_TYPEDEF
 #define panda$core$MutableMethod_TYPEDEF
@@ -680,21 +652,21 @@ typedef struct panda$util$JSONParser$closure47 panda$util$JSONParser$closure47;
 #define panda$util$JSONParser$closure125_TYPEDEF
 typedef struct panda$util$JSONParser$closure125 panda$util$JSONParser$closure125;
 #endif
-#ifndef panda$util$JSONParser$closure124_TYPEDEF
-#define panda$util$JSONParser$closure124_TYPEDEF
-typedef struct panda$util$JSONParser$closure124 panda$util$JSONParser$closure124;
-#endif
 #ifndef panda$util$JSONParser$closure48_TYPEDEF
 #define panda$util$JSONParser$closure48_TYPEDEF
 typedef struct panda$util$JSONParser$closure48 panda$util$JSONParser$closure48;
 #endif
-#ifndef panda$util$JSONParser$closure123_TYPEDEF
-#define panda$util$JSONParser$closure123_TYPEDEF
-typedef struct panda$util$JSONParser$closure123 panda$util$JSONParser$closure123;
+#ifndef panda$util$JSONParser$closure124_TYPEDEF
+#define panda$util$JSONParser$closure124_TYPEDEF
+typedef struct panda$util$JSONParser$closure124 panda$util$JSONParser$closure124;
 #endif
 #ifndef panda$util$JSONParser$closure49_TYPEDEF
 #define panda$util$JSONParser$closure49_TYPEDEF
 typedef struct panda$util$JSONParser$closure49 panda$util$JSONParser$closure49;
+#endif
+#ifndef panda$util$JSONParser$closure123_TYPEDEF
+#define panda$util$JSONParser$closure123_TYPEDEF
+typedef struct panda$util$JSONParser$closure123 panda$util$JSONParser$closure123;
 #endif
 #ifndef panda$util$JSONParser$closure122_TYPEDEF
 #define panda$util$JSONParser$closure122_TYPEDEF
@@ -772,13 +744,13 @@ typedef struct panda$util$JSONParser$closure23 panda$util$JSONParser$closure23;
 #define panda$util$JSONParser$closure20_TYPEDEF
 typedef struct panda$util$JSONParser$closure20 panda$util$JSONParser$closure20;
 #endif
-#ifndef panda$collections$CollectionView$LTpanda$core$String$Z$GT_TYPEDEF
-#define panda$collections$CollectionView$LTpanda$core$String$Z$GT_TYPEDEF
-typedef struct panda$collections$CollectionView$LTpanda$core$String$Z$GT panda$collections$CollectionView$LTpanda$core$String$Z$GT;
-#endif
 #ifndef panda$util$JSONParser$closure21_TYPEDEF
 #define panda$util$JSONParser$closure21_TYPEDEF
 typedef struct panda$util$JSONParser$closure21 panda$util$JSONParser$closure21;
+#endif
+#ifndef panda$collections$CollectionView$LTpanda$core$String$Z$GT_TYPEDEF
+#define panda$collections$CollectionView$LTpanda$core$String$Z$GT_TYPEDEF
+typedef struct panda$collections$CollectionView$LTpanda$core$String$Z$GT panda$collections$CollectionView$LTpanda$core$String$Z$GT;
 #endif
 #ifndef panda$util$JSONParser$closure201_TYPEDEF
 #define panda$util$JSONParser$closure201_TYPEDEF
@@ -948,13 +920,13 @@ typedef struct panda$core$MathError panda$core$MathError;
 #define panda$collections$ImmutablePrimitiveArray$LTpanda$core$UInt8$GT_TYPEDEF
 typedef struct panda$collections$ImmutablePrimitiveArray$LTpanda$core$UInt8$GT panda$collections$ImmutablePrimitiveArray$LTpanda$core$UInt8$GT;
 #endif
-#ifndef panda$collections$ListWriter$LTpanda$core$String$Z$GT_TYPEDEF
-#define panda$collections$ListWriter$LTpanda$core$String$Z$GT_TYPEDEF
-typedef struct panda$collections$ListWriter$LTpanda$core$String$Z$GT panda$collections$ListWriter$LTpanda$core$String$Z$GT;
-#endif
 #ifndef panda$collections$ListWriter$LTpanda$core$Real32$GT_TYPEDEF
 #define panda$collections$ListWriter$LTpanda$core$Real32$GT_TYPEDEF
 typedef struct panda$collections$ListWriter$LTpanda$core$Real32$GT panda$collections$ListWriter$LTpanda$core$Real32$GT;
+#endif
+#ifndef panda$collections$ListWriter$LTpanda$core$String$Z$GT_TYPEDEF
+#define panda$collections$ListWriter$LTpanda$core$String$Z$GT_TYPEDEF
+typedef struct panda$collections$ListWriter$LTpanda$core$String$Z$GT panda$collections$ListWriter$LTpanda$core$String$Z$GT;
 #endif
 #ifndef panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$RP$GT_TYPEDEF
 #define panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$RP$GT_TYPEDEF
@@ -995,10 +967,6 @@ typedef struct panda$collections$List$LTpanda$parser$GLRParser$Action$GT panda$c
 #ifndef panda$collections$List$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 #define panda$collections$List$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 typedef struct panda$collections$List$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT panda$collections$List$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT;
-#endif
-#ifndef panda$collections$FilterIterator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$FilterIterator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$FilterIterator$LTpanda$parser$GLRParser$State$GT panda$collections$FilterIterator$LTpanda$parser$GLRParser$State$GT;
 #endif
 #ifndef panda$collections$ListView$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
 #define panda$collections$ListView$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
@@ -1124,13 +1092,13 @@ typedef struct panda$collections$Array$LTpanda$core$Object$GT panda$collections$
 #define panda$collections$FilterIterator$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT_TYPEDEF
 typedef struct panda$collections$FilterIterator$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT panda$collections$FilterIterator$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT;
 #endif
-#ifndef panda$collections$Iterable$LTpanda$core$Int64$GT_TYPEDEF
-#define panda$collections$Iterable$LTpanda$core$Int64$GT_TYPEDEF
-typedef struct panda$collections$Iterable$LTpanda$core$Int64$GT panda$collections$Iterable$LTpanda$core$Int64$GT;
-#endif
 #ifndef panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT_TYPEDEF
 #define panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT_TYPEDEF
 typedef struct panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT;
+#endif
+#ifndef panda$collections$Iterable$LTpanda$core$Int64$GT_TYPEDEF
+#define panda$collections$Iterable$LTpanda$core$Int64$GT_TYPEDEF
+typedef struct panda$collections$Iterable$LTpanda$core$Int64$GT panda$collections$Iterable$LTpanda$core$Int64$GT;
 #endif
 #ifndef panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$RP$GT_TYPEDEF
 #define panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$RP$GT_TYPEDEF
@@ -1144,9 +1112,9 @@ typedef struct panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GL
 #define panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT_TYPEDEF
 typedef struct panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT;
 #endif
-#ifndef panda$collections$Stack$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$Stack$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$Stack$LTpanda$parser$GLRParser$State$GT panda$collections$Stack$LTpanda$parser$GLRParser$State$GT;
+#ifndef panda$collections$Stack_TYPEDEF
+#define panda$collections$Stack_TYPEDEF
+typedef struct panda$collections$Stack panda$collections$Stack;
 #endif
 #ifndef panda$io$MemoryOutputStream_TYPEDEF
 #define panda$io$MemoryOutputStream_TYPEDEF
@@ -1207,10 +1175,6 @@ typedef struct panda$collections$PrimitiveArray$LTpanda$core$UInt32$GT panda$col
 #ifndef panda$collections$ListIterator$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
 #define panda$collections$ListIterator$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
 typedef struct panda$collections$ListIterator$LTpanda$parser$GLRParser$Action$Z$GT panda$collections$ListIterator$LTpanda$parser$GLRParser$Action$Z$GT;
-#endif
-#ifndef panda$collections$Iterator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$Iterator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$Iterator$LTpanda$parser$GLRParser$State$GT panda$collections$Iterator$LTpanda$parser$GLRParser$State$GT;
 #endif
 #ifndef panda$collections$PrimitiveArray_TYPEDEF
 #define panda$collections$PrimitiveArray_TYPEDEF
@@ -1296,10 +1260,6 @@ typedef struct panda$collections$FilterIterator$LTpanda$core$UInt8$GT panda$coll
 #define panda$collections$List$LTpanda$core$Real64$GT_TYPEDEF
 typedef struct panda$collections$List$LTpanda$core$Real64$GT panda$collections$List$LTpanda$core$Real64$GT;
 #endif
-#ifndef panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT_TYPEDEF
-#define panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT_TYPEDEF
-typedef struct panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT;
-#endif
 #ifndef panda$collections$Enumerator$LTpanda$core$Char$GT_TYPEDEF
 #define panda$collections$Enumerator$LTpanda$core$Char$GT_TYPEDEF
 typedef struct panda$collections$Enumerator$LTpanda$core$Char$GT panda$collections$Enumerator$LTpanda$core$Char$GT;
@@ -1364,33 +1324,29 @@ typedef struct $LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$RP $LPpanda$co
 #define panda$collections$CollectionView$LTpanda$core$Object$Z$GT_TYPEDEF
 typedef struct panda$collections$CollectionView$LTpanda$core$Object$Z$GT panda$collections$CollectionView$LTpanda$core$Object$Z$GT;
 #endif
-#ifndef panda$collections$CollectionView$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$CollectionView$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$CollectionView$LTpanda$parser$GLRParser$State$GT panda$collections$CollectionView$LTpanda$parser$GLRParser$State$GT;
-#endif
 #ifndef panda$collections$Enumerator$LTpanda$core$String$GT_TYPEDEF
 #define panda$collections$Enumerator$LTpanda$core$String$GT_TYPEDEF
 typedef struct panda$collections$Enumerator$LTpanda$core$String$GT panda$collections$Enumerator$LTpanda$core$String$GT;
-#endif
-#ifndef panda$threads$Pipe_TYPEDEF
-#define panda$threads$Pipe_TYPEDEF
-typedef struct panda$threads$Pipe panda$threads$Pipe;
 #endif
 #ifndef panda$collections$ListWriter$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 #define panda$collections$ListWriter$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 typedef struct panda$collections$ListWriter$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT panda$collections$ListWriter$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT;
 #endif
+#ifndef panda$threads$Pipe_TYPEDEF
+#define panda$threads$Pipe_TYPEDEF
+typedef struct panda$threads$Pipe panda$threads$Pipe;
+#endif
 #ifndef panda$math$SharedRandom_TYPEDEF
 #define panda$math$SharedRandom_TYPEDEF
 typedef struct panda$math$SharedRandom panda$math$SharedRandom;
 #endif
-#ifndef panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
-#define panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
-typedef struct panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT;
-#endif
 #ifndef panda$core$CastError_TYPEDEF
 #define panda$core$CastError_TYPEDEF
 typedef struct panda$core$CastError panda$core$CastError;
+#endif
+#ifndef panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
+#define panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
+typedef struct panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT;
 #endif
 #ifndef panda$collections$Iterable$LTpanda$core$UInt8$GT_TYPEDEF
 #define panda$collections$Iterable$LTpanda$core$UInt8$GT_TYPEDEF
@@ -1399,10 +1355,6 @@ typedef struct panda$collections$Iterable$LTpanda$core$UInt8$GT panda$collection
 #ifndef panda$core$InternalError_TYPEDEF
 #define panda$core$InternalError_TYPEDEF
 typedef struct panda$core$InternalError panda$core$InternalError;
-#endif
-#ifndef $LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP_TYPEDEF
-#define $LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP_TYPEDEF
-typedef struct $LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP $LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP;
 #endif
 #ifndef panda$collections$PrimitiveArray$LTpanda$core$Real32$GT_TYPEDEF
 #define panda$collections$PrimitiveArray$LTpanda$core$Real32$GT_TYPEDEF
@@ -1488,13 +1440,13 @@ typedef struct panda$collections$PrimitiveArray$LTpanda$core$Object$Z$GT panda$c
 #define panda$util$JSONParser$closure99_TYPEDEF
 typedef struct panda$util$JSONParser$closure99 panda$util$JSONParser$closure99;
 #endif
-#ifndef panda$collections$ListView$LTpanda$core$Immutable$GT_TYPEDEF
-#define panda$collections$ListView$LTpanda$core$Immutable$GT_TYPEDEF
-typedef struct panda$collections$ListView$LTpanda$core$Immutable$GT panda$collections$ListView$LTpanda$core$Immutable$GT;
-#endif
 #ifndef panda$collections$Iterator$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
 #define panda$collections$Iterator$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
 typedef struct panda$collections$Iterator$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT panda$collections$Iterator$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT;
+#endif
+#ifndef panda$collections$ListView$LTpanda$core$Immutable$GT_TYPEDEF
+#define panda$collections$ListView$LTpanda$core$Immutable$GT_TYPEDEF
+typedef struct panda$collections$ListView$LTpanda$core$Immutable$GT panda$collections$ListView$LTpanda$core$Immutable$GT;
 #endif
 #ifndef panda$util$JSONParser$closure95_TYPEDEF
 #define panda$util$JSONParser$closure95_TYPEDEF
@@ -1567,10 +1519,6 @@ typedef struct panda$collections$ListIterator$LTpanda$core$UInt32$GT panda$colle
 #ifndef panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
 #define panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
 typedef struct panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$Action$Z$GT panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$Action$Z$GT;
-#endif
-#ifndef panda$collections$ListIterator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$ListIterator$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$ListIterator$LTpanda$parser$GLRParser$State$GT panda$collections$ListIterator$LTpanda$parser$GLRParser$State$GT;
 #endif
 #ifndef panda$collections$CollectionWriter$LTpanda$core$Char$GT_TYPEDEF
 #define panda$collections$CollectionWriter$LTpanda$core$Char$GT_TYPEDEF
@@ -1844,10 +1792,6 @@ typedef struct panda$collections$Iterator$LT$LPpanda$core$Immutable$Cpanda$core$
 #define panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$core$UInt16$RP$GT_TYPEDEF
 typedef struct panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$core$UInt16$RP$GT panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$core$UInt16$RP$GT;
 #endif
-#ifndef panda$collections$ListView$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$ListView$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$ListView$LTpanda$parser$GLRParser$State$GT panda$collections$ListView$LTpanda$parser$GLRParser$State$GT;
-#endif
 #ifndef panda$collections$CollectionWriter$LTpanda$core$String$Z$GT_TYPEDEF
 #define panda$collections$CollectionWriter$LTpanda$core$String$Z$GT_TYPEDEF
 typedef struct panda$collections$CollectionWriter$LTpanda$core$String$Z$GT panda$collections$CollectionWriter$LTpanda$core$String$Z$GT;
@@ -1855,6 +1799,10 @@ typedef struct panda$collections$CollectionWriter$LTpanda$core$String$Z$GT panda
 #ifndef panda$collections$Enumerator$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
 #define panda$collections$Enumerator$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
 typedef struct panda$collections$Enumerator$LTpanda$parser$GLRParser$Action$Z$GT panda$collections$Enumerator$LTpanda$parser$GLRParser$Action$Z$GT;
+#endif
+#ifndef panda$collections$Stack_TYPEDEF
+#define panda$collections$Stack_TYPEDEF
+typedef struct panda$collections$Stack panda$collections$Stack;
 #endif
 #ifndef panda$collections$Enumerator$LTpanda$core$Real64$GT_TYPEDEF
 #define panda$collections$Enumerator$LTpanda$core$Real64$GT_TYPEDEF
@@ -2084,13 +2032,13 @@ typedef struct panda$util$JSONParser$closure4 panda$util$JSONParser$closure4;
 #define panda$util$JSONParser$closure3_TYPEDEF
 typedef struct panda$util$JSONParser$closure3 panda$util$JSONParser$closure3;
 #endif
-#ifndef panda$collections$ListView$LTpanda$core$Int8$GT_TYPEDEF
-#define panda$collections$ListView$LTpanda$core$Int8$GT_TYPEDEF
-typedef struct panda$collections$ListView$LTpanda$core$Int8$GT panda$collections$ListView$LTpanda$core$Int8$GT;
-#endif
 #ifndef panda$util$JSONParser$closure2_TYPEDEF
 #define panda$util$JSONParser$closure2_TYPEDEF
 typedef struct panda$util$JSONParser$closure2 panda$util$JSONParser$closure2;
+#endif
+#ifndef panda$collections$ListView$LTpanda$core$Int8$GT_TYPEDEF
+#define panda$collections$ListView$LTpanda$core$Int8$GT_TYPEDEF
+typedef struct panda$collections$ListView$LTpanda$core$Int8$GT panda$collections$ListView$LTpanda$core$Int8$GT;
 #endif
 #ifndef panda$util$JSONParser$closure1_TYPEDEF
 #define panda$util$JSONParser$closure1_TYPEDEF
@@ -2148,13 +2096,13 @@ typedef struct panda$collections$ImmutablePrimitiveArray$LT$LPpanda$core$Immutab
 #define panda$collections$ImmutableArray$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT_TYPEDEF
 typedef struct panda$collections$ImmutableArray$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT panda$collections$ImmutableArray$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT;
 #endif
-#ifndef panda$core$System_TYPEDEF
-#define panda$core$System_TYPEDEF
-typedef struct panda$core$System panda$core$System;
-#endif
 #ifndef panda$collections$Iterable$LTpanda$core$String$Z$GT_TYPEDEF
 #define panda$collections$Iterable$LTpanda$core$String$Z$GT_TYPEDEF
 typedef struct panda$collections$Iterable$LTpanda$core$String$Z$GT panda$collections$Iterable$LTpanda$core$String$Z$GT;
+#endif
+#ifndef panda$core$System_TYPEDEF
+#define panda$core$System_TYPEDEF
+typedef struct panda$core$System panda$core$System;
 #endif
 #ifndef panda$collections$Enumerator$LTpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$GT_TYPEDEF
 #define panda$collections$Enumerator$LTpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$GT_TYPEDEF
@@ -2163,6 +2111,10 @@ typedef struct panda$collections$Enumerator$LTpanda$collections$ImmutableArray$L
 #ifndef panda$collections$ImmutableArray$LTpanda$core$Immutable$GT_TYPEDEF
 #define panda$collections$ImmutableArray$LTpanda$core$Immutable$GT_TYPEDEF
 typedef struct panda$collections$ImmutableArray$LTpanda$core$Immutable$GT panda$collections$ImmutableArray$LTpanda$core$Immutable$GT;
+#endif
+#ifndef panda$collections$Stack_TYPEDEF
+#define panda$collections$Stack_TYPEDEF
+typedef struct panda$collections$Stack panda$collections$Stack;
 #endif
 #ifndef panda$collections$FilterIterator$LTpanda$core$Real32$GT_TYPEDEF
 #define panda$collections$FilterIterator$LTpanda$core$Real32$GT_TYPEDEF
@@ -2308,6 +2260,10 @@ typedef struct panda$collections$ListView$LTpanda$collections$ImmutableArray$LTp
 #define panda$collections$CollectionWriter$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT_TYPEDEF
 typedef struct panda$collections$CollectionWriter$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT panda$collections$CollectionWriter$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT;
 #endif
+#ifndef panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
+#define panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
+typedef struct panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT;
+#endif
 #ifndef $LPpanda$core$Immutable$Cpanda$core$Immutable$RP_TYPEDEF
 #define $LPpanda$core$Immutable$Cpanda$core$Immutable$RP_TYPEDEF
 typedef struct $LPpanda$core$Immutable$Cpanda$core$Immutable$RP $LPpanda$core$Immutable$Cpanda$core$Immutable$RP;
@@ -2315,10 +2271,6 @@ typedef struct $LPpanda$core$Immutable$Cpanda$core$Immutable$RP $LPpanda$core$Im
 #ifndef panda$collections$CollectionView$LTpanda$core$Char$GT_TYPEDEF
 #define panda$collections$CollectionView$LTpanda$core$Char$GT_TYPEDEF
 typedef struct panda$collections$CollectionView$LTpanda$core$Char$GT panda$collections$CollectionView$LTpanda$core$Char$GT;
-#endif
-#ifndef panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
-#define panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT_TYPEDEF
-typedef struct panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT;
 #endif
 #ifndef panda$util$JSONParser_TYPEDEF
 #define panda$util$JSONParser_TYPEDEF
@@ -2360,13 +2312,13 @@ typedef struct panda$collections$Iterable$LTpanda$core$Real32$GT panda$collectio
 #define panda$parser$GLRParser$Action_TYPEDEF
 typedef struct panda$parser$GLRParser$Action panda$parser$GLRParser$Action;
 #endif
-#ifndef panda$core$Exception_TYPEDEF
-#define panda$core$Exception_TYPEDEF
-typedef struct panda$core$Exception panda$core$Exception;
-#endif
 #ifndef panda$collections$ListView$LTpanda$core$Int64$GT_TYPEDEF
 #define panda$collections$ListView$LTpanda$core$Int64$GT_TYPEDEF
 typedef struct panda$collections$ListView$LTpanda$core$Int64$GT panda$collections$ListView$LTpanda$core$Int64$GT;
+#endif
+#ifndef panda$core$Exception_TYPEDEF
+#define panda$core$Exception_TYPEDEF
+typedef struct panda$core$Exception panda$core$Exception;
 #endif
 #ifndef panda$collections$Enumerator$LTpanda$core$Object$Z$GT_TYPEDEF
 #define panda$collections$Enumerator$LTpanda$core$Object$Z$GT_TYPEDEF
@@ -2508,13 +2460,13 @@ typedef struct panda$collections$FilterIterator$LTpanda$core$Real64$GT panda$col
 #define panda$collections$Iterable$LTpanda$core$UInt32$GT_TYPEDEF
 typedef struct panda$collections$Iterable$LTpanda$core$UInt32$GT panda$collections$Iterable$LTpanda$core$UInt32$GT;
 #endif
-#ifndef panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT_TYPEDEF
-#define panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT_TYPEDEF
-typedef struct panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT;
-#endif
 #ifndef panda$collections$Iterable$LTpanda$parser$GLRParser$ParseError$GT_TYPEDEF
 #define panda$collections$Iterable$LTpanda$parser$GLRParser$ParseError$GT_TYPEDEF
 typedef struct panda$collections$Iterable$LTpanda$parser$GLRParser$ParseError$GT panda$collections$Iterable$LTpanda$parser$GLRParser$ParseError$GT;
+#endif
+#ifndef panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT_TYPEDEF
+#define panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT_TYPEDEF
+typedef struct panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT;
 #endif
 #ifndef panda$collections$MapView$LTpanda$core$Int64$Cpanda$core$Object$Z$GT_TYPEDEF
 #define panda$collections$MapView$LTpanda$core$Int64$Cpanda$core$Object$Z$GT_TYPEDEF
@@ -2620,13 +2572,13 @@ typedef struct panda$collections$Iterable$LTpanda$core$Object$Z$GT panda$collect
 #define panda$collections$Iterable$LTpanda$core$Immutable$GT_TYPEDEF
 typedef struct panda$collections$Iterable$LTpanda$core$Immutable$GT panda$collections$Iterable$LTpanda$core$Immutable$GT;
 #endif
-#ifndef panda$core$ParameterError_TYPEDEF
-#define panda$core$ParameterError_TYPEDEF
-typedef struct panda$core$ParameterError panda$core$ParameterError;
-#endif
 #ifndef panda$collections$CollectionWriter$LTpanda$core$UInt16$GT_TYPEDEF
 #define panda$collections$CollectionWriter$LTpanda$core$UInt16$GT_TYPEDEF
 typedef struct panda$collections$CollectionWriter$LTpanda$core$UInt16$GT panda$collections$CollectionWriter$LTpanda$core$UInt16$GT;
+#endif
+#ifndef panda$core$ParameterError_TYPEDEF
+#define panda$core$ParameterError_TYPEDEF
+typedef struct panda$core$ParameterError panda$core$ParameterError;
 #endif
 #ifndef panda$collections$CollectionWriter$LTpanda$core$String$GT_TYPEDEF
 #define panda$collections$CollectionWriter$LTpanda$core$String$GT_TYPEDEF
@@ -2648,13 +2600,13 @@ typedef struct panda$util$JSONParser$closure18 panda$util$JSONParser$closure18;
 #define panda$util$JSONParser$closure17_TYPEDEF
 typedef struct panda$util$JSONParser$closure17 panda$util$JSONParser$closure17;
 #endif
-#ifndef panda$core$UInt32Wrapper_TYPEDEF
-#define panda$core$UInt32Wrapper_TYPEDEF
-typedef struct panda$core$UInt32Wrapper panda$core$UInt32Wrapper;
-#endif
 #ifndef panda$util$JSONParser$closure16_TYPEDEF
 #define panda$util$JSONParser$closure16_TYPEDEF
 typedef struct panda$util$JSONParser$closure16 panda$util$JSONParser$closure16;
+#endif
+#ifndef panda$core$UInt32Wrapper_TYPEDEF
+#define panda$core$UInt32Wrapper_TYPEDEF
+typedef struct panda$core$UInt32Wrapper panda$core$UInt32Wrapper;
 #endif
 #ifndef panda$util$JSONParser$closure15_TYPEDEF
 #define panda$util$JSONParser$closure15_TYPEDEF
@@ -2692,13 +2644,13 @@ typedef struct panda$collections$Enumerator$LTpanda$core$UInt16$GT panda$collect
 #define panda$util$JSONParser$closure193_TYPEDEF
 typedef struct panda$util$JSONParser$closure193 panda$util$JSONParser$closure193;
 #endif
-#ifndef panda$util$JSONParser$closure14_TYPEDEF
-#define panda$util$JSONParser$closure14_TYPEDEF
-typedef struct panda$util$JSONParser$closure14 panda$util$JSONParser$closure14;
-#endif
 #ifndef panda$collections$List$LTpanda$core$UInt32$GT_TYPEDEF
 #define panda$collections$List$LTpanda$core$UInt32$GT_TYPEDEF
 typedef struct panda$collections$List$LTpanda$core$UInt32$GT panda$collections$List$LTpanda$core$UInt32$GT;
+#endif
+#ifndef panda$util$JSONParser$closure14_TYPEDEF
+#define panda$util$JSONParser$closure14_TYPEDEF
+typedef struct panda$util$JSONParser$closure14 panda$util$JSONParser$closure14;
 #endif
 #ifndef panda$collections$Array$LTpanda$core$Real32$GT_TYPEDEF
 #define panda$collections$Array$LTpanda$core$Real32$GT_TYPEDEF
@@ -2756,17 +2708,13 @@ typedef struct panda$collections$FilterIterator$LT$LPpanda$core$Int64$C$LPpanda$
 #define panda$collections$ListView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 typedef struct panda$collections$ListView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT panda$collections$ListView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT;
 #endif
-#ifndef panda$collections$ImmutablePrimitiveArray$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$ImmutablePrimitiveArray$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$ImmutablePrimitiveArray$LTpanda$parser$GLRParser$State$GT panda$collections$ImmutablePrimitiveArray$LTpanda$parser$GLRParser$State$GT;
+#ifndef panda$collections$ImmutableArray$LTpanda$core$Real64$GT_TYPEDEF
+#define panda$collections$ImmutableArray$LTpanda$core$Real64$GT_TYPEDEF
+typedef struct panda$collections$ImmutableArray$LTpanda$core$Real64$GT panda$collections$ImmutableArray$LTpanda$core$Real64$GT;
 #endif
 #ifndef panda$collections$CollectionWriter$LTpanda$core$Real32$GT_TYPEDEF
 #define panda$collections$CollectionWriter$LTpanda$core$Real32$GT_TYPEDEF
 typedef struct panda$collections$CollectionWriter$LTpanda$core$Real32$GT panda$collections$CollectionWriter$LTpanda$core$Real32$GT;
-#endif
-#ifndef panda$collections$ImmutableArray$LTpanda$core$Real64$GT_TYPEDEF
-#define panda$collections$ImmutableArray$LTpanda$core$Real64$GT_TYPEDEF
-typedef struct panda$collections$ImmutableArray$LTpanda$core$Real64$GT panda$collections$ImmutableArray$LTpanda$core$Real64$GT;
 #endif
 #ifndef panda$collections$ListView$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
 #define panda$collections$ListView$LTpanda$core$Int64Wrapper$Z$GT_TYPEDEF
@@ -2784,13 +2732,13 @@ typedef struct panda$collections$Iterator$LTpanda$core$Int32$GT panda$collection
 #define panda$collections$Array$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
 typedef struct panda$collections$Array$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT panda$collections$Array$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT;
 #endif
-#ifndef panda$collections$ListView$LTpanda$core$Real64$GT_TYPEDEF
-#define panda$collections$ListView$LTpanda$core$Real64$GT_TYPEDEF
-typedef struct panda$collections$ListView$LTpanda$core$Real64$GT panda$collections$ListView$LTpanda$core$Real64$GT;
-#endif
 #ifndef panda$util$JSONParser$closure179_TYPEDEF
 #define panda$util$JSONParser$closure179_TYPEDEF
 typedef struct panda$util$JSONParser$closure179 panda$util$JSONParser$closure179;
+#endif
+#ifndef panda$collections$ListView$LTpanda$core$Real64$GT_TYPEDEF
+#define panda$collections$ListView$LTpanda$core$Real64$GT_TYPEDEF
+typedef struct panda$collections$ListView$LTpanda$core$Real64$GT panda$collections$ListView$LTpanda$core$Real64$GT;
 #endif
 #ifndef panda$util$JSONParser$closure178_TYPEDEF
 #define panda$util$JSONParser$closure178_TYPEDEF
@@ -2812,17 +2760,9 @@ typedef struct panda$util$JSONParser$closure176 panda$util$JSONParser$closure176
 #define panda$parser$GLRParser$Reducer_TYPEDEF
 typedef struct panda$parser$GLRParser$Reducer panda$parser$GLRParser$Reducer;
 #endif
-#ifndef panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$State$GT panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$State$GT;
-#endif
 #ifndef panda$util$JSONParser$closure171_TYPEDEF
 #define panda$util$JSONParser$closure171_TYPEDEF
 typedef struct panda$util$JSONParser$closure171 panda$util$JSONParser$closure171;
-#endif
-#ifndef panda$collections$ImmutableArray$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-#define panda$collections$ImmutableArray$LTpanda$parser$GLRParser$State$GT_TYPEDEF
-typedef struct panda$collections$ImmutableArray$LTpanda$parser$GLRParser$State$GT panda$collections$ImmutableArray$LTpanda$parser$GLRParser$State$GT;
 #endif
 #ifndef panda$util$JSONParser$closure170_TYPEDEF
 #define panda$util$JSONParser$closure170_TYPEDEF
@@ -2892,13 +2832,13 @@ typedef struct panda$collections$FilterIterator$LT$LPpanda$core$Int64$C$LPpanda$
 #define panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$io$File$RP$GT_TYPEDEF
 typedef struct panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$io$File$RP$GT panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$io$File$RP$GT;
 #endif
-#ifndef $LPpanda$core$Int64$Cpanda$core$Real32$RP_TYPEDEF
-#define $LPpanda$core$Int64$Cpanda$core$Real32$RP_TYPEDEF
-typedef struct $LPpanda$core$Int64$Cpanda$core$Real32$RP $LPpanda$core$Int64$Cpanda$core$Real32$RP;
-#endif
 #ifndef panda$collections$Iterator$LTpanda$parser$GLRParser$ParseError$GT_TYPEDEF
 #define panda$collections$Iterator$LTpanda$parser$GLRParser$ParseError$GT_TYPEDEF
 typedef struct panda$collections$Iterator$LTpanda$parser$GLRParser$ParseError$GT panda$collections$Iterator$LTpanda$parser$GLRParser$ParseError$GT;
+#endif
+#ifndef $LPpanda$core$Int64$Cpanda$core$Real32$RP_TYPEDEF
+#define $LPpanda$core$Int64$Cpanda$core$Real32$RP_TYPEDEF
+typedef struct $LPpanda$core$Int64$Cpanda$core$Real32$RP $LPpanda$core$Int64$Cpanda$core$Real32$RP;
 #endif
 #ifndef panda$collections$List$LTpanda$core$UInt16$GT_TYPEDEF
 #define panda$collections$List$LTpanda$core$UInt16$GT_TYPEDEF
@@ -2960,13 +2900,13 @@ typedef struct panda$collections$FilterIterator$LTpanda$core$Object$GT panda$col
 #define panda$util$JSONParser$closure181_TYPEDEF
 typedef struct panda$util$JSONParser$closure181 panda$util$JSONParser$closure181;
 #endif
-#ifndef panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
-#define panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
-typedef struct panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT;
-#endif
 #ifndef panda$util$JSONParser$closure184_TYPEDEF
 #define panda$util$JSONParser$closure184_TYPEDEF
 typedef struct panda$util$JSONParser$closure184 panda$util$JSONParser$closure184;
+#endif
+#ifndef panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
+#define panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT_TYPEDEF
+typedef struct panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT;
 #endif
 #ifndef panda$util$JSONParser$closure183_TYPEDEF
 #define panda$util$JSONParser$closure183_TYPEDEF
@@ -3211,23 +3151,18 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSONParser$closure61.h"
 #include "panda$core$MutableString.h"
 #include "panda$collections$PrimitiveArray$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT.h"
-#include "panda$collections$Array$LTpanda$parser$GLRParser$State$GT.h"
-#include "panda$collections$Enumerator$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$core$UInt64Wrapper.h"
 #include "panda$collections$ImmutableArray$LTpanda$io$File$GT.h"
 #include "panda$collections$Array$LTpanda$core$UInt16$GT.h"
 #include "panda$core$UIntIterator$LTpanda$core$UInt8$Cpanda$core$Int8$GT.h"
-#include "panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT.h"
 #include "panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$ParseError$GT.h"
+#include "panda$collections$Iterator$LTpanda$core$Int64Wrapper$Z$GT.h"
 #include "panda$collections$Iterable$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT.h"
 #include "panda$collections$CollectionView$LTpanda$core$Real64$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$core$Int64Wrapper$Z$GT.h"
-#include "panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT.h"
-#include "panda$collections$List$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$ImmutableArray$LTpanda$core$UInt8$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$core$String$Z$GT.h"
 #include "panda$collections$HashMapIterator$LTpanda$core$Int64$Cpanda$core$Object$Z$C$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT.h"
-#include "panda$collections$Iterable$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$Iterator$LTpanda$core$Char$GT.h"
 #include "panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT.h"
 #include "panda$util$JSONParser$closure148.h"
@@ -3245,7 +3180,6 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$core$UIntIterator$LTpanda$core$UInt32$Cpanda$core$Int32$GT.h"
 #include "panda$collections$CollectionWriter$LTpanda$core$Object$GT.h"
 #include "$LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$Z$RP.h"
-#include "panda$collections$CollectionWriter$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$core$Int32$GT.h"
 #include "panda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$core$Int64$GT.h"
@@ -3253,12 +3187,12 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$PrimitiveArray$LTpanda$core$Int64Wrapper$Z$GT.h"
 #include "panda$core$ParseException.h"
 #include "panda$collections$Iterable$LTpanda$core$Char$GT.h"
-#include "panda$collections$FilterIterator$LTpanda$core$UInt32$GT.h"
 #include "panda$core$System$OperatingEnvironmentInfo.h"
+#include "panda$collections$FilterIterator$LTpanda$core$UInt32$GT.h"
 #include "panda$collections$Iterator$LTpanda$core$Int64$GT.h"
 #include "panda$collections$ListWriter$LTpanda$core$Int64Wrapper$Z$GT.h"
-#include "panda$collections$List$LTpanda$io$File$GT.h"
 #include "panda$collections$CollectionView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
+#include "panda$collections$List$LTpanda$io$File$GT.h"
 #include "panda$collections$ImmutablePrimitiveArray$LTpanda$core$Real32$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$GT.h"
 #include "panda$core$Environment.h"
@@ -3299,8 +3233,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$ImmutableArray$LTpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$GT.h"
 #include "panda$util$JSONParser$closure36.h"
 #include "panda$util$JSONParser$closure33.h"
-#include "panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT.h"
 #include "panda$util$JSONParser$closure34.h"
+#include "panda$collections$CollectionWriter$LTpanda$parser$GLRParser$Action$GT.h"
 #include "panda$collections$ListWriter$LTpanda$parser$GLRParser$Action$Z$GT.h"
 #include "panda$collections$CollectionWriter$LTpanda$core$Immutable$GT.h"
 #include "panda$core$UIntIterator$LTpanda$core$UInt64$Cpanda$core$Int64$GT.h"
@@ -3317,7 +3251,6 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$CollectionView$LTpanda$core$UInt32$GT.h"
 #include "panda$collections$ImmutableArray$LTpanda$core$String$GT.h"
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$C$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$RP$GT.h"
-#include "panda$collections$ListWriter$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$core$MutableMethod.h"
 #include "panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$core$Real32$RP$GT.h"
 #include "panda$collections$ImmutablePrimitiveArray$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT.h"
@@ -3342,10 +3275,10 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSONParser$closure126.h"
 #include "panda$util$JSONParser$closure47.h"
 #include "panda$util$JSONParser$closure125.h"
-#include "panda$util$JSONParser$closure124.h"
 #include "panda$util$JSONParser$closure48.h"
-#include "panda$util$JSONParser$closure123.h"
+#include "panda$util$JSONParser$closure124.h"
 #include "panda$util$JSONParser$closure49.h"
+#include "panda$util$JSONParser$closure123.h"
 #include "panda$util$JSONParser$closure122.h"
 #include "panda$util$JSONParser$closure121.h"
 #include "panda$util$JSONParser$closure120.h"
@@ -3365,8 +3298,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSONParser$closure22.h"
 #include "panda$util$JSONParser$closure23.h"
 #include "panda$util$JSONParser$closure20.h"
-#include "panda$collections$CollectionView$LTpanda$core$String$Z$GT.h"
 #include "panda$util$JSONParser$closure21.h"
+#include "panda$collections$CollectionView$LTpanda$core$String$Z$GT.h"
 #include "panda$util$JSONParser$closure201.h"
 #include "panda$util$JSONParser$closure200.h"
 #include "panda$util$JSONParser$closure203.h"
@@ -3409,8 +3342,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$CollectionView$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT.h"
 #include "panda$core$MathError.h"
 #include "panda$collections$ImmutablePrimitiveArray$LTpanda$core$UInt8$GT.h"
-#include "panda$collections$ListWriter$LTpanda$core$String$Z$GT.h"
 #include "panda$collections$ListWriter$LTpanda$core$Real32$GT.h"
+#include "panda$collections$ListWriter$LTpanda$core$String$Z$GT.h"
 #include "panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$RP$GT.h"
 #include "panda$collections$CollectionWriter$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
 #include "panda$collections$ListIterator$LTpanda$core$UInt16$GT.h"
@@ -3421,7 +3354,6 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$CollectionWriter$LTpanda$core$Int64$GT.h"
 #include "panda$collections$List$LTpanda$parser$GLRParser$Action$GT.h"
 #include "panda$collections$List$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
-#include "panda$collections$FilterIterator$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$ListView$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT.h"
 #include "panda$util$JSONParser$closure210.h"
 #include "panda$util$JSONParser$closure211.h"
@@ -3453,12 +3385,12 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$ImmutableArray$LTpanda$core$Object$GT.h"
 #include "panda$collections$Array$LTpanda$core$Object$GT.h"
 #include "panda$collections$FilterIterator$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT.h"
-#include "panda$collections$Iterable$LTpanda$core$Int64$GT.h"
 #include "panda$collections$HashMap$LTpanda$core$Immutable$Cpanda$core$Object$GT.h"
+#include "panda$collections$Iterable$LTpanda$core$Int64$GT.h"
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$RP$GT.h"
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$ParseError$RP$GT.h"
 #include "panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT.h"
-#include "panda$collections$Stack$LTpanda$parser$GLRParser$State$GT.h"
+#include "panda$collections$Stack.h"
 #include "panda$io$MemoryOutputStream.h"
 #include "panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT.h"
 #include "panda$core$RegularExpression.h"
@@ -3474,7 +3406,6 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$Enumerator$LTpanda$core$String$Z$GT.h"
 #include "panda$collections$PrimitiveArray$LTpanda$core$UInt32$GT.h"
 #include "panda$collections$ListIterator$LTpanda$parser$GLRParser$Action$Z$GT.h"
-#include "panda$collections$Iterator$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$PrimitiveArray.h"
 #include "panda$collections$List$LTpanda$core$Int64Wrapper$Z$GT.h"
 #include "panda$collections$Iterator$LTpanda$core$UInt8$GT.h"
@@ -3496,7 +3427,6 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$Z$RP$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$core$UInt8$GT.h"
 #include "panda$collections$List$LTpanda$core$Real64$GT.h"
-#include "panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP$GT.h"
 #include "panda$collections$Enumerator$LTpanda$core$Char$GT.h"
 #include "panda$collections$ImmutableArray$LTpanda$core$Int8$GT.h"
 #include "panda$io$BufferedInputStream.h"
@@ -3513,16 +3443,14 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$Iterable$LTpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$GT.h"
 #include "$LPpanda$core$Int64$Cpanda$parser$GLRParser$Action$RP.h"
 #include "panda$collections$CollectionView$LTpanda$core$Object$Z$GT.h"
-#include "panda$collections$CollectionView$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$Enumerator$LTpanda$core$String$GT.h"
-#include "panda$threads$Pipe.h"
 #include "panda$collections$ListWriter$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
+#include "panda$threads$Pipe.h"
 #include "panda$math$SharedRandom.h"
-#include "panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT.h"
 #include "panda$core$CastError.h"
+#include "panda$collections$Array$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT.h"
 #include "panda$collections$Iterable$LTpanda$core$UInt8$GT.h"
 #include "panda$core$InternalError.h"
-#include "$LPpanda$core$Int64$Cpanda$parser$GLRParser$State$RP.h"
 #include "panda$collections$PrimitiveArray$LTpanda$core$Real32$GT.h"
 #include "panda$core$Method.h"
 #include "panda$collections$FilterIterator$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT.h"
@@ -3544,8 +3472,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$ListWriter$LTpanda$parser$GLRParser$ParseError$GT.h"
 #include "panda$collections$PrimitiveArray$LTpanda$core$Object$Z$GT.h"
 #include "panda$util$JSONParser$closure99.h"
-#include "panda$collections$ListView$LTpanda$core$Immutable$GT.h"
 #include "panda$collections$Iterator$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT.h"
+#include "panda$collections$ListView$LTpanda$core$Immutable$GT.h"
 #include "panda$util$JSONParser$closure95.h"
 #include "panda$collections$Iterator$LTpanda$parser$GLRParser$Action$GT.h"
 #include "panda$util$JSONParser$closure96.h"
@@ -3564,7 +3492,6 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$Iterator$LTpanda$core$Real64$GT.h"
 #include "panda$collections$ListIterator$LTpanda$core$UInt32$GT.h"
 #include "panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$Action$Z$GT.h"
-#include "panda$collections$ListIterator$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$CollectionWriter$LTpanda$core$Char$GT.h"
 #include "panda$collections$PrimitiveArray$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT.h"
 #include "panda$util$JSONParser$closure94.h"
@@ -3633,9 +3560,9 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$io$File$RP$GT.h"
 #include "panda$collections$Iterator$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT.h"
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$core$UInt16$RP$GT.h"
-#include "panda$collections$ListView$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$collections$CollectionWriter$LTpanda$core$String$Z$GT.h"
 #include "panda$collections$Enumerator$LTpanda$parser$GLRParser$Action$Z$GT.h"
+#include "panda$collections$Stack.h"
 #include "panda$collections$Enumerator$LTpanda$core$Real64$GT.h"
 #include "panda$collections$PrimitiveArray$LTpanda$core$Int8$GT.h"
 #include "panda$math$SystemRandom.h"
@@ -3693,8 +3620,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSONParser$closure5.h"
 #include "panda$util$JSONParser$closure4.h"
 #include "panda$util$JSONParser$closure3.h"
-#include "panda$collections$ListView$LTpanda$core$Int8$GT.h"
 #include "panda$util$JSONParser$closure2.h"
+#include "panda$collections$ListView$LTpanda$core$Int8$GT.h"
 #include "panda$util$JSONParser$closure1.h"
 #include "panda$util$JSONParser$closure0.h"
 #include "panda$collections$FilterIterator$LTpanda$core$Char$GT.h"
@@ -3709,10 +3636,11 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$ImmutableArray$LTpanda$core$String$Z$GT.h"
 #include "panda$collections$ImmutablePrimitiveArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
 #include "panda$collections$ImmutableArray$LT$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$GT.h"
-#include "panda$core$System.h"
 #include "panda$collections$Iterable$LTpanda$core$String$Z$GT.h"
+#include "panda$core$System.h"
 #include "panda$collections$Enumerator$LTpanda$collections$ImmutableArray$LTpanda$core$Int64Wrapper$Z$GT$GT.h"
 #include "panda$collections$ImmutableArray$LTpanda$core$Immutable$GT.h"
+#include "panda$collections$Stack.h"
 #include "panda$collections$FilterIterator$LTpanda$core$Real32$GT.h"
 #include "panda$collections$HashMapIterator$LTpanda$core$String$Cpanda$core$Object$Z$C$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$parser$GLRParser$Action$GT.h"
@@ -3749,9 +3677,9 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$core$IntIterator$LTpanda$core$Int16$GT.h"
 #include "panda$collections$ListView$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT.h"
 #include "panda$collections$CollectionWriter$LT$LPpanda$core$String$Cpanda$core$Object$Z$RP$GT.h"
+#include "panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT.h"
 #include "$LPpanda$core$Immutable$Cpanda$core$Immutable$RP.h"
 #include "panda$collections$CollectionView$LTpanda$core$Char$GT.h"
-#include "panda$collections$Iterable$LTpanda$parser$GLRParser$Action$Z$GT.h"
 #include "panda$util$JSONParser.h"
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$Cpanda$core$Real32$RP$GT.h"
 #include "$LPpanda$core$Int64$Cpanda$io$File$RP.h"
@@ -3762,8 +3690,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "$LPpanda$core$Int64$C$LPpanda$core$Immutable$Cpanda$core$Object$RP$RP.h"
 #include "panda$collections$Iterable$LTpanda$core$Real32$GT.h"
 #include "panda$parser$GLRParser$Action.h"
-#include "panda$core$Exception.h"
 #include "panda$collections$ListView$LTpanda$core$Int64$GT.h"
+#include "panda$core$Exception.h"
 #include "panda$collections$Enumerator$LTpanda$core$Object$Z$GT.h"
 #include "panda$core$PostconditionError.h"
 #include "panda$collections$CollectionWriter$LTpanda$core$UInt32$GT.h"
@@ -3799,8 +3727,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$Array$LTpanda$parser$GLRParser$Action$GT.h"
 #include "panda$collections$FilterIterator$LTpanda$core$Real64$GT.h"
 #include "panda$collections$Iterable$LTpanda$core$UInt32$GT.h"
-#include "panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT.h"
 #include "panda$collections$Iterable$LTpanda$parser$GLRParser$ParseError$GT.h"
+#include "panda$collections$Array$LTpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$Action$Z$GT$GT.h"
 #include "panda$collections$MapView$LTpanda$core$Int64$Cpanda$core$Object$Z$GT.h"
 #include "panda$core$IntIterator$LTpanda$core$Int64$GT.h"
 #include "panda$collections$ListWriter$LTpanda$io$File$GT.h"
@@ -3827,15 +3755,15 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$collections$Array$LTpanda$core$Char$GT.h"
 #include "panda$collections$Iterable$LTpanda$core$Object$Z$GT.h"
 #include "panda$collections$Iterable$LTpanda$core$Immutable$GT.h"
-#include "panda$core$ParameterError.h"
 #include "panda$collections$CollectionWriter$LTpanda$core$UInt16$GT.h"
+#include "panda$core$ParameterError.h"
 #include "panda$collections$CollectionWriter$LTpanda$core$String$GT.h"
 #include "panda$collections$CollectionView$LTpanda$parser$GLRParser$Action$GT.h"
 #include "$LPpanda$collections$Array$LTpanda$core$Object$Z$GT$Z$Cpanda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$RP.h"
 #include "panda$util$JSONParser$closure18.h"
 #include "panda$util$JSONParser$closure17.h"
-#include "panda$core$UInt32Wrapper.h"
 #include "panda$util$JSONParser$closure16.h"
+#include "panda$core$UInt32Wrapper.h"
 #include "panda$util$JSONParser$closure15.h"
 #include "panda$collections$Iterator$LT$LPpanda$core$Int64$C$LPpanda$core$String$Cpanda$core$Object$Z$RP$RP$GT.h"
 #include "panda$util$JSONParser$closure19.h"
@@ -3845,8 +3773,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSONParser$closure192.h"
 #include "panda$collections$Enumerator$LTpanda$core$UInt16$GT.h"
 #include "panda$util$JSONParser$closure193.h"
-#include "panda$util$JSONParser$closure14.h"
 #include "panda$collections$List$LTpanda$core$UInt32$GT.h"
+#include "panda$util$JSONParser$closure14.h"
 #include "panda$collections$Array$LTpanda$core$Real32$GT.h"
 #include "panda$util$JSONParser$closure13.h"
 #include "panda$util$JSONParser$closure12.h"
@@ -3861,23 +3789,20 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSONParser$closure194.h"
 #include "panda$collections$FilterIterator$LT$LPpanda$core$Int64$C$LPpanda$core$Immutable$Cpanda$core$Object$RP$RP$GT.h"
 #include "panda$collections$ListView$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
-#include "panda$collections$ImmutablePrimitiveArray$LTpanda$parser$GLRParser$State$GT.h"
-#include "panda$collections$CollectionWriter$LTpanda$core$Real32$GT.h"
 #include "panda$collections$ImmutableArray$LTpanda$core$Real64$GT.h"
+#include "panda$collections$CollectionWriter$LTpanda$core$Real32$GT.h"
 #include "panda$collections$ListView$LTpanda$core$Int64Wrapper$Z$GT.h"
 #include "panda$parser$GLRParser$StateNode.h"
 #include "panda$collections$Iterator$LTpanda$core$Int32$GT.h"
 #include "panda$collections$Array$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
-#include "panda$collections$ListView$LTpanda$core$Real64$GT.h"
 #include "panda$util$JSONParser$closure179.h"
+#include "panda$collections$ListView$LTpanda$core$Real64$GT.h"
 #include "panda$util$JSONParser$closure178.h"
 #include "panda$util$JSONParser$closure177.h"
 #include "panda$collections$ImmutablePrimitiveArray$LTpanda$parser$GLRParser$Action$Z$GT.h"
 #include "panda$util$JSONParser$closure176.h"
 #include "panda$parser$GLRParser$Reducer.h"
-#include "panda$collections$PrimitiveArray$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$util$JSONParser$closure171.h"
-#include "panda$collections$ImmutableArray$LTpanda$parser$GLRParser$State$GT.h"
 #include "panda$util$JSONParser$closure170.h"
 #include "$LPpanda$core$Int64$Cpanda$core$Object$RP.h"
 #include "panda$collections$ListIterator$LTpanda$core$String$Z$GT.h"
@@ -3895,8 +3820,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSON.h"
 #include "panda$collections$FilterIterator$LT$LPpanda$core$Int64$C$LPpanda$parser$GLRParser$State$RP$EQ$AM$GT$p$LPpanda$core$Object$Z$RP$RP$GT.h"
 #include "panda$collections$FilterIterator$LT$LPpanda$core$Int64$Cpanda$io$File$RP$GT.h"
-#include "$LPpanda$core$Int64$Cpanda$core$Real32$RP.h"
 #include "panda$collections$Iterator$LTpanda$parser$GLRParser$ParseError$GT.h"
+#include "$LPpanda$core$Int64$Cpanda$core$Real32$RP.h"
 #include "panda$collections$List$LTpanda$core$UInt16$GT.h"
 #include "panda$collections$ImmutablePrimitiveArray$LTpanda$core$Object$Z$GT.h"
 #include "panda$collections$ImmutableArray$LTpanda$core$Object$Z$GT.h"
@@ -3912,8 +3837,8 @@ typedef struct panda$core$Primitive panda$core$Primitive;
 #include "panda$util$JSONParser$closure182.h"
 #include "panda$collections$FilterIterator$LTpanda$core$Object$GT.h"
 #include "panda$util$JSONParser$closure181.h"
-#include "panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
 #include "panda$util$JSONParser$closure184.h"
+#include "panda$collections$ImmutableArray$LT$LPpanda$core$Immutable$Cpanda$core$Object$RP$GT.h"
 #include "panda$util$JSONParser$closure183.h"
 #include "panda$util$JSONParser$closure180.h"
 #include "panda$collections$ListIterator$LTpanda$core$Int8$GT.h"

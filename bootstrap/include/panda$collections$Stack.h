@@ -6,7 +6,7 @@ extern panda$core$Class panda$collections$Stack_class;
 #define CLASS_panda$collections$Stack
 struct panda$collections$Stack {
     panda$core$Class* cl;
-    panda$collections$List$LTpanda$core$Object$Z$GT* contents;
+    panda$collections$Array$LTpanda$core$Object$Z$GT* contents;
 };
 
 #define panda$collections$Stack$convert_$Rpanda$core$String_INDEX 1
