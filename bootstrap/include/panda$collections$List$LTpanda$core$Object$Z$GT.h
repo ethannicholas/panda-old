@@ -12,17 +12,17 @@ struct panda$collections$List$LTpanda$core$Object$Z$GT {
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$$ARREQ_Int64_panda$core$Object$Z_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, Int64, panda$core$Object*);
 #define panda$collections$List$LTpanda$core$Object$Z$GT$insert_Int64_panda$core$Object$Z_INDEX 12
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$insert_Int64_panda$core$Object$Z_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, Int64, panda$core$Object*);
-#define panda$collections$List$LTpanda$core$Object$Z$GT$filterInPlace_$LPpanda$core$Object$Z$RP$EQ$GT$LPpanda$core$Bit$RP_INDEX 33
+#define panda$collections$List$LTpanda$core$Object$Z$GT$filterInPlace_$LPpanda$core$Object$Z$RP$EQ$GT$LPpanda$core$Bit$RP_INDEX 32
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$filterInPlace_$LPpanda$core$Object$Z$RP$EQ$GT$LPpanda$core$Bit$RP_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, void**);
-#define panda$collections$List$LTpanda$core$Object$Z$GT$mapInPlace_$LPpanda$core$Object$Z$RP$EQ$GT$LPpanda$core$Object$Z$RP_INDEX 34
+#define panda$collections$List$LTpanda$core$Object$Z$GT$mapInPlace_$LPpanda$core$Object$Z$RP$EQ$GT$LPpanda$core$Object$Z$RP_INDEX 33
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$mapInPlace_$LPpanda$core$Object$Z$RP$EQ$GT$LPpanda$core$Object$Z$RP_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, void**);
-#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLIEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 35
+#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLIEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 34
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$$SLIEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, panda$core$Int64Wrapper*, panda$core$Int64Wrapper*, Int64, panda$collections$ListView$LTpanda$core$Object$Z$GT*);
-#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLIEQ_Int64_Int64_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 36
+#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLIEQ_Int64_Int64_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 35
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$$SLIEQ_Int64_Int64_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, Int64, Int64, Int64, panda$collections$ListView$LTpanda$core$Object$Z$GT*);
-#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLEEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 37
+#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLEEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 36
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$$SLEEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, panda$core$Int64Wrapper*, panda$core$Int64Wrapper*, Int64, panda$collections$ListView$LTpanda$core$Object$Z$GT*);
-#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLEEQ_Int64_Int64_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 38
+#define panda$collections$List$LTpanda$core$Object$Z$GT$$SLEEQ_Int64_Int64_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 37
 typedef void(panda$collections$List$LTpanda$core$Object$Z$GT$$SLEEQ_Int64_Int64_Int64_panda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$List$LTpanda$core$Object$Z$GT* self, Int64, Int64, Int64, panda$collections$ListView$LTpanda$core$Object$Z$GT*);
 #endif
 #endif

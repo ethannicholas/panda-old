@@ -19,7 +19,7 @@ typedef Int64(panda$collections$ImmutableArray$LTpanda$core$Int64$GT$get_hash_$R
 typedef Int64(panda$collections$ImmutableArray$LTpanda$core$Int64$GT$get_count_$Rpanda$core$Int64_TYPE)(panda$collections$ImmutableArray$LTpanda$core$Int64$GT* self);
 #define panda$collections$ImmutableArray$LTpanda$core$Int64$GT$$ARR_Int64_$Rpanda$core$Int64_INDEX 17
 typedef Int64(panda$collections$ImmutableArray$LTpanda$core$Int64$GT$$ARR_Int64_$Rpanda$core$Int64_TYPE)(panda$collections$ImmutableArray$LTpanda$core$Int64$GT* self, Int64);
-#define panda$collections$ImmutableArray$LTpanda$core$Int64$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Int64$GT_INDEX 18
+#define panda$collections$ImmutableArray$LTpanda$core$Int64$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Int64$GT_INDEX 25
 typedef panda$collections$ImmutableArray$LTpanda$core$Int64$GT*(panda$collections$ImmutableArray$LTpanda$core$Int64$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Int64$GT_TYPE)(panda$collections$ImmutableArray$LTpanda$core$Int64$GT* self);
 void panda$collections$ImmutableArray$LTpanda$core$Int64$GT$init(panda$collections$ImmutableArray$LTpanda$core$Int64$GT* self);
 panda$collections$ImmutableArray$LTpanda$core$Int64$GT* new_panda$collections$ImmutableArray$LTpanda$core$Int64$GT$init();

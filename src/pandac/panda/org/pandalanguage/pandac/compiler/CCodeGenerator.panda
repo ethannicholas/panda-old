@@ -191,8 +191,7 @@ class CCodeGenerator (CodeGenerator) {
         self.context := IRGenerator(p.root, p.stubs, p.stubGenerator, 
                 compilerSettings, errors).context
         self.classes := p.classes
-        self.methodNamer := MethodNamer(context, 
-                CMethodNamingStrategy())
+        self.methodNamer := MethodNamer(context)
         self.headerCodeGenerator := HeaderCodeGenerator(p, compilerSettings)
     }
 
@@ -254,11 +253,11 @@ class CCodeGenerator (CodeGenerator) {
     }
     
     method getName(t:Type):String {
-        return headerCodeGenerator.getName(t.unwrapGenerics)
+        return headerCodeGenerator.getName(t)
     }
 
     method getCType(t:Type):String {
-        return headerCodeGenerator.getCType(t.unwrapGenerics)
+        return headerCodeGenerator.getCType(t)
     }
 
     method getCMethodType(m:MethodStub):String {
@@ -324,7 +323,8 @@ class CCodeGenerator (CodeGenerator) {
     function getName(cl:ClassStub):String {
         var result := nameCache[cl]
         if result = null {
-            result := MethodNamer.escapeTypeName(cl.name)
+            result := headerCodeGenerator.getName(cl.type)
+            Console.writeLine("name1 of \{cl.name}: \{result}")
             nameCache[cl] := result
         }
         return result
@@ -434,10 +434,9 @@ class CCodeGenerator (CodeGenerator) {
     }
 
     @private
-    function unwrapUnspecified(m:MethodStub):MethodStub {
-        def stub := getStub(m.owner)
-        if stub.annotations.isUnspecified & m.owner-?>GenericType {
-            def base := m.owner->GenericType.base
+    function unwrapUnspecified(cl:ClassStub):ClassStub {
+        if cl.annotations.isUnspecified & cl.type-?>GenericType {
+            def base := cl.type->GenericType.base
             def args := Array<Type>()
             for (_, type) in getStub(base).genericParameters {
                 if type != null {
@@ -448,7 +447,16 @@ class CCodeGenerator (CodeGenerator) {
                 }
             }
             def specified := GenericType(base, args)
-            return getStub(specified).methods[stub.methods.indexOf(m)]
+            return getStub(specified)
+        }
+        return cl
+    }
+
+    @private
+    function unwrapUnspecified(m:MethodStub):MethodStub {
+        def stub := getStub(m.owner)
+        if stub.annotations.isUnspecified & m.owner-?>GenericType {
+            return unwrapUnspecified(stub).methods[stub.methods.indexOf(m)]
         }
         return m
     }
@@ -547,7 +555,7 @@ class CCodeGenerator (CodeGenerator) {
             def index := getMethodIndex(m)
             shims.write("((\{getCMethodType(m)}) pandaGetInterfaceMethod(" +
                     "(\{getCType(ClassType.OBJECT)}) $self, " +
-                    "(\{getCType(ClassType.CLASS)}) &\{getClassConstantName(getStub(m.owner.unwrapGenerics->ClassType))}, " +
+                    "(\{getCType(ClassType.CLASS)}) &\{getClassConstantName(m.owner.unwrapGenerics->ClassType)}, " +
                     "\{index}))($self")
             for i in 0 .. m.parameters.count {
                 shims.write(", param\{i}")
@@ -649,8 +657,7 @@ class CCodeGenerator (CodeGenerator) {
 
     method writeNewPrimitiveArrayWithLength(na:NewPrimitiveArrayWithLength) {
         def arrayType := na.type->PrimitiveArrayType
-        def arrayClass := getStub(arrayType)
-        def cc := getClassConstantName(arrayClass)
+        def cc := getClassConstantName(arrayType)
         body.write("(\{getCType(na.type)}) pandaNewPrimitiveArrayWithLength(" +
                 "(\{getCType(ClassType.CLASS)}) &\{cc}, ")
         writeValue(na.arrayLength)
@@ -659,8 +666,7 @@ class CCodeGenerator (CodeGenerator) {
     
     method writePrimitiveArrayCopy(na:PrimitiveArrayCopy) {
         def arrayType := na.type->PrimitiveArrayType
-        def arrayClass := getStub(arrayType)
-        def cc := getClassConstantName(arrayClass)
+        def cc := getClassConstantName(arrayType)
         body.write("(\{getCType(na.type)}) pandaNewPrimitiveArrayCopy(" +
                 "(\{getCType(ClassType.CLASS)}) &\{cc}, ")
         body.write("(PrimitiveArray*) ")
@@ -668,12 +674,8 @@ class CCodeGenerator (CodeGenerator) {
         body.write(", \{size(arrayType.elementType)}, true)")
     }
     
-    function getClassConstantName(cl:ClassStub):String {
-        return getName(cl) + "_class"
-    }
-
     function getClassConstantName(cl:ClassType):String {
-        return getName(cl) + "_class"
+        return getName(cl) + "_class/*\{cl.name}*/"
     }
 
     method writeNewPrimitiveArrayWithValues(na:NewPrimitiveArrayWithValues) {
@@ -683,8 +685,7 @@ class CCodeGenerator (CodeGenerator) {
             extraLocals.writeLine("\{getCType(na.type)} \{temp};")
             nameCount += 1
             def arrayType := na.type->PrimitiveArrayType
-            def arrayClass := getStub(arrayType)
-            def cc := getClassConstantName(arrayClass)
+            def cc := getClassConstantName(arrayType)
             body.write("(\{temp} = (\{getCType(na.type)}) " +
                 "pandaNewPrimitiveArrayWithLength(" +
                 "(\{getCType(ClassType.CLASS)}) &\{cc}, \{na.values.count}, " +
@@ -697,8 +698,7 @@ class CCodeGenerator (CodeGenerator) {
             return
         }
         def elementType := na.type->PrimitiveArrayType.elementType
-        def arrayClass := getStub(na.type->PrimitiveArrayType)
-        def cc := getClassConstantName(arrayClass)
+        def cc := getClassConstantName(na.type->ClassType)
         def type:Int
         constant ARRAY_INT8   := 0
         constant ARRAY_INT16  := 1
@@ -939,7 +939,7 @@ class CCodeGenerator (CodeGenerator) {
 
     @protected
     method writeClassLiteral(cl:ClassLiteral) {
-        def cc := getClassConstantName(getStub(cl.value.unwrapGenerics->ClassType))
+        def cc := getClassConstantName(cl.value.unwrapGenerics->ClassType)
         def classType := getCType(ClassType.CLASS)
         body.write("((\{classType}) &\{cc})")
     }
@@ -1280,6 +1280,10 @@ class CCodeGenerator (CodeGenerator) {
 
     method writeMethodDeclaration(m:MethodStub, parameterNames:Array<String>,
             out:OutputStream) {
+        if m.base != null {
+            writeMethodDeclaration(m.base, parameterNames, out)
+            return
+        }
         out.write(getCType(m.returnType) + " \{getName(m)}(")
         var first := true
         if !m.annotations.isClass {
@@ -1391,18 +1395,19 @@ class CCodeGenerator (CodeGenerator) {
         def ca := "$ca" + nameCount
         nameCount += 1
         def arrayClass := getStub(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
-        strings.writeLine("\{getName(arrayClass)} \{ca} = { .cl = &\{getClassConstantName(arrayClass)}, " +
+        strings.writeLine("\{getName(arrayClass)} \{ca} = { .cl = &\{getClassConstantName(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)}, " +
                 ".$length = \{s.length}, " +
                 ".contents = \{chars} };")
         def s := "$s" + nameCount
         nameCount += 1
         def stringClass := getStub(ClassType.STRING)
-        strings.writeLine("\{getName(stringClass)} \{s} = { .cl = &\{getClassConstantName(stringClass)}, " +
+        strings.writeLine("\{getName(stringClass)} \{s} = { .cl = &\{getClassConstantName(ClassType.STRING)}, " +
                 ".chars = &\{ca} };")
         return "&" + s
     }
 
     method generateClassCode(cl:ClassStub) {
+        assert !writtenStubs.contains(cl.name)
         writtenStubs.add(cl.name)
         getStub(PrimitiveArrayType.IMMUTABLE_CHAR_ARRAY)
         getStub(ClassType.STRING)
@@ -1411,23 +1416,21 @@ class CCodeGenerator (CodeGenerator) {
         }
         assert !cl.annotations.isUnspecified
         def name := getName(cl)
-        def classStub := getStub(ClassType.CLASS)
         decls.writeLine("typedef struct \{name} \{name};")
         for intf in cl.type.allInterfaces(context) {
             getStub(intf)
         }
---        structs.writeLine("#ifndef CLASS_\{getName(cl)}")
         headerCodeGenerator.generateClass(cl, false, structs)
         var itable := "NULL"
         for intf in cl.type.allInterfaces(context) {
             if intf.name = cl.name {
                 continue
             }
-            def intfStub := getStub(intf)
+            def intfStub := unwrapUnspecified(getStub(intf))
             def next := "$itable" + nameCount
             nameCount += 1
             structs.writeLine("itable \{next} = {")
-            structs.writeLine("    .cl = (Class*) &\{getClassConstantName(intfStub)},")
+            structs.writeLine("    .cl = (Class*) &\{getClassConstantName(intfStub.type)},")
             structs.writeLine("    .next = \{itable},")
             structs.writeLine("    .methods = {")
             var separator := ""
@@ -1447,17 +1450,8 @@ class CCodeGenerator (CodeGenerator) {
             structs.writeLine("};")
             itable := "&" + next
         }
--*        structs.writeLine("struct {")
-        structs.writeLine("    \{getCType(ClassType.CLASS)} cl;")
-        structs.writeLine("    \{getCType(ClassType.STRING)} name;")
-        structs.writeLine("    \{getCType(ClassType.CLASS)} superclass;")
-        structs.writeLine("    \{getCType(BitType.BIT)} containsPointers;")
-        structs.writeLine("    \{getCType(BitType.BIT)} overridesFinalize;")
-        structs.writeLine("    struct itable* itables;")
-        structs.writeLine("    void* vtable[];")
-        structs.writeLine("} \{name}_class = {")*-
-        structs.writeLine("panda$core$Class \{name}_class = {")
-        structs.writeLine("    .cl = &\{getClassConstantName(classStub)},")
+        structs.writeLine("panda$core$Class \{getClassConstantName(cl.type)} = {")
+        structs.writeLine("    .cl = &\{getClassConstantName(ClassType.CLASS)},")
         structs.writeLine("    .name = \{getStringStruct(cl.name)}, ")
         structs.write("    .superclass = ")
         if (cl.superclass != null) {
@@ -1493,7 +1487,6 @@ class CCodeGenerator (CodeGenerator) {
         }
         structs.writeLine("}")        
         structs.writeLine("};")
---        structs.writeLine("#endif")
     }
 
     method writeMethods() {
@@ -1517,11 +1510,13 @@ class CCodeGenerator (CodeGenerator) {
     @override
     method generateCode(target:File) {
         for (_, cl) in classes {
-            if !cl.stub.annotations.isUnspecified {
+            if !cl.stub.annotations.isUnspecified | 
+                    (cl.stub.genericParameters != null & 
+                        !cl.stub.annotations.isSpecialize) {
                 if !writtenStubs.contains(cl.stub.name) {
                     generateClassCode(cl.stub)
                 }
-            }
+            } 
         }
         writeMethods()
 

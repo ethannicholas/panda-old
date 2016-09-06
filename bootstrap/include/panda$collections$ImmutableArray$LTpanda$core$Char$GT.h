@@ -19,7 +19,7 @@ typedef Int64(panda$collections$ImmutableArray$LTpanda$core$Char$GT$get_hash_$Rp
 typedef Int64(panda$collections$ImmutableArray$LTpanda$core$Char$GT$get_count_$Rpanda$core$Int64_TYPE)(panda$collections$ImmutableArray$LTpanda$core$Char$GT* self);
 #define panda$collections$ImmutableArray$LTpanda$core$Char$GT$$ARR_Int64_$Rpanda$core$Char_INDEX 17
 typedef Char(panda$collections$ImmutableArray$LTpanda$core$Char$GT$$ARR_Int64_$Rpanda$core$Char_TYPE)(panda$collections$ImmutableArray$LTpanda$core$Char$GT* self, Int64);
-#define panda$collections$ImmutableArray$LTpanda$core$Char$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Char$GT_INDEX 18
+#define panda$collections$ImmutableArray$LTpanda$core$Char$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Char$GT_INDEX 25
 typedef panda$collections$ImmutableArray$LTpanda$core$Char$GT*(panda$collections$ImmutableArray$LTpanda$core$Char$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Char$GT_TYPE)(panda$collections$ImmutableArray$LTpanda$core$Char$GT* self);
 void panda$collections$ImmutableArray$LTpanda$core$Char$GT$init(panda$collections$ImmutableArray$LTpanda$core$Char$GT* self);
 panda$collections$ImmutableArray$LTpanda$core$Char$GT* new_panda$collections$ImmutableArray$LTpanda$core$Char$GT$init();

@@ -8,7 +8,7 @@ struct panda$collections$Iterable {
     panda$core$Class* cl;
 };
 
-#define panda$collections$Iterable$get_iterator_$Rpanda$collections$Iterator$LTpanda$collections$Iterable$T$GT_INDEX 4
-typedef panda$collections$Iterator$LTpanda$core$Object$Z$GT*(panda$collections$Iterable$get_iterator_$Rpanda$collections$Iterator$LTpanda$collections$Iterable$T$GT_TYPE)(panda$collections$Iterable* self);
+#define panda$collections$Iterable$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_INDEX 4
+typedef panda$collections$Iterator$LTpanda$core$Object$Z$GT*(panda$collections$Iterable$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$Iterable* self);
 #endif
 #endif

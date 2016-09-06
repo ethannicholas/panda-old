@@ -11,18 +11,18 @@ struct panda$collections$Stack {
 
 #define panda$collections$Stack$convert_$Rpanda$core$String_INDEX 1
 typedef panda$core$String*(panda$collections$Stack$convert_$Rpanda$core$String_TYPE)(panda$collections$Stack* self);
-#define panda$collections$Stack$push_panda$collections$Stack$T_INDEX 4
-typedef void(panda$collections$Stack$push_panda$collections$Stack$T_TYPE)(panda$collections$Stack* self, panda$core$Object*);
-#define panda$collections$Stack$peek_$Rpanda$collections$Stack$T_INDEX 5
-typedef panda$core$Object*(panda$collections$Stack$peek_$Rpanda$collections$Stack$T_TYPE)(panda$collections$Stack* self);
-#define panda$collections$Stack$peek_Int64_$Rpanda$collections$Stack$T_INDEX 6
-typedef panda$core$Object*(panda$collections$Stack$peek_Int64_$Rpanda$collections$Stack$T_TYPE)(panda$collections$Stack* self, Int64);
-#define panda$collections$Stack$pop_$Rpanda$collections$Stack$T_INDEX 7
-typedef panda$core$Object*(panda$collections$Stack$pop_$Rpanda$collections$Stack$T_TYPE)(panda$collections$Stack* self);
+#define panda$collections$Stack$push_panda$core$Object$Z_INDEX 4
+typedef void(panda$collections$Stack$push_panda$core$Object$Z_TYPE)(panda$collections$Stack* self, panda$core$Object*);
+#define panda$collections$Stack$peek_$Rpanda$core$Object$Z_INDEX 5
+typedef panda$core$Object*(panda$collections$Stack$peek_$Rpanda$core$Object$Z_TYPE)(panda$collections$Stack* self);
+#define panda$collections$Stack$peek_Int64_$Rpanda$core$Object$Z_INDEX 6
+typedef panda$core$Object*(panda$collections$Stack$peek_Int64_$Rpanda$core$Object$Z_TYPE)(panda$collections$Stack* self, Int64);
+#define panda$collections$Stack$pop_$Rpanda$core$Object$Z_INDEX 7
+typedef panda$core$Object*(panda$collections$Stack$pop_$Rpanda$core$Object$Z_TYPE)(panda$collections$Stack* self);
 #define panda$collections$Stack$clear_INDEX 8
 typedef void(panda$collections$Stack$clear_TYPE)(panda$collections$Stack* self);
-#define panda$collections$Stack$convert_$Rpanda$collections$ListView$LTpanda$collections$Stack$T$GT_INDEX 9
-typedef panda$collections$ListView$LTpanda$core$Object$Z$GT*(panda$collections$Stack$convert_$Rpanda$collections$ListView$LTpanda$collections$Stack$T$GT_TYPE)(panda$collections$Stack* self);
+#define panda$collections$Stack$convert_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 9
+typedef panda$collections$ListView$LTpanda$core$Object$Z$GT*(panda$collections$Stack$convert_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$Stack* self);
 void panda$collections$Stack$init(panda$collections$Stack* self);
 panda$collections$Stack* new_panda$collections$Stack$init();
 Int64 panda$collections$Stack$get_count_$Rpanda$core$Int64(panda$collections$Stack* self);

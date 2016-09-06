@@ -9,18 +9,18 @@ struct panda$threads$MessageQueue {
     panda$threads$InternalMessageQueue* internalQueue;
 };
 
-#define panda$threads$MessageQueue$getMessage_$Rpanda$threads$MessageQueue$T_INDEX 4
-typedef panda$core$Immutable*(panda$threads$MessageQueue$getMessage_$Rpanda$threads$MessageQueue$T_TYPE)(panda$threads$MessageQueue* self);
-#define panda$threads$MessageQueue$getMessage_Int64_$Rpanda$threads$MessageQueue$T_INDEX 5
-typedef panda$core$Immutable*(panda$threads$MessageQueue$getMessage_Int64_$Rpanda$threads$MessageQueue$T_TYPE)(panda$threads$MessageQueue* self, Int64);
+#define panda$threads$MessageQueue$getMessage_$Rpanda$core$Immutable_INDEX 4
+typedef panda$core$Immutable*(panda$threads$MessageQueue$getMessage_$Rpanda$core$Immutable_TYPE)(panda$threads$MessageQueue* self);
+#define panda$threads$MessageQueue$getMessage_Int64_$Rpanda$core$Immutable_INDEX 5
+typedef panda$core$Immutable*(panda$threads$MessageQueue$getMessage_Int64_$Rpanda$core$Immutable_TYPE)(panda$threads$MessageQueue* self, Int64);
 #define panda$threads$MessageQueue$pendingMessages_$Rpanda$core$Int64_INDEX 6
 typedef Int64(panda$threads$MessageQueue$pendingMessages_$Rpanda$core$Int64_TYPE)(panda$threads$MessageQueue* self);
-#define panda$threads$MessageQueue$postAndExit_panda$threads$MessageQueue$T_INDEX 7
-typedef void(panda$threads$MessageQueue$postAndExit_panda$threads$MessageQueue$T_TYPE)(panda$threads$MessageQueue* self, panda$core$Immutable*);
+#define panda$threads$MessageQueue$postAndExit_panda$core$Immutable_INDEX 7
+typedef void(panda$threads$MessageQueue$postAndExit_panda$core$Immutable_TYPE)(panda$threads$MessageQueue* self, panda$core$Immutable*);
 #define panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_INDEX 8
 typedef Bit(panda$threads$MessageQueue$hasMessage_$Rpanda$core$Bit_TYPE)(panda$threads$MessageQueue* self);
-#define panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_INDEX 9
-typedef void(panda$threads$MessageQueue$post_panda$threads$MessageQueue$T_TYPE)(panda$threads$MessageQueue* self, panda$core$Immutable*);
+#define panda$threads$MessageQueue$post_panda$core$Immutable_INDEX 9
+typedef void(panda$threads$MessageQueue$post_panda$core$Immutable_TYPE)(panda$threads$MessageQueue* self, panda$core$Immutable*);
 void panda$threads$MessageQueue$init(panda$threads$MessageQueue* self);
 panda$threads$MessageQueue* new_panda$threads$MessageQueue$init();
 #endif

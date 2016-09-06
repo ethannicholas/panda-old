@@ -2,17 +2,25 @@ package org.pandalanguage.pandac.compiler
 
 uses org.pandalanguage.pandac.stubs.ClassStub
 uses org.pandalanguage.pandac.stubs.MethodStub
+uses org.pandalanguage.pandac.tree.MethodNode
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.Type
+uses org.pandalanguage.pandac.types.VoidType
 
-================================================================================
-Applies a pluggable naming strategy to all of the methods in a class, in order
-to name methods in a fashion which is compatible with and unambiguous in the
-target language.
-================================================================================
 class MethodNamer {
+    constant MAPPED_NAMES := ImmutableHashMap<String, String>(
+            HashMap<String, String>(["+", "-", "*", "/", "//", "^", "[]", 
+            "[]:=", "[..]", "[..]:=", "[...]", "[...]:=", "=", ">", "<", ">=", 
+            "<=", "|", "||", "&", "&&", "~", "~~", "!", "!!", "<<", ">>"],
+            ["$ADD", "$SUB", "$MUL", "$DIV", "$INTDIV", "$POW", "$ARR", "$ARREQ", 
+            "$SLE", "$SLEEQ", "$SLI", "$SLIEQ", "$EQ", "$GT", "$LT", "$GE", 
+            "$LE", "$OR", "$BOR", "$AND", "$BAND", "$XOR", "$BXOR", "$NOT",
+            "$BNOT", "$SHL", "$SHR"]))
+
+    constant PANDAMAIN_NAME := "pandaMain"
+    
     @private
-    def strategy:MethodNamingStrategy
+    constant PANDASTART_NAME := "pandaStart"
 
     @private
     def context:Context
@@ -45,74 +53,73 @@ class MethodNamer {
         return result.convert()
     }
 
-    init(context:Context, strategy:MethodNamingStrategy) {
+    init(context:Context) {
         self.context := context
-        self.strategy := strategy
     }
+
+    method shortName(rawName:String, owner:ClassStub):String {
+        if rawName.startsWith(IRGenerator.SHIM_PREFIX) {
+            return IRGenerator.SHIM_PREFIX + shortName(
+                    rawName[IRGenerator.SHIM_PREFIX.length..], owner)
+        }
+        if rawName = MethodNode.MAIN_NAME {
+            return PANDAMAIN_NAME
+        }
+        else if rawName = MethodNode.START_NAME & 
+                owner.name = Panda.name {
+            return PANDASTART_NAME
+        }
+        def result := MutableString()
+        result.append(MethodNamer.escapeTypeName(owner.name))
+        result.append("$")
+        def mapped := MAPPED_NAMES[rawName]->String?
+        if mapped != null {
+            result.append(mapped)
+        }
+        else if rawName.endsWith(":=") {
+            result.append(rawName[0 .. rawName.length - 2])
+            result.append("$SET")
+        }
+        else {
+            result.append(rawName)
+        }
+        return result.convert()
+    }    
 
     method getName(m:MethodStub):String {
-        def stub := context.getStub(m.owner)
-        return strategy.longName(stub, m)
-    }
-
-    @private
-    @self
-    method nameMethods(cl:ClassStub) {
-        if named.contains(cl) {
-            return
+        def cl := context.getStub(m.owner)
+        if m.name = MethodNode.MAIN_NAME {
+            return PANDAMAIN_NAME
         }
-        named.add(cl)
-        def context := self.context
-        def getStub := function(type:ClassType):ClassStub {
-            return context.getStub(type)
+        else if m.name = MethodNode.START_NAME & 
+                cl.name = Panda.name {
+            return PANDASTART_NAME
         }
-        def sc := cl.superclass
-        def disambiguationBuckets:Map<String, List<MethodStub>> := 
-                HashMap<String, List<MethodStub>>()
-        for m in cl.methods {
-            addToBucket(disambiguationBuckets, strategy.disambiguation(m), m)
+        def result := MutableString(shortName(m.name, cl))
+        if m.annotations.isClass {
+            result.append("_class")
         }
-        for (_, bucket) in disambiguationBuckets {
-            def shortBuckets:Map<String, List<MethodStub>> := 
-                    HashMap<String, List<MethodStub>>()
-            for m in bucket {
-                addToBucket(shortBuckets, strategy.shortName(cl, m), m)
-            }
-            for (key, shortBucket) in shortBuckets {
-                if shortBucket.count = 1 {
-                    names[shortBucket[0]] := key
+        for (i, p) in m.parameters.enumeration {
+            def t := p.type.unwrapUnspecializedGenerics(context)
+            result.append("_")
+            if t.isPrimitive {
+                def index := t.name.lastIndexOf(".")
+                if index != null {
+                    result.append(t.name[index + 1..])
                 }
                 else {
-                    def mediumBuckets:Map<String, List<MethodStub>> := 
-                            HashMap<String, List<MethodStub>>()
-                    for m in shortBucket {
-                        addToBucket(mediumBuckets, strategy.mediumName(cl, m),
-                                m)
-                    }
-                    for (mKey, mediumBucket) in mediumBuckets {
-                        if mediumBucket.count = 1 {
-                            names[mediumBucket[0]] := mKey
-                        }
-                        else {
-                            for m in mediumBucket {
-                                names[m] := strategy.longName(cl, m)
-                            }
-                        }
-                    }
+                    result.append(t.name)
                 }
             }
+            else {
+                result.append(MethodNamer.escapeTypeName(t.name))
+            }
         }
-    }
-
-    @private
-    @class
-    method addToBucket(buckets:Map<String, List<MethodStub>>, name:String, 
-            m:MethodStub) {
-        var bucket := buckets[name]
-        if bucket = null {
-            bucket := Array<MethodStub>()
-            buckets[name] := bucket
+        def t := m.returnType.unwrapUnspecializedGenerics(context)
+        if t != VoidType.VOID {
+            result.append("_$R")
+            result.append(MethodNamer.escapeTypeName(t.name))
         }
-        bucket.add(m)
+        return result.convert()
     }
 }

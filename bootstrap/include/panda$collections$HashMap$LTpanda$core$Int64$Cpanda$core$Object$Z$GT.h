@@ -32,6 +32,8 @@ typedef Int64(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$
 typedef panda$core$Object*(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$$ARR_Int64_$Rpanda$core$Object$Z_TYPE)(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* self, Int64);
 #define panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$contains_Int64_$Rpanda$core$Bit_INDEX 13
 typedef Bit(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$contains_Int64_$Rpanda$core$Bit_TYPE)(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* self, Int64);
+#define panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_INDEX 14
+typedef panda$collections$Iterator$LTpanda$core$Object$Z$GT*(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* self);
 void panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$init(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* self);
 panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* new_panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$init();
 void panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT$init_panda$collections$PrimitiveArray$LTpanda$core$Int64$GT_panda$collections$PrimitiveArray$LTpanda$core$Object$Z$GT(panda$collections$HashMap$LTpanda$core$Int64$Cpanda$core$Object$Z$GT* self, panda$collections$PrimitiveArray$LTpanda$core$Int64$GT*, panda$collections$PrimitiveArray$LTpanda$core$Object$Z$GT*);

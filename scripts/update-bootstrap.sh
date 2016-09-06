@@ -11,3 +11,5 @@ $PANDAC -XnoCoreLib -f h -o bootstrap/include/panda.h $CORE_FILES
 $NATIVE_TARGET/parsergenerator src/pandac/parser/grammar.grammar src/pandac/parser/grammar.errors bootstrap/GrammarParser.panda
 $NATIVE_TARGET/parsergenerator src/pandac/parser/errors.grammar src/pandac/parser/errors.errors bootstrap/ErrorParser.panda
 $NATIVE_TARGET/parsergenerator src/core/parser/json.grammar src/core/parser/json.errors bootstrap/JSONParser.panda
+mkdir -p bootstrap/core
+cp -r src/core/c bootstrap/core

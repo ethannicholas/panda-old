@@ -7,7 +7,7 @@ extern panda$core$Class panda$collections$PrimitiveArray$LT$LPpanda$core$Int64$C
 struct panda$collections$PrimitiveArray$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT {
     panda$core$Class* cl;
     Int64 $length;
-    $LPpanda$core$Int64$Cpanda$core$Object$Z$RP** contents;
+    $LPInt64$Cpanda$core$Object$Z$RP** contents;
 };
 
 #define panda$collections$PrimitiveArray$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$length_$Rpanda$core$Int64_INDEX 4

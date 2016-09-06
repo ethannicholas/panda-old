@@ -24,8 +24,8 @@ typedef panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT*(panda
 typedef panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT*(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$$SLE_Int64_Int64_Int64_$Rpanda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT_TYPE)(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT* self, Int64, Int64, Int64);
 #define panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$$ARR_Int64_$Rpanda$parser$GLRParser$ParseError_INDEX 17
 typedef panda$parser$GLRParser$ParseError*(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$$ARR_Int64_$Rpanda$parser$GLRParser$ParseError_TYPE)(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT* self, Int64);
-#define panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$ParseError$GT_INDEX 18
-typedef panda$collections$ImmutableArray$LTpanda$parser$GLRParser$ParseError$GT*(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$parser$GLRParser$ParseError$GT_TYPE)(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT* self);
+#define panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_INDEX 18
+typedef panda$collections$Iterator$LTpanda$core$Object$Z$GT*(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT* self);
 #define panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$join_$Rpanda$core$String_INDEX 19
 typedef panda$core$String*(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$join_$Rpanda$core$String_TYPE)(panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT* self);
 #define panda$collections$ListView$LTpanda$parser$GLRParser$ParseError$GT$join_panda$core$String_$Rpanda$core$String_INDEX 20

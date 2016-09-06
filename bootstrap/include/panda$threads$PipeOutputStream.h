@@ -14,8 +14,8 @@ struct panda$threads$PipeOutputStream {
 typedef void(panda$threads$PipeOutputStream$close_TYPE)(panda$threads$PipeOutputStream* self);
 #define panda$threads$PipeOutputStream$write_UInt8_INDEX 6
 typedef void(panda$threads$PipeOutputStream$write_UInt8_TYPE)(panda$threads$PipeOutputStream* self, UInt8);
-#define panda$threads$PipeOutputStream$write_panda$collections$ListView$LTpanda$core$UInt8$GT_INDEX 7
-typedef void(panda$threads$PipeOutputStream$write_panda$collections$ListView$LTpanda$core$UInt8$GT_TYPE)(panda$threads$PipeOutputStream* self, panda$collections$ListView$LTpanda$core$UInt8$GT*);
+#define panda$threads$PipeOutputStream$write_panda$collections$Array$LTpanda$core$UInt8$GT_INDEX 21
+typedef void(panda$threads$PipeOutputStream$write_panda$collections$Array$LTpanda$core$UInt8$GT_TYPE)(panda$threads$PipeOutputStream* self, panda$collections$Array$LTpanda$core$UInt8$GT*);
 void panda$threads$PipeOutputStream$init_panda$threads$MessageQueue$LTpanda$collections$ImmutableArray$LTpanda$core$UInt8$GT$Z$GT(panda$threads$PipeOutputStream* self, panda$threads$MessageQueue*);
 panda$threads$PipeOutputStream* new_panda$threads$PipeOutputStream$init_panda$threads$MessageQueue$LTpanda$collections$ImmutableArray$LTpanda$core$UInt8$GT$Z$GT(panda$threads$MessageQueue*);
 #endif

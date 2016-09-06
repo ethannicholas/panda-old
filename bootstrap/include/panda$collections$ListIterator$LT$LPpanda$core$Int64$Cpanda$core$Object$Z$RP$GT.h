@@ -13,7 +13,7 @@ struct panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z
 #define panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$get_done_$Rpanda$core$Bit_INDEX 4
 typedef Bit(panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$get_done_$Rpanda$core$Bit_TYPE)(panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self);
 #define panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$next_$R$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_INDEX 8
-typedef $LPpanda$core$Int64$Cpanda$core$Object$Z$RP*(panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$next_$R$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self);
+typedef $LPInt64$Cpanda$core$Object$Z$RP*(panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$next_$R$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self);
 void panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$init_panda$collections$ListView$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT(panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, panda$collections$ListView$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT*);
 panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* new_panda$collections$ListIterator$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$init_panda$collections$ListView$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT(panda$collections$ListView$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT*);
 #endif

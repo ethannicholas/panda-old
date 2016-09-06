@@ -176,14 +176,16 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def declarations := HashSet<String>()
 
+    def headerCodeGenerator:HeaderCodeGenerator
+
     init(p:Program, compilerSettings:CompilerSettings) {
         self.program := p
         def errors := FatalErrorReporter()
         self.context := IRGenerator(p.root, p.stubs, p.stubGenerator, 
                 compilerSettings, errors).context
         self.classes := p.classes
-        self.methodNamer := MethodNamer(context, 
-                CMethodNamingStrategy())
+        self.methodNamer := MethodNamer(context)
+        self.headerCodeGenerator := HeaderCodeGenerator(p, compilerSettings)
     }
 
     @protected
@@ -344,18 +346,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     function unwrapUnspecified(m:MethodStub):MethodStub {
         def stub := getStub(m.owner)
         if stub.annotations.isUnspecified & m.owner-?>GenericType {
-            def base := m.owner->GenericType.base
-            def args := Array<Type>()
-            for (_, type) in getStub(base).genericParameters {
-                if type != null {
-                    args.add(type)
-                }
-                else {
-                    args.add(NullableType.ANY)
-                }
-            }
-            def specified := GenericType(base, args)
-            return getStub(specified).methods[stub.methods.indexOf(m)]
+            return unwrapUnspecified(stub).methods[stub.methods.indexOf(m)]
         }
         return m
     }
@@ -373,7 +364,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     function getName(cl:ClassStub):String {
         var result := nameCache[cl]
         if result = null {
-            result := MethodNamer.escapeTypeName(cl.name)
+            result := headerCodeGenerator.getName(cl.type)
             nameCache[cl] := result
         }
         return result
@@ -506,15 +497,16 @@ class LLVMCodeGenerator (CodeGenerator) {
     
     @protected
     method writeTypeDescriptor(cl:ClassStub) {
-        if writtenTypes.contains(cl.name) {
+        def name := getName(cl)
+        if writtenTypes.contains(name) {
             return
         }
-        writtenTypes.add(cl.name)
+        writtenTypes.add(name)
         def result := MutableString()
         if debug {
             result.append("; " + cl.name + "\n")
         }
-        result.append("%" + getName(cl) + " = type { ")
+        result.append("%" + name + " = type { ")
         def fields := cl.instanceFields(context)
         for (i, f) in fields.enumeration {
             if i != 0 {
@@ -2520,8 +2512,8 @@ class LLVMCodeGenerator (CodeGenerator) {
             }
             for (_, cl) in classes {
                 for m in cl.methods {
-                    if (context.compilerSettings.isLibrary | 
-                            program.liveMethods.contains(m.stub)) & 
+                    if -*(context.compilerSettings.isLibrary |
+                            program.liveMethods.contains(m)) & *-
                             !writtenMethods.contains(m.stub) {
                         generateMethodCode(m)
                         progress := true

@@ -17,6 +17,7 @@ uses org.pandalanguage.pandac.types.NullableType
 uses org.pandalanguage.pandac.types.PrimitiveArrayType
 uses org.pandalanguage.pandac.types.PrimitiveType
 uses org.pandalanguage.pandac.types.RealType
+uses org.pandalanguage.pandac.types.TupleType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
 
@@ -43,8 +44,7 @@ class HeaderCodeGenerator (CodeGenerator) {
         def errors := FatalErrorReporter()
         self.context := IRGenerator(p.root, p.stubs, p.stubGenerator, 
                 compilerSettings, errors).context
-        self.methodNamer := MethodNamer(context, 
-                CMethodNamingStrategy())
+        self.methodNamer := MethodNamer(context)
     }
 
     @override
@@ -111,6 +111,20 @@ class HeaderCodeGenerator (CodeGenerator) {
         }
         if t-?>GenericParameterType {
             return getName(t->GenericParameterType.bound)
+        }
+        if t-?>TupleType {
+            def result := MutableString("(")
+            var separator := ""
+            for sub in t.unwrapNullable->TupleType.types {
+                result.append(separator)
+                separator := ","
+                result.append(getName(sub))
+                if sub-?>NullableType {
+                    result.append("?")
+                }
+            }
+            result.append(")")
+            return MethodNamer.escapeTypeName(result.convert())
         }
         return MethodNamer.escapeTypeName(
                 context.getStub(t.convert()->ClassType).name)

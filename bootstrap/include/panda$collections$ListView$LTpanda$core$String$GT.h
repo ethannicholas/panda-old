@@ -24,8 +24,8 @@ typedef panda$collections$ListView$LTpanda$core$String$GT*(panda$collections$Lis
 typedef panda$collections$ListView$LTpanda$core$String$GT*(panda$collections$ListView$LTpanda$core$String$GT$$SLE_Int64_Int64_Int64_$Rpanda$collections$ListView$LTpanda$core$String$GT_TYPE)(panda$collections$ListView$LTpanda$core$String$GT* self, Int64, Int64, Int64);
 #define panda$collections$ListView$LTpanda$core$String$GT$$ARR_Int64_$Rpanda$core$String_INDEX 17
 typedef panda$core$String*(panda$collections$ListView$LTpanda$core$String$GT$$ARR_Int64_$Rpanda$core$String_TYPE)(panda$collections$ListView$LTpanda$core$String$GT* self, Int64);
-#define panda$collections$ListView$LTpanda$core$String$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$String$GT_INDEX 18
-typedef panda$collections$ImmutableArray$LTpanda$core$String$GT*(panda$collections$ListView$LTpanda$core$String$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$String$GT_TYPE)(panda$collections$ListView$LTpanda$core$String$GT* self);
+#define panda$collections$ListView$LTpanda$core$String$GT$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_INDEX 18
+typedef panda$collections$Iterator$LTpanda$core$Object$Z$GT*(panda$collections$ListView$LTpanda$core$String$GT$get_iterator_$Rpanda$collections$Iterator$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$ListView$LTpanda$core$String$GT* self);
 #define panda$collections$ListView$LTpanda$core$String$GT$join_$Rpanda$core$String_INDEX 19
 typedef panda$core$String*(panda$collections$ListView$LTpanda$core$String$GT$join_$Rpanda$core$String_TYPE)(panda$collections$ListView$LTpanda$core$String$GT* self);
 #define panda$collections$ListView$LTpanda$core$String$GT$join_panda$core$String_$Rpanda$core$String_INDEX 20

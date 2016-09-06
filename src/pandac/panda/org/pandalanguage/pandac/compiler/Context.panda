@@ -866,7 +866,7 @@ class Context {
                 selfType := m.owner.convert()->PrimitiveType
             }
             else {
-                selfType := m.owner
+                selfType := m.unwrapped.owner
             }
             target := target.implicitCast(self, selfType)
         }
@@ -881,7 +881,7 @@ class Context {
         var result:Value := MethodCall(position, target, m.unwrapped, 
                                        finalParams)
         if result.type != m.returnType {
-            result := result.explicitCast(self, type.returnType)
+            result := result.explicitCast(self, type.returnType, true)
         }
         return result
     }
@@ -960,92 +960,6 @@ class Context {
             }
         }
         return null
-    }
-
-    -* todo: delete this overload *-
-    method call(position:Position, target:Value, 
-            methods:ListView<MethodStub>, params:ListView<Value>):Value? {
-        assert HashSet<MethodStub>(methods).count = methods.count :
-                "duplicate method in methods list"
-        return call(position, target, methods, params, null, true)
-    }
-
-    -* todo: delete this overload *-
-    method call(position:Position, target:Value, 
-            methods:ListView<MethodStub>, var params:ListView<Value>,
-            returnType:Type?, reportErrors:Bit):Value? {
-        if params.count > 0 {
-            def last := params[params.count - 1]
-            if last-?>UnresolvedRange {
-                def range := last->UnresolvedRange
-                def left := range.left
-                if isListView(left) & range.right = null {
-                    assert left != null
-                    def newParams := Array<Value>()
-                    newParams.addAll(params[0 .. params.count - 1])
-                    newParams.add(Unwrap(left))
-                    params := newParams
-                }
-            }
-        }
-        var bestCost := Int.MAX
-        var best:Array<MethodStub> := []
-        for m in methods {
-            def finalTarget := getEffectiveTarget(m, target)
-            if finalTarget = null {
-                continue
-            }
-            def cost := matchCost(finalTarget, m, params, returnType)
-            if cost != null & cost < bestCost {
-                bestCost := cost
-                best := [m]
-            }
-            else if cost != null & cost = bestCost {
-                best.add(m)
-            }
-        }
-        if best.count > 1 {
-            best := best.filter(m => !m.annotations.isShim)
-        }
-        if best.count = 1 {
-            def finalTarget := getEffectiveTarget(best[0], target)
-            if finalTarget = null {
-                errors.error("internal error: null target in\{target}:\{best[0]}",
-                        position)
-                return null
-            }
-            if reportErrors & inClosure & target-?>InstanceContext & 
-                    !best[0].annotations.isClass {
-                errors.error("cannot implicitly reference 'self' within a " + 
-                        "closure. Use an explicit 'self.' to make the " +
-                        "capture semantics explicit.", position)
-            }
-            return call(position, finalTarget, best[0], params)
-        }
-        else if best.count = 0 {
-            if reportErrors {
-                def types := Array<String>()
-                for p in params {
-                    types.add(p.type.displayName)
-                }
-                if methods[0].name = "get_iterator" {
-                    Console.writeLine("choices2 were: \{methods}")
-                }
-                if returnType != null {
-                    Console.writeLine("expected return type was \{returnType}")
-                }
-                errors.error("no match for \{methods[0].owner.name}." +
-                        "\{methods[0].name}(\{types.join(', ')})", position)
-                Panda.dumpStack()
-            }
-            return null
-        }
-        else {
-            if reportErrors {
-                reportAmbiguous(position, best, params, returnType)
-            }
-            return null
-        }
     }
 
     method call(position:Position, target:Value, methods:ListView<MethodStub>, 

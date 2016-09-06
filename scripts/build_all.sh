@@ -6,9 +6,10 @@ source scripts/setup-script.sh
 export PANDA_HOME=$BASEDIR/build
 
 echo "Building bootstrap compiler..."
+export C_SRC=$BASEDIR/bootstrap/core/c
 mkdir -p $SHARED_TARGET/core/lib
 cp bootstrap/PandaCoreClasses.plink $SHARED_TARGET/core/lib
-src/core/c/build.sh
+bootstrap/core/c/build.sh
 gcc -g -Wno-parentheses-equality -L/opt/local/lib -Lbuild/native/core/c -Lbuild/native/core/lib -lpanda -lgc -licui18n -licuuc -licudata -lc++abi -I bootstrap/include -I src/core/c -I /opt/local/include bootstrap/bootstrap.c -o build/bootstrap
 
 export PANDAC="$BASEDIR/build/bootstrap"
@@ -16,8 +17,11 @@ mkdir -p build/native/core/c
 
 echo "Compiling core libraries..."
 
+export C_SRC=$BASEDIR/src/core/c
 mkdir -p $NATIVE_TARGET/core/c
 $PANDAC -XnoCoreLib -f h -o $NATIVE_TARGET/core/c/panda.h $CORE_FILES
+
+src/core/c/build.sh
 
 $PANDAC -XpreserveTempArtifacts -XnoCoreLib -f plink -o $SHARED_TARGET/core/lib/PandaCoreClasses.plink $CORE_FILES
 $PANDAC -XpreserveTempArtifacts -XnoCoreLib -f lib -o $NATIVE_TARGET/core/lib/PandaCoreClasses.o $CORE_FILES
@@ -35,8 +39,6 @@ fi
 echo "Creating parser..."
 mkdir -p $NATIVE_TARGET
 mkdir -p $SHARED_TARGET
-#$PANDAC -o $NATIVE_TARGET/parsergenerator.c -f c src/pandac/parser/ParserGenerator.panda bootstrap/GrammarParser.panda bootstrap/ErrorParser.panda
-#gcc -g -Wno-parentheses-equality -L/opt/local/lib -Lbuild/native/core/c -Lbuild/native/core/lib -lpanda -lgc -licui18n -licuuc -licudata -lc++abi -I bootstrap/include -I src/core/c -I /opt/local/include $NATIVE_TARGET/parsergenerator.c -o $NATIVE_TARGET/parsergenerator
 $PANDAC -o $NATIVE_TARGET/parsergenerator src/pandac/parser/ParserGenerator.panda bootstrap/GrammarParser.panda bootstrap/ErrorParser.panda
 $NATIVE_TARGET/parsergenerator src/pandac/parser/panda.grammar src/pandac/parser/panda.errors $SHARED_TARGET/PandaLRParser.panda
 

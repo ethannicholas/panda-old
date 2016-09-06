@@ -9,10 +9,10 @@ struct panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$R
 };
 
 #define panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$$ARREQ_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_INDEX 10
-typedef void(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$$ARREQ_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPpanda$core$Int64$Cpanda$core$Object$Z$RP*);
+typedef void(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$$ARREQ_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPInt64$Cpanda$core$Object$Z$RP*);
 #define panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$removeIndex_Int64_INDEX 11
 typedef void(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$removeIndex_Int64_TYPE)(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64);
 #define panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$insert_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_INDEX 12
-typedef void(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$insert_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPpanda$core$Int64$Cpanda$core$Object$Z$RP*);
+typedef void(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$insert_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$ListWriter$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPInt64$Cpanda$core$Object$Z$RP*);
 #endif
 #endif

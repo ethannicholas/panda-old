@@ -24,19 +24,17 @@ typedef panda$collections$ListView$LTpanda$core$Object$Z$GT*(panda$collections$L
 typedef panda$collections$ListView$LTpanda$core$Object$Z$GT*(panda$collections$ListView$LTpanda$core$Object$Z$GT$$SLE_Int64_Int64_Int64_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self, Int64, Int64, Int64);
 #define panda$collections$ListView$LTpanda$core$Object$Z$GT$$ARR_Int64_$Rpanda$core$Object$Z_INDEX 17
 typedef panda$core$Object*(panda$collections$ListView$LTpanda$core$Object$Z$GT$$ARR_Int64_$Rpanda$core$Object$Z_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self, Int64);
-#define panda$collections$ListView$LTpanda$core$Object$Z$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Object$Z$GT_INDEX 18
-typedef panda$collections$ImmutableArray$LTpanda$core$Object$Z$GT*(panda$collections$ListView$LTpanda$core$Object$Z$GT$convert_$Rpanda$collections$ImmutableArray$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self);
-#define panda$collections$ListView$LTpanda$core$Object$Z$GT$join_$Rpanda$core$String_INDEX 19
+#define panda$collections$ListView$LTpanda$core$Object$Z$GT$join_$Rpanda$core$String_INDEX 18
 typedef panda$core$String*(panda$collections$ListView$LTpanda$core$Object$Z$GT$join_$Rpanda$core$String_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self);
-#define panda$collections$ListView$LTpanda$core$Object$Z$GT$join_panda$core$String_$Rpanda$core$String_INDEX 20
+#define panda$collections$ListView$LTpanda$core$Object$Z$GT$join_panda$core$String_$Rpanda$core$String_INDEX 19
 typedef panda$core$String*(panda$collections$ListView$LTpanda$core$Object$Z$GT$join_panda$core$String_$Rpanda$core$String_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self, panda$core$String*);
-#define panda$collections$ListView$LTpanda$core$Object$Z$GT$indexOf_panda$core$Object$Z_$Rpanda$core$Int64Wrapper$Z_INDEX 21
+#define panda$collections$ListView$LTpanda$core$Object$Z$GT$indexOf_panda$core$Object$Z_$Rpanda$core$Int64Wrapper$Z_INDEX 20
 typedef panda$core$Int64Wrapper*(panda$collections$ListView$LTpanda$core$Object$Z$GT$indexOf_panda$core$Object$Z_$Rpanda$core$Int64Wrapper$Z_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self, panda$core$Object*);
-#define panda$collections$ListView$LTpanda$core$Object$Z$GT$indexOf_panda$core$Object$Z_Int64_$Rpanda$core$Int64Wrapper$Z_INDEX 22
+#define panda$collections$ListView$LTpanda$core$Object$Z$GT$indexOf_panda$core$Object$Z_Int64_$Rpanda$core$Int64Wrapper$Z_INDEX 21
 typedef panda$core$Int64Wrapper*(panda$collections$ListView$LTpanda$core$Object$Z$GT$indexOf_panda$core$Object$Z_Int64_$Rpanda$core$Int64Wrapper$Z_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self, panda$core$Object*, Int64);
-#define panda$collections$ListView$LTpanda$core$Object$Z$GT$$SLI_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 23
+#define panda$collections$ListView$LTpanda$core$Object$Z$GT$$SLI_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 22
 typedef panda$collections$ListView$LTpanda$core$Object$Z$GT*(panda$collections$ListView$LTpanda$core$Object$Z$GT$$SLI_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self, panda$core$Int64Wrapper*, panda$core$Int64Wrapper*, Int64);
-#define panda$collections$ListView$LTpanda$core$Object$Z$GT$$SLI_Int64_Int64_Int64_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 24
+#define panda$collections$ListView$LTpanda$core$Object$Z$GT$$SLI_Int64_Int64_Int64_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_INDEX 23
 typedef panda$collections$ListView$LTpanda$core$Object$Z$GT*(panda$collections$ListView$LTpanda$core$Object$Z$GT$$SLI_Int64_Int64_Int64_$Rpanda$collections$ListView$LTpanda$core$Object$Z$GT_TYPE)(panda$collections$ListView$LTpanda$core$Object$Z$GT* self, Int64, Int64, Int64);
 #endif
 #endif

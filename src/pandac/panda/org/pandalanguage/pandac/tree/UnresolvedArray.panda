@@ -85,20 +85,20 @@ class UnresolvedArray : UnresolvedValue {
         return context.createArrayLiteral(position, type, casted)
     }
 
-    function isCollection(context:Context, base:ClassType):Bit {
-        if base = ClassType.ARRAY | base = ClassType.IMMUTABLE_ARRAY {
+    function isCollection(context:Context, cl:ClassType):Bit {
+        def base:ClassType
+        if cl-?>GenericType {
+            base := cl->GenericType.base
+        }
+        else {
+            base := cl
+        }
+        if base.name = "panda.collections.CollectionView" {
             return true
         }
-        def interfaces := base.allInterfaces(context)
+        def interfaces := cl.allInterfaces(context)
         for intf in interfaces {
-            def intfBase:Type
-            if intf-?>GenericType {
-                intfBase := intf->GenericType.base
-            }
-            else {
-                intfBase := intf
-            }
-            if base = intfBase {
+            if intf != cl & intf != base & isCollection(context, intf) {
                 return true
             }
         }
@@ -182,24 +182,24 @@ class UnresolvedArray : UnresolvedValue {
     method implicitCast(position:Position, context:Context, t:Type):Value {
         if !t.isPrimitive {
             var stub := context.getStub(t.convert()->ClassType)
+            var current := t.convert()->ClassType
             loop {
-                if stub.type-?>GenericType {
-                    def g := stub.type->GenericType.base
+                if current-?>GenericType {
+                    def g := current->GenericType.base
                     if isCollection(context, g) {
-                        def elementType := 
-                                stub.type->GenericType.parameters[0]
+                        def elementType := current->GenericType.parameters[0]
                         def casted := Array<Value>()
                         for v in values {
                             casted.add(v.implicitCast(position, context, 
                                     elementType))
                         }
                         return context.createArrayLiteral(position, 
-                                stub.type->GenericType, casted)
+                                current->GenericType, casted)
                     }
                 }
-                def parent := stub.superclass
+                def parent := context.getStub(current).superclass
                 if parent != null {
-                    stub := context.getStub(parent)
+                    current := parent
                 }
                 else {
                     break

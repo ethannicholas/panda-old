@@ -13,7 +13,7 @@ struct panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT {
 #define panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT$get_done_$Rpanda$core$Bit_INDEX 4
 typedef Bit(panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT$get_done_$Rpanda$core$Bit_TYPE)(panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT* self);
 #define panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT$next_$R$LPpanda$core$Int64$Cpanda$parser$GLRParser$ParseError$RP_INDEX 8
-typedef $LPpanda$core$Int64$Cpanda$parser$GLRParser$ParseError$RP*(panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT$next_$R$LPpanda$core$Int64$Cpanda$parser$GLRParser$ParseError$RP_TYPE)(panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT* self);
+typedef $LPInt64$Cpanda$parser$GLRParser$ParseError$RP*(panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT$next_$R$LPpanda$core$Int64$Cpanda$parser$GLRParser$ParseError$RP_TYPE)(panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT* self);
 void panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT$init_panda$collections$CollectionView$LTpanda$parser$GLRParser$ParseError$GT(panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT* self, panda$collections$CollectionView$LTpanda$parser$GLRParser$ParseError$GT*);
 panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT* new_panda$collections$Enumerator$LTpanda$parser$GLRParser$ParseError$GT$init_panda$collections$CollectionView$LTpanda$parser$GLRParser$ParseError$GT(panda$collections$CollectionView$LTpanda$parser$GLRParser$ParseError$GT*);
 #endif

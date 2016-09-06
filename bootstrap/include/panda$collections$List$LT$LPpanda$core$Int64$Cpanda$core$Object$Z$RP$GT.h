@@ -9,9 +9,9 @@ struct panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT {
 };
 
 #define panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$$ARREQ_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_INDEX 10
-typedef void(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$$ARREQ_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPpanda$core$Int64$Cpanda$core$Object$Z$RP*);
+typedef void(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$$ARREQ_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPInt64$Cpanda$core$Object$Z$RP*);
 #define panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$insert_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_INDEX 12
-typedef void(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$insert_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPpanda$core$Int64$Cpanda$core$Object$Z$RP*);
+typedef void(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$insert_Int64_$LPpanda$core$Int64$Cpanda$core$Object$Z$RP_TYPE)(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, Int64, $LPInt64$Cpanda$core$Object$Z$RP*);
 #define panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$filterInPlace_$LP$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$RP$EQ$GT$LPpanda$core$Bit$RP_INDEX 33
 typedef void(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$filterInPlace_$LP$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$RP$EQ$GT$LPpanda$core$Bit$RP_TYPE)(panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT* self, void**);
 #define panda$collections$List$LT$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$GT$mapInPlace_$LP$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$RP$EQ$GT$LP$LPpanda$core$Int64$Cpanda$core$Object$Z$RP$RP_INDEX 34

@@ -13,7 +13,7 @@ struct panda$collections$Enumerator$LTpanda$core$Int8$GT {
 #define panda$collections$Enumerator$LTpanda$core$Int8$GT$get_done_$Rpanda$core$Bit_INDEX 4
 typedef Bit(panda$collections$Enumerator$LTpanda$core$Int8$GT$get_done_$Rpanda$core$Bit_TYPE)(panda$collections$Enumerator$LTpanda$core$Int8$GT* self);
 #define panda$collections$Enumerator$LTpanda$core$Int8$GT$next_$R$LPpanda$core$Int64$Cpanda$core$Int8$RP_INDEX 8
-typedef $LPpanda$core$Int64$Cpanda$core$Int8$RP*(panda$collections$Enumerator$LTpanda$core$Int8$GT$next_$R$LPpanda$core$Int64$Cpanda$core$Int8$RP_TYPE)(panda$collections$Enumerator$LTpanda$core$Int8$GT* self);
+typedef $LPInt64$CInt8$RP*(panda$collections$Enumerator$LTpanda$core$Int8$GT$next_$R$LPpanda$core$Int64$Cpanda$core$Int8$RP_TYPE)(panda$collections$Enumerator$LTpanda$core$Int8$GT* self);
 void panda$collections$Enumerator$LTpanda$core$Int8$GT$init_panda$collections$CollectionView$LTpanda$core$Int8$GT(panda$collections$Enumerator$LTpanda$core$Int8$GT* self, panda$collections$CollectionView$LTpanda$core$Int8$GT*);
 panda$collections$Enumerator$LTpanda$core$Int8$GT* new_panda$collections$Enumerator$LTpanda$core$Int8$GT$init_panda$collections$CollectionView$LTpanda$core$Int8$GT(panda$collections$CollectionView$LTpanda$core$Int8$GT*);
 #endif
