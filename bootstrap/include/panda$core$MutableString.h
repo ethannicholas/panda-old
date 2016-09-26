@@ -16,63 +16,63 @@ typedef panda$core$String*(panda$core$MutableString$convert_$Rpanda$core$String_
 typedef Bit(panda$core$MutableString$$EQ_panda$core$Object_$Rpanda$core$Bit_TYPE)(panda$core$MutableString* self, panda$core$Object*);
 #define panda$core$MutableString$get_hash_$Rpanda$core$Int64_INDEX 3
 typedef Int64(panda$core$MutableString$get_hash_$Rpanda$core$Int64_TYPE)(panda$core$MutableString* self);
-#define panda$core$MutableString$append_Char_INDEX 41
+#define panda$core$MutableString$append_Char_INDEX 43
 typedef void(panda$core$MutableString$append_Char_TYPE)(panda$core$MutableString* self, Char);
-#define panda$core$MutableString$append_panda$core$String_INDEX 42
+#define panda$core$MutableString$append_panda$core$String_INDEX 44
 typedef void(panda$core$MutableString$append_panda$core$String_TYPE)(panda$core$MutableString* self, panda$core$String*);
-#define panda$core$MutableString$append_panda$core$Object_INDEX 43
+#define panda$core$MutableString$append_panda$core$Object_INDEX 45
 typedef void(panda$core$MutableString$append_panda$core$Object_TYPE)(panda$core$MutableString* self, panda$core$Object*);
-#define panda$core$MutableString$startsWith_panda$core$String_$Rpanda$core$Bit_INDEX 44
+#define panda$core$MutableString$startsWith_panda$core$String_$Rpanda$core$Bit_INDEX 46
 typedef Bit(panda$core$MutableString$startsWith_panda$core$String_$Rpanda$core$Bit_TYPE)(panda$core$MutableString* self, panda$core$String*);
-#define panda$core$MutableString$$SLIEQ_Int64_Int64_Int64_panda$core$String_INDEX 45
+#define panda$core$MutableString$$SLIEQ_Int64_Int64_Int64_panda$core$String_INDEX 47
 typedef void(panda$core$MutableString$$SLIEQ_Int64_Int64_Int64_panda$core$String_TYPE)(panda$core$MutableString* self, Int64, Int64, Int64, panda$core$String*);
-#define panda$core$MutableString$$SLIEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$core$String_INDEX 46
+#define panda$core$MutableString$$SLIEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$core$String_INDEX 48
 typedef void(panda$core$MutableString$$SLIEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$core$String_TYPE)(panda$core$MutableString* self, panda$core$Int64Wrapper*, panda$core$Int64Wrapper*, Int64, panda$core$String*);
-#define panda$core$MutableString$endsWith_panda$core$String_$Rpanda$core$Bit_INDEX 47
+#define panda$core$MutableString$endsWith_panda$core$String_$Rpanda$core$Bit_INDEX 49
 typedef Bit(panda$core$MutableString$endsWith_panda$core$String_$Rpanda$core$Bit_TYPE)(panda$core$MutableString* self, panda$core$String*);
-#define panda$core$MutableString$replaceInPlace_panda$core$String_panda$core$String_INDEX 48
+#define panda$core$MutableString$replaceInPlace_panda$core$String_panda$core$String_INDEX 50
 typedef void(panda$core$MutableString$replaceInPlace_panda$core$String_panda$core$String_TYPE)(panda$core$MutableString* self, panda$core$String*, panda$core$String*);
-#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_panda$core$String_INDEX 49
+#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_panda$core$String_INDEX 51
 typedef void(panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_panda$core$String_TYPE)(panda$core$MutableString* self, panda$core$RegularExpression*, panda$core$String*);
-#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_panda$core$String_Bit_INDEX 50
+#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_panda$core$String_Bit_INDEX 52
 typedef void(panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_panda$core$String_Bit_TYPE)(panda$core$MutableString* self, panda$core$RegularExpression*, panda$core$String*, Bit);
-#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_$LPpanda$core$String$RP$EQ$GT$LPpanda$core$Object$RP_INDEX 51
+#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_$LPpanda$core$String$RP$EQ$GT$LPpanda$core$Object$RP_INDEX 53
 typedef void(panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_$LPpanda$core$String$RP$EQ$GT$LPpanda$core$Object$RP_TYPE)(panda$core$MutableString* self, panda$core$RegularExpression*, void**);
-#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_$LPpanda$collections$ListView$LTpanda$core$String$GT$RP$EQ$GT$LPpanda$core$Object$RP_INDEX 52
+#define panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_$LPpanda$collections$ListView$LTpanda$core$String$GT$RP$EQ$GT$LPpanda$core$Object$RP_INDEX 54
 typedef void(panda$core$MutableString$replaceInPlace_panda$core$RegularExpression_$LPpanda$collections$ListView$LTpanda$core$String$GT$RP$EQ$GT$LPpanda$core$Object$RP_TYPE)(panda$core$MutableString* self, panda$core$RegularExpression*, void**);
-#define panda$core$MutableString$$SLI_Int64_Int64_$Rpanda$core$String_INDEX 53
+#define panda$core$MutableString$$SLI_Int64_Int64_$Rpanda$core$String_INDEX 55
 typedef panda$core$String*(panda$core$MutableString$$SLI_Int64_Int64_$Rpanda$core$String_TYPE)(panda$core$MutableString* self, Int64, Int64);
-#define panda$core$MutableString$$SLI_Int64_Int64_Int64_$Rpanda$core$String_INDEX 54
+#define panda$core$MutableString$$SLI_Int64_Int64_Int64_$Rpanda$core$String_INDEX 56
 typedef panda$core$String*(panda$core$MutableString$$SLI_Int64_Int64_Int64_$Rpanda$core$String_TYPE)(panda$core$MutableString* self, Int64, Int64, Int64);
-#define panda$core$MutableString$$SLI_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$core$String_INDEX 55
+#define panda$core$MutableString$$SLI_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$core$String_INDEX 57
 typedef panda$core$String*(panda$core$MutableString$$SLI_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$core$String_TYPE)(panda$core$MutableString* self, panda$core$Int64Wrapper*, panda$core$Int64Wrapper*, Int64);
-#define panda$core$MutableString$insert_Int64_panda$core$String_INDEX 56
+#define panda$core$MutableString$insert_Int64_panda$core$String_INDEX 58
 typedef void(panda$core$MutableString$insert_Int64_panda$core$String_TYPE)(panda$core$MutableString* self, Int64, panda$core$String*);
-#define panda$core$MutableString$delete_panda$core$String_INDEX 57
+#define panda$core$MutableString$delete_panda$core$String_INDEX 59
 typedef void(panda$core$MutableString$delete_panda$core$String_TYPE)(panda$core$MutableString* self, panda$core$String*);
-#define panda$core$MutableString$delete_panda$core$RegularExpression_INDEX 58
+#define panda$core$MutableString$delete_panda$core$RegularExpression_INDEX 60
 typedef void(panda$core$MutableString$delete_panda$core$RegularExpression_TYPE)(panda$core$MutableString* self, panda$core$RegularExpression*);
-#define panda$core$MutableString$format_panda$core$String_$Rpanda$core$String_INDEX 59
+#define panda$core$MutableString$format_panda$core$String_$Rpanda$core$String_INDEX 61
 typedef panda$core$String*(panda$core$MutableString$format_panda$core$String_$Rpanda$core$String_TYPE)(panda$core$MutableString* self, panda$core$String*);
-#define panda$core$MutableString$$SLE_Int64_Int64_$Rpanda$core$String_INDEX 60
+#define panda$core$MutableString$$SLE_Int64_Int64_$Rpanda$core$String_INDEX 62
 typedef panda$core$String*(panda$core$MutableString$$SLE_Int64_Int64_$Rpanda$core$String_TYPE)(panda$core$MutableString* self, Int64, Int64);
-#define panda$core$MutableString$$SLE_Int64_Int64_Int64_$Rpanda$core$String_INDEX 61
+#define panda$core$MutableString$$SLE_Int64_Int64_Int64_$Rpanda$core$String_INDEX 63
 typedef panda$core$String*(panda$core$MutableString$$SLE_Int64_Int64_Int64_$Rpanda$core$String_TYPE)(panda$core$MutableString* self, Int64, Int64, Int64);
-#define panda$core$MutableString$$SLE_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$core$String_INDEX 62
+#define panda$core$MutableString$$SLE_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$core$String_INDEX 64
 typedef panda$core$String*(panda$core$MutableString$$SLE_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_$Rpanda$core$String_TYPE)(panda$core$MutableString* self, panda$core$Int64Wrapper*, panda$core$Int64Wrapper*, Int64);
-#define panda$core$MutableString$remove_Int64_Int64_INDEX 63
+#define panda$core$MutableString$remove_Int64_Int64_INDEX 65
 typedef void(panda$core$MutableString$remove_Int64_Int64_TYPE)(panda$core$MutableString* self, Int64, Int64);
-#define panda$core$MutableString$get_length_$Rpanda$core$Int64_INDEX 64
+#define panda$core$MutableString$get_length_$Rpanda$core$Int64_INDEX 66
 typedef Int64(panda$core$MutableString$get_length_$Rpanda$core$Int64_TYPE)(panda$core$MutableString* self);
-#define panda$core$MutableString$$SLEEQ_Int64_Int64_Int64_panda$core$String_INDEX 65
+#define panda$core$MutableString$$SLEEQ_Int64_Int64_Int64_panda$core$String_INDEX 67
 typedef void(panda$core$MutableString$$SLEEQ_Int64_Int64_Int64_panda$core$String_TYPE)(panda$core$MutableString* self, Int64, Int64, Int64, panda$core$String*);
-#define panda$core$MutableString$$SLEEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$core$String_INDEX 66
+#define panda$core$MutableString$$SLEEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$core$String_INDEX 68
 typedef void(panda$core$MutableString$$SLEEQ_panda$core$Int64Wrapper$Z_panda$core$Int64Wrapper$Z_Int64_panda$core$String_TYPE)(panda$core$MutableString* self, panda$core$Int64Wrapper*, panda$core$Int64Wrapper*, Int64, panda$core$String*);
-#define panda$core$MutableString$contains_panda$core$String_$Rpanda$core$Bit_INDEX 67
+#define panda$core$MutableString$contains_panda$core$String_$Rpanda$core$Bit_INDEX 69
 typedef Bit(panda$core$MutableString$contains_panda$core$String_$Rpanda$core$Bit_TYPE)(panda$core$MutableString* self, panda$core$String*);
-#define panda$core$MutableString$indexOf_panda$core$String_$Rpanda$core$Int64Wrapper$Z_INDEX 68
+#define panda$core$MutableString$indexOf_panda$core$String_$Rpanda$core$Int64Wrapper$Z_INDEX 70
 typedef panda$core$Int64Wrapper*(panda$core$MutableString$indexOf_panda$core$String_$Rpanda$core$Int64Wrapper$Z_TYPE)(panda$core$MutableString* self, panda$core$String*);
-#define panda$core$MutableString$indexOf_panda$core$String_Int64_$Rpanda$core$Int64Wrapper$Z_INDEX 69
+#define panda$core$MutableString$indexOf_panda$core$String_Int64_$Rpanda$core$Int64Wrapper$Z_INDEX 71
 typedef panda$core$Int64Wrapper*(panda$core$MutableString$indexOf_panda$core$String_Int64_$Rpanda$core$Int64Wrapper$Z_TYPE)(panda$core$MutableString* self, panda$core$String*, Int64);
 void panda$core$MutableString$init(panda$core$MutableString* self);
 panda$core$MutableString* new_panda$core$MutableString$init();

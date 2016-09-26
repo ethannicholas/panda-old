@@ -19,7 +19,7 @@ typedef Bit(panda$parser$GLRParser$Action$$EQ_panda$core$Object_$Rpanda$core$Bit
 typedef Int64(panda$parser$GLRParser$Action$get_hash_$Rpanda$core$Int64_TYPE)(panda$parser$GLRParser$Action* self);
 void panda$parser$GLRParser$Action$init_panda$parser$GLRParser$Action$Type_Int64(panda$parser$GLRParser$Action* self, panda$parser$GLRParser$Action$Type*, Int64);
 panda$parser$GLRParser$Action* new_panda$parser$GLRParser$Action$init_panda$parser$GLRParser$Action$Type_Int64(panda$parser$GLRParser$Action$Type*, Int64);
-void panda$parser$GLRParser$Action$init_panda$collections$List$LTpanda$parser$GLRParser$Action$GT(panda$parser$GLRParser$Action* self, panda$collections$List$LTpanda$parser$GLRParser$Action$GT*);
-panda$parser$GLRParser$Action* new_panda$parser$GLRParser$Action$init_panda$collections$List$LTpanda$parser$GLRParser$Action$GT(panda$collections$List$LTpanda$parser$GLRParser$Action$GT*);
+void panda$parser$GLRParser$Action$init_panda$collections$ListView$LTpanda$parser$GLRParser$Action$GT(panda$parser$GLRParser$Action* self, panda$collections$ListView$LTpanda$parser$GLRParser$Action$GT*);
+panda$parser$GLRParser$Action* new_panda$parser$GLRParser$Action$init_panda$collections$ListView$LTpanda$parser$GLRParser$Action$GT(panda$collections$ListView$LTpanda$parser$GLRParser$Action$GT*);
 #endif
 #endif

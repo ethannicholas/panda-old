@@ -36,9 +36,13 @@ typedef void(panda$collections$Array$LTpanda$core$Char$GT$removeIndex_Int64_TYPE
 typedef Bit(panda$collections$Array$LTpanda$core$Char$GT$contains_Char_$Rpanda$core$Bit_TYPE)(panda$collections$Array$LTpanda$core$Char$GT* self, Char);
 #define panda$collections$Array$LTpanda$core$Char$GT$$ARR_Int64_$Rpanda$core$Char_INDEX 25
 typedef Char(panda$collections$Array$LTpanda$core$Char$GT$$ARR_Int64_$Rpanda$core$Char_TYPE)(panda$collections$Array$LTpanda$core$Char$GT* self, Int64);
-#define panda$collections$Array$LTpanda$core$Char$GT$sorted_$LPpanda$core$Char$Cpanda$core$Char$RP$EQ$GT$LPpanda$core$Bit$RP_$Rpanda$collections$Array$LTpanda$core$Char$GT_INDEX 39
+#define panda$collections$Array$LTpanda$core$Char$GT$addAll_panda$collections$Array$LTpanda$core$Char$GT_INDEX 39
+typedef void(panda$collections$Array$LTpanda$core$Char$GT$addAll_panda$collections$Array$LTpanda$core$Char$GT_TYPE)(panda$collections$Array$LTpanda$core$Char$GT* self, panda$collections$Array$LTpanda$core$Char$GT*);
+#define panda$collections$Array$LTpanda$core$Char$GT$sorted_$LPpanda$core$Char$Cpanda$core$Char$RP$EQ$GT$LPpanda$core$Bit$RP_$Rpanda$collections$Array$LTpanda$core$Char$GT_INDEX 40
 typedef panda$collections$Array$LTpanda$core$Char$GT*(panda$collections$Array$LTpanda$core$Char$GT$sorted_$LPpanda$core$Char$Cpanda$core$Char$RP$EQ$GT$LPpanda$core$Bit$RP_$Rpanda$collections$Array$LTpanda$core$Char$GT_TYPE)(panda$collections$Array$LTpanda$core$Char$GT* self, void**);
-#define panda$collections$Array$LTpanda$core$Char$GT$sort_$LPpanda$core$Char$Cpanda$core$Char$RP$EQ$GT$LPpanda$core$Bit$RP_INDEX 40
+#define panda$collections$Array$LTpanda$core$Char$GT$add_panda$collections$Array$LTpanda$core$Char$GT_Int64_Int64_INDEX 41
+typedef void(panda$collections$Array$LTpanda$core$Char$GT$add_panda$collections$Array$LTpanda$core$Char$GT_Int64_Int64_TYPE)(panda$collections$Array$LTpanda$core$Char$GT* self, panda$collections$Array$LTpanda$core$Char$GT*, Int64, Int64);
+#define panda$collections$Array$LTpanda$core$Char$GT$sort_$LPpanda$core$Char$Cpanda$core$Char$RP$EQ$GT$LPpanda$core$Bit$RP_INDEX 42
 typedef void(panda$collections$Array$LTpanda$core$Char$GT$sort_$LPpanda$core$Char$Cpanda$core$Char$RP$EQ$GT$LPpanda$core$Bit$RP_TYPE)(panda$collections$Array$LTpanda$core$Char$GT* self, void**);
 void panda$collections$Array$LTpanda$core$Char$GT$init(panda$collections$Array$LTpanda$core$Char$GT* self);
 panda$collections$Array$LTpanda$core$Char$GT* new_panda$collections$Array$LTpanda$core$Char$GT$init();

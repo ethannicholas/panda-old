@@ -3578,9 +3578,12 @@ class IRGenerator {
         }
     }
 
-    @private
-    function unwrapUnspecified(cl:ClassStub):ClassStub {
-        if cl.annotations.isUnspecified & cl.type-?>GenericType {
+    @class
+    function unwrapUnspecified(context:Context, cl:ClassStub):ClassStub {
+        if !cl.annotations.isUnspecified {
+            return cl
+        }
+        if cl.type-?>GenericType {
             def base := cl.type->GenericType.base
             def actualType:ClassType
             if base.name = "panda.collections.PrimitiveArray" {
@@ -3605,7 +3608,36 @@ class IRGenerator {
             }
             return context.stubGenerator.getStub(actualType)
         }
+        if cl.type-?>TupleType {
+            def types := Array<Type>()
+            for t in cl.type->TupleType.types {
+                if t-?>ClassType {
+                    types.add(unwrapUnspecified(context, unwrapUnspecified(
+                            context, 
+                            context.stubGenerator.getStub(t->ClassType))).type)
+                }
+                else if t-?>GenericParameterType {
+                    types.add(t->GenericParameterType.bound)
+                }
+                else {
+                    types.add(t)
+                }
+            }
+            def tuple := TupleType(types)
+            Console.writeLine("unwrapped unspecified tuple \{cl.name} into \{tuple.name}")
+            return context.stubGenerator.getStub(tuple)
+        }
         return cl
+    }
+
+    @class
+    function unwrapUnspecified(context:Context, m:MethodStub):MethodStub {
+        def stub := context.stubGenerator.getStub(m.owner)
+        if stub.annotations.isUnspecified {
+            return unwrapUnspecified(context, stub).methods[
+                    stub.methods.indexOf(m)]
+        }
+        return m
     }
 
     method generateProgram():Program {
@@ -3623,7 +3655,7 @@ class IRGenerator {
                     context.stubGenerator.stubs.values.filter(
                         cl => !cl.isExternal & !classes.contains(cl.name)))
             for cl in filtered {
-                filtered.add(unwrapUnspecified(cl))
+                filtered.add(unwrapUnspecified(context, cl))
             }
             for cl in filtered {
                 classes[cl.name] := convertClass(cl)

@@ -66,28 +66,8 @@ class HeaderCodeGenerator (CodeGenerator) {
         return f.name
     }
     
-    @private
-    function unwrapUnspecified(m:MethodStub):MethodStub {
-        def stub := context.getStub(m.owner)
-        if stub.annotations.isUnspecified & m.owner-?>GenericType {
-            def base := m.owner->GenericType.base
-            def args := Array<Type>()
-            for (_, type) in context.getStub(base).genericParameters {
-                if type != null {
-                    args.add(type)
-                }
-                else {
-                    args.add(NullableType.ANY)
-                }
-            }
-            def specified := GenericType(base, args)
-            return context.getStub(specified).methods[stub.methods.indexOf(m)]
-        }
-        return m
-    }
-
     method getName(m:MethodStub):String {
-        return methodNamer.getName(unwrapUnspecified(m))
+        return methodNamer.getName(IRGenerator.unwrapUnspecified(context, m))
     }
     
     method getName(raw:Type):String {
@@ -159,7 +139,7 @@ class HeaderCodeGenerator (CodeGenerator) {
     method writeMethods(cl:ClassStub, out:OutputStream) {
         def methods := Array<MethodStub>()
         for m in cl.type.virtualMethods(context.stubGenerator) {
-            methods.add(unwrapUnspecified(m))
+            methods.add(IRGenerator.unwrapUnspecified(context, m))
         }
         var classType := cl.type
         while classType-?>GenericType {
@@ -173,7 +153,7 @@ class HeaderCodeGenerator (CodeGenerator) {
             else {
                 m := raw
             }
-            m := unwrapUnspecified(m)
+            m := IRGenerator.unwrapUnspecified(context, m)
             var owner := m.owner
             while owner-?>GenericType {
                 owner := owner->GenericType.base
@@ -209,7 +189,7 @@ class HeaderCodeGenerator (CodeGenerator) {
         }
 
         for entry in cl.methods {
-            def m := unwrapUnspecified(entry)
+            def m := IRGenerator.unwrapUnspecified(context, entry)
             if !program.isEffectivelyVirtual(m) | m.annotations.isExternal {
                 out.write(getCType(m.returnType))
                 out.write(" " + getName(m) + "(")

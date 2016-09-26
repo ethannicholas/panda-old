@@ -22,7 +22,6 @@ typedef panda$collections$PrimitiveArray PrimitiveArray;
 typedef panda$core$String String;
 typedef panda$collections$PrimitiveArray$LTpanda$core$String$GT String$Array;
 typedef panda$io$File File;
-typedef panda$collections$PrimitiveArray$LTpanda$io$File$GT File$Array;
 typedef panda$core$Error Error;
 typedef panda$core$RegularExpression RegularExpression;
 typedef panda$threads$Message Message;

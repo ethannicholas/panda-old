@@ -324,7 +324,6 @@ class CCodeGenerator (CodeGenerator) {
         var result := nameCache[cl]
         if result = null {
             result := headerCodeGenerator.getName(cl.type)
-            Console.writeLine("name1 of \{cl.name}: \{result}")
             nameCache[cl] := result
         }
         return result
@@ -345,7 +344,7 @@ class CCodeGenerator (CodeGenerator) {
         if m.base != null {
             return getName(m.base)
         }
-        return methodNamer.getName(unwrapUnspecified(m))
+        return methodNamer.getName(IRGenerator.unwrapUnspecified(context, m))
     }
 
     @private
@@ -433,38 +432,10 @@ class CCodeGenerator (CodeGenerator) {
         return result
     }
 
-    @private
-    function unwrapUnspecified(cl:ClassStub):ClassStub {
-        if cl.annotations.isUnspecified & cl.type-?>GenericType {
-            def base := cl.type->GenericType.base
-            def args := Array<Type>()
-            for (_, type) in getStub(base).genericParameters {
-                if type != null {
-                    args.add(type)
-                }
-                else {
-                    args.add(NullableType.ANY)
-                }
-            }
-            def specified := GenericType(base, args)
-            return getStub(specified)
-        }
-        return cl
-    }
-
-    @private
-    function unwrapUnspecified(m:MethodStub):MethodStub {
-        def stub := getStub(m.owner)
-        if stub.annotations.isUnspecified & m.owner-?>GenericType {
-            return unwrapUnspecified(stub).methods[stub.methods.indexOf(m)]
-        }
-        return m
-    }
-
     @protected
     method writeConstruct(construct:Construct) {
         def m := construct.initCall.methodStub
-        body.write("new_\{getName(unwrapUnspecified(m))}(")
+        body.write("new_\{getName(IRGenerator.unwrapUnspecified(context, m))}(")
         for (i, p) in construct.initCall.parameters.enumeration {
             if i != 0 {
                 body.write(", ")
@@ -1426,7 +1397,8 @@ class CCodeGenerator (CodeGenerator) {
             if intf.name = cl.name {
                 continue
             }
-            def intfStub := unwrapUnspecified(getStub(intf))
+            def intfStub := IRGenerator.unwrapUnspecified(context, 
+                    getStub(intf))
             def next := "$itable" + nameCount
             nameCount += 1
             structs.writeLine("itable \{next} = {")

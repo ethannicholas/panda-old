@@ -323,34 +323,6 @@ class LLVMCodeGenerator (CodeGenerator) {
         return getLLVMType(m.owner)
     }
 
-    @private
-    function unwrapUnspecified(cl:ClassStub):ClassStub {
-        if cl.annotations.isUnspecified & cl.type-?>GenericType {
-            def base := cl.type->GenericType.base
-            def args := Array<Type>()
-            for (_, type) in getStub(base).genericParameters {
-                if type != null {
-                    args.add(type)
-                }
-                else {
-                    args.add(NullableType.ANY)
-                }
-            }
-            def specified := GenericType(base, args)
-            return getStub(specified)
-        }
-        return cl
-    }
-
-    @private
-    function unwrapUnspecified(m:MethodStub):MethodStub {
-        def stub := getStub(m.owner)
-        if stub.annotations.isUnspecified & m.owner-?>GenericType {
-            return unwrapUnspecified(stub).methods[stub.methods.indexOf(m)]
-        }
-        return m
-    }
-
     @protected
     method getTempVariable():String {
         def result := "%" + tempVariable
@@ -380,7 +352,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if m.base != null {
             return getName(m.base)
         }
-        return methodNamer.getName(unwrapUnspecified(m))
+        return methodNamer.getName(IRGenerator.unwrapUnspecified(context, m))
     }
 
     @private
@@ -603,7 +575,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                 targetType.name)
 
         def parameters := construct.initCall.parameters
-        def m := unwrapUnspecified(construct.initCall.methodStub)
+        def m := IRGenerator.unwrapUnspecified(context, 
+                construct.initCall.methodStub)
         def methodRef := "@" + getName(m)
         def text := MutableString("fastcc void \{methodRef}(")
         text.append(getLLVMType(targetType) + " " + result)
@@ -649,7 +622,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @private
     method getVirtualMethodReference(mc:MethodCall):String {
-        def m := unwrapUnspecified(mc.methodStub)
+        def m := IRGenerator.unwrapUnspecified(context, mc.methodStub)
         def cc := getClassConstant(getStub(m.owner))
         return getVirtualMethodReference(mc.target, 
                 getMethodIndex(cc, m), getLLVMMethodType(m))
@@ -660,7 +633,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         if debug {
             body.writeLine("; get pointer to first itable entry")
         }
-        def m := unwrapUnspecified(mc.methodStub)
+        def m := IRGenerator.unwrapUnspecified(context, mc.methodStub)
         def methodType := getLLVMMethodType(m)
         -- load class constant entry
         def cl := getStub(mc.target.type.convert()->ClassType)
@@ -745,7 +718,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method createMethodCallReference(mc:MethodCall):String? {
-        def m := unwrapUnspecified(mc.methodStub)
+        def m := IRGenerator.unwrapUnspecified(context, mc.methodStub)
         def methodRef:String
         if program.isEffectivelyVirtual(m) & IRGenerator.unwrapCast(mc.target)-!>Super {
             assert !m.annotations.isClass : "expected method not to be @class"
@@ -805,7 +778,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         def interfaces := cl.type.allInterfaces(context)
         var previous := "%$itable* null"
         for intfType in interfaces {
-            def intf := unwrapUnspecified(getStub(intfType))
+            def intf := IRGenerator.unwrapUnspecified(context, 
+                    getStub(intfType))
             if visited.contains(intf) {
                 continue
             }
@@ -826,7 +800,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                     methods.count + " x i8*][")
             def separator := ""
             for raw in methods {
-                def m := unwrapUnspecified(raw)
+                def m := IRGenerator.unwrapUnspecified(context, raw)
                 program.liveMethods.add(m)
                 result.append(separator)
                 separator := ", "
@@ -848,24 +822,26 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method getClassConstant(raw:ClassStub):ClassConstant {
-        def cl := unwrapUnspecified(raw)
-        var name := cl.name
-        var cc := classConstants[name]
+        def cl := IRGenerator.unwrapUnspecified(context, raw)
+        assert !cl.annotations.isUnspecified : "unspecified class constant: " +
+                "\{cl.name}"
+        var cc := classConstants[cl.name]
         if cc = null {
+            var llvmName := getName(cl)
             getStub(ClassType.CLASS)
             getStub(ClassType.STRING)
             def methods := Array<MethodStub>()
             for m in cl.type.virtualMethods(context.stubGenerator) {
                 methods.add(m.unwrapped)
             }
-            def className := getName(cl)
             cc := ClassConstant(
-                    className + "_class",
+                    llvmName + "_class",
                     "{ \{getLLVMType(ClassType.CLASS)}, \{getLLVMType(ClassType.STRING)}, \{getLLVMType(ClassType.CLASS)}, i1, i1, %$itable*, [\{methods.count} x i8*] }", 
                     methods)
-            classConstants[name] := cc
-            if name.startsWith("panda.core.") & name.endsWith("Wrapper") {
-                name := name[0 .. name.length - "Wrapper".length]
+            classConstants[cl.name] := cc
+            if llvmName.startsWith("panda$core$") & 
+                    llvmName.endsWith("Wrapper") {
+                llvmName := llvmName[0 .. llvmName.length - "Wrapper".length]
             }
             -- go ahead and get other class constants here, before we've written
             -- anything -- this could cause other class definitions to be
@@ -873,7 +849,7 @@ class LLVMCodeGenerator (CodeGenerator) {
             -- that happens
             var nameRef := "<error>"
             if !cl.isExternal {
-                nameRef := getStringConstantReference(name)
+                nameRef := getStringConstantReference(cl.name)
                 for m in methods {
                     program.liveMethods.add(m)
                 }
@@ -919,7 +895,7 @@ class LLVMCodeGenerator (CodeGenerator) {
                 if i > 0 {
                     code.append(", ")
                 }
-                def m := unwrapUnspecified(raw)
+                def m := IRGenerator.unwrapUnspecified(context, raw)
                 if m.annotations.isAbstract {
                     code.append("i8* null")
                 }
