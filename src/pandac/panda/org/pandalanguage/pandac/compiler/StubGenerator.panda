@@ -541,6 +541,23 @@ class StubGenerator {
         return (current, [])
     }
 
+    ============================================================================
+    Returns the effective type of `type` within the context of `owner`. For
+    instance, given:
+
+    @SOURCE(
+        class Example<T> {
+            def array := Array<T>()
+        }
+    )
+
+    The field `array` has type `Array<T>`. But within an instance of 
+    `Example<Int>`, it has an *effective* type of `Array<Int>`.
+    ============================================================================
+    function effectiveType(owner:ClassType, type:Type):Type {
+        return stubGenerator.effectiveType(owner, type)
+    }
+
     method resolveTypeWithExtras(type:ASTType, 
             symbols:SymbolTable):(Type, ListView<String>)? {
         var result:Type?
@@ -1094,6 +1111,16 @@ class StubGenerator {
         return true
     }
 
+    ============================================================================
+    Create an artificial method of type `type` which wraps the method `m`. For
+    instance, given 
+
+        method foo(a:Object):Object { ... }
+
+    then `createShim(<foo>, <(String)=>(String)>)` would create:
+
+        method foo(a:String):String { return foo(a->Object)->Object }
+    ============================================================================
     @pre(type.methodParameters.count = m.parameters.count)
     method createShim(m:MethodStub, type:MethodType):MethodStub {
         def parameters := Array<FormalParameter>()
@@ -1101,16 +1128,16 @@ class StubGenerator {
         Console.writeLine("reminder: broken generic varargs")
         for i in 0 .. m.parameters.count {
             def p := m.parameters[i]
-            def target := type.methodParameters[i]
+            def target := p.type
             parameters.add(FormalParameter(p.position, p.name, 
                     target, p.isVar, p.isVarArg))
+            Console.writeLine("arg cast \{p.name} to \{target}")
             args.add(ASTArrowExpression(ASTArrowExpression.Kind.FORCE_CAST,
                     ASTIdentifier(m.position, p.name), 
                     IRGenerator.toASTType(m.position, target)))
         }
         def body := Array<ASTStatement>()
-        def call := ASTCallExpression(ASTIdentifier(m.position, m.name), 
-                args)
+        def call := ASTCallExpression(ASTIdentifier(m.position, m.name), args)
         if type.returnType = VoidType.VOID {
             body.add(ASTExpressionStatement(call))
         }
@@ -1195,6 +1222,16 @@ class StubGenerator {
         return GenericType.getType(type, symbols)->ClassType
     }
 
+    ============================================================================
+    If, due to generics, a method overrides a method with different actual types
+    (for instance in
+        class A<T1> { method foo(a:T1) { } }
+        class B<T2:Random> : A<T2> { @override method foo(b:T2) { } }
+        B.foo has actual type (Random)=>(), while A.foo is type (Object?)=>(),
+        yet B.foo overrides A.foo),
+    creates a shim of the required method type to actually override the parent
+    method (in this case, a method B.foo(Object?) which calls B.foo(Random)).
+    ============================================================================
     method createShimIfNeeded(m:MethodStub, parent:ClassType):MethodStub? {
         def stub := getRawStub(parent)
         assert stub != null : "null stub: \{parent}"
@@ -1831,7 +1868,19 @@ class StubGenerator {
             return !unspecializedClasses.contains(
                     t.name[..t.name.lastIndexOf(".")!])
         }
-        return getStub(t.name).annotations.isUnspecified
+        def stub := getStub(t.name)
+        if stub.isUnspecialized {
+            if t-?>GenericType {
+                def g := t->GenericType
+                for p in g.parameters {
+                    if isUnspecified(p) {
+                        return true
+                    }
+                }
+            }
+            return true
+        }
+        return stub.annotations.isUnspecified
     }
 
     @private

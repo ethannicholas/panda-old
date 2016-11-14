@@ -54,28 +54,57 @@ class FieldNode : Variable {
         self.base := base
     }
 
-    function forType(stubGenerator:StubGenerator, type:GenericType):FieldNode {
-        def symbols := SymbolTable()
-        if owner-?>GenericType {
-            def genericOwner := owner->GenericType
-            for (i, g) in genericOwner.parameters.enumeration {
-                symbols.add(g.name, TypeSymbol(type.parameters[i]))
+    ============================================================================
+    Given a child type, finds a parent type among its ancestors and interfaces.
+    For instance, finding Iterable within Array<String> would return 
+    Iterable<String>.
+    ============================================================================
+    @class
+    function findType(stubGenerator:StubGenerator, child:ClassType, 
+            parentBase:ClassType):ClassType? {
+        if child = parentBase | 
+                (child-?>GenericType & child->GenericType.base = parentBase) {
+            return child
+        }
+        def stub := stubGenerator.getStub(child)
+        var result:ClassType? := null
+        if stub.superclass != null {
+            result := findType(stubGenerator, stub.superclass, parentBase)
+            if result != null {
+                return result
             }
         }
-        else {
-            def ownerStub := stubGenerator.getStub(owner)
-            if ownerStub.genericParameters != null {
-                for (i, g) in ownerStub.genericParameters.enumeration {
-                    def base:String
-                    if owner-?>GenericType {
-                        base := owner->GenericType.base.name
-                    }
-                    else {
-                        base := owner.name
-                    }
-                    symbols.add(base + "." + g[0], 
-                            TypeSymbol(type.parameters[i]))
+        for intf in child.allInterfaces(stubGenerator) {
+            if intf = child {
+                continue
+            }
+            result := findType(stubGenerator, intf, parentBase)
+            if result != null {
+                return result
+            }
+        }
+        return null
+    }
+
+    function forType(stubGenerator:StubGenerator, type:GenericType):FieldNode {
+        if owner-?>GenericType {
+            def found := findType(stubGenerator, type, owner->GenericType.base)
+            assert found-?>GenericType
+            return stubGenerator.getSymbolTable(found)[name]->FieldNode
+        }
+        def symbols := SymbolTable()
+        def ownerStub := stubGenerator.getStub(owner)
+        if ownerStub.genericParameters != null {
+            for (i, g) in ownerStub.genericParameters.enumeration {
+                def base:String
+                if owner-?>GenericType {
+                    base := owner->GenericType.base.name
                 }
+                else {
+                    base := owner.name
+                }
+                symbols.add(base + "." + g[0], 
+                        TypeSymbol(type.parameters[i]))
             }
         }
         def newType := GenericType.getType(self.type, symbols)

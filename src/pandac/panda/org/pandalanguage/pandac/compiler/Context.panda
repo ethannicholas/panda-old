@@ -587,23 +587,6 @@ class Context {
         return cl
     }
 
-    ============================================================================
-    Returns the effective type of `type` within the context of `owner`. For
-    instance, given:
-
-    @SOURCE(
-        class Example<T> {
-            def array := Array<T>()
-        }
-    )
-
-    The field `array` has type `Array<T>`. But within an instance of 
-    `Example<Int>`, it has an *effective* type of `Array<Int>`.
-    ============================================================================
-    function effectiveType(owner:ClassType, type:Type):Type {
-        return stubGenerator.effectiveType(owner, type)
-    }
-
     @private
     function findOwner(start:ClassType, m:MethodStub):ClassType? {
         if removeGenerics(start) = removeGenerics(m.owner) {
@@ -611,14 +594,15 @@ class Context {
         }
         def stub := getStub(start)
         if stub.superclass != null {
-            def parent := findOwner(effectiveType(start, 
+            def parent := findOwner(stubGenerator.effectiveType(start, 
                     stub.superclass)->ClassType, m)
             if parent != null {
                 return parent
             }
         }
         for intf in stub.interfaces {
-            def intfOwner := findOwner(effectiveType(start, intf)->ClassType, m)
+            def intfOwner := findOwner(stubGenerator.effectiveType(start, 
+                    intf)->ClassType, m)
             if intfOwner != null {
                 return intfOwner
             }
@@ -654,7 +638,7 @@ class Context {
                 result.add(constraint.atLeast)
             }
             else {
-                errors.error("no constraints on \{key} in \{target.type}.\{m}(\{params}) at \{target.position}", m.position)
+                errors.error("no constraints on \{key} in \{target.type.displayName}.\{m}(\{params})", target.position)
                 result.add(NullableType.ANY)
             }
         }
@@ -834,7 +818,7 @@ class Context {
             if params[i].canImplicitCastTo(self, targetType) {
                 def cast := params[i].implicitCast(self, targetType)
                 finalParams.add(cast.explicitCast(self, 
-                        actualParams[i].unwrapGenerics))
+                        actualParams[i].unwrapGenerics, true))
             }
             else {
                 params[i].reportCastError(self, targetType)
@@ -880,7 +864,7 @@ class Context {
         liveMethods.add(m.unwrapped)
         var result:Value := MethodCall(position, target, m.unwrapped, 
                                        finalParams)
-        if result.type != m.returnType {
+        if result.type != type.returnType {
             result := result.explicitCast(self, type.returnType, true)
         }
         return result
@@ -891,7 +875,8 @@ class Context {
         if value = null {
             return false
         }
-        for intf in value.type.convert()->ClassType.allInterfaces(self) {
+        for intf in value.type.convert()->ClassType.allInterfaces(
+                stubGenerator) {
             if intf.name.startsWith("panda.collections.ListView<") {
                 return true
             }
@@ -933,7 +918,8 @@ class Context {
         }
         else if target-?>Super {
             def sub := getStub(target.type.convert()->ClassType)
-            type := effectiveType(target.type.convert()->ClassType, 
+            type := stubGenerator.effectiveType(
+                    target.type.convert()->ClassType, 
                     sub.superclass->ClassType)->ClassType
         }
         else {
@@ -1029,16 +1015,12 @@ class Context {
                 for p in params {
                     types.add(p.type.displayName)
                 }
-                if methods[0].name = "get_iterator" {
-                    Console.writeLine("choices1 were: \{methods}")
-                }
+                var msg := "no match for \{methods[0].owner.name}." +
+                        "\{methods[0].name}(\{types.join(', ')})"
                 if returnType != null {
-                    Console.writeLine("expected return type was \{returnType}")
+                    msg += ":\{returnType.name}"
                 }
-                errors.error("no match for \{methods[0].owner.name}." +
-                        "\{methods[0].name}(\{types.join(', ')})", 
-                        position)
-                Panda.dumpStack()
+                errors.error(msg, position)
             }
             return null
         }

@@ -122,7 +122,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     def program:Program
 
-    def debug := false
+    def debug := true
 
     var tempVariable := 0
 
@@ -204,21 +204,19 @@ class LLVMCodeGenerator (CodeGenerator) {
     }
 
     method getStub(name:String):ClassStub {
-        def stub := context.getStub(name)
-        if !writtenStubs.contains(name) {
-            writtenStubs.add(name)
-            if !stub.annotations.isUnspecified {
-                writeTypeDescriptor(stub)
-            }
-            for f in stub.fields {
-                if (!stub.annotations.isUnspecified | 
-                        f.annotations.isClass | f.annotations.isThread) & 
-                        f.owner.name = stub.name {
+        def rawStub := context.getStub(name)
+        def unwrappedStub := IRGenerator.unwrapUnspecified(context, rawStub)
+        if !writtenStubs.contains(unwrappedStub.name) {
+            writtenStubs.add(unwrappedStub.name)
+            writeTypeDescriptor(unwrappedStub)
+            for f in rawStub.fields {
+                if (f.annotations.isClass | f.annotations.isThread) & 
+                        f.owner.name = rawStub.name {
                     writeFieldDeclaration(f)
                 }
             }
         }
-        return stub
+        return rawStub
     }
 
     @private
@@ -264,7 +262,8 @@ class LLVMCodeGenerator (CodeGenerator) {
                                 cl := ClassType.MUTABLE_METHOD
                             }
                         }
-                        def stub := getStub(cl.name)
+                        def stub := IRGenerator.unwrapUnspecified(context,
+                                getStub(cl.name))
                         result := "%" + getName(stub) + "*"
                 }
             }
@@ -476,7 +475,7 @@ class LLVMCodeGenerator (CodeGenerator) {
         writtenTypes.add(name)
         def result := MutableString()
         if debug {
-            result.append("; " + cl.name + "\n")
+            result.append("; begin \{cl.name}\n")
         }
         result.append("%" + name + " = type { ")
         def fields := cl.instanceFields(context)
@@ -610,7 +609,8 @@ class LLVMCodeGenerator (CodeGenerator) {
         ep := getTempVariable()
         writeBody("\{ep} = getelementptr inbounds \{classType} \{load}, " +
                 "i32 0, i32 \{VTABLE_INDEX}, i32 \{index}", 
-                "get pointer to pointer to \{cl}.vtable[\{index}]")
+                "get pointer to pointer to \{cl}.vtable[\{index}] " +
+                "(\{getClassConstant(getStub(target.type->ClassType)).methods[index]})")
         def cast := getTempVariable()
         writeBody("\{cast} = bitcast i8** \{ep} to \{type}*", 
                 "convert pointer to method pointer to correct type")
@@ -775,7 +775,7 @@ class LLVMCodeGenerator (CodeGenerator) {
     method getITable(cl:ClassStub):String {
         assert !cl.annotations.isUnspecified : "unspecified itable: \{cl.name}"
         def visited := HashSet<ClassStub>()
-        def interfaces := cl.type.allInterfaces(context)
+        def interfaces := cl.type.allInterfaces(context.stubGenerator)
         var previous := "%$itable* null"
         for intfType in interfaces {
             def intf := IRGenerator.unwrapUnspecified(context, 
@@ -1337,7 +1337,10 @@ class LLVMCodeGenerator (CodeGenerator) {
     @pre(!field.annotations.isThread)
     method getFieldPointer(object:Value, field:FieldNode):String {
         if field.base != null {
-            return getFieldPointer(object, field.base)
+            def raw := getFieldPointer(object, field.base)
+            return createCommandReference(
+                    "bitcast \{getLLVMType(field.base.type)}* \{raw} to " +
+                    getLLVMType(field.type) + "*", "cast field")
         }
         if field.annotations.isClass {
             if field.name != FieldNode.CLASS_INITED_NAME {
@@ -1746,13 +1749,32 @@ class LLVMCodeGenerator (CodeGenerator) {
                 "inbounds \{arrayRef}, i32 0, i32 \{ARRAY_CONTENTS_INDEX}", 
                 "get pointer to pointer to array contents")
         def elementType := array.type.convert()->PrimitiveArrayType.elementType
+        def rawType:Type
+        if elementType.unwrapNullable-?>ClassType & 
+                context.isUnspecified(elementType.unwrapNullable->ClassType) {
+            if array.type.isImmutable(context.stubGenerator) {
+                rawType := NullableType.ANY_IMMUTABLE
+            }
+            else {
+                rawType := NullableType.ANY
+            }
+        }
+        else {
+            rawType := elementType
+        }
         def arrayContents := createCommandReference("load " + 
-                getLLVMType(elementType) + 
+                getLLVMType(rawType) + 
                 "** " + arrayContentsPointer, 
                 "get pointer to array contents")
-        return createCommandReference("getelementptr inbounds " + 
-                "\{getLLVMType(elementType)}* \{arrayContents}, \{indexRef}", 
+        def ptr := createCommandReference("getelementptr inbounds " + 
+                "\{getLLVMType(rawType)}* \{arrayContents}, \{indexRef}", 
                 "primitive array element pointer")
+        if rawType = elementType {
+            return ptr
+        }
+        return createCommandReference("bitcast \{getLLVMType(rawType)}* " +
+                        "\{ptr} to \{getLLVMType(elementType)}*", 
+                        "cast array pointer")
     }
 
     @protected
@@ -2199,6 +2221,7 @@ class LLVMCodeGenerator (CodeGenerator) {
 
     @protected
     method writeFieldDeclaration(f:FieldNode) {
+        writeTypeDescriptor(f.type)
         if f.kind = Variable.Kind.PROPERTY {
             return
         }
