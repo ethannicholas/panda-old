@@ -10,9 +10,9 @@ struct panda$core$Panda$closure75 {
     Int64 count;
 };
 
-#define panda$core$Panda$closure75$closure_panda$core$String_$Rpanda$core$String_INDEX 4
-typedef panda$core$String*(panda$core$Panda$closure75$closure_panda$core$String_$Rpanda$core$String_TYPE)(panda$core$Panda$closure75* self, panda$core$String*);
-void panda$core$Panda$closure75$init_$LPpanda$core$String$RP$EQ$GT$LPpanda$core$String$RP_Int64(panda$core$Panda$closure75* self, void**, Int64);
-panda$core$Panda$closure75* new_panda$core$Panda$closure75$init_$LPpanda$core$String$RP$EQ$GT$LPpanda$core$String$RP_Int64(void**, Int64);
+#define panda$core$Panda$closure75$closure_Int64_$Rpanda$core$Int64_INDEX 4
+typedef Int64(panda$core$Panda$closure75$closure_Int64_$Rpanda$core$Int64_TYPE)(panda$core$Panda$closure75* self, Int64);
+void panda$core$Panda$closure75$init_$LPpanda$core$Int64$RP$EQ$GT$LPpanda$core$Int64$RP_Int64(panda$core$Panda$closure75* self, void**, Int64);
+panda$core$Panda$closure75* new_panda$core$Panda$closure75$init_$LPpanda$core$Int64$RP$EQ$GT$LPpanda$core$Int64$RP_Int64(void**, Int64);
 #endif
 #endif

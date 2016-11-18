@@ -6,7 +6,7 @@ extern panda$core$Class panda$collections$PrimitiveArray_class;
 #define CLASS_panda$collections$PrimitiveArray
 struct panda$collections$PrimitiveArray {
     panda$core$Class* cl;
-    Int64 $length;
+    Int64 length;
     void* contents;
 };
 

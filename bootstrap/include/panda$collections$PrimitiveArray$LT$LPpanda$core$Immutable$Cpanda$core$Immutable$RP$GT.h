@@ -6,11 +6,9 @@ extern panda$core$Class panda$collections$PrimitiveArray$LT$LPpanda$core$Immutab
 #define CLASS_panda$collections$PrimitiveArray$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT
 struct panda$collections$PrimitiveArray$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT {
     panda$core$Class* cl;
-    Int64 $length;
+    Int64 length;
     $LPpanda$core$Immutable$Cpanda$core$Immutable$RP** contents;
 };
 
-#define panda$collections$PrimitiveArray$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT$length_$Rpanda$core$Int64_INDEX 4
-typedef Int64(panda$collections$PrimitiveArray$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT$length_$Rpanda$core$Int64_TYPE)(panda$collections$PrimitiveArray$LT$LPpanda$core$Immutable$Cpanda$core$Immutable$RP$GT* self);
 #endif
 #endif

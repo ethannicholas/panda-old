@@ -61,7 +61,7 @@ Int panda$core$Object$get_hash_$Rpanda$core$Int64(Object* object) {
 
 // FIXME: add UTF-8 support
 char* pandaGetString(String* s) {
-    int length = s->chars->$length;
+    int length = s->chars->length;
     char* result = (char*) MALLOC(length + 1);
     Char* chars = s->chars->contents;
     int i;
@@ -215,7 +215,7 @@ PrimitiveArray* pandaNewPrimitiveArrayWithLength(Class* class_ptr, Int length,
        pandaFatalError("creating array with negative size");
     PrimitiveArray* result = (PrimitiveArray*) _pandaNew(class_ptr, 
             sizeof(PrimitiveArray));
-    result->$length = length;
+    result->length = length;
     result->contents = pandaAlloc(length * elementSize, elementsArePointers);
     return result;
 }
@@ -232,8 +232,8 @@ PrimitiveArray* pandaNewPrimitiveArrayCopy(Class* class_ptr,
        pandaFatalError("creating array with negative size");
     PrimitiveArray* result = (PrimitiveArray*) _pandaNew(class_ptr, 
             sizeof(PrimitiveArray));
-    result->$length = array->$length;
-    int size = result->$length * elementSize;
+    result->length = array->length;
+    int size = result->length * elementSize;
     result->contents = pandaAlloc(size, elementsArePointers);
     memcpy(result->contents, ((Int8*) array->contents), size);
     return result;
@@ -417,11 +417,11 @@ void pandaCreateAndThrow(panda$core$Class* exception, const char* message) {
 }
 
 void pandaCheckBounds(PrimitiveArray* array, Int index) {
-    if ((index >= array->$length) || (index < 0)) {
+    if ((index >= array->length) || (index < 0)) {
         __builtin_trap();
         char buffer[100];
         sprintf(buffer, "Array index out of bounds: requested element %lld, "
-                "array length is %lld", index, array->$length);
+                "array length is %lld", index, array->length);
         pandaCreateAndThrow(&panda$collections$IndexOutOfBoundsError_class, 
                 buffer);
     }
@@ -613,7 +613,7 @@ panda$collections$ImmutablePrimitiveArray$LTpanda$core$StackTraceEntry$GT* panda
         else
             entry->methodName = pandaNewString(fname, strlen(fname));
         entry->className = pandaNewString("<unknown>", 9);
-        int index = result->$length;
+        int index = result->length;
         panda$collections$PrimitiveArray$setLength((Object*) result, 
                 sizeof(panda$core$StackTraceEntry*), true, index + 1);
         printf("    %s\n", fname);
@@ -1057,14 +1057,14 @@ Char panda$core$CharWrapper$toTitlecase_$Rpanda$core$Char(Char self) {
 panda$core$String* panda$core$String$toUppercase_$Rpanda$core$String(panda$core$String* self) {
     UErrorCode status = U_ZERO_ERROR;
     int32_t length = u_strToUpper(NULL, 0, self->chars->contents, 
-            self->chars->$length, NULL, &status);
+            self->chars->length, NULL, &status);
     status = U_ZERO_ERROR;
     panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* chars = 
             (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
             &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
             length, sizeof(Char), false);
     u_strToUpper(chars->contents, length, self->chars->contents, 
-            self->chars->$length, NULL, &status);
+            self->chars->length, NULL, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     String* result = pandaNew(panda$core$String);
@@ -1075,14 +1075,14 @@ panda$core$String* panda$core$String$toUppercase_$Rpanda$core$String(panda$core$
 panda$core$String* panda$core$String$toLowercase_$Rpanda$core$String(panda$core$String* self) {
     UErrorCode status = U_ZERO_ERROR;
     int32_t length = u_strToLower(NULL, 0, self->chars->contents, 
-            self->chars->$length, NULL, &status);
+            self->chars->length, NULL, &status);
     status = U_ZERO_ERROR;
     panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* chars = 
             (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
             &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
             length, sizeof(Char), false);
     u_strToLower(chars->contents, length, self->chars->contents, 
-            self->chars->$length, NULL, &status);
+            self->chars->length, NULL, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     String* result = pandaNew(panda$core$String);
@@ -1093,14 +1093,14 @@ panda$core$String* panda$core$String$toLowercase_$Rpanda$core$String(panda$core$
 panda$core$String* panda$core$String$toTitlecase_$Rpanda$core$String(panda$core$String* self) {
     UErrorCode status = U_ZERO_ERROR;
     int32_t length = u_strToTitle(NULL, 0, self->chars->contents, 
-            self->chars->$length, NULL, NULL, &status);
+            self->chars->length, NULL, NULL, &status);
     status = U_ZERO_ERROR;
     panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT* chars = 
             (panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT*) pandaNewPrimitiveArrayWithLength(
             &panda$collections$ImmutablePrimitiveArray$LTpanda$core$Char$GT_class, 
             length, sizeof(Char), false);
     u_strToTitle(chars->contents, length, self->chars->contents, 
-            self->chars->$length, NULL, NULL, &status);
+            self->chars->length, NULL, NULL, &status);
     if (U_FAILURE(status))
         pandaFatalError(u_errorName(status));
     String* result = pandaNew(panda$core$String);
@@ -1261,7 +1261,7 @@ void panda$core$RegularExpression$compile_panda$core$String_Int64(
         RegularExpression* r, String* regex, Int flags) {
     UErrorCode status = U_ZERO_ERROR;
     char* text = pandaGetString(regex);
-    UText* ut = utext_openUTF8(NULL, text, regex->chars->$length, &status);
+    UText* ut = utext_openUTF8(NULL, text, regex->chars->length, &status);
     UParseError parseStatus;
     int icuFlags = 0;
     if (flags & 1)
@@ -1292,7 +1292,7 @@ void panda$core$Matcher$setText_class_panda$core$$NativePointer_panda$core$Strin
     char* utf8 = pandaGetString(text);
     ((NativeRegex*) nr)->text = utf8;
     UText* ut = utext_openUTF8(NULL, utf8, 
-            text->chars->$length, &status);
+            text->chars->length, &status);
     uregex_setUText(((NativeRegex*) nr)->regex, ut, &status);
     utext_close(ut);
     if (U_FAILURE(status))
