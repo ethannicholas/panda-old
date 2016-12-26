@@ -6,13 +6,13 @@ extern panda$core$Class panda$core$Panda$closure223_class;
 #define CLASS_panda$core$Panda$closure223
 struct panda$core$Panda$closure223 {
     panda$core$Class* cl;
-    void** f;
     Int64 count;
+    void** f;
 };
 
 #define panda$core$Panda$closure223$closure_Int64_$Rpanda$core$Int64_INDEX 4
 typedef Int64(panda$core$Panda$closure223$closure_Int64_$Rpanda$core$Int64_TYPE)(panda$core$Panda$closure223* self, Int64);
-void panda$core$Panda$closure223$init_$LPpanda$core$Int64$RP$EQ$GT$LPpanda$core$Int64$RP_Int64(panda$core$Panda$closure223* self, void**, Int64);
-panda$core$Panda$closure223* new_panda$core$Panda$closure223$init_$LPpanda$core$Int64$RP$EQ$GT$LPpanda$core$Int64$RP_Int64(void**, Int64);
+void panda$core$Panda$closure223$init_Int64_$LPpanda$core$Int64$RP$EQ$GT$LPpanda$core$Int64$RP(panda$core$Panda$closure223* self, Int64, void**);
+panda$core$Panda$closure223* new_panda$core$Panda$closure223$init_Int64_$LPpanda$core$Int64$RP$EQ$GT$LPpanda$core$Int64$RP(Int64, void**);
 #endif
 #endif

@@ -11,6 +11,7 @@ uses org.pandalanguage.pandac.tree.Parameter
 uses org.pandalanguage.pandac.tree.Position
 uses org.pandalanguage.pandac.types.ClassType
 uses org.pandalanguage.pandac.types.GenericType
+uses org.pandalanguage.pandac.types.GenericParameterType
 uses org.pandalanguage.pandac.types.MethodType
 uses org.pandalanguage.pandac.types.Type
 uses org.pandalanguage.pandac.types.VoidType
@@ -105,6 +106,18 @@ class MethodStub : Immutable {
         return MethodType(types, returnType, kind = Kind.FUNCTION, true)
     }
 
+    @class
+    function typeEquivalent(owner1:MethodStub, type1:Type, owner2:MethodStub,
+            type2:Type):Bit {
+        -- FIXME this is not strictly correct; we actually need to check whether 
+        -- the effective types are the same
+        if type1-!>GenericParameterType | type2-!>GenericParameterType {
+            return type1 = type2
+        }
+        return type1->GenericParameterType.bound =
+                type2->GenericParameterType.bound
+    }
+
     ========================================================================
     Returns true if this method overrides `parent`.
     ========================================================================
@@ -115,8 +128,21 @@ class MethodStub : Immutable {
         if parent.annotations.isClass != annotations.isClass {
             return false
         }
-        return parent.type.methodParameters = type.methodParameters &
-                parent.returnType = returnType
+--        return parent.type.methodParameters = type.methodParameters &
+--                parent.returnType = returnType
+        if type.methodParameters.count != parent.type.methodParameters.count {
+            return false
+        }
+        if !typeEquivalent(self, returnType, parent, parent.returnType) {
+            return false
+        }
+        for i in 0 .. type.methodParameters.count {
+            if !typeEquivalent(self, type.methodParameters[i], parent,
+                    parent.type.methodParameters[i]) {
+                return false
+            }
+        }
+        return true
     }
 
     function specializeFor(stubGenerator:StubGenerator, 
